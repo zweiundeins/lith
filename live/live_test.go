@@ -154,6 +154,46 @@ func TestOneReadTransactionPerWorkerPerTick(t *testing.T) {
 	}
 }
 
+// slowViews returns views v0, v1, ... that each take a millisecond to
+// render their key.
+func slowViews(n int) []View {
+	vs := make([]View, n)
+	for i := range vs {
+		key := fmt.Sprint("v", i)
+		vs[i] = text(key, nil, func(context.Context, *sql.Tx) (string, error) {
+			time.Sleep(time.Millisecond)
+			return key, nil
+		})
+	}
+	return vs
+}
+
+// A worker whose read transaction does not begin leaves the tick's views
+// to the others.
+func TestWorkerWithoutTransactionLeavesViewsToOthers(t *testing.T) {
+	db := newFakeDB(t, 5, 1, 4)
+	h := start(t, Options{Read: db.DB, Workers: 4})
+	c := serve(h, Spec{Views: slowViews(40)}, "")
+	waitFor(t, "every view", func() bool { return len(c.patches()) == 40 })
+	if n := h.Stats().Ticks; n != 1 {
+		t.Fatalf("the views took %d ticks", n)
+	}
+}
+
+// Views that no worker could render, since no read transaction began,
+// render in a later tick without a commit: a stream already watching
+// them gets them once reads work again.
+func TestViewsRenderOnceReadsWork(t *testing.T) {
+	db := newFakeDB(t, 3, 0, 0)
+	h := start(t, Options{Read: db.DB, Workers: 2, Tick: 5 * time.Millisecond})
+	waitFor(t, "the workers' connections", func() bool { return db.opened.Load() == 2 })
+	db.down.Store(true)
+	c := serve(h, Spec{Views: slowViews(4)}, "")
+	waitFor(t, "a tick", func() bool { return h.Stats().Ticks > 0 })
+	db.down.Store(false)
+	waitFor(t, "every view", func() bool { return len(c.patches()) == 4 })
+}
+
 // A client that stops reading skips frames and loses its stream at the
 // write deadline. Meanwhile the others get every frame: the stalled
 // stream holds neither a lock nor a compression slot.

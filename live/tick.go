@@ -181,10 +181,12 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 
 // publish stores the new frames and offers them to their streams. A
 // stream gets all of its offers of the tick at once, so the views that
-// changed together go out together.
+// changed together go out together. Views that no worker took from the
+// queue are dirty again, for the next tick.
 func (h *Hub) publish(t *tick) {
+	taken := min(int(t.next.Load()), len(t.views))
 	h.mu.Lock()
-	for i, v := range t.views {
+	for i, v := range t.views[:taken] {
 		f := t.frames[i]
 		if t.errs[i] != nil || f == nil || same(v.frame.Load(), f) {
 			continue
@@ -194,6 +196,9 @@ func (h *Hub) publish(t *tick) {
 		for _, w := range v.watches {
 			t.offers = append(t.offers, offer{w, nf})
 		}
+	}
+	for _, v := range t.views[taken:] {
+		h.mark(v)
 	}
 	h.mu.Unlock()
 
@@ -225,7 +230,8 @@ func (h *Hub) publish(t *tick) {
 }
 
 // worker renders views from the tick's queue, all in one read
-// transaction per tick, on a connection it holds for its lifetime.
+// transaction per tick, on a connection it holds for its lifetime. A
+// worker whose transaction does not begin takes no view from the queue.
 type worker struct {
 	h     *Hub
 	conn  *sql.Conn
@@ -240,19 +246,23 @@ func (w *worker) run() {
 }
 
 func (w *worker) render(t *tick) {
+	if int(t.next.Load()) >= len(t.views) {
+		return
+	}
 	var tx *sql.Tx
-	var txErr error
+	if w.conn != nil {
+		var err error
+		if tx, err = w.begin(t.ctx); err != nil {
+			if t.ctx.Err() == nil {
+				w.h.log.Error("live: beginning a read transaction", "err", err)
+			}
+			return
+		}
+	}
 	for {
 		i := int(t.next.Add(1)) - 1
 		if i >= len(t.views) {
 			break
-		}
-		if tx == nil && txErr == nil && w.conn != nil {
-			tx, txErr = w.begin(t.ctx)
-		}
-		if txErr != nil {
-			t.errs[i] = txErr
-			continue
 		}
 		t.frames[i], t.errs[i] = render(t.ctx, t.views[i], tx)
 		w.h.renders.Add(1)
