@@ -127,51 +127,46 @@ func (h *Hub) detach(s *stream) {
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
-	var batch []*watch
+	var batch []offer
 	var parts [][]byte
 	for {
 		s.mu.Lock()
-		batch = batch[:0]
 		for _, w := range s.watches {
-			if w.pending {
-				w.pending = false
-				batch = append(batch, w)
+			if w.next != nil {
+				batch = append(batch, offer{w, w.next})
+				w.next = nil
 			}
 		}
 		s.mu.Unlock()
 
 		_, wire := st.Sent()
-		n := 0
-		for _, w := range batch {
-			f := w.v.frame.Load()
-			if f == nil || f.seq == w.sent {
-				continue
-			}
-			w.sent = f.seq
+		for _, o := range batch {
 			if s.write != nil {
-				if err := s.write(st, w.v.key, f.value); err != nil {
+				if err := s.write(st, o.w.v.key, o.f.value); err != nil {
 					return err
 				}
-				n++
+				h.sent.Add(1)
 				continue
 			}
-			b, ok := f.value.([]byte)
+			b, ok := o.f.value.([]byte)
 			if !ok {
-				h.log.Error("live: a frame is not []byte and the stream has no Write", "view", w.v.key, "type", fmt.Sprintf("%T", f.value))
+				h.log.Error("live: a frame is not []byte and the stream has no Write", "view", o.w.v.key, "type", fmt.Sprintf("%T", o.f.value))
 				continue
 			}
 			parts = append(parts, b)
-			n++
 		}
+		clear(batch)
+		batch = batch[:0]
 		if len(parts) > 0 {
 			err := st.Write(parts...)
+			n := len(parts)
 			clear(parts)
 			parts = parts[:0]
 			if err != nil {
 				return err
 			}
+			h.sent.Add(int64(n))
 		}
-		h.sent.Add(int64(n))
 		if _, now := st.Sent(); now != wire {
 			idle.Reset(h.heartbeat)
 		}

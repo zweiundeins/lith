@@ -575,6 +575,77 @@ func TestViewsOfOneTickGoInOrder(t *testing.T) {
 	}
 }
 
+// blockingWrite records the frames a stream writes as key and value, and
+// blocks on the frame first until release is closed.
+type blockingWrite struct {
+	first            string
+	entered, release chan struct{}
+
+	mu  sync.Mutex
+	got []string
+}
+
+func newBlockingWrite(first string) *blockingWrite {
+	return &blockingWrite{first: first, entered: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (b *blockingWrite) write(_ *sse.Stream, key string, frame any) error {
+	f := fmt.Sprint(key, frame)
+	b.mu.Lock()
+	b.got = append(b.got, f)
+	b.mu.Unlock()
+	if f == b.first {
+		close(b.entered)
+		<-b.release
+	}
+	return nil
+}
+
+func (b *blockingWrite) sent() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.got)
+}
+
+// numbers returns views that render what n holds, on topic "t".
+func numbers(n *atomic.Int64, keys ...string) []View {
+	vs := make([]View, len(keys))
+	for i, k := range keys {
+		vs[i] = View{Key: k, Topics: []string{"t"}, Render: func(context.Context, *sql.Tx) (any, error) { return n.Load(), nil }}
+	}
+	return vs
+}
+
+// While a stream's Write blocks, the frames of later ticks wait: each
+// tick's frames go out together and in the stream's order, and a frame
+// that a newer one replaced before it went out counts as dropped.
+func TestBlockedWriteKeepsTicksTogether(t *testing.T) {
+	h := start(t, Options{Tick: 2 * time.Millisecond})
+	var n atomic.Int64
+	n.Store(1)
+	b := newBlockingWrite("a1")
+	serve(h, Spec{Views: numbers(&n, "a", "b"), Write: b.write}, "")
+	<-b.entered
+	for i := int64(2); i <= 3; i++ {
+		n.Store(i)
+		h.Changed([]string{"t"})
+		waitFor(t, "the tick", func() bool { return h.Stats().Ticks == i })
+	}
+	waitFor(t, "the third tick's frames", func() bool { return h.Stats().FramesDropped == 2 })
+	close(b.release)
+	waitFor(t, "the last frames", func() bool {
+		got := b.sent()
+		return slices.Contains(got, "a3") && slices.Contains(got, "b3")
+	})
+	if got, want := b.sent(), []string{"a1", "b1", "a3", "b3"}; !slices.Equal(got, want) {
+		t.Fatalf("sent %v, want %v", got, want)
+	}
+	waitFor(t, "the count", func() bool { return h.Stats().FramesSent == 4 })
+	if s := h.Stats(); s.FramesDropped != 2 {
+		t.Fatalf("stats %+v", s)
+	}
+}
+
 // With Write, the stream tailors each frame: here it sends only the rows
 // of a list that it has not sent yet.
 func TestWriteTailorsFrames(t *testing.T) {

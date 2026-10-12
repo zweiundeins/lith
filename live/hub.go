@@ -138,21 +138,18 @@ type view struct {
 	dirty   bool
 	dead    bool      // no longer watched
 	due     time.Time // when Every renders it again
-	seq     uint64
 }
 
 type frame struct {
-	seq   uint64
 	value any
 }
 
 // watch is one stream watching one view.
 type watch struct {
-	s       *stream
-	v       *view
-	i       int    // index in v.watches, guarded by Hub.mu
-	pending bool   // a frame not sent yet; guarded by s.mu
-	sent    uint64 // seq of the frame last sent; only the stream's goroutine
+	s    *stream
+	v    *view
+	i    int    // index in v.watches, guarded by Hub.mu
+	next *frame // the newest frame not sent yet, guarded by s.mu
 }
 
 type stream struct {
@@ -368,11 +365,12 @@ func (h *Hub) watch(s *stream, def View) bool {
 	}
 	w := &watch{s: s, v: v, i: len(v.watches)}
 	v.watches = append(v.watches, w)
+	f := v.frame.Load()
 	s.mu.Lock()
 	s.watches = append(s.watches, w)
-	w.pending = v.frame.Load() != nil
+	w.next = f
 	s.mu.Unlock()
-	if w.pending {
+	if f != nil {
 		s.poke()
 	}
 	return marked

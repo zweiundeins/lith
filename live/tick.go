@@ -130,7 +130,13 @@ type tick struct {
 	next   atomic.Int64 // the queue: index of the next view to render
 	wg     sync.WaitGroup
 
-	offers []*watch
+	offers []offer
+}
+
+// offer is a new frame for one stream's watch.
+type offer struct {
+	w *watch
+	f *frame
 }
 
 // run renders the dirty views and publishes their frames. It reports
@@ -183,22 +189,24 @@ func (h *Hub) publish(t *tick) {
 		if t.errs[i] != nil || f == nil || same(v.frame.Load(), f) {
 			continue
 		}
-		v.seq++
-		v.frame.Store(&frame{seq: v.seq, value: f})
-		t.offers = append(t.offers, v.watches...)
+		nf := &frame{value: f}
+		v.frame.Store(nf)
+		for _, w := range v.watches {
+			t.offers = append(t.offers, offer{w, nf})
+		}
 	}
 	h.mu.Unlock()
 
-	slices.SortFunc(t.offers, func(a, b *watch) int { return cmp.Compare(a.s.seq, b.s.seq) })
+	slices.SortFunc(t.offers, func(a, b offer) int { return cmp.Compare(a.w.s.seq, b.w.s.seq) })
 	for i := 0; i < len(t.offers); {
-		s := t.offers[i].s
+		s := t.offers[i].w.s
 		s.mu.Lock()
-		for ; i < len(t.offers) && t.offers[i].s == s; i++ {
-			w := t.offers[i]
-			if w.pending {
+		for ; i < len(t.offers) && t.offers[i].w.s == s; i++ {
+			o := t.offers[i]
+			if o.w.next != nil {
 				h.dropped.Add(1)
 			}
-			w.pending = true
+			o.w.next = o.f
 		}
 		s.mu.Unlock()
 		s.poke()
