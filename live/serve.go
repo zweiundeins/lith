@@ -139,6 +139,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		s.mu.Unlock()
 
+		_, wire := st.Sent()
 		n := 0
 		for _, w := range batch {
 			f := w.v.frame.Load()
@@ -168,8 +169,8 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 				return err
 			}
 		}
-		if n > 0 {
-			h.sent.Add(int64(n))
+		h.sent.Add(int64(n))
+		if _, now := st.Sent(); now != wire {
 			idle.Reset(h.heartbeat)
 		}
 

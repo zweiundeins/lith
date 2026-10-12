@@ -435,6 +435,20 @@ func TestHeartbeat(t *testing.T) {
 	})
 }
 
+// A stream whose frames all tailor to nothing still sends heartbeats.
+func TestHeartbeatWhenWriteSendsNothing(t *testing.T) {
+	h := start(t, Options{Tick: 2 * time.Millisecond, Heartbeat: 30 * time.Millisecond})
+	var n atomic.Int64
+	v := View{Key: "v", Every: 5 * time.Millisecond, Render: func(context.Context, *sql.Tx) (any, error) {
+		return n.Add(1), nil
+	}}
+	c := serve(h, Spec{Views: []View{v}, Write: func(*sse.Stream, string, any) error { return nil }}, "")
+	waitFor(t, "heartbeats", func() bool { return len(c.events()) >= 3 })
+	if n.Load() < 6 {
+		t.Fatalf("only %d frames", n.Load())
+	}
+}
+
 // Views that change in the same tick reach a stream together, in the
 // order it watches them.
 func TestViewsOfOneTickGoInOrder(t *testing.T) {
