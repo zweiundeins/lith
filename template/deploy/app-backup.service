@@ -1,0 +1,20 @@
+# /etc/systemd/system/app-backup.service: a consistent copy of the database
+# (VACUUM INTO) while the server runs. The backup command keeps the newest 28
+# copies in /var/lib/app/backups: a week at four a day.
+[Unit]
+Description=Back up the app database
+
+[Service]
+Type=oneshot
+User=app
+Group=app
+StateDirectory=app
+ExecStart=/opt/app/app backup -db /var/lib/app/app.db -backups /var/lib/app/backups -keep 28
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+CapabilityBoundingSet=
+UMask=0077

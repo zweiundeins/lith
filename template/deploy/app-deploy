@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+#
+# Deploys app on this host. Install it as /usr/local/bin/app-deploy and run it
+# as root.
+#
+#   app-deploy <binary>    install the binary, restart, wait for /healthz, roll back on failure
+#   app-deploy -           the same, reading the binary from stdin (CI over SSH)
+#   app-deploy rollback    go back to the previous binary
+#
+# The new binary only ever runs as the unprivileged app user.
+set -euo pipefail
+
+NAME=app
+DIR=/opt/$NAME
+HEALTH_TIMEOUT=30
+MAX_BYTES=$((200 << 20))
+
+# /healthz through the unit's socket. With a loopback port instead:
+# healthz() { curl -fsS --max-time 2 http://127.0.0.1:8080/healthz; }
+healthz() { curl -fsS --max-time 2 --unix-socket "/run/$NAME/$NAME.sock" "http://$NAME/healthz"; }
+
+healthy() { # waits for /healthz to answer "ok <version>"
+	for ((i = 0; i < HEALTH_TIMEOUT; i++)); do
+		[[ "$(healthz 2>/dev/null || true)" == "ok $1" ]] && return 0
+		sleep 1
+	done
+	return 1
+}
+
+# The binary is new and unchecked: ask it its version as the app user, without
+# network or write access, and never wait long.
+version_of() {
+	timeout 20 systemd-run --quiet --pipe --wait --collect \
+		--uid="$NAME" --gid="$NAME" -p RuntimeMaxSec=10 \
+		-p PrivateNetwork=yes -p ProtectSystem=strict -p ProtectHome=yes -p PrivateTmp=yes \
+		-p PrivateDevices=yes -p NoNewPrivileges=yes -p CapabilityBoundingSet= \
+		"$1" --version | awk '{print $2}'
+}
+
+if [[ "${1:-}" == rollback ]]; then
+	[[ -x "$DIR/$NAME.prev" ]] || { echo "!! no previous binary" >&2; exit 2; }
+	cp -f "$DIR/$NAME.prev" "$DIR/$NAME.new"
+else
+	SRC="${1:-}"
+	[[ -n "$SRC" ]] || { echo "usage: $NAME-deploy <binary|-|rollback>" >&2; exit 2; }
+	install -d -m 0755 "$DIR"
+	if [[ "$SRC" == - ]]; then
+		head -c "$MAX_BYTES" > "$DIR/$NAME.new"
+	else
+		[[ -f "$SRC" ]] || { echo "!! not a file: $SRC" >&2; exit 2; }
+		cp -f "$SRC" "$DIR/$NAME.new"
+	fi
+	[[ "$(head -c 4 "$DIR/$NAME.new" | od -An -c | tr -d ' ')" == '177ELF' ]] || {
+		rm -f "$DIR/$NAME.new"; echo "!! not an ELF binary" >&2; exit 2; }
+fi
+chmod 0755 "$DIR/$NAME.new"
+
+NEW=$(version_of "$DIR/$NAME.new") || { rm -f "$DIR/$NAME.new"; echo "!! the binary does not run" >&2; exit 2; }
+[[ -n "$NEW" ]] || { rm -f "$DIR/$NAME.new"; echo "!! the binary reports no version" >&2; exit 2; }
+OLD=$([[ -x "$DIR/$NAME" ]] && version_of "$DIR/$NAME" || echo none)
+echo ">> $OLD -> $NEW"
+
+# The running binary becomes $NAME.prev only once the new one is healthy, so a
+# failed deploy leaves the rollback target alone.
+[[ -x "$DIR/$NAME" ]] && cp -f "$DIR/$NAME" "$DIR/$NAME.running"
+mv -f "$DIR/$NAME.new" "$DIR/$NAME"
+systemctl restart "$NAME"
+if healthy "$NEW"; then
+	[[ -f "$DIR/$NAME.running" ]] && mv -f "$DIR/$NAME.running" "$DIR/$NAME.prev"
+	echo ">> healthy: $NEW"
+	exit 0
+fi
+
+echo "!! $NEW is not healthy after ${HEALTH_TIMEOUT}s, going back to $OLD" >&2
+journalctl -u "$NAME" -n 20 --no-pager >&2 || true
+if [[ -f "$DIR/$NAME.running" ]]; then
+	mv -f "$DIR/$NAME.running" "$DIR/$NAME"
+	systemctl restart "$NAME"
+	healthy "$OLD" && echo ">> back on $OLD" >&2
+fi
+exit 1

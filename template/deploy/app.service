@@ -1,0 +1,72 @@
+# /etc/systemd/system/app.service
+[Unit]
+Description=app (Go, Datastar, SQLite)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=app
+Group=app
+# /var/lib/app holds the database and its backups, /run/app the socket.
+StateDirectory=app
+RuntimeDirectory=app
+RuntimeDirectoryMode=0755
+WorkingDirectory=/var/lib/app
+# Optional: APP_* settings the command line leaves out, and secrets.
+EnvironmentFile=-/etc/app/app.env
+ExecStart=/opt/app/app serve \
+	-addr unix:/run/app/app.sock \
+	-db /var/lib/app/app.db \
+	-secure \
+	-streams 200
+Restart=always
+RestartSec=1
+# SIGTERM: the streams end (pages reconnect to the next process), actions
+# finish, the writer commits what is queued.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+LimitNOFILE=65536
+
+# An open stream holds up to 2 MiB of compressor state, so -streams 200 needs
+# about 400 MiB on top of the process. GOMEMLIMIT makes the garbage collector
+# work harder before MemoryHigh throttles. Change the four together.
+Environment=GOMEMLIMIT=448MiB
+MemoryHigh=512M
+MemoryMax=640M
+TasksMax=256
+
+# Caddy reaches the socket. The service itself may not reach localhost,
+# where other services listen (Caddy's admin API, databases); DNS goes
+# through systemd-resolved's stub. To listen on a loopback port instead:
+# -addr 127.0.0.1:8080, drop IPAddressDeny, and point the Caddyfile there.
+IPAddressDeny=localhost
+IPAddressAllow=127.0.0.53 127.0.0.54
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
