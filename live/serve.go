@@ -122,6 +122,13 @@ func (h *Hub) detach(s *stream) {
 	}
 }
 
+// unwatched reports whether the stream stopped watching w's view.
+func (s *stream) unwatched(w *watch) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return w.gone
+}
+
 // pump sends the stream's new frames as they come, and a heartbeat when
 // it has been silent for h.heartbeat.
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
@@ -141,6 +148,9 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 
 		_, wire := st.Sent()
 		for _, o := range batch {
+			if s.unwatched(o.w) {
+				continue
+			}
 			if s.write != nil {
 				if err := s.write(st, o.w.v.key, o.f.value); err != nil {
 					return err

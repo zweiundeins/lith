@@ -150,6 +150,7 @@ type watch struct {
 	v    *view
 	i    int    // index in v.watches, guarded by Hub.mu
 	next *frame // the newest frame not sent yet, guarded by s.mu
+	gone bool   // unwatched, guarded by s.mu
 }
 
 type stream struct {
@@ -264,8 +265,9 @@ func (h *Hub) Watch(streamID string, v View) bool {
 	return true
 }
 
-// Unwatch stops the stream with this ID from watching the view. It
-// reports whether the stream watched it.
+// Unwatch stops the stream with this ID from watching the view: after it
+// returns, the stream sends no frame of the view, unless it is writing
+// one already. It reports whether the stream watched the view.
 func (h *Hub) Unwatch(streamID, key string) bool {
 	h.mu.Lock()
 	s := h.byID[streamID]
@@ -278,8 +280,10 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 		h.mu.Unlock()
 		return false
 	}
-	marked := h.drop(s.watches[i])
+	w := s.watches[i]
+	marked := h.drop(w)
 	s.mu.Lock()
+	w.gone, w.next = true, nil
 	s.watches = slices.Delete(s.watches, i, i+1)
 	s.mu.Unlock()
 	h.mu.Unlock()

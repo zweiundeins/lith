@@ -646,6 +646,28 @@ func TestBlockedWriteKeepsTicksTogether(t *testing.T) {
 	}
 }
 
+// Once Unwatch returns, the stream sends no frame of the view that it has
+// not started to write, not even one it took along with a frame it is
+// still writing.
+func TestNoFrameAfterUnwatch(t *testing.T) {
+	h := start(t, Options{Tick: 2 * time.Millisecond})
+	var n atomic.Int64
+	n.Store(1)
+	b := newBlockingWrite("a1")
+	serve(h, Spec{ID: "tab", Views: numbers(&n, "a", "b"), Write: b.write}, "")
+	<-b.entered
+	if !h.Unwatch("tab", "b") {
+		t.Fatal("Unwatch")
+	}
+	close(b.release)
+	n.Store(2)
+	h.Changed([]string{"t"})
+	waitFor(t, "the next frame", func() bool { return slices.Contains(b.sent(), "a2") })
+	if got, want := b.sent(), []string{"a1", "a2"}; !slices.Equal(got, want) {
+		t.Fatalf("sent %v, want %v", got, want)
+	}
+}
+
 // With Write, the stream tailors each frame: here it sends only the rows
 // of a list that it has not sent yet.
 func TestWriteTailorsFrames(t *testing.T) {
