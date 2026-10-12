@@ -69,8 +69,8 @@ func NewStatic(fsys fs.FS, prefix string) (*Static, error) {
 	return s, nil
 }
 
-// URL is the immutable address of the named file, or its plain one when there
-// is no such file.
+// URL returns the hashed, immutable URL of the named file, or its plain URL
+// when there is no such file.
 func (s *Static) URL(name string) string {
 	if f, ok := s.files[name]; ok {
 		return s.prefix + f.hashed
@@ -171,8 +171,8 @@ func isHash(s string) bool {
 	return true
 }
 
-// staticTypes pins the types that matter to browsers, rather than leave them
-// to the host's mime.types.
+// staticTypes are the types browsers check, fixed so that the host's
+// mime.types cannot change them.
 var staticTypes = map[string]string{
 	".css":         "text/css; charset=utf-8",
 	".html":        "text/html; charset=utf-8",

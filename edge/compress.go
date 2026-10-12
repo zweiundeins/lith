@@ -24,7 +24,7 @@ const minSize = 512
 // Other methods pass untouched: Datastar's POST streams compress themselves,
 // across frames.
 //
-// A Flush goes through to the client, compressed so far. The writer unwraps
+// A Flush sends everything written so far to the client. The writer unwraps
 // for http.ResponseController, so a stream can still set its deadlines.
 func Compress(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -274,9 +274,8 @@ func (e *encoder) Write(p []byte) (int, error) { return e.codec.Write(p) }
 func (e *encoder) Flush() error                { return e.codec.Flush() }
 func (e *encoder) Close() error                { return e.codec.Close() }
 
-// The windows are 256 KB: as small as the encoders' memory gets, and a page
-// fits. Measured on generated HTML, brotli's default 4 MB window took 13 MB
-// per writer on a 1 MB page for no better ratio.
+// With 256 KB windows a writer stays under 5 MB on pages up to 1 MB; the
+// defaults took up to 13 MB (brotli) and 18 MB (zstd) for no better ratio.
 var encoders = map[string]*sync.Pool{
 	"br": {New: func() any {
 		e := &encoder{coding: "br"}

@@ -10,7 +10,7 @@ import (
 
 // Recover turns a panic in next into a 500, logged with its stack. When the
 // response has already begun, it aborts the connection instead, so the client
-// sees a broken response rather than a whole one with an error at its end.
+// can tell the response is incomplete.
 func Recover(log *slog.Logger, next http.Handler) http.Handler {
 	log = cmp.Or(log, slog.Default())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

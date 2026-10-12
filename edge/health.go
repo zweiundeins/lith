@@ -26,8 +26,8 @@ func Health(version string) http.Handler {
 
 // Ready answers 200 when every check passes within Timeout, and 503 naming
 // those that did not, so the proxy takes the instance out of rotation. The
-// checks run at once, with a context that ends at the timeout; one that
-// ignores it still costs the probe no longer.
+// checks run in parallel, with a context that ends at the timeout, and the
+// probe answers by then even if a check ignores it.
 //
 // A check must not queue behind the writer: a command waits for every batch
 // ahead of it, which turns a busy writer into a failed probe. Read from the

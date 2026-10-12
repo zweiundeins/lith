@@ -23,9 +23,9 @@ var precompressCache sync.Map // sha256 of the plain bytes to *precompressed
 
 // Precompress returns b under brotli -11 and gzip -9, compressed once per
 // content: callers with the same bytes wait for the one compression and later
-// ones get it at once. It suits bytes served many times, static files and
-// generated assets, since the cache keeps every content for the life of the
-// process.
+// ones get it at once. The cache keeps every content for the life of the
+// process, so it is for bytes served many times: static files and generated
+// assets.
 func Precompress(b []byte) (br, gz []byte) {
 	return precompress(b, sha256.Sum256(b))
 }
