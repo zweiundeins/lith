@@ -332,3 +332,37 @@ func TestUnsupportedDeadlineIsIgnored(t *testing.T) {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }
+
+// lateDeadlines counts SetWriteDeadline calls after its owner marked the
+// response as finished.
+type lateDeadlines struct {
+	*recorder
+	finished bool
+	late     int
+}
+
+func (l *lateDeadlines) SetWriteDeadline(t time.Time) error {
+	if l.finished {
+		l.late++
+	}
+	return l.recorder.SetWriteDeadline(t)
+}
+
+// The end of the request's context can reach the stream after Close has
+// returned, when the handler may have returned too and its connection may
+// serve another request: the stream must leave the response alone.
+func TestAbortAfterCloseLeavesResponseAlone(t *testing.T) {
+	w := &lateDeadlines{recorder: newRecorder()}
+	s, err := Open(w, request(t.Context(), "zstd"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.finished = true
+	s.abort()
+	if w.late > 0 {
+		t.Fatal("set a write deadline after Close")
+	}
+}

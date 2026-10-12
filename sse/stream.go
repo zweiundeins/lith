@@ -81,6 +81,7 @@ type Stream struct {
 
 	mu      sync.Mutex
 	aborted bool
+	closed  bool // after Close, abort leaves the response alone
 }
 
 // Open starts an event stream on w: it picks the encoding from the
@@ -216,6 +217,9 @@ func (s *Stream) Close() error {
 	if s.err == nil {
 		s.err = ErrClosed
 	}
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
 	return err
 }
 
@@ -251,10 +255,14 @@ func (s *Stream) deadline() error {
 }
 
 // abort runs when the request's context ends: a write in progress fails
-// at once, and no write starts after it.
+// at once, and no write starts after it. Once Close has returned, the
+// handler may have returned too, and the response is no longer ours.
 func (s *Stream) abort() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
 	s.aborted = true
 	_ = s.rc.SetWriteDeadline(time.Now())
 }
