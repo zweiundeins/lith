@@ -9,4 +9,5 @@
 //	CSRF                 Go's CrossOriginProtection rules, strict on missing headers like hyperlith and starbase, kanban's Datastar-Request check
 //	SecurityHeaders, CSP starbase's per-request nonce, hyperlith's policy as data, kanban's and swisscyberguard's other headers
 //	Compress             starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap where libretto and swisscyberguard kept bypass lists
+//	Static, Precompress  starbase's precompress package, libretto's content ETags with no-cache, kanban's hashed immutable URLs
 package edge
