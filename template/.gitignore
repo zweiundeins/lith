@@ -1,0 +1,5 @@
+/app
+/tmp/
+/data/
+*.test
+*.out
