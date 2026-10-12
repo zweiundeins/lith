@@ -2,7 +2,11 @@ module github.com/zweiundeins/lith
 
 go 1.26.0
 
-require modernc.org/sqlite v1.60.1
+require (
+	github.com/andybalholm/brotli v1.2.6
+	github.com/klauspost/compress v1.20.1
+	modernc.org/sqlite v1.60.1
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
