@@ -46,17 +46,19 @@ func TestHeapPerStream(t *testing.T) {
 		payload[i] = frame(i)
 	}
 	for _, c := range []struct {
-		encoding string
-		maxMiB   float64
+		name, encoding string
+		opt            Options
+		maxMiB         float64
 	}{
-		{Zstd, 1.5},
-		{Brotli, 3},
+		{"zstd", Zstd, Options{}, 1.5},
+		{"zstd with full history", Zstd, Options{ZstdFullHistory: true}, 2},
+		{"brotli", Brotli, Options{}, 3},
 	} {
-		t.Run(c.encoding, func(t *testing.T) {
+		t.Run(c.name, func(t *testing.T) {
 			before := heap()
 			open := make([]*Stream, streams)
 			for i := range open {
-				s, err := Open(&discard{http.Header{}}, request(t.Context(), c.encoding), Options{})
+				s, err := Open(&discard{http.Header{}}, request(t.Context(), c.encoding), c.opt)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -74,7 +76,7 @@ func TestHeapPerStream(t *testing.T) {
 			perStream := float64(heap()-before) / streams / (1 << 20)
 			in, wire := open[0].Sent()
 			t.Logf("%s: %.2f MiB per stream, %v per frame, %.0f:1 (%d bytes of events, %d on the wire)",
-				c.encoding, perStream, took/(streams*frames), float64(in)/float64(wire), in, wire)
+				c.name, perStream, took/(streams*frames), float64(in)/float64(wire), in, wire)
 			if perStream > c.maxMiB {
 				t.Errorf("%.2f MiB per stream, want under %.1f", perStream, c.maxMiB)
 			}

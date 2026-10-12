@@ -43,6 +43,12 @@ type Options struct {
 	Compress chan struct{}
 	// ZstdWindow is the base 2 logarithm of zstd's window (default 19).
 	ZstdWindow int
+	// ZstdFullHistory gives zstd a history of twice its window: about
+	// 1.65 MiB per stream instead of 1 MiB, for half the CPU per frame
+	// once the streams no longer fit in the CPU's cache (measured with 200
+	// streams). A short history makes the encoder shift its window down
+	// after every 128 KiB of input.
+	ZstdFullHistory bool
 	// BrotliQuality is brotli's quality, 1 to 11 (default 4).
 	BrotliQuality int
 	// BrotliWindow is the base 2 logarithm of brotli's window (default 18).
@@ -120,7 +126,7 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 			zstd.WithEncoderLevel(zstd.SpeedFastest),
 			zstd.WithWindowSize(1<<o.ZstdWindow),
 			zstd.WithEncoderConcurrency(1),
-			zstd.WithLowerEncoderMem(true),
+			zstd.WithLowerEncoderMem(!o.ZstdFullHistory),
 			zstd.WithEncoderCRC(false))
 	case Brotli:
 		s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: o.BrotliQuality, LGWin: o.BrotliWindow})
