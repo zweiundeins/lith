@@ -34,9 +34,10 @@ var (
 var heartbeat = sse.Comment("")
 
 // Serve streams the views of spec to the client until it leaves or the
-// hub stops. It sends each view's current frame (a view without one
-// renders in the next tick), then every new frame. When the hub is full
-// or stopped, it answers 503 and returns ErrFull or ErrStopped.
+// hub stops, and then returns nil. It sends each view's current frame (a
+// view without one renders in the next tick), then every new frame. When
+// the hub is full or stopped, it answers 503 and returns ErrFull or
+// ErrStopped; a failed write ends the stream with its error.
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	for _, v := range spec.Views {
 		check(v)
@@ -63,6 +64,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		h.mu.Lock()
 		h.streams--
 		h.mu.Unlock()
+		switch {
+		case r.Context().Err() != nil:
+			return nil
+		case h.done.Err() != nil:
+			http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
+			return ErrStopped
+		}
 		return err
 	}
 	defer st.Close()

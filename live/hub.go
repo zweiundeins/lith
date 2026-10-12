@@ -11,6 +11,11 @@
 // pool and renders all its views of the tick in one read transaction.
 // When every worker is done, the new frames go out.
 //
+// A view renders in one read transaction, so it agrees with itself. Views
+// rendered by different workers can see different commits when one lands
+// during the tick; that commit marks its views dirty, and the next tick
+// brings them together. What must always agree belongs in one view.
+//
 // A stream keeps only the newest frame of each view it watches, so a slow
 // client skips frames and holds up no one else. Views that change in the
 // same tick reach a stream together, in the order it watches them.
