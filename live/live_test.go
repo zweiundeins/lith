@@ -921,6 +921,45 @@ func TestNoOverrunReportAfterRun(t *testing.T) {
 	}
 }
 
+// OnTick gets every tick that rendered views, and its whole duration.
+func TestOnTick(t *testing.T) {
+	var mu sync.Mutex
+	var took []time.Duration
+	ticks := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(took)
+	}
+	h := start(t, Options{Tick: 5 * time.Millisecond, OnTick: func(d time.Duration) {
+		mu.Lock()
+		took = append(took, d)
+		mu.Unlock()
+	}})
+	var n atomic.Int64
+	v := text("slow", []string{"t"}, func(context.Context, *sql.Tx) (string, error) {
+		time.Sleep(3 * time.Millisecond)
+		return strconv.Itoa(int(n.Load())), nil
+	})
+	c := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the first frame", func() bool { return c.has(`<p id="slow">0</p>`) })
+	for i := 1; i <= 3; i++ {
+		n.Store(int64(i))
+		h.Changed([]string{"t"})
+		waitFor(t, "a tick", func() bool { return ticks() == i+1 })
+	}
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if s := h.Stats(); s.Ticks != 4 || len(took) != 4 {
+		t.Fatalf("OnTick saw %d ticks, the hub counted %d", len(took), s.Ticks)
+	}
+	for _, d := range took {
+		if d < 3*time.Millisecond {
+			t.Fatalf("a tick that rendered for 3ms took %v", d)
+		}
+	}
+}
+
 func TestRunTwice(t *testing.T) {
 	h := start(t, Options{})
 	time.Sleep(10 * time.Millisecond)

@@ -104,7 +104,11 @@ func (h *Hub) loop(ctx context.Context, ws []*worker) {
 		}
 		last = time.Now()
 		if h.run(t, ws, last) {
-			h.measure(time.Since(last))
+			d := time.Since(last)
+			h.measure(d)
+			if h.onTick != nil {
+				h.onTick(d)
+			}
 		}
 	}
 }
