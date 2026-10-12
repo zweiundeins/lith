@@ -148,11 +148,11 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 				continue
 			}
 			w.sent = f.seq
-			n++
 			if s.write != nil {
 				if err := s.write(st, w.v.key, f.value); err != nil {
 					return err
 				}
+				n++
 				continue
 			}
 			b, ok := f.value.([]byte)
@@ -161,6 +161,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 				continue
 			}
 			parts = append(parts, b)
+			n++
 		}
 		if len(parts) > 0 {
 			err := st.Write(parts...)

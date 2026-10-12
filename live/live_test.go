@@ -502,6 +502,23 @@ func TestUnchangedFrameIsNotSent(t *testing.T) {
 	}
 }
 
+// A frame that is not []byte, on a stream without Write, is logged and
+// not counted as sent.
+func TestFramesSentCountsWrittenFrames(t *testing.T) {
+	l := &logs{}
+	h := start(t, Options{Tick: 5 * time.Millisecond, Log: l.logger()})
+	odd := View{Key: "odd", Render: func(context.Context, *sql.Tx) (any, error) { return "not bytes", nil }}
+	v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
+	c := serve(h, Spec{Views: []View{odd, v}}, "")
+	waitFor(t, "a frame sent", func() bool { return h.Stats().FramesSent > 0 })
+	if !c.has(`<p id="v">v</p>`) || !strings.Contains(l.String(), "not []byte") {
+		t.Fatalf("got %q, logged %s", c.patches(), l.String())
+	}
+	if n := h.Stats().FramesSent; n != 1 {
+		t.Fatalf("%d frames sent", n)
+	}
+}
+
 func TestHeartbeat(t *testing.T) {
 	h := start(t, Options{Heartbeat: 20 * time.Millisecond})
 	v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
