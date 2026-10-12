@@ -363,7 +363,7 @@ func (h *Hub) watch(s *stream, def View) bool {
 			h.every[v] = struct{}{}
 		}
 		marked = h.mark(v)
-	} else if v.presence {
+	} else if v.presence || v.frame.Load() == nil {
 		marked = h.mark(v)
 	}
 	w := &watch{s: s, v: v, i: len(v.watches)}

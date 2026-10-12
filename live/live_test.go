@@ -406,6 +406,23 @@ func TestRenderFailureKeepsFrame(t *testing.T) {
 	}
 }
 
+// A view whose first render failed renders again for the next stream
+// that watches it.
+func TestJoinRetriesViewWithoutFrame(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	var calls atomic.Int64
+	v := View{Key: "v", Render: func(context.Context, *sql.Tx) (any, error) {
+		if calls.Add(1) == 1 {
+			return nil, errors.New("not yet")
+		}
+		return sse.PatchElements([]byte(`<p id="v">ok</p>`)), nil
+	}}
+	serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the failed render", func() bool { return calls.Load() == 1 })
+	c := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the frame", func() bool { return c.has(`<p id="v">ok</p>`) })
+}
+
 func TestUnchangedFrameIsNotSent(t *testing.T) {
 	h := start(t, Options{Tick: 5 * time.Millisecond})
 	v := text("v", []string{"t"}, func(context.Context, *sql.Tx) (string, error) { return "same", nil })
