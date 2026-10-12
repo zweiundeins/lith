@@ -52,6 +52,12 @@ type Options struct {
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
+	// RenderTimeout is how long a Render may take (default 2s): its ctx
+	// ends then, and a Render still running is logged. Nothing stops a
+	// Render that ignores its ctx. It holds up only its worker while the
+	// others render the rest of the tick, but the tick, and with it every
+	// frame, waits until it returns.
+	RenderTimeout time.Duration
 	// Log receives render errors and overrun reports (default
 	// slog.Default()).
 	Log *slog.Logger
@@ -67,11 +73,12 @@ type View struct {
 	Key string
 	// Topics mark the view dirty when a commit touches one of them.
 	Topics []string
-	// Render renders the view in the worker's read transaction. Its frame
-	// goes to every stream that watches the view and must not change
-	// afterwards. When Render fails, the error is logged and the previous
-	// frame stays; a nil frame also keeps the previous one, and so does a
-	// []byte frame equal to it.
+	// Render renders the view in the worker's read transaction, with a
+	// ctx that ends after Options.RenderTimeout. Its frame goes to every
+	// stream that watches the view and must not change afterwards. When
+	// Render fails, the error is logged and the previous frame stays; a
+	// nil frame also keeps the previous one, and so does a []byte frame
+	// equal to it.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
@@ -95,14 +102,15 @@ type Stats struct {
 // Hub renders views and streams them. Create it with New and start it
 // with Run.
 type Hub struct {
-	read       *sql.DB
-	tick       time.Duration
-	workers    int
-	maxStreams int
-	heartbeat  time.Duration
-	log        *slog.Logger
-	sse        sse.Options
-	sampleFor  time.Duration // how long tick durations are sampled after an overrun
+	read          *sql.DB
+	tick          time.Duration
+	workers       int
+	maxStreams    int
+	heartbeat     time.Duration
+	renderTimeout time.Duration
+	log           *slog.Logger
+	sse           sse.Options
+	sampleFor     time.Duration // how long tick durations are sampled after an overrun
 
 	done    context.Context // ends when the hub stops
 	stop    context.CancelFunc
@@ -181,6 +189,9 @@ func New(o Options) *Hub {
 	if o.Heartbeat <= 0 {
 		o.Heartbeat = 20 * time.Second
 	}
+	if o.RenderTimeout <= 0 {
+		o.RenderTimeout = 2 * time.Second
+	}
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
@@ -189,21 +200,22 @@ func New(o Options) *Hub {
 	}
 	done, stop := context.WithCancel(context.Background())
 	return &Hub{
-		read:       o.Read,
-		tick:       o.Tick,
-		workers:    o.Workers,
-		maxStreams: o.MaxStreams,
-		heartbeat:  o.Heartbeat,
-		log:        o.Log,
-		sse:        o.SSE,
-		sampleFor:  20 * time.Second,
-		done:       done,
-		stop:       stop,
-		wake:       make(chan struct{}, 1),
-		views:      map[string]*view{},
-		topics:     map[string]map[*view]struct{}{},
-		every:      map[*view]struct{}{},
-		byID:       map[string]*stream{},
+		read:          o.Read,
+		tick:          o.Tick,
+		workers:       o.Workers,
+		maxStreams:    o.MaxStreams,
+		heartbeat:     o.Heartbeat,
+		renderTimeout: o.RenderTimeout,
+		log:           o.Log,
+		sse:           o.SSE,
+		sampleFor:     20 * time.Second,
+		done:          done,
+		stop:          stop,
+		wake:          make(chan struct{}, 1),
+		views:         map[string]*view{},
+		topics:        map[string]map[*view]struct{}{},
+		every:         map[*view]struct{}{},
+		byID:          map[string]*stream{},
 	}
 }
 

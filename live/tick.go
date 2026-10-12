@@ -266,7 +266,7 @@ func (w *worker) render(t *tick) {
 		if i >= len(t.views) {
 			break
 		}
-		t.frames[i], t.errs[i] = render(t.ctx, t.views[i], tx)
+		t.frames[i], t.errs[i] = w.h.render(t.ctx, t.views[i], tx)
 		w.h.renders.Add(1)
 	}
 	if tx != nil {
@@ -292,6 +292,26 @@ func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
 	}
 	w.conn = c
 	return c.BeginTx(ctx, ro)
+}
+
+// render runs v's Render under the render timeout, and logs it when it
+// runs over.
+func (h *Hub) render(ctx context.Context, v *view, tx *sql.Tx) (any, error) {
+	rctx, cancel := context.WithTimeout(ctx, h.renderTimeout)
+	defer cancel()
+	overrun := func() {
+		if ctx.Err() == nil {
+			h.log.Warn("live: render overrun", "view", v.key, "timeout", h.renderTimeout)
+		}
+	}
+	stop := context.AfterFunc(rctx, overrun)
+	f, err := render(rctx, v, tx)
+	// A Render that returns as its ctx ends can stop the AfterFunc before
+	// it starts.
+	if stop() && rctx.Err() != nil {
+		overrun()
+	}
+	return f, err
 }
 
 func render(ctx context.Context, v *view, tx *sql.Tx) (f any, err error) {

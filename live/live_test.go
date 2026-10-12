@@ -523,6 +523,36 @@ func TestRenderFailureKeepsFrame(t *testing.T) {
 	}
 }
 
+// Render's context ends after RenderTimeout, 2s by default, and a render
+// still running then is logged.
+func TestRenderTimeout(t *testing.T) {
+	deadlines := make(chan time.Duration, 1)
+	h := start(t, Options{})
+	serve(h, Spec{Views: []View{{Key: "v", Render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		d, _ := ctx.Deadline()
+		select {
+		case deadlines <- time.Until(d):
+		default:
+		}
+		return nil, nil
+	}}}}, "")
+	if d := <-deadlines; d <= 1900*time.Millisecond || d > 2*time.Second {
+		t.Fatalf("a render has %v", d)
+	}
+
+	l := &logs{}
+	h = start(t, Options{RenderTimeout: 20 * time.Millisecond, Log: l.logger()})
+	serve(h, Spec{Views: []View{{Key: "slow", Render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}}}, "")
+	waitFor(t, "the overrun", func() bool { return strings.Contains(l.String(), "live: render overrun") })
+	waitFor(t, "the render's error", func() bool { return strings.Contains(l.String(), context.DeadlineExceeded.Error()) })
+	if !strings.Contains(l.String(), "view=slow") {
+		t.Fatalf("logged %s", l.String())
+	}
+}
+
 // A view whose first render failed renders again for the next stream
 // that watches it.
 func TestJoinRetriesViewWithoutFrame(t *testing.T) {
