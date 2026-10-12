@@ -164,8 +164,8 @@ func New(cfg Config) (*Manager, error) {
 		return nil, errors.New("backup: set Bucket or Dir, not both")
 	case cfg.RetentionWindow < 0 || cfg.SnapshotInterval < 0:
 		return nil, errors.New("backup: negative retention window or snapshot interval")
-	case cfg.Prefix != "" && checkName(cfg.Prefix) != nil:
-		return nil, fmt.Errorf("backup: invalid prefix %q", cfg.Prefix)
+	case checkPrefix(cfg.Prefix) != nil:
+		return nil, checkPrefix(cfg.Prefix)
 	}
 	m := &Manager{
 		cfg:              cfg,
@@ -215,12 +215,19 @@ func (m *Manager) fileClient(name string) litestream.ReplicaClient {
 	return c
 }
 
-// checkName accepts a clean relative slash path, which keeps every replica
-// under the prefix.
+// checkName accepts a single path element, so that no replica sits inside
+// another's keys: a purge deletes everything under its name.
 func checkName(name string) error {
-	if name == "" || name == "." || path.Clean(name) != name || path.IsAbs(name) ||
-		name == ".." || strings.HasPrefix(name, "../") {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
 		return fmt.Errorf("backup: invalid replica name %q", name)
+	}
+	return nil
+}
+
+func checkPrefix(prefix string) error {
+	if prefix != "" && (path.Clean(prefix) != prefix || path.IsAbs(prefix) ||
+		prefix == "." || prefix == ".." || strings.HasPrefix(prefix, "../")) {
+		return fmt.Errorf("backup: invalid prefix %q", prefix)
 	}
 	return nil
 }

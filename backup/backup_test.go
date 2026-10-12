@@ -249,12 +249,43 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 }
 
-func TestReplicaNamesStayUnderThePrefix(t *testing.T) {
+func TestReplicaNamesAreOnePathElement(t *testing.T) {
 	m := newManager(t)
-	for _, name := range []string{"", ".", "..", "../x", "/abs", "a//b", "a/../b"} {
+	for _, name := range []string{"", ".", "..", "../x", "/abs", "a/b", `a\b`} {
 		if _, err := m.Attach(bg, name, "unused"); err == nil {
 			t.Errorf("Attach accepted the name %q", name)
 		}
+	}
+	for _, prefix := range []string{"../x", "/abs", "a//b", "a/../b", "."} {
+		if _, err := New(Config{Dir: t.TempDir(), Prefix: prefix}); err == nil {
+			t.Errorf("New accepted the prefix %q", prefix)
+		}
+	}
+}
+
+// TestPrefixesKeepDeploymentsApart: two deployments share a bucket, and a
+// purge in one leaves the other's replica of the same name alone.
+func TestPrefixesKeepDeploymentsApart(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	managers := map[string]*Manager{}
+	for _, prefix := range []string{"staging", "prod/ch"} {
+		m, err := New(Config{Dir: dir, Prefix: prefix, Logger: slog.New(slog.DiscardHandler)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
+		shutdown(t, db, detach)
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(prefix), "app")); err != nil {
+			t.Fatalf("no replica under %s: %v", prefix, err)
+		}
+		managers[prefix] = m
+	}
+	if err := managers["staging"].PurgeReplica(bg, "app"); err != nil {
+		t.Fatal(err)
+	}
+	if err := managers["prod/ch"].VerifyRestore(bg, "app"); err != nil {
+		t.Errorf("the other deployment's replica after a purge: %v", err)
 	}
 }
 
