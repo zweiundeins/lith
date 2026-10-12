@@ -195,12 +195,12 @@ func TestSlowStatementsAreLoggedWithoutArguments(t *testing.T) {
 	var buf bytes.Buffer
 	db := open(t, dbmetrics.Options{
 		Observer:      rec,
-		SlowThreshold: 10 * time.Millisecond,
+		SlowThreshold: 50 * time.Millisecond,
 		Logger:        slog.New(slog.NewTextHandler(&buf, nil)),
 	})
 
 	var v any
-	if err := db.QueryRow(`SELECT sleep_ms(20),
+	if err := db.QueryRow(`SELECT sleep_ms(80),
 		? AS secret`, "s3cret").Scan(&v, new(string)); err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestSlowStatementsAreLoggedWithoutArguments(t *testing.T) {
 	if strings.Count(log, "slow db query") != 1 {
 		t.Fatalf("log = %q, want one slow line", log)
 	}
-	if !strings.Contains(log, "op=query") || !strings.Contains(log, "SELECT sleep_ms(20), ? AS secret") {
+	if !strings.Contains(log, "op=query") || !strings.Contains(log, "SELECT sleep_ms(80), ? AS secret") {
 		t.Errorf("log = %q, want the op and the query on one line", log)
 	}
 	if strings.Contains(log, "s3cret") {
