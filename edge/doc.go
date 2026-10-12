@@ -10,4 +10,5 @@
 //	SecurityHeaders, CSP starbase's per-request nonce, hyperlith's policy as data, kanban's and swisscyberguard's other headers
 //	Compress             starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap where libretto and swisscyberguard kept bypass lists
 //	Static, Precompress  starbase's precompress package, libretto's content ETags with no-cache, kanban's hashed immutable URLs
+//	Limiter              starbase's token bucket, swept as it goes, and libretto's rule that a clock step must not reset it
 package edge
