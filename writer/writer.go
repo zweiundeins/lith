@@ -62,7 +62,7 @@ type Validator interface {
 	Validate() error
 }
 
-// Options tune the writer. The zero value is what production runs.
+// Options tune the writer; zero fields take the defaults.
 type Options struct {
 	// MaxBatch caps the commands one transaction takes (default 512).
 	MaxBatch int
