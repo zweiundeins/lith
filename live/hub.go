@@ -122,6 +122,7 @@ type Hub struct {
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
+	report    *time.Timer
 }
 
 type view struct {

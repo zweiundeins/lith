@@ -867,6 +867,30 @@ func TestOverrunReport(t *testing.T) {
 	}
 }
 
+// The report of an overrun does not outlive Run.
+func TestNoOverrunReportAfterRun(t *testing.T) {
+	l := &logs{}
+	h := New(Options{Tick: 5 * time.Millisecond, Log: l.logger()})
+	h.sampleFor = 200 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	ran := make(chan error, 1)
+	go func() { ran <- h.Run(ctx) }()
+	v := View{Key: "slow", Render: func(context.Context, *sql.Tx) (any, error) {
+		time.Sleep(15 * time.Millisecond)
+		return nil, nil
+	}}
+	serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "an overrun", func() bool { return h.Stats().Overruns > 0 })
+	cancel()
+	if err := <-ran; err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * h.sampleFor)
+	if strings.Contains(l.String(), "tick overrun") {
+		t.Fatal("reported an overrun after Run returned")
+	}
+}
+
 func TestRunTwice(t *testing.T) {
 	h := start(t, Options{})
 	time.Sleep(10 * time.Millisecond)

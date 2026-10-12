@@ -51,6 +51,7 @@ func (h *Hub) Run(ctx context.Context) error {
 		wg.Go(w.run)
 	}
 	h.loop(ctx, ws)
+	h.stopSampling()
 	for _, w := range ws {
 		close(w.start)
 	}
@@ -316,16 +317,31 @@ func (h *Hub) measure(d time.Duration) {
 			return
 		}
 		h.samples = make([]time.Duration, 0, 64)
-		time.AfterFunc(h.sampleFor, h.reportOverruns)
+		h.report = time.AfterFunc(h.sampleFor, h.reportOverruns)
 	}
 	h.samples = append(h.samples, d)
 }
 
+// stopSampling drops the samples without a report.
+func (h *Hub) stopSampling() {
+	h.samplesMu.Lock()
+	defer h.samplesMu.Unlock()
+	if h.report != nil {
+		h.report.Stop()
+	}
+	h.samples = nil
+}
+
+// reportOverruns logs the samples. It holds the lock while it logs, so
+// stopSampling waits for a report under way.
 func (h *Hub) reportOverruns() {
 	h.samplesMu.Lock()
+	defer h.samplesMu.Unlock()
 	s := h.samples
 	h.samples = nil
-	h.samplesMu.Unlock()
+	if len(s) == 0 {
+		return
+	}
 	slices.Sort(s)
 	p := func(q int) time.Duration { return s[q*(len(s)-1)/100] }
 	h.log.Warn("live: tick overrun", "tick", h.tick, "n", len(s),
