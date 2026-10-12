@@ -326,8 +326,9 @@ func wrap(err error, op, name string) error {
 	return fmt.Errorf("backup: %s %s: %w", op, name, err)
 }
 
-// RestoreWindow reports the earliest and latest restorable times of the
-// replica under name. It lists the replica, so call it on demand, not per
+// RestoreWindow reports the times a restore of the replica under name can
+// reach: after earliest, the oldest full image (a snapshot or the first
+// sync), up to latest. It lists the replica, so call it on demand, not per
 // request.
 func (m *Manager) RestoreWindow(ctx context.Context, name string) (earliest, latest time.Time, err error) {
 	if !m.enabled {
@@ -336,11 +337,26 @@ func (m *Manager) RestoreWindow(ctx context.Context, name string) (earliest, lat
 	if err := checkName(name); err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-	earliest, latest, err = litestream.NewReplicaWithClient(nil, m.newClient(name)).TimeBounds(ctx)
-	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("backup: restore window of %s: %w", name, err)
+	client := m.newClient(name)
+	for level := 0; level <= litestream.SnapshotLevel; level++ {
+		itr, err := client.LTXFiles(ctx, level, 0, false)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("backup: restore window of %s: %w", name, err)
+		}
+		for itr.Next() {
+			info := itr.Item()
+			if info.CreatedAt.After(latest) {
+				latest = info.CreatedAt
+			}
+			if info.MinTXID <= 1 && (earliest.IsZero() || info.CreatedAt.Before(earliest)) {
+				earliest = info.CreatedAt
+			}
+		}
+		if err := errors.Join(itr.Err(), itr.Close()); err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("backup: restore window of %s: %w", name, err)
+		}
 	}
-	if earliest.IsZero() && latest.IsZero() {
+	if earliest.IsZero() {
 		return time.Time{}, time.Time{}, ErrNothingToRestore
 	}
 	return earliest, latest, nil

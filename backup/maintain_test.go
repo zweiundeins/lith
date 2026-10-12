@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -69,6 +70,23 @@ func TestAgedHistoryIsPrunedWithoutLosingData(t *testing.T) {
 	}
 	if got := len(bodies(t, out)); got != want {
 		t.Errorf("restored rows = %d, want %d", got, want)
+	}
+
+	// The window starts at the snapshot that is left, not at the older WAL
+	// segment litestream keeps below it.
+	earliest, _, err := m.RestoreWindow(bg, "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snaps := snapshotTimes(t, m, "app"); len(snaps) != 1 || !earliest.Equal(snaps[0]) {
+		t.Errorf("RestoreWindow starts at %v, want the snapshot's time %v", earliest, snaps)
+	}
+	err = m.RestoreAt(bg, "app", filepath.Join(t.TempDir(), "before.db"), earliest.Add(-time.Millisecond))
+	if !errors.Is(err, ErrNothingToRestore) {
+		t.Errorf("RestoreAt just before the window = %v, want ErrNothingToRestore", err)
+	}
+	if err := m.RestoreAt(bg, "app", filepath.Join(t.TempDir(), "after.db"), earliest.Add(time.Millisecond)); err != nil {
+		t.Errorf("RestoreAt just inside the window: %v", err)
 	}
 }
 

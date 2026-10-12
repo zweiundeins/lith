@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -82,12 +83,21 @@ func (m *Manager) maintain(ctx context.Context, name string, db *litestream.DB, 
 		return fmt.Errorf("backup: maintain %s: %w", name, err)
 	}
 	if len(snaps) == 0 || now.Sub(snaps[len(snaps)-1].createdAt) >= m.snapshotInterval {
-		info, err := db.Snapshot(ctx)
+		pos, err := db.Pos()
 		if err != nil {
-			return fmt.Errorf("backup: snapshot %s: %w", name, err)
+			return fmt.Errorf("backup: maintain %s: %w", name, err)
 		}
-		if info != nil {
-			snaps = append(snaps, snapMeta{createdAt: info.CreatedAt, maxTXID: info.MaxTXID})
+		// A snapshot is named by its position, so one at a position already
+		// snapshotted would replace that snapshot and move its time forward.
+		if !slices.ContainsFunc(snaps, func(s snapMeta) bool { return s.maxTXID == pos.TXID }) {
+			info, err := db.Snapshot(ctx)
+			if err != nil {
+				return fmt.Errorf("backup: snapshot %s: %w", name, err)
+			}
+			if info != nil {
+				snaps = slices.DeleteFunc(snaps, func(s snapMeta) bool { return s.maxTXID == info.MaxTXID })
+				snaps = append(snaps, snapMeta{createdAt: info.CreatedAt, maxTXID: info.MaxTXID})
+			}
 		}
 	}
 	if floor, ok := newestAtOrBefore(snaps, now.Add(-m.retentionWindow)); ok {

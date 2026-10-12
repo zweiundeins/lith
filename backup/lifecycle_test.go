@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -177,4 +178,48 @@ func TestAFailedFirstSyncFailsFast(t *testing.T) {
 		t.Fatalf("Attach once the replica is back: %v", err)
 	}
 	shutdown(t, db, detach)
+}
+
+func snapshotTimes(t *testing.T, m *Manager, name string) []time.Time {
+	t.Helper()
+	snaps, err := listSnapshots(bg, m.newClient(name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []time.Time
+	for _, s := range snaps {
+		out = append(out, s.createdAt)
+	}
+	return out
+}
+
+// TestAnIdleReplicaKeepsItsSnapshot: a snapshot at an unchanged position
+// would replace the one there and move its time forward.
+func TestAnIdleReplicaKeepsItsSnapshot(t *testing.T) {
+	t.Parallel()
+	m, err := New(Config{
+		Dir:              t.TempDir(),
+		RetentionWindow:  24 * time.Hour,
+		SnapshotInterval: 24 * time.Hour,
+		Logger:           slog.New(slog.DiscardHandler),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
+	defer shutdown(t, db, detach)
+
+	now := time.Now()
+	if errs := m.MaintainAll(bg, now); errs["app"] != nil {
+		t.Fatal(errs["app"])
+	}
+	first := snapshotTimes(t, m, "app")
+	time.Sleep(20 * time.Millisecond)
+	if errs := m.MaintainAll(bg, now.Add(25*time.Hour)); errs["app"] != nil {
+		t.Fatal(errs["app"])
+	}
+	second := snapshotTimes(t, m, "app")
+	if len(first) != 1 || len(second) != 1 || !second[0].Equal(first[0]) {
+		t.Errorf("snapshots %v, then %v; want the one snapshot kept as it was", first, second)
+	}
 }
