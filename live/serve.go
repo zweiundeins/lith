@@ -78,7 +78,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	h.attach(s, spec.Views)
 	defer h.detach(s)
 	err = h.pump(ctx, s, st)
-	if ctx.Err() != nil {
+	if errors.Is(err, context.Canceled) || h.done.Err() != nil {
 		return nil
 	}
 	return err
