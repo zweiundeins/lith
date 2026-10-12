@@ -4,6 +4,20 @@ Each recipe is the smallest code that does the job the lith way. Names and
 signatures are lith's; check `go doc github.com/zweiundeins/lith/<package>` when
 in doubt.
 
+## Start a new project
+
+```sh
+go run github.com/zweiundeins/lith/cmd/lith-new -lith /develop/lith ~/develop/guestbook example.com/acme/guestbook
+cd ~/develop/guestbook && go mod tidy && go tool task test
+```
+
+The template is a guestbook that uses every rule once (a command, a shared
+view, a per-tab view backed by `tab_state`, a pending button), with tests,
+deploy files (systemd, Caddy, a deploy script with rollback, a backup timer)
+and CI. Replace the guestbook with the app, keep the wiring. Until lith is
+published, go.mod needs the `replace` that `-lith` writes, and CI fails while
+it points at a local path.
+
 ## Wire a project
 
 ```go
