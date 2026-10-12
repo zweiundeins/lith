@@ -736,6 +736,56 @@ func TestSameIDReplacesStream(t *testing.T) {
 	}
 }
 
+// slowOpen holds the stream's first flush, which sends its headers, until
+// release is closed.
+type slowOpen struct {
+	*client
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+func (c *slowOpen) FlushError() error {
+	c.once.Do(func() {
+		close(c.entered)
+		<-c.release
+	})
+	return nil
+}
+
+// Of two streams with the same ID, the later request stays, even when
+// the earlier one takes longer to open.
+func TestSameIDKeepsLaterStream(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
+	w := text("w", nil, func(context.Context, *sql.Tx) (string, error) { return "w", nil })
+	slow := &slowOpen{entered: make(chan struct{}), release: make(chan struct{})}
+	earlier := serveThrough(h, Spec{ID: "tab", Views: []View{v}}, "", func(c *client) http.ResponseWriter {
+		slow.client = c
+		return slow
+	})
+	<-slow.entered
+	later := serve(h, Spec{ID: "tab", Views: []View{v}}, "")
+	waitFor(t, "the later stream", func() bool { return later.has(`<p id="v">v</p>`) })
+	close(slow.release)
+	select {
+	case err := <-earlier.done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case err := <-later.done:
+		t.Fatalf("the earlier stream replaced the later one, which returned %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("both streams stayed open")
+	}
+	if !h.Watch("tab", w) {
+		t.Fatal("Watch")
+	}
+	waitFor(t, "the watched view", func() bool { return later.has(`<p id="w">w</p>`) })
+	if n := h.Count("v"); n != 1 {
+		t.Fatalf("%d streams on v", n)
+	}
+}
+
 // After a tick runs over, the hub samples tick durations for a while and
 // then logs their distribution.
 func TestOverrunReport(t *testing.T) {

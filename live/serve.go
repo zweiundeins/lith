@@ -13,7 +13,8 @@ import (
 // Spec describes a stream.
 type Spec struct {
 	// ID names the stream for Watch and Unwatch, usually the tab id. A
-	// stream with the ID of one still open replaces it. Empty: none.
+	// stream with the ID of one still open replaces it if its request
+	// came later, and else ends at once. Empty: none.
 	ID string
 	// Views are the views the stream watches from the start. Views that
 	// change in the same tick are sent in this order.
@@ -42,6 +43,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	for _, v := range spec.Views {
 		check(v)
 	}
+	seq := h.seq.Add(1)
 	h.mu.Lock()
 	switch {
 	case h.done.Err() != nil:
@@ -75,7 +77,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		return err
 	}
 	defer st.Close()
-	s := &stream{seq: h.seq.Add(1), id: spec.ID, write: spec.Write, cancel: cancel, wake: make(chan struct{}, 1)}
+	s := &stream{seq: seq, id: spec.ID, write: spec.Write, cancel: cancel, wake: make(chan struct{}, 1)}
 	h.attach(s, spec.Views)
 	defer h.detach(s)
 	err = h.pump(ctx, s, st)
@@ -88,7 +90,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 func (h *Hub) attach(s *stream, views []View) {
 	h.mu.Lock()
 	if s.id != "" {
-		if old := h.byID[s.id]; old != nil {
+		old := h.byID[s.id]
+		if old != nil && old.seq > s.seq {
+			h.mu.Unlock()
+			s.cancel()
+			return
+		}
+		if old != nil {
 			old.cancel()
 		}
 		h.byID[s.id] = s
