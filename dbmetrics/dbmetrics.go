@@ -179,22 +179,38 @@ var (
 func (c *conn) Unwrap() driver.Conn { return c.Conn }
 
 func (c *conn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	q, ok := c.Conn.(driver.QueryerContext)
-	if !ok {
+	start := time.Now()
+	var rows driver.Rows
+	var err error
+	switch q := c.Conn.(type) {
+	case driver.QueryerContext:
+		rows, err = q.QueryContext(ctx, query, args)
+	case driver.Queryer: //nolint:staticcheck // the fallback database/sql uses too
+		var vals []driver.Value
+		if vals, err = legacyArgs(ctx, args); err == nil {
+			rows, err = q.Query(query, vals)
+		}
+	default:
 		return nil, driver.ErrSkip
 	}
-	start := time.Now()
-	rows, err := q.QueryContext(ctx, query, args)
 	return c.rec.rows(query, rows, err, time.Since(start))
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	e, ok := c.Conn.(driver.ExecerContext)
-	if !ok {
+	start := time.Now()
+	var res driver.Result
+	var err error
+	switch e := c.Conn.(type) {
+	case driver.ExecerContext:
+		res, err = e.ExecContext(ctx, query, args)
+	case driver.Execer: //nolint:staticcheck // the fallback database/sql uses too
+		var vals []driver.Value
+		if vals, err = legacyArgs(ctx, args); err == nil {
+			res, err = e.Exec(query, vals)
+		}
+	default:
 		return nil, driver.ErrSkip
 	}
-	start := time.Now()
-	res, err := e.ExecContext(ctx, query, args)
 	if err != driver.ErrSkip {
 		c.rec.record(OpExec, query, time.Since(start))
 	}
@@ -206,7 +222,17 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &stmt{Stmt: s, query: query, rec: c.rec}, nil
+	return c.stmt(s, query), nil
+}
+
+// stmt wraps a driver statement, keeping its ColumnConverter visible to
+// database/sql when it has one.
+func (c *conn) stmt(s driver.Stmt, query string) driver.Stmt {
+	w := &stmt{Stmt: s, conn: c.Conn, query: query, rec: c.rec}
+	if _, ok := s.(driver.ColumnConverter); ok { //nolint:staticcheck // still consulted by database/sql
+		return converterStmt{w}
+	}
+	return w
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
@@ -223,7 +249,7 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 	if err != nil {
 		return nil, err
 	}
-	return &stmt{Stmt: s, query: query, rec: c.rec}, nil
+	return c.stmt(s, query), nil
 }
 
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
@@ -274,6 +300,7 @@ func (c *conn) CheckNamedValue(nv *driver.NamedValue) error {
 
 type stmt struct {
 	driver.Stmt
+	conn  driver.Conn // the driver's
 	query string
 	rec   *recorder
 }
@@ -331,11 +358,22 @@ func legacyArgs(ctx context.Context, args []driver.NamedValue) ([]driver.Value, 
 	return vals, nil
 }
 
+// CheckNamedValue asks the driver's statement, then its connection, as
+// database/sql would.
 func (s *stmt) CheckNamedValue(nv *driver.NamedValue) error {
 	if n, ok := s.Stmt.(driver.NamedValueChecker); ok {
 		return n.CheckNamedValue(nv)
 	}
+	if n, ok := s.conn.(driver.NamedValueChecker); ok {
+		return n.CheckNamedValue(nv)
+	}
 	return driver.ErrSkip
+}
+
+type converterStmt struct{ *stmt }
+
+func (s converterStmt) ColumnConverter(idx int) driver.ValueConverter {
+	return s.Stmt.(driver.ColumnConverter).ColumnConverter(idx) //nolint:staticcheck // still consulted by database/sql
 }
 
 // rows records a failed query at once and a successful one when its rows are
