@@ -1,0 +1,21 @@
+# Caddy 2: add this site block to the Caddyfile, with the real domain.
+# app compresses its pages and its streams itself, so there is no `encode`.
+app.example.com {
+	log {
+		output file /var/log/caddy/app-access.log {
+			mode 0640
+			roll_size 100mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format json
+	}
+
+	reverse_proxy unix//run/app/app.sock {
+		# The client's address for the rate limits. app takes it only from
+		# the socket or loopback, and a client cannot set it: this replaces it.
+		header_up X-Real-IP {http.request.remote.host}
+		# Server-sent events: pass every write through at once.
+		flush_interval -1
+	}
+}

@@ -1,0 +1,83 @@
+package views
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/zweiundeins/lith/template/internal/guestbook"
+)
+
+// Page is what the guestbook's document shows.
+type Page struct {
+	Tab     string // new for every document: names the tab's stream and state
+	CSS, JS string // URLs of the stylesheet and of Datastar
+	Entries []guestbook.Entry
+	Total   int
+}
+
+templ Guestbook(p Page) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="light dark"/>
+			<title>Guestbook</title>
+			<link rel="icon" href="data:,"/>
+			<link rel="stylesheet" href={ p.CSS }/>
+			<script type="module" src={ p.JS }></script>
+		</head>
+		<body>
+			<main data-signals={ signals(p.Tab) }>
+				<div hidden data-init={ openStream }></div>
+				<h1>Guestbook</h1>
+				<form data-on:submit__prevent={ sign } data-on:datastar-fetch={ failed } data-effect={ settle }>
+					<label>
+						<span>Name</span>
+						<input data-bind="_name" maxlength={ strconv.Itoa(guestbook.MaxName) } required autocomplete="name" data-attr:readonly={ pending }/>
+					</label>
+					<label>
+						<span>Message</span>
+						<textarea data-bind="_message" maxlength={ strconv.Itoa(guestbook.MaxMessage) } required rows="3" data-attr:readonly={ pending }></textarea>
+					</label>
+					<button type="submit" data-attr:aria-busy={ busy }>Sign</button>
+					@Outcome(guestbook.TabState{})
+					<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
+				</form>
+				@Entries(p.Entries, p.Total)
+			</main>
+		</body>
+	</html>
+}
+
+// Outcome is the tab's own region: what became of its last signature.
+templ Outcome(s guestbook.TabState) {
+	<p
+		id="outcome"
+		role="status"
+		if s.Refusal != "" {
+			class="refused"
+		}
+	>
+		if s.Refusal != "" {
+			{ s.Refusal }
+		} else if s.Accepted() {
+			Thank you for signing.
+		}
+	</p>
+}
+
+// Entries is the shared region: the newest entries, the same for every tab.
+templ Entries(list []guestbook.Entry, total int) {
+	<section id="entries" aria-labelledby="entries-count">
+		<h2 id="entries-count">{ count(total) }</h2>
+		<ul>
+			for _, e := range list {
+				<li id={ "entry-" + strconv.FormatInt(e.ID, 10) }>
+					<p>{ e.Message }</p>
+					<p class="by">{ e.Name }, <time datetime={ e.At.UTC().Format(time.RFC3339) }>{ e.At.UTC().Format("2 Jan 2006, 15:04 UTC") }</time></p>
+				</li>
+			}
+		</ul>
+	</section>
+}
