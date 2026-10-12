@@ -180,6 +180,18 @@ func TestWorkerWithoutTransactionLeavesViewsToOthers(t *testing.T) {
 	}
 }
 
+// A worker whose transaction does not begin trades its connection for a
+// new one, not for the same one back from the pool.
+func TestWorkerReplacesBrokenConnection(t *testing.T) {
+	db := newFakeDB(t, 2, 1, 0)
+	h := start(t, Options{Read: db.DB, Workers: 1, Tick: 5 * time.Millisecond})
+	c := serve(h, Spec{Views: slowViews(1)}, "")
+	waitFor(t, "the view", func() bool { return c.has(`<p id="v0">v0</p>`) })
+	if n := h.Stats().Ticks; n != 1 {
+		t.Fatalf("the view took %d ticks", n)
+	}
+}
+
 // Views that no worker could render, since no read transaction began,
 // render in a later tick without a commit: a stream already watching
 // them gets them once reads work again.

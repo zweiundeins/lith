@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -282,7 +283,8 @@ func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
 	if err == nil || ctx.Err() != nil {
 		return tx, err
 	}
-	w.conn.Close()
+	// The pool discards a connection on ErrBadConn; Close would keep it.
+	w.conn.Raw(func(any) error { return driver.ErrBadConn })
 	c, err2 := w.h.read.Conn(ctx)
 	if err2 != nil {
 		return nil, errors.Join(err, err2)
