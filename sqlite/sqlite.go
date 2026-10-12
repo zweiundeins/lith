@@ -1,0 +1,241 @@
+// Package sqlite opens one SQLite database file the way the projects use
+// it: a single write connection, for migrations and the writer, and a pool
+// of read-only connections for everything else.
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+// Checkpoint says who copies the WAL back into the database file.
+type Checkpoint int
+
+const (
+	// CheckpointAuto leaves it to SQLite: a commit that leaves more than
+	// 1000 pages in the WAL checkpoints it.
+	CheckpointAuto Checkpoint = iota
+	// CheckpointWriter turns SQLite's checkpoints off on the write
+	// connection; the writer checkpoints between batches instead.
+	CheckpointWriter
+	// CheckpointExternal turns them off and leaves checkpoints to another
+	// process, such as Litestream.
+	CheckpointExternal
+)
+
+// Options configure Open. Only Synchronous has no default.
+type Options struct {
+	// Synchronous is "FULL" or "NORMAL". FULL syncs the WAL on every
+	// commit; NORMAL can lose the last commits on power loss, never on a
+	// crash of the process.
+	Synchronous string
+	// Migrations holds NNN_name.sql files at its root (fs.Sub an embed.FS
+	// to its directory). Open applies those numbered above the database's
+	// PRAGMA user_version in order, each in a transaction of its own, and
+	// refuses a database whose version is newer than the newest file.
+	Migrations fs.FS
+	// Readers is the size of the read pool (default max(4, GOMAXPROCS)).
+	Readers int
+	// CacheKiB is the page cache of each connection (default 32000).
+	CacheKiB int
+	// MmapBytes is how much of the file each reader maps (default 256 MiB,
+	// negative: none).
+	MmapBytes int64
+	// BusyTimeout is how long a connection waits for a lock (default 5s).
+	BusyTimeout time.Duration
+	// Checkpoint picks who checkpoints the WAL (default CheckpointAuto).
+	Checkpoint Checkpoint
+}
+
+func (o Options) withDefaults() (Options, error) {
+	switch s := strings.ToUpper(o.Synchronous); s {
+	case "FULL", "NORMAL":
+		o.Synchronous = s
+	case "":
+		return o, errors.New("sqlite: Options.Synchronous is required: FULL or NORMAL")
+	default:
+		return o, fmt.Errorf("sqlite: Options.Synchronous is %q, want FULL or NORMAL", o.Synchronous)
+	}
+	switch o.Checkpoint {
+	case CheckpointAuto, CheckpointWriter, CheckpointExternal:
+	default:
+		return o, fmt.Errorf("sqlite: unknown Options.Checkpoint %d", o.Checkpoint)
+	}
+	if o.Readers <= 0 {
+		o.Readers = max(4, runtime.GOMAXPROCS(0))
+	}
+	if o.CacheKiB <= 0 {
+		o.CacheKiB = 32000
+	}
+	if o.MmapBytes == 0 {
+		o.MmapBytes = 256 << 20
+	}
+	if o.BusyTimeout <= 0 {
+		o.BusyTimeout = 5 * time.Second
+	}
+	return o, nil
+}
+
+// DB is one database file. W holds a single connection that takes the
+// write lock when a transaction begins (BEGIN IMMEDIATE); only migrations
+// and the writer use it. R is the pool of query_only connections.
+type DB struct {
+	W    *sql.DB
+	R    *sql.DB
+	Path string
+	opts Options
+}
+
+// Open opens (and creates) the database at path, applies the migrations
+// and opens the read pool.
+func Open(ctx context.Context, path string, opts Options) (*DB, error) {
+	opts, err := opts.withDefaults()
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, errors.New("sqlite: no path")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	common := []string{
+		fmt.Sprintf("busy_timeout(%d)", opts.BusyTimeout.Milliseconds()),
+		"journal_mode(WAL)",
+		"synchronous(" + opts.Synchronous + ")",
+		"foreign_keys(1)",
+		"temp_store(MEMORY)",
+		fmt.Sprintf("cache_size(%d)", -opts.CacheKiB),
+	}
+
+	wp := append([]string(nil), common...)
+	if opts.Checkpoint != CheckpointAuto {
+		wp = append(wp, "wal_autocheckpoint(0)")
+	}
+	w, err := sql.Open("sqlite", dsn(path, wp, url.Values{"_txlock": {"immediate"}}))
+	if err != nil {
+		return nil, err
+	}
+	w.SetMaxOpenConns(1)
+	w.SetMaxIdleConns(1)
+	w.SetConnMaxLifetime(0)
+	w.SetConnMaxIdleTime(0)
+	var mode string
+	if err := w.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		w.Close()
+		return nil, fmt.Errorf("sqlite: open %s: %w", path, err)
+	}
+	if mode != "wal" {
+		w.Close()
+		return nil, fmt.Errorf("sqlite: open %s: journal mode is %s, not wal", path, mode)
+	}
+	if opts.Migrations != nil {
+		if err := migrate(ctx, w, opts.Migrations); err != nil {
+			w.Close()
+			return nil, err
+		}
+	}
+
+	rp := append([]string(nil), common...)
+	rp = append(rp, "query_only(1)")
+	if opts.MmapBytes > 0 {
+		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
+	}
+	r, err := sql.Open("sqlite", dsn(path, rp, nil))
+	if err != nil {
+		w.Close()
+		return nil, err
+	}
+	r.SetMaxOpenConns(opts.Readers)
+	r.SetMaxIdleConns(opts.Readers)
+	r.SetConnMaxLifetime(0)
+	r.SetConnMaxIdleTime(0)
+	if err := r.PingContext(ctx); err != nil {
+		r.Close()
+		w.Close()
+		return nil, fmt.Errorf("sqlite: open %s: %w", path, err)
+	}
+	return &DB{W: w, R: r, Path: path, opts: opts}, nil
+}
+
+// Options returns the options Open used, defaults filled in.
+func (d *DB) Options() Options { return d.opts }
+
+// View runs fn in one read transaction on R: every query in fn sees the
+// same snapshot of the database.
+func (d *DB) View(ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, err := d.R.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	return fn(tx)
+}
+
+// Backup writes a consistent copy of the database to dst (VACUUM INTO) on
+// a read-only connection of its own, while the database stays in use. dst
+// must not exist; on failure it is removed again.
+func (d *DB) Backup(ctx context.Context, dst string) error {
+	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("sqlite: backup: %w", err)
+	}
+	f.Close()
+	if err := d.backup(ctx, dst); err != nil {
+		os.Remove(dst)
+		return fmt.Errorf("sqlite: backup to %s: %w", dst, err)
+	}
+	return nil
+}
+
+func (d *DB) backup(ctx context.Context, dst string) error {
+	pragmas := []string{fmt.Sprintf("busy_timeout(%d)", d.opts.BusyTimeout.Milliseconds())}
+	c, err := sql.Open("sqlite", dsn(d.Path, pragmas, url.Values{"mode": {"ro"}}))
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	c.SetMaxOpenConns(1)
+	if _, err := c.ExecContext(ctx, "VACUUM INTO ?", dst); err != nil {
+		return err
+	}
+	f, err := os.Open(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
+
+// Close closes both pools. Close the writer first.
+func (d *DB) Close() error {
+	return errors.Join(d.R.Close(), d.W.Close())
+}
+
+// uriPath escapes what SQLite's URI parser would read as the end of the
+// path, or as an escape.
+var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
+
+// dsn is a URI for the driver, which runs the pragmas on every connection
+// it opens: busy_timeout first, then the rest in lexical order.
+func dsn(path string, pragmas []string, extra url.Values) string {
+	q := url.Values{}
+	for _, p := range pragmas {
+		q.Add("_pragma", p)
+	}
+	for k, vs := range extra {
+		q[k] = vs
+	}
+	return "file:" + uriPath.Replace(path) + "?" + q.Encode()
+}
