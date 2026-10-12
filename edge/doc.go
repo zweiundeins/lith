@@ -11,4 +11,5 @@
 //	Compress             starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap where libretto and swisscyberguard kept bypass lists
 //	Static, Precompress  starbase's precompress package, libretto's content ETags with no-cache, kanban's hashed immutable URLs
 //	Limiter              starbase's token bucket, swept as it goes, and libretto's rule that a clock step must not reset it
+//	Health, Ready        libretto's and swisscyberguard's liveness and readiness probes, with checks registered by the app
 package edge
