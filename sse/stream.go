@@ -212,15 +212,15 @@ func (s *Stream) Close() error {
 	if s.stop == nil {
 		return nil
 	}
-	s.stop()
-	s.stop = nil
 	var err error
-	if s.enc != nil && s.err == nil && !s.isAborted() {
+	if s.enc != nil && s.err == nil && s.ctx.Err() == nil {
 		s.buf.Reset()
 		if err = s.enc.Close(); err == nil && s.buf.Len() > 0 {
 			err = s.send(s.buf.Bytes())
 		}
 	}
+	s.stop()
+	s.stop = nil
 	s.enc = nil
 	s.buf = bytes.Buffer{}
 	if s.err == nil {
@@ -296,12 +296,6 @@ func (s *Stream) abort() {
 	}
 	s.aborted = true
 	_ = s.rc.SetWriteDeadline(time.Now())
-}
-
-func (s *Stream) isAborted() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.aborted
 }
 
 func (s *Stream) fail(err error) error {

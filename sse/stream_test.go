@@ -374,6 +374,53 @@ func TestClientLeavingMidWrite(t *testing.T) {
 	}
 }
 
+// Close sends no end frame once the request is over, even when the
+// stream's abort has not run yet.
+func TestCloseAfterContextEnd(t *testing.T) {
+	ctx := newEndedContext()
+	w := newRecorder()
+	s, err := Open(w, request(ctx, "zstd"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	sent := len(w.bytes())
+	ctx.end()
+	s.Close()
+	if n := len(w.bytes()) - sent; n > 0 {
+		t.Fatalf("Close wrote %d bytes after the request ended", n)
+	}
+}
+
+// When the request's context ends during Close's end frame, that write
+// fails at once like any other.
+func TestContextEndAbortsClose(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, "zstd"), Options{WriteTimeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	w.stall(true)
+	done := make(chan error, 1)
+	go func() { done <- s.Close() }()
+	<-w.blocked
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Close returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close outlived its stream")
+	}
+}
+
 // A stream whose request is already over fails to open.
 func TestOpenAfterContextEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
