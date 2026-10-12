@@ -533,17 +533,18 @@ func (failingCloser) Close() error { return errClose }
 
 // TestConcurrentUseWithEviction runs many goroutines over more keys than the
 // pool holds, with a slow opener: a key is never open twice, a pinned value
-// is never closed, and nothing leaks.
+// is never closed, and nothing leaks. There are more keys than goroutines, so
+// cold opens keep finding idle values to evict.
 func TestConcurrentUseWithEviction(t *testing.T) {
 	tr := newTracker()
 	tr.delay = func(string) time.Duration { return time.Duration(rand.IntN(2000)) * time.Microsecond }
 	p := New(4, tr.open)
 
 	var wg sync.WaitGroup
-	for range 16 {
+	for range 8 {
 		wg.Go(func() {
 			for range 150 {
-				key := fmt.Sprintf("k%d", rand.IntN(12))
+				key := fmt.Sprintf("k%d", rand.IntN(40))
 				v, release, err := p.Get(bg, key)
 				if err != nil {
 					t.Error(err)
