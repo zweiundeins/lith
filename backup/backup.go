@@ -412,16 +412,13 @@ func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, e
 	return Timeline{Earliest: pts[0].At, Latest: pts[len(pts)-1].At, Points: pts, Truncated: truncated}, nil
 }
 
-// Attach starts replicating the database at dbPath under name and returns
-// once the first sync has reached the replica: until Litestream's first sync,
-// a final sync is a silent no-op, so a database attached and closed at once
-// would lose its writes. dbPath must exist and name must not be attached
-// already.
+// Attach starts replicating the database at dbPath under name. It returns
+// once the first sync has reached the replica, since until then a final sync
+// does nothing. dbPath must exist and name must not be attached already.
 //
-// Call detach once when done with dbPath, before the application's
-// last checkpoint and close: it is the final sync. Given a cancelled context
-// it syncs with a fresh one, bounded by Litestream's shutdown sync timeout.
-// On a disabled Manager detach does nothing.
+// Call detach once, before the application's last checkpoint and close: it is
+// the final sync. A cancelled context gets a fresh one for it, bounded by
+// Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
 func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(context.Context) error, err error) {
 	if !m.enabled {
 		return func(context.Context) error { return nil }, nil

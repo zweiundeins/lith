@@ -72,14 +72,9 @@ func (m *Manager) RunMaintenanceLoop(ctx context.Context, interval time.Duration
 	}
 }
 
-// maintain snapshots and prunes one replica.
-//
-// A restore as of T replays from the newest snapshot at or before T, so the
-// oldest snapshot to keep is the newest one at or before now minus the
-// window, the floor. Older snapshots, and WAL segments below the floor, serve
-// no restore inside the window. While no snapshot is that old there is no
-// floor and nothing is pruned, so turning this on for a replica with history
-// lets that history age out instead of collapsing it.
+// maintain snapshots one replica when due, then prunes what no restore
+// inside the window needs: everything below the floor, the newest snapshot at
+// or before now minus the window. Without such a snapshot nothing is pruned.
 func (m *Manager) maintain(ctx context.Context, name string, db *litestream.DB, now time.Time) error {
 	client := db.Replica.Client
 	snaps, err := listSnapshots(ctx, client)
