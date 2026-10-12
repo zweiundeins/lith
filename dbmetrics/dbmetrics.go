@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -153,8 +154,8 @@ func (c *connector) Close() error {
 	return nil
 }
 
-// conn adds timing to the driver's connection and forwards every optional
-// interface database/sql looks for, with database/sql's own fallback when the
+// conn times the driver's statements and forwards the optional interfaces
+// of a context-aware driver, falling back as database/sql does when the
 // driver lacks one.
 type conn struct {
 	driver.Conn
@@ -211,7 +212,12 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
 	p, ok := c.Conn.(driver.ConnPrepareContext)
 	if !ok {
-		return c.Prepare(query)
+		s, err := c.Prepare(query)
+		if err == nil && ctx.Err() != nil {
+			_ = s.Close()
+			return nil, ctx.Err()
+		}
+		return s, err
 	}
 	s, err := p.PrepareContext(ctx, query)
 	if err != nil {
@@ -224,7 +230,18 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	if b, ok := c.Conn.(driver.ConnBeginTx); ok {
 		return b.BeginTx(ctx, opts)
 	}
-	return c.Conn.Begin() //nolint:staticcheck // the fallback database/sql uses too
+	if opts.Isolation != driver.IsolationLevel(sql.LevelDefault) {
+		return nil, errors.New("sql: driver does not support non-default isolation level")
+	}
+	if opts.ReadOnly {
+		return nil, errors.New("sql: driver does not support read-only transactions")
+	}
+	tx, err := c.Conn.Begin() //nolint:staticcheck // the fallback database/sql uses too
+	if err == nil && ctx.Err() != nil {
+		_ = tx.Rollback()
+		return nil, ctx.Err()
+	}
+	return tx, err
 }
 
 func (c *conn) Ping(ctx context.Context) error {
@@ -268,26 +285,50 @@ var (
 )
 
 func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	q, ok := s.Stmt.(driver.StmtQueryContext)
-	if !ok {
-		return nil, driver.ErrSkip
-	}
 	start := time.Now()
-	rows, err := q.QueryContext(ctx, args)
+	var rows driver.Rows
+	var err error
+	if q, ok := s.Stmt.(driver.StmtQueryContext); ok {
+		rows, err = q.QueryContext(ctx, args)
+	} else {
+		var vals []driver.Value
+		if vals, err = legacyArgs(ctx, args); err == nil {
+			rows, err = s.Stmt.Query(vals) //nolint:staticcheck // the fallback database/sql uses too
+		}
+	}
 	return s.rec.rows(s.query, rows, err, time.Since(start))
 }
 
 func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	e, ok := s.Stmt.(driver.StmtExecContext)
-	if !ok {
-		return nil, driver.ErrSkip
-	}
 	start := time.Now()
-	res, err := e.ExecContext(ctx, args)
-	if err != driver.ErrSkip {
-		s.rec.record(OpExec, s.query, time.Since(start))
+	var res driver.Result
+	var err error
+	if e, ok := s.Stmt.(driver.StmtExecContext); ok {
+		res, err = e.ExecContext(ctx, args)
+	} else {
+		var vals []driver.Value
+		if vals, err = legacyArgs(ctx, args); err == nil {
+			res, err = s.Stmt.Exec(vals) //nolint:staticcheck // the fallback database/sql uses too
+		}
 	}
+	s.rec.record(OpExec, s.query, time.Since(start))
 	return res, err
+}
+
+// legacyArgs converts arguments for a statement without the context methods,
+// as database/sql would.
+func legacyArgs(ctx context.Context, args []driver.NamedValue) ([]driver.Value, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	vals := make([]driver.Value, len(args))
+	for i, a := range args {
+		if a.Name != "" {
+			return nil, errors.New("sql: driver does not support the use of Named Parameters")
+		}
+		vals[i] = a.Value
+	}
+	return vals, nil
 }
 
 func (s *stmt) CheckNamedValue(nv *driver.NamedValue) error {
