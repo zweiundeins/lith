@@ -191,6 +191,43 @@ func TestStalledClientHoldsUpNoOne(t *testing.T) {
 	waitFor(t, "the healthy stream", got(fast, `<p id="n">21</p>`))
 }
 
+// leavingClient goes away during a write once leaving is set: like
+// net/http, it ends the request's context before the write fails.
+type leavingClient struct {
+	*client
+	leaving atomic.Bool
+}
+
+func (c *leavingClient) Write(p []byte) (int, error) {
+	if c.leaving.Load() {
+		c.cancel()
+		return 0, errors.New("write: broken pipe")
+	}
+	return c.client.Write(p)
+}
+
+// A client that leaves during a write is a client that leaves: Serve
+// returns nil, not the write's error.
+func TestClientLeavingMidWrite(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	var n atomic.Int64
+	v := text("n", []string{"n"}, func(context.Context, *sql.Tx) (string, error) {
+		return strconv.Itoa(int(n.Load())), nil
+	})
+	var lc *leavingClient
+	c := serveThrough(h, Spec{Views: []View{v}}, "", func(c *client) http.ResponseWriter {
+		lc = &leavingClient{client: c}
+		return lc
+	})
+	waitFor(t, "the first frame", func() bool { return c.has(`<p id="n">0</p>`) })
+	lc.leaving.Store(true)
+	n.Store(1)
+	h.Changed([]string{"n"})
+	if err := c.returned(t); err != nil {
+		t.Fatalf("Serve returned %v", err)
+	}
+}
+
 func TestMaxStreams(t *testing.T) {
 	h := start(t, Options{MaxStreams: 2})
 	v := text("a", nil, func(context.Context, *sql.Tx) (string, error) { return "a", nil })

@@ -85,6 +85,44 @@ func (r *recorder) bytes() []byte {
 	return bytes.Clone(r.body.Bytes())
 }
 
+// endedContext is a request context that can end, as Done and Err tell,
+// without running the functions given to context.AfterFunc: the moment
+// after net/http ends a request, before the stream's abort has run.
+type endedContext struct {
+	context.Context
+	done chan struct{}
+
+	mu  sync.Mutex
+	err error
+}
+
+func newEndedContext() *endedContext {
+	return &endedContext{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *endedContext) Done() <-chan struct{} { return c.done }
+
+func (c *endedContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+func (c *endedContext) AfterFunc(func()) func() bool {
+	var once sync.Once
+	return func() (stopped bool) {
+		once.Do(func() { stopped = true })
+		return stopped
+	}
+}
+
+func (c *endedContext) end() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.err = context.Canceled
+	close(c.done)
+}
+
 func request(ctx context.Context, acceptEncoding string) *http.Request {
 	r := httptest.NewRequestWithContext(ctx, "GET", "/", nil)
 	if acceptEncoding != "" {
@@ -300,6 +338,39 @@ func TestContextEndAbortsWrite(t *testing.T) {
 	}
 	if err := s.Write(Comment("")); err == nil {
 		t.Fatal("wrote after the stream ended")
+	}
+}
+
+// leaving is a client that goes away during a write once leave is set:
+// like net/http, it ends the request's context before the write fails.
+type leaving struct {
+	*recorder
+	leave func()
+}
+
+func (l *leaving) Write(p []byte) (int, error) {
+	if l.leave != nil {
+		l.leave()
+		return 0, errors.New("write: broken pipe")
+	}
+	return l.recorder.Write(p)
+}
+
+// A write that fails because the client left reports the end of the
+// stream, not the I/O error, even when the stream's abort has not run.
+func TestClientLeavingMidWrite(t *testing.T) {
+	for _, enc := range []string{Zstd, ""} {
+		ctx := newEndedContext()
+		w := &leaving{recorder: newRecorder()}
+		s, err := Open(w, request(ctx, enc), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.leave = ctx.end
+		if err := s.Write(Comment("x")); !errors.Is(err, context.Canceled) {
+			t.Fatalf("encoding %q: the write failed with %v", enc, err)
+		}
+		s.Close()
 	}
 }
 

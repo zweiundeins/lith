@@ -263,7 +263,9 @@ func (s *Stream) why(err error, due time.Time) error {
 	if !time.Now().Before(due) {
 		return fmt.Errorf("sse: the client took no bytes for %v: %w", s.opt.WriteTimeout, os.ErrDeadlineExceeded)
 	}
-	if s.isAborted() {
+	// net/http ends the context before a write to a client that left
+	// fails, while abort may not have run yet.
+	if s.ctx.Err() != nil {
 		return context.Cause(s.ctx)
 	}
 	return err

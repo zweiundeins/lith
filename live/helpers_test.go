@@ -163,14 +163,36 @@ func (c *client) bytes() []byte {
 // serve opens a stream for spec, uncompressed unless acceptEncoding says
 // otherwise.
 func serve(h *Hub, spec Spec, acceptEncoding string) *client {
+	return serveThrough(h, spec, acceptEncoding, nil)
+}
+
+// serveThrough is serve with Serve writing to what wrap makes of the
+// client.
+func serveThrough(h *Hub, spec Spec, acceptEncoding string, wrap func(*client) http.ResponseWriter) *client {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &client{header: http.Header{}, cancel: cancel, done: make(chan error, 1), blocked: make(chan struct{})}
 	r := httptest.NewRequestWithContext(ctx, "GET", "/live", nil)
 	if acceptEncoding != "" {
 		r.Header.Set("Accept-Encoding", acceptEncoding)
 	}
-	go func() { c.done <- h.Serve(c, r, spec) }()
+	var w http.ResponseWriter = c
+	if wrap != nil {
+		w = wrap(c)
+	}
+	go func() { c.done <- h.Serve(w, r, spec) }()
 	return c
+}
+
+// returned waits for Serve's result.
+func (c *client) returned(t *testing.T) error {
+	t.Helper()
+	select {
+	case err := <-c.done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return")
+		return nil
+	}
 }
 
 // leave ends the stream as a client does that goes away, and waits for
