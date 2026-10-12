@@ -5,4 +5,5 @@
 // Where each piece comes from:
 //
 //	ClientIP, ClientKey  starbase and swisscyberguard: proxy headers count only from loopback or a Unix socket
+//	Sessions             starbase's cookie-only session, hyperlith's __Host-sid, swisscyberguard's 256-bit tokens
 package edge
