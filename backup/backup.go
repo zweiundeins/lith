@@ -138,7 +138,7 @@ type Manager struct {
 	newClient        func(name string) litestream.ReplicaClient
 
 	mu          sync.Mutex
-	attaching   map[string]bool
+	reserved    map[string]bool // names being attached or detached
 	attached    map[string]*attachedDB
 	verify      map[string]verifyResult
 	maintenance map[string]maintResult
@@ -173,7 +173,7 @@ func New(cfg Config) (*Manager, error) {
 		retentionWindow:  orDefault(cfg.RetentionWindow, DefaultRetentionWindow),
 		snapshotInterval: orDefault(cfg.SnapshotInterval, DefaultSnapshotInterval),
 		log:              cfg.Logger,
-		attaching:        map[string]bool{},
+		reserved:         map[string]bool{},
 		attached:         map[string]*attachedDB{},
 		verify:           map[string]verifyResult{},
 		maintenance:      map[string]maintResult{},
@@ -430,16 +430,19 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 		return nil, fmt.Errorf("backup: attach %s: %w", name, err)
 	}
 	m.mu.Lock()
-	if m.attaching[name] || m.attached[name] != nil {
+	if m.reserved[name] || m.attached[name] != nil {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("backup: %s is already attached", name)
 	}
-	m.attaching[name] = true
+	m.reserved[name] = true
 	m.mu.Unlock()
+	committed := false
 	defer func() {
-		m.mu.Lock()
-		delete(m.attaching, name)
-		m.mu.Unlock()
+		if !committed {
+			m.mu.Lock()
+			delete(m.reserved, name)
+			m.mu.Unlock()
+		}
 	}()
 
 	db := litestream.NewDB(dbPath)
@@ -449,13 +452,16 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 		return nil, fmt.Errorf("backup: attach %s: %w", name, err)
 	}
 	if err := db.SyncAndWait(ctx); err != nil {
+		db.ShutdownSyncTimeout = 0 // one more try, not 30s of retries against a replica that just failed
 		_ = db.Close(ctx)
 		return nil, fmt.Errorf("backup: first sync of %s: %w", name, err)
 	}
 
 	a := &attachedDB{db: db}
 	m.mu.Lock()
+	delete(m.reserved, name)
 	m.attached[name] = a
+	committed = true
 	m.mu.Unlock()
 
 	var once sync.Once
@@ -466,21 +472,28 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 	}, nil
 }
 
+// detach keeps name reserved until the final sync is done, so that no
+// second replicator starts on the file meanwhile.
 func (m *Manager) detach(ctx context.Context, name string, a *attachedDB) error {
 	m.mu.Lock()
-	if m.attached[name] == a {
-		delete(m.attached, name)
-	}
+	delete(m.attached, name)
+	m.reserved[name] = true
 	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.reserved, name)
+		m.mu.Unlock()
+	}()
+
+	a.maint.Lock()
+	defer a.maint.Unlock()
+	a.detached = true
 	if ctx.Err() != nil {
 		m.log.Warn("backup: detach called with a cancelled context; syncing with a fresh one", "replica", name)
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), litestream.DefaultShutdownSyncTimeout)
 		defer cancel()
 	}
-	a.maint.Lock()
-	defer a.maint.Unlock()
-	a.detached = true
 	if err := a.db.Close(ctx); err != nil {
 		return fmt.Errorf("backup: final sync of %s: %w", name, err)
 	}
@@ -617,7 +630,7 @@ func (m *Manager) PurgeReplica(ctx context.Context, name string) error {
 		return err
 	}
 	m.mu.Lock()
-	busy := m.attaching[name] || m.attached[name] != nil
+	busy := m.reserved[name] || m.attached[name] != nil
 	m.mu.Unlock()
 	if busy {
 		return fmt.Errorf("backup: purge %s: still attached, detach it first", name)
