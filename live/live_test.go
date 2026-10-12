@@ -339,6 +339,34 @@ func TestShutdownWaitsForNoStream(t *testing.T) {
 	}
 }
 
+// stoppingClient stops the hub while the stream flushes its headers, and
+// the flush fails as the stream ends with it.
+type stoppingClient struct {
+	*client
+	h *Hub
+}
+
+func (c *stoppingClient) FlushError() error {
+	c.h.stop()
+	return context.Canceled
+}
+
+// A stream that opens while the hub stops gets a plain 503, without the
+// Content-Encoding the stream had set.
+func TestStopWhileOpening(t *testing.T) {
+	h := New(Options{Log: slog.New(slog.DiscardHandler)})
+	v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
+	c := serveThrough(h, Spec{Views: []View{v}}, "zstd", func(c *client) http.ResponseWriter {
+		return &stoppingClient{client: c, h: h}
+	})
+	if err := c.returned(t); !errors.Is(err, ErrStopped) || c.status() != http.StatusServiceUnavailable {
+		t.Fatalf("Serve returned %v, status %d", err, c.status())
+	}
+	if e := c.header.Get("Content-Encoding"); e != "" {
+		t.Fatalf("the 503 says Content-Encoding %q", e)
+	}
+}
+
 // A commit after a quiet spell renders at once; the next tick waits for
 // the tick interval.
 func TestLeadingEdgeThenTick(t *testing.T) {

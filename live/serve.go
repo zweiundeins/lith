@@ -68,6 +68,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		case r.Context().Err() != nil:
 			return nil
 		case h.done.Err() != nil:
+			w.Header().Del("Content-Encoding")
 			http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
 			return ErrStopped
 		}
