@@ -13,4 +13,14 @@
 //	Limiter              starbase's token bucket, swept as it goes, and libretto's rule that a clock step must not reset it
 //	Health, Ready        libretto's and swisscyberguard's liveness and readiness probes, with checks registered by the app
 //	Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
+//
+// A chain, built from the inside out:
+//
+//	h := http.Handler(mux)
+//	h = sessions.Handler(h)      // inside CSRF: a refused request gets no cookie
+//	h = csrf.Handler(h)
+//	h = security.Handler(h)
+//	h = edge.Compress(h)
+//	h = edge.Recover(log, h)     // around Compress: a panic drops the held body
+//	h = edge.LogRequests(log, h) // around Recover: it logs the 500
 package edge
