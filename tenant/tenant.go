@@ -46,7 +46,7 @@ type Pool[T io.Closer] struct {
 	mu        sync.Mutex
 	entries   map[string]*entry[T]
 	idle      list.List // unpinned entries, most recently released first
-	busy      map[string]chan struct{}
+	busy      map[string]*flight
 	opening   int
 	denied    map[string]error
 	closed    bool
@@ -59,6 +59,12 @@ type entry[T io.Closer] struct {
 	val  T
 	pins int
 	elem *list.Element // in idle while pins == 0
+}
+
+// flight is an open or a close of one key in progress.
+type flight struct {
+	done chan struct{}
+	err  error // a failed open's error, for the Gets that waited on it
 }
 
 // Option configures a Pool.
@@ -85,7 +91,7 @@ func New[T io.Closer](maxOpen int, open Opener[T], opts ...Option) *Pool[T] {
 		maxOpen: maxOpen,
 		log:     o.log,
 		entries: map[string]*entry[T]{},
-		busy:    map[string]chan struct{}{},
+		busy:    map[string]*flight{},
 		denied:  map[string]error{},
 	}
 }
@@ -99,7 +105,8 @@ func New[T io.Closer](maxOpen int, open Opener[T], opts ...Option) *Pool[T] {
 // Do for each render.
 //
 // ctx bounds the wait for another open or close of key; a cold open started
-// by this call runs to completion.
+// by this call runs to completion. Gets that waited on an open that failed
+// return its error rather than each trying again.
 func (p *Pool[T]) Get(ctx context.Context, key string) (val T, release func(), err error) {
 	if err := ctx.Err(); err != nil {
 		return val, nil, err
@@ -119,29 +126,31 @@ func (p *Pool[T]) Get(ctx context.Context, key string) (val T, release func(), e
 		return e.val, p.releaser(e), nil
 	}
 
-	done := make(chan struct{})
-	p.busy[key] = done
+	if err := ctx.Err(); err != nil {
+		p.mu.Unlock()
+		return val, nil, err
+	}
+	f := &flight{done: make(chan struct{})}
+	p.busy[key] = f
 	p.opening++
 	victims := p.trimLocked()
 	p.mu.Unlock()
 	for _, v := range victims {
-		go p.retire(v.e, v.done)
+		go p.retire(v.e, v.f)
 	}
 
-	finished := false
+	settled := false
 	defer func() {
-		if !finished { // the opener panicked
+		if !settled { // the opener, or the Close of a refused value, panicked
 			p.mu.Lock()
 			p.opening--
-			p.unbusyLocked(key, done)
+			p.unbusyLocked(key, f)
 			p.mu.Unlock()
 		}
 	}()
 	val, err = p.open(context.WithoutCancel(ctx), key)
-	finished = true
 
 	p.mu.Lock()
-	p.opening--
 	if err == nil {
 		if reason := p.refusalLocked(key); reason != nil {
 			// Closed before busy clears, so whoever denied the key never sees it open.
@@ -153,7 +162,10 @@ func (p *Pool[T]) Get(ctx context.Context, key string) (val T, release func(), e
 			err = reason
 		}
 	}
-	p.unbusyLocked(key, done)
+	settled = true
+	p.opening--
+	f.err = err
+	p.unbusyLocked(key, f)
 	if err != nil {
 		p.mu.Unlock()
 		var zero T
@@ -183,13 +195,13 @@ func (p *Pool[T]) Do(ctx context.Context, key string, fn func(T) error) error {
 func (p *Pool[T]) Evict(ctx context.Context, key string) error {
 	p.mu.Lock()
 	for {
-		ch, ok := p.busy[key]
+		f, ok := p.busy[key]
 		if !ok {
 			break
 		}
 		p.mu.Unlock()
 		select {
-		case <-ch:
+		case <-f.done:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -201,16 +213,16 @@ func (p *Pool[T]) Evict(ctx context.Context, key string) error {
 		return nil
 	}
 	p.removeLocked(e)
-	done := make(chan struct{})
-	p.busy[key] = done
+	f := &flight{done: make(chan struct{})}
+	p.busy[key] = f
 	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.unbusyLocked(key, f)
+		p.mu.Unlock()
+	}()
 
-	err := e.val.Close()
-
-	p.mu.Lock()
-	p.unbusyLocked(key, done)
-	p.mu.Unlock()
-	if err != nil {
+	if err := e.val.Close(); err != nil {
 		return fmt.Errorf("tenant: close %s: %w", key, err)
 	}
 	return nil
@@ -270,13 +282,12 @@ func (p *Pool[T]) Close() error {
 	p.mu.Lock()
 	p.closed = true
 	for len(p.busy) > 0 {
-		var ch chan struct{}
-		for _, c := range p.busy {
-			ch = c
+		var f *flight
+		for _, f = range p.busy {
 			break
 		}
 		p.mu.Unlock()
-		<-ch
+		<-f.done
 		p.mu.Lock()
 	}
 	entries := make([]*entry[T], 0, len(p.entries))
@@ -310,14 +321,17 @@ func (p *Pool[T]) settleLocked(ctx context.Context, key string) error {
 		if reason := p.refusalLocked(key); reason != nil {
 			return reason
 		}
-		ch, ok := p.busy[key]
+		f, ok := p.busy[key]
 		if !ok {
 			return nil
 		}
 		p.mu.Unlock()
 		select {
-		case <-ch:
+		case <-f.done:
 			p.mu.Lock()
+			if f.err != nil {
+				return f.err
+			}
 		case <-ctx.Done():
 			p.mu.Lock()
 			return ctx.Err()
@@ -333,8 +347,8 @@ func (p *Pool[T]) refusalLocked(key string) error {
 }
 
 type victim[T io.Closer] struct {
-	e    *entry[T]
-	done chan struct{}
+	e *entry[T]
+	f *flight
 }
 
 // trimLocked takes idle entries out, least recently released first, until the
@@ -349,21 +363,23 @@ func (p *Pool[T]) trimLocked() []victim[T] {
 		}
 		e := back.Value.(*entry[T])
 		p.removeLocked(e)
-		done := make(chan struct{})
-		p.busy[e.key] = done
+		f := &flight{done: make(chan struct{})}
+		p.busy[e.key] = f
 		p.evictions++
-		victims = append(victims, victim[T]{e, done})
+		victims = append(victims, victim[T]{e, f})
 	}
 	return victims
 }
 
-func (p *Pool[T]) retire(e *entry[T], done chan struct{}) {
+func (p *Pool[T]) retire(e *entry[T], f *flight) {
+	defer func() {
+		p.mu.Lock()
+		p.unbusyLocked(e.key, f)
+		p.mu.Unlock()
+	}()
 	if err := e.val.Close(); err != nil {
 		p.log.Warn("tenant: close evicted value", "key", e.key, "error", err)
 	}
-	p.mu.Lock()
-	p.unbusyLocked(e.key, done)
-	p.mu.Unlock()
 }
 
 func (p *Pool[T]) removeLocked(e *entry[T]) {
@@ -374,9 +390,9 @@ func (p *Pool[T]) removeLocked(e *entry[T]) {
 	delete(p.entries, e.key)
 }
 
-func (p *Pool[T]) unbusyLocked(key string, done chan struct{}) {
+func (p *Pool[T]) unbusyLocked(key string, f *flight) {
 	delete(p.busy, key)
-	close(done)
+	close(f.done)
 }
 
 // releaser returns the release func for one pin on e. It is bound to e, not

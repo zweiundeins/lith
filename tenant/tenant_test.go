@@ -327,6 +327,87 @@ func TestAFailedOpenIsNotCached(t *testing.T) {
 	release()
 }
 
+func TestWaitersShareAFailedOpen(t *testing.T) {
+	tr := newTracker()
+	down := errors.New("replica unreachable")
+	var calls atomic.Int32
+	tr.fail = func(string) error {
+		if calls.Add(1) == 1 {
+			return down
+		}
+		return nil
+	}
+	p := New(4, tr.open)
+	defer closePool(t, p, tr)
+	open, started := tr.gate("a")
+
+	const n = 5
+	errs := make(chan error, n)
+	go func() {
+		_, _, err := p.Get(bg, "a")
+		errs <- err
+	}()
+	<-started
+	for range n - 1 {
+		go func() {
+			_, _, err := p.Get(bg, "a")
+			errs <- err
+		}()
+	}
+	time.Sleep(20 * time.Millisecond)
+	open()
+	for range n {
+		if err := <-errs; !errors.Is(err, down) {
+			t.Errorf("Get = %v, want the failed open's error", err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("opener ran %d times, want once for all waiters", got)
+	}
+	_, release := mustGet(t, p, "a")
+	release()
+}
+
+func TestAPanickingCloseInEvictFreesTheKey(t *testing.T) {
+	var panicked atomic.Bool
+	p := New(4, func(ctx context.Context, key string) (panicCloser, error) {
+		return panicCloser{&panicked}, nil
+	})
+	defer p.Close()
+	_, release, err := p.Get(bg, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("the value's panic did not reach Evict's caller")
+			}
+		}()
+		_ = p.Evict(bg, "a")
+	}()
+
+	ctx, cancel := context.WithTimeout(bg, 5*time.Second)
+	defer cancel()
+	_, release, err = p.Get(ctx, "a")
+	if err != nil {
+		t.Fatalf("Get after a panicking close: %v", err)
+	}
+	release()
+}
+
+// panicCloser panics on its first Close in a test.
+type panicCloser struct{ done *atomic.Bool }
+
+func (c panicCloser) Close() error {
+	if !c.done.Swap(true) {
+		panic("close bug")
+	}
+	return nil
+}
+
 func TestAPanickingOpenerFreesItsKey(t *testing.T) {
 	tr := newTracker()
 	var panics atomic.Bool
