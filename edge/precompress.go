@@ -55,10 +55,11 @@ func precompress(b []byte, sum [32]byte) (br, gz []byte) {
 }
 
 // ServePrecompressed answers with body in the best of Precompress's codings
-// the request accepts, or as it is when that is smaller or the type doesn't
-// compress. It sets an ETag of the content and leaves conditional and range
-// requests to http.ServeContent. Set Content-Type and Cache-Control before;
-// a Content-Encoding it sets keeps Compress out of the way.
+// the request accepts. Bodies under 512 bytes, types that don't compress and
+// requests that accept neither coding get it as it is. It sets an ETag of the
+// content and leaves conditional and range requests to http.ServeContent.
+// Set Content-Type and Cache-Control before; a Content-Encoding it sets keeps
+// Compress out of the way.
 func ServePrecompressed(w http.ResponseWriter, r *http.Request, body []byte) {
 	serveContent(w, r, body, sha256.Sum256(body))
 }
