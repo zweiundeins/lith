@@ -223,10 +223,11 @@ func (s *Stream) Close() error {
 	return err
 }
 
-// send writes chunks to the client and flushes them, under a fresh write
-// deadline.
+// send writes chunks to the client and flushes them under a write
+// deadline, which it clears afterwards: HTTP/2 resets a stream when its
+// deadline passes, even while nothing is being written.
 func (s *Stream) send(chunks ...[]byte) error {
-	if err := s.deadline(); err != nil {
+	if err := s.deadline(time.Now().Add(s.opt.WriteTimeout)); err != nil {
 		return s.fail(err)
 	}
 	for _, c := range chunks {
@@ -239,16 +240,21 @@ func (s *Stream) send(chunks ...[]byte) error {
 	if err := s.rc.Flush(); err != nil {
 		return s.fail(err)
 	}
+	if err := s.deadline(time.Time{}); err != nil {
+		return s.fail(err)
+	}
 	return nil
 }
 
-func (s *Stream) deadline() error {
+// deadline sets the write deadline (zero: none), unless the stream has
+// been aborted.
+func (s *Stream) deadline(t time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.aborted {
 		return context.Cause(s.ctx)
 	}
-	if err := s.rc.SetWriteDeadline(time.Now().Add(s.opt.WriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	if err := s.rc.SetWriteDeadline(t); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return err
 	}
 	return nil
