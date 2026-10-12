@@ -94,6 +94,19 @@ func TestStaticURL(t *testing.T) {
 	}
 }
 
+func TestStaticPrefixWithoutSlash(t *testing.T) {
+	s, err := NewStatic(fstest.MapFS{"site.css": {Data: []byte(".card {}")}}, "/assets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := s.URL("site.css")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest("GET", u, nil))
+	if !strings.HasPrefix(u, "/assets/site.") || w.Code != 200 {
+		t.Errorf("URL %q answered %d", u, w.Code)
+	}
+}
+
 func TestStaticServe(t *testing.T) {
 	s := newTestStatic(t)
 	get := func(method, path string, header ...string) *httptest.ResponseRecorder {

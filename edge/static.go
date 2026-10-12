@@ -35,8 +35,11 @@ type staticFile struct {
 }
 
 // NewStatic reads every file of fsys, to serve them under prefix, such as
-// "/static/".
+// "/static/". Mount it there, without http.StripPrefix.
 func NewStatic(fsys fs.FS, prefix string) (*Static, error) {
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
 	s := &Static{fsys: fsys, prefix: prefix, files: map[string]*staticFile{}, hashed: map[string]*staticFile{}}
 	var text []*staticFile
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
