@@ -19,7 +19,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,9 +154,11 @@ func (s *Stream) Encoding() string { return s.encoding }
 func (s *Stream) Sent() (events, wire int64) { return s.in, s.out }
 
 // Write sends events: it compresses them together, flushes the encoder
-// and writes the result to the client within the write timeout. After a
-// failed write the stream is broken, and every later write returns the
-// same error.
+// and writes the result to the client within the write timeout. A write
+// the client does not take in time fails with an error that wraps
+// os.ErrDeadlineExceeded, and one cut short by the end of the request's
+// context with the context's cause. After a failed write the stream is
+// broken, and every later write returns the same error.
 func (s *Stream) Write(events ...[]byte) error {
 	if s.err != nil {
 		return s.err
@@ -227,23 +231,37 @@ func (s *Stream) Close() error {
 // deadline, which it clears afterwards: HTTP/2 resets a stream when its
 // deadline passes, even while nothing is being written.
 func (s *Stream) send(chunks ...[]byte) error {
-	if err := s.deadline(time.Now().Add(s.opt.WriteTimeout)); err != nil {
+	due := time.Now().Add(s.opt.WriteTimeout)
+	if err := s.deadline(due); err != nil {
 		return s.fail(err)
 	}
 	for _, c := range chunks {
 		n, err := s.w.Write(c)
 		s.out += int64(n)
 		if err != nil {
-			return s.fail(err)
+			return s.fail(s.why(err, due))
 		}
 	}
 	if err := s.rc.Flush(); err != nil {
-		return s.fail(err)
+		return s.fail(s.why(err, due))
 	}
 	if err := s.deadline(time.Time{}); err != nil {
 		return s.fail(err)
 	}
 	return nil
+}
+
+// why names the cause of a failed write: the client took no bytes until
+// the deadline, or the stream ended (HTTP/2 shows both as a closed
+// stream), or else err itself.
+func (s *Stream) why(err error, due time.Time) error {
+	if !time.Now().Before(due) {
+		return fmt.Errorf("sse: the client took no bytes for %v: %w", s.opt.WriteTimeout, os.ErrDeadlineExceeded)
+	}
+	if s.isAborted() {
+		return context.Cause(s.ctx)
+	}
+	return err
 }
 
 // deadline sets the write deadline (zero: none), unless the stream has
