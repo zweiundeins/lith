@@ -50,8 +50,8 @@ func TestHeapPerStream(t *testing.T) {
 		opt            Options
 		maxMiB         float64
 	}{
-		{"zstd", Zstd, Options{}, 1.5},
-		{"zstd with full history", Zstd, Options{ZstdFullHistory: true}, 2},
+		{"zstd", Zstd, Options{}, 2},
+		{"zstd with low memory", Zstd, Options{ZstdLowMemory: true}, 1.5},
 		{"brotli", Brotli, Options{}, 3},
 	} {
 		t.Run(c.name, func(t *testing.T) {
