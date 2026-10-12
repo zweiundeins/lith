@@ -1,0 +1,8 @@
+// Package edge is what the apps do at the request edge, before a handler runs
+// and after it has written. It never touches the database: a session here is
+// a cookie, and what a session holds is the app's to store through its writer.
+//
+// Where each piece comes from:
+//
+//	ClientIP, ClientKey  starbase and swisscyberguard: proxy headers count only from loopback or a Unix socket
+package edge
