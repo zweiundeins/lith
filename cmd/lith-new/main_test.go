@@ -1,0 +1,167 @@
+package main
+
+import (
+	"bytes"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/zweiundeins/lith/template"
+)
+
+func TestWrite(t *testing.T) {
+	lith, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "visitors")
+	p, err := newProject(dir, "example.com/acme/visitor-log", "", lith)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.write(template.FS); err != nil {
+		t.Fatal(err)
+	}
+
+	gomod := read(t, dir, "go.mod")
+	if !strings.HasPrefix(gomod, "module example.com/acme/visitor-log\n") || !strings.HasSuffix(gomod, "\nreplace github.com/zweiundeins/lith => "+lith+"\n") {
+		t.Errorf("go.mod:\n%s", gomod)
+	}
+	main := read(t, dir, "cmd/visitor-log/main.go")
+	for _, want := range []string{`fmt.Println("visitor-log", `, `"VISITOR_LOG_" + strings.ToUpper(fl.Name)`, `"example.com/acme/visitor-log/internal/web"`} {
+		if !strings.Contains(main, want) {
+			t.Errorf("main.go lacks %s", want)
+		}
+	}
+	if s := read(t, dir, "deploy/visitor-log.service"); !strings.Contains(s, "ExecStart=/opt/visitor-log/visitor-log serve") {
+		t.Errorf("the unit:\n%s", s)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "deploy/visitor-log-deploy")); err != nil || fi.Mode().Perm() != 0o755 {
+		t.Errorf("the deploy script: %v %v", fi, err)
+	}
+	for _, gone := range []string{"template.go", "go.mod.tmpl", "cmd/app", "deploy/app.service"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
+			t.Errorf("%s was copied", gone)
+		}
+	}
+	vendored, _ := fs.ReadFile(template.FS, "internal/web/static/vendor/datastar-rocket.js")
+	if read(t, dir, "internal/web/static/vendor/datastar-rocket.js") != string(vendored) {
+		t.Error("the vendored Datastar build changed on the way")
+	}
+
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(b, []byte(templateModule)) {
+			t.Errorf("%s still names %s", path, templateModule)
+		}
+		if strings.HasSuffix(path, ".go") {
+			if _, err := parser.ParseFile(token.NewFileSet(), path, b, parser.SkipObjectResolution); err != nil {
+				t.Error(err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPublishable keeps every template file in lith's module zip, which
+// leaves out the files in subdirectories of vendor directories.
+func TestPublishable(t *testing.T) {
+	fs.WalkDir(template.FS, ".", func(path string, d fs.DirEntry, err error) error {
+		elems := strings.Split(path, "/")
+		for i, e := range elems {
+			if e == "vendor" && i < len(elems)-2 {
+				t.Errorf("%s would be missing from lith's module zip", path)
+			}
+		}
+		return err
+	})
+}
+
+func TestNames(t *testing.T) {
+	for module, want := range map[string]string{
+		"example.com/acme/guestbook":    "guestbook",
+		"github.com/acme/Shop/v2":       "shop",
+		"kanban":                        "kanban",
+		"example.com/acme/my.site":      "",
+		"github.com/zweiundeins/lith/x": "",
+		"./guestbook":                   "",
+	} {
+		p, err := newProject(t.TempDir(), module, "", "")
+		switch {
+		case want == "" && err == nil:
+			t.Errorf("%s: no error, name %q", module, p.name)
+		case want != "" && (err != nil || p.name != want):
+			t.Errorf("%s: %v, want the name %q", module, err, want)
+		}
+	}
+	if _, err := newProject(t.TempDir(), "example.com/x", "", t.TempDir()); err == nil {
+		t.Error("-lith accepted a directory without lith's go.mod")
+	}
+}
+
+func TestNotEmpty(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "keep"), nil, 0o644)
+	p, err := newProject(dir, "example.com/x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.write(template.FS); err == nil {
+		t.Error("wrote into a directory that is not empty")
+	}
+}
+
+// TestGenerated builds and tests a generated project against this checkout.
+// It needs the project's modules, from the network or the module cache.
+func TestGenerated(t *testing.T) {
+	if os.Getenv("LITH_NEW_E2E") == "" {
+		t.Skip("set LITH_NEW_E2E=1 to tidy, vet, test and build a generated project")
+	}
+	lith, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "visitors")
+	p, err := newProject(dir, "example.com/acme/visitor-log", "", lith)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.write(template.FS); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"mod", "tidy"},
+		{"vet", "./..."},
+		{"test", "-race", "./..."},
+		{"build", "-o", os.DevNull, "./cmd/visitor-log"},
+	} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+}
+
+func read(t *testing.T, dir, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
