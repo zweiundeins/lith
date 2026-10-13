@@ -254,6 +254,13 @@
 			align-items: center;
 			padding-inline-start: var(--lith-space-2);
 			border-inline-start: 1px solid var(--lith-border);
+
+			/* On a phone the badge keeps its numbers and leaves the line out. */
+			@container party (width < 34rem) {
+				& sb-sparkline {
+					display: none;
+				}
+			}
 		}
 
 		/* On the demo's page the numbers stand out. */
