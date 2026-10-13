@@ -1,0 +1,113 @@
+package guestbook
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/zweiundeins/lith/site/internal/views"
+)
+
+// Stage is the demo on its page: the form, the tab's outcome, the entries.
+templ Stage(list []Entry, total int, now time.Time) {
+	<div class="gb" data-signals={ signals }>
+		<form class="gb__form" data-on:submit__prevent={ sign } data-on:datastar-fetch={ failed } data-effect={ settle }>
+			<label class="field">
+				<span>Name</span>
+				<input class="input" data-bind="_guestbook.name" maxlength={ maxLen(MaxName) } required autocomplete="name" placeholder="Ada" data-attr:readonly={ pending }/>
+			</label>
+			<label class="field">
+				<span>Message</span>
+				<textarea class="input" data-bind="_guestbook.message" maxlength={ maxLen(MaxMessage) } required rows="3" placeholder="Hello from Biel" data-attr:readonly={ pending }></textarea>
+			</label>
+			<div class="gb__actions">
+				<button class="btn btn--primary" type="submit" data-attr:aria-busy={ busy }>Sign</button>
+				@Outcome(TabState{})
+			</div>
+			<p class="outcome is-problem" role="alert" data-show="$_guestbook.problem" data-text="$_guestbook.problem"></p>
+		</form>
+		@Entries(list, total, now)
+	</div>
+}
+
+// Outcome is the tab's own region: what became of its last signature.
+templ Outcome(s TabState) {
+	<p
+		id="guestbook-outcome"
+		role="status"
+		if s.Refusal != "" {
+			class="outcome is-refused"
+		} else {
+			class="outcome"
+		}
+	>
+		if s.Refusal != "" {
+			{ s.Refusal }
+		} else if s.Accepted() {
+			Thank you for signing.
+		}
+	</p>
+}
+
+// Entries is the shared region: the newest entries, the same for every
+// tab. An entry younger than Fresh arrives with a glow (@starting-style);
+// each entry's view-transition name lets the others glide down.
+templ Entries(list []Entry, total int, now time.Time) {
+	<section id="guestbook-entries" class="gb__entries" aria-labelledby="guestbook-count">
+		<h3 id="guestbook-count">{ views.Count(total, "entry", "entries") }</h3>
+		<ol role="list">
+			for _, e := range list {
+				<li
+					id={ entryID(e) }
+					class="gb__entry"
+					style={ "view-transition-name: " + entryID(e) }
+					if now.Sub(e.At) < Fresh {
+						data-fresh
+					}
+				>
+					<p class="gb__message">{ e.Message }</p>
+					<p class="gb__by"><span>{ e.Name }</span> <time datetime={ e.At.UTC().Format(time.RFC3339) }>{ e.At.UTC().Format("2 Jan 2006, 15:04 UTC") }</time></p>
+				</li>
+			}
+		</ol>
+	</section>
+}
+
+func entryID(e Entry) string { return "guestbook-entry-" + strconv.FormatInt(e.ID, 10) }
+
+// Embed is the guestbook in the landing page's slot: the newest entries,
+// kept current by the landing page's stream.
+templ Embed(list []Entry, total int, now time.Time) {
+	<div class="gb-embed">
+		<p class="gb-embed__head" data-class:is-live="$_live"><span class="gb-embed__dot" aria-hidden="true"></span>The guestbook, live</p>
+		@latestList(list, total, now)
+		<a class="btn btn--sm" href="/demos/guestbook">
+			Sign it
+			@views.Icon("arrow-right")
+		</a>
+	</div>
+}
+
+templ latestList(list []Entry, total int, now time.Time) {
+	<div id="guestbook-latest" class="gb-embed__list">
+		if len(list) == 0 {
+			<p class="gb-embed__empty">No entries yet. Be the first.</p>
+		}
+		<ol role="list">
+			for _, e := range list {
+				<li
+					id={ "guestbook-latest-" + strconv.FormatInt(e.ID, 10) }
+					class="gb__entry"
+					if now.Sub(e.At) < Fresh {
+						data-fresh
+					}
+				>
+					<p class="gb__message">{ e.Message }</p>
+					<p class="gb__by"><span>{ e.Name }</span></p>
+				</li>
+			}
+		</ol>
+		if total > 0 {
+			<p class="gb-embed__total">{ views.Count(total, "entry", "entries") } in the book</p>
+		}
+	</div>
+}
