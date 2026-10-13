@@ -16,7 +16,7 @@ func mount(k *demo.Kit) {
 	// comes first, so a client that makes up sessions makes no buckets.
 	bySession := edge.NewLimiter(pixelRate, pixelBurst)
 	byAddr := edge.NewLimiter(4*pixelRate, 4*pixelBurst)
-	k.Command("paint", demo.Rate{Every: paintEvery, Burst: paintBurst}, func(w http.ResponseWriter, r *http.Request) {
+	k.Command("paint", demo.Rate{Every: paintEvery, Burst: paintBurst, Separate: true}, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab   string
 			Color int

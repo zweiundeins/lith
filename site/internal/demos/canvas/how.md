@@ -65,12 +65,12 @@ func paintCells(tx *writer.Tx, list []int, color int, at time.Time) (bool, error
 
 ## The action
 
-The kit limits the requests of every action. Painting needs a limit on pixels too, since one request carries 1 to 60 of them: a token bucket per session, and one per address with four times as much, checked before the command reaches the writer.
+The kit limits the requests of every action; `Separate` keeps a painter's strokes out of the site's limit for all actions, which a stroke would use up for the other demos. Painting needs a limit on pixels too, since one request carries 1 to 60 of them: a token bucket per session, and one per address with four times as much, checked before the command reaches the writer.
 
 ```go title=routes.go
 	bySession := edge.NewLimiter(pixelRate, pixelBurst)
 	byAddr := edge.NewLimiter(4*pixelRate, 4*pixelBurst)
-	k.Command("paint", demo.Rate{Every: paintEvery, Burst: paintBurst}, func(w http.ResponseWriter, r *http.Request) {
+	k.Command("paint", demo.Rate{Every: paintEvery, Burst: paintBurst, Separate: true}, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab   string
 			Color int
