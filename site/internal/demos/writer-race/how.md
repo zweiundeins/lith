@@ -132,7 +132,7 @@ func (r *runner) races() error {
 
 ## What a race costs this server
 
-The race's writer is one goroutine, so a race keeps one core busy at most, and less with `FULL`, where it waits for the disk. On the Intel i5-13500 of lith's benchmarks, with 100 tabs open on this page, the whole site used about 0.9 cores while a race of 200 producers with `NORMAL` ran, and its heap grew by about 20 MiB at the peak. The race's file is deleted when it ends, and the site deletes any that a restart left behind when it starts.
+The race's writer is one goroutine, so a race keeps one core busy at most, and less with `FULL`, where it waits for the disk. On the Intel i5-13500 of lith's benchmarks, with 100 tabs open on this page, the whole site used 0.8 to 1 core while a race of 200 producers with `NORMAL` ran, and its heap rose by about 20 MiB at the peak. The race's file grows to about 7 MiB and is deleted when the race ends; the site deletes any that a restart left behind when it starts.
 
 The writer's goroutine stays on a thread of its own, at a lower CPU and disk priority, so the site and the other services on this server win whenever they want the CPU or the disk. The thread ends with the race.
 
