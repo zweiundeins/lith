@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // discard is a client that takes everything at once.
@@ -52,6 +54,8 @@ func TestHeapPerStream(t *testing.T) {
 	}{
 		{"zstd", Zstd, Options{}, 2},
 		{"zstd with low memory", Zstd, Options{ZstdLowMemory: true}, 1.5},
+		{"zstd at the default level", Zstd, Options{ZstdLevel: zstd.SpeedDefault}, 3.5},
+		{"zstd at better compression", Zstd, Options{ZstdLevel: zstd.SpeedBetterCompression}, 7},
 		{"brotli", Brotli, Options{}, 3},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -75,8 +79,8 @@ func TestHeapPerStream(t *testing.T) {
 			took := time.Since(start)
 			perStream := float64(heap()-before) / streams / (1 << 20)
 			in, wire := open[0].Sent()
-			t.Logf("%s: %.2f MiB per stream, %v per frame, %.0f:1 (%d bytes of events, %d on the wire)",
-				c.name, perStream, took/(streams*frames), float64(in)/float64(wire), in, wire)
+			t.Logf("%s: %.2f MiB per stream, %v per frame, %d bytes per frame on the wire, %.0f:1 (%d bytes of events, %d on the wire)",
+				c.name, perStream, took/(streams*frames), wire/frames, float64(in)/float64(wire), in, wire)
 			if perStream > c.maxMiB {
 				t.Errorf("%.2f MiB per stream, want under %.1f", perStream, c.maxMiB)
 			}

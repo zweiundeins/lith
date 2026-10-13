@@ -71,3 +71,36 @@ The heap per stream is what the sse package measures: 1.67 MiB with zstd's full 
 The writer kept up with 800 commands a second in every run, about two to a transaction. A command's time from when it was due to its commit is mostly the fsync: its p50 was 3 to 8 ms. Its p99 depends on the disk, the host's shared SSD pool: in two zstd runs of the second set, while another agent's test suites ran, the writer waited up to 0.8 s for the disk and then took up to 512 commands (MaxBatch) into one transaction; fewer commits made fewer ticks (17.8 a second in the slowest run).
 
 Other agents compiled and ran test suites on the machine during both sets: the 1-minute load average was 4.7 before the first set and 9.7 after it, 10.3 before the second and 9.1 after it, on 20 threads.
+
+### zstd levels
+
+Measured on 2026-10-13 between 05:02 and 05:04 UTC on the same machine and toolchain, with klauspost/compress v1.20.1, on lith's api-core branch, which adds `sse.Options.ZstdLevel`:
+
+    taskset -c 0-11 go test ./loadtest -run '^$' -bench BoardZstdLevels -count 3
+
+`BenchmarkBoardZstdLevels` (`loadtest/bench_test.go`) is `BenchmarkSharedBoard` with every stream on zstd, at SpeedFastest (lith's default), SpeedDefault and SpeedBetterCompression. Medians of three runs each, the range in brackets:
+
+| | fastest | default | better |
+|---|---|---|---|
+| bytes per frame on the wire | 2,266 (2,183 to 2,283) | 1,138 (1,087 to 1,153) | 365 (364 to 366) |
+| CPU, cores busy | 1.32 (1.05 to 1.41) | 1.07 (1.07 to 1.15) | 3.11 (3.08 to 3.20) |
+| heap per stream | 1.68 MiB | 2.76 MiB | 5.56 MiB |
+| tick p99 | 5.2 ms (2.80 to 5.24) | 2.5 ms (2.03 to 4.38) | 2.8 ms (1.97 to 3.99) |
+
+Every run sent 3,920 to 3,969 frames a second and dropped none. The default level halves the bytes of the fastest for no more CPU in these runs, and costs 1.1 MiB more per stream: about 220 MiB more for 200 tabs. Better compression sends a third of the default's bytes and fewer than brotli's 955 (above), for about brotli's CPU (3.31 cores) and two and a half times its heap. The 1-minute load average was 6.8 before the runs and 11.9 after them, from other agents' work, and the fastest level varied the most, as in the runs above.
+
+`TestHeapPerStream` (`sse/heap_test.go`) measures the same levels on one core, without the render loop: 200 frames of a 57 KB page, of which five rows change from one frame to the next, to each of 20 streams. Three runs of
+
+    go test ./sse -run TestHeapPerStream -v -count 3
+
+gave the same bytes in each run:
+
+| | bytes per frame | time per frame | heap per stream |
+|---|---|---|---|
+| zstd fastest | 405 | 36 to 41 µs | 1.65 MiB |
+| zstd fastest, `ZstdLowMemory` | 405 | 55 to 58 µs | 1.02 MiB |
+| zstd default | 228 | 31 µs | 2.73 MiB |
+| zstd better | 108 | 184 to 201 µs | 5.54 MiB |
+| brotli, quality 4 | 121 | 251 to 265 µs | 2.02 MiB |
+
+The `memmove` in zstd's `addBlock` comes from its history: the encoder keeps twice its window (1 MiB for the 512 KiB window) and, when the next block does not fit, moves the newest 512 KiB to the front. With a 140 KB frame that is one 512 KiB move every three or four frames, as many bytes again as copying each frame in. No encoder option changes the ratio: a larger window moves more bytes less often, and `ZstdLowMemory` moves once for every frame.

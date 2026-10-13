@@ -254,6 +254,41 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+// ZstdLevel picks the encoder's level: a higher one sends fewer bytes for
+// the same frames, and the stream still decodes to them.
+func TestZstdLevel(t *testing.T) {
+	sent := map[zstd.EncoderLevel]int64{}
+	for _, level := range []zstd.EncoderLevel{0, zstd.SpeedFastest, zstd.SpeedDefault} {
+		w := newRecorder()
+		s, err := Open(w, request(t.Context(), Zstd), Options{ZstdLevel: level})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []byte
+		for i := range 20 {
+			f := frame(i)
+			if err := s.Write(f); err != nil {
+				t.Fatal(err)
+			}
+			want = append(want, f...)
+		}
+		_, sent[level] = s.Sent()
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got, err := io.ReadAll(decoder(t, Zstd, w.bytes()))
+		if err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("level %v: the stream decodes to %d bytes of %d, %v", level, len(got), len(want), err)
+		}
+	}
+	if sent[0] != sent[zstd.SpeedFastest] || sent[zstd.SpeedDefault] >= sent[zstd.SpeedFastest] {
+		t.Fatalf("bytes on the wire by level: %v", sent)
+	}
+	if _, err := Open(newRecorder(), request(t.Context(), Zstd), Options{ZstdLevel: 99}); err == nil {
+		t.Fatal("opened a stream with an unknown zstd level")
+	}
+}
+
 func TestWriteTimeout(t *testing.T) {
 	w := newRecorder()
 	s, err := Open(w, request(t.Context(), "zstd"), Options{WriteTimeout: 50 * time.Millisecond})
