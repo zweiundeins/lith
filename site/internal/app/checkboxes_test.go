@@ -168,6 +168,16 @@ func TestCheckboxesBrowser(t *testing.T) {
 	pressSpace(t, bob)
 	bob.Wait(t, far+`.checked`, 5*time.Second)
 	ada.Wait(t, far+`.checked`, 5*time.Second)
+
+	// The arrows walk the boxes: right from the end of a row to the next
+	// row's start, down a row of 16, and on into the next tile.
+	for _, step := range []struct{ key, title string }{{"ArrowRight", "500,001"}, {"ArrowDown", "500,017"}, {"ArrowLeft", "500,016"}, {"ArrowUp", "500,000"}} {
+		pressKey(t, bob, step.key)
+		bob.Wait(t, `document.activeElement.title === '`+step.title+`'`, 2*time.Second)
+	}
+	bob.Eval(t, `document.querySelector('#checkboxes-tile-1953 .cb-boxes').children[255].focus()`, nil)
+	pressKey(t, bob, "ArrowDown")
+	bob.Wait(t, `document.activeElement.title === '500,240'`, 2*time.Second)
 	var label string
 	ada.Eval(t, `document.querySelector('#checkboxes-tile-1953').getAttribute('aria-label')`, &label)
 	if label != "Boxes 499,969 to 500,224, 1 checked" {
@@ -221,5 +231,14 @@ func pressSpace(t *testing.T, p *browser.Page) {
 	t.Helper()
 	for _, typ := range []string{"keyDown", "keyUp"} {
 		p.Call(t, "Input.dispatchKeyEvent", map[string]any{"type": typ, "key": " ", "code": "Space", "windowsVirtualKeyCode": 32, "text": " "})
+	}
+}
+
+// pressKey presses a key that types nothing, such as an arrow.
+func pressKey(t *testing.T, p *browser.Page, key string) {
+	t.Helper()
+	codes := map[string]int{"ArrowLeft": 37, "ArrowUp": 38, "ArrowRight": 39, "ArrowDown": 40}
+	for _, typ := range []string{"rawKeyDown", "keyUp"} {
+		p.Call(t, "Input.dispatchKeyEvent", map[string]any{"type": typ, "key": key, "code": key, "windowsVirtualKeyCode": codes[key]})
 	}
 }

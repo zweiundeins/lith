@@ -68,6 +68,7 @@ func TestShotsCheckboxes(t *testing.T) {
 	full.Eval(t, "document.querySelector('.howto').open = true", nil)
 	time.Sleep(600 * time.Millisecond)
 	full.Screenshot(t, filepath.Join(dir, "checkboxes-full.png"), true)
+	full.ShotElement(t, ".demo-head__art", filepath.Join(dir, "checkboxes-detail-art.png"), 2)
 
 	// Two tabs on the same tiles, and boxes that wait for their frame:
 	// the writer is held while Ada clicks.

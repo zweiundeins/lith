@@ -41,7 +41,7 @@ func chunkView(h Hub, n int) live.View {
 }
 ```
 
-`Presence` renders the tile again when a tab starts or stops watching it, so it can say how many tabs show it. Open the demo in two windows: the tiles both show light up with "2 watching", and scrolling one window away puts them back.
+`Presence` renders the tile again when a tab starts or stops watching it, so it can say how many tabs show it. Open the demo in two windows: the tiles that both show say "2 watching", until one window scrolls away from them.
 
 ## Watching what the tab shows
 

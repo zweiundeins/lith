@@ -28,6 +28,11 @@ templ Stage(w Window, tiles [][]byte, s Stats) {
 		@StatsBar(s)
 		<p class="outcome is-problem cb__problem" role="alert" data-show="$_checkboxes.problem" data-text="$_checkboxes.problem"></p>
 		<div class="cb__frame">
+			<div class="cb-where" aria-hidden="true">
+				<span>#1</span>
+				<i class="cb-where__rail"><b class="cb-where__mark"></b></i>
+				<span>#{ grouped(Boxes) }</span>
+			</div>
 			@Board(w, tiles)
 		</div>
 		<div class="cb__foot">

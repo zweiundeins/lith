@@ -130,6 +130,55 @@
 	/* ── The grid ───────────────────────────────────────────────────── */
 	.cb__frame {
 		container: cb-frame / inline-size;
+		/* The list's scroller is in its shadow root: its timeline is named
+		 * there through ::part and reaches the rail from here. */
+		timeline-scope: --cb-grid;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-2);
+	}
+
+	/* Where the view is in the million: a mark on a rail that follows the
+	 * list's scroll (a scroll-driven animation). */
+	.cb-where {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-3);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: 0.6875rem;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.cb-where__rail {
+		position: relative;
+		flex: 1;
+		block-size: 2px;
+		background:
+			linear-gradient(90deg, transparent calc(25% - 1px), var(--lith-border-strong) 0 calc(25% + 1px), transparent 0 calc(50% - 1px), var(--lith-border-strong) 0 calc(50% + 1px), transparent 0 calc(75% - 1px), var(--lith-border-strong) 0 calc(75% + 1px), transparent 0) 0 50% / 100% 6px no-repeat,
+			linear-gradient(var(--lith-border), var(--lith-border));
+	}
+
+	.cb-where__mark {
+		position: absolute;
+		inset-block-start: 50%;
+		inset-inline-start: 0;
+		inline-size: 10px;
+		block-size: 6px;
+		translate: -50% -50%;
+		background: var(--lith-accent);
+		box-shadow: 0 0 8px var(--lith-glow-color);
+	}
+
+	@supports (animation-timeline: scroll()) {
+		.cb-grid::part(scroller) {
+			scroll-timeline: --cb-grid block;
+		}
+
+		.cb-where__mark {
+			animation: cb-where linear both;
+			animation-timeline: --cb-grid;
+		}
 	}
 
 	.cb-grid {
@@ -374,5 +423,11 @@
 	from {
 		outline-offset: 12px;
 		outline-color: transparent;
+	}
+}
+
+@keyframes cb-where {
+	to {
+		inset-inline-start: 100%;
 	}
 }
