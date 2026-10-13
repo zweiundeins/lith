@@ -14,6 +14,7 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demos/checkboxes"
 	cursorparty "github.com/zweiundeins/lith/site/internal/demos/cursor-party"
 	"github.com/zweiundeins/lith/site/internal/demos/guestbook"
+	"github.com/zweiundeins/lith/site/internal/demos/life"
 	"github.com/zweiundeins/lith/site/internal/demos/stream"
 	writerrace "github.com/zweiundeins/lith/site/internal/demos/writer-race"
 	"github.com/zweiundeins/lith/site/internal/migrate"
@@ -29,6 +30,7 @@ var All = []demo.Demo{
 	board.Demo,
 	cursorparty.Demo,
 	checkboxes.Demo,
+	life.Demo,
 }
 
 // Check validates every demo, and that no two share a slug or a slot of

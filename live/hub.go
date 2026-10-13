@@ -423,6 +423,11 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 	return true
 }
 
+// Done is closed once the hub stops: when Run's ctx ends, or Run returns.
+// Work that only serves the hub's views ends with it, such as a clock
+// that changes a view while someone watches it (Count).
+func (h *Hub) Done() <-chan struct{} { return h.done.Done() }
+
 // Budget is the budget the hub's streams share: Options.SSE.Budget, or the
 // one New made. Its Stats tell what the encoders hold, and SetLimit moves
 // its limit while the hub runs.

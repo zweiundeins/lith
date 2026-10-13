@@ -127,6 +127,14 @@ func (h *Hub) Count(key string) int
 
 Count is the number of streams watching the view.
 
+#### func (*Hub) Done {#Hub.Done}
+
+```go
+func (h *Hub) Done() <-chan struct{}
+```
+
+Done is closed once the hub stops: when Run's ctx ends, or Run returns. Work that only serves the hub's views ends with it, such as a clock that changes a view while someone watches it (Count).
+
 #### func (*Hub) MarkAll {#Hub.MarkAll}
 
 ```go
