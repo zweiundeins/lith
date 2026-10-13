@@ -1,0 +1,36 @@
+status when producers stopped: enabled true cursor 205 head 1702 pending true reactors []
+sync: <nil>
+status when producers stopped: enabled true cursor 1859 head 1860 pending true reactors [{id 207 name kanban/lane-count priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 1238 head 1239 pending true reactors [{id 207 name kanban/done-at priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 205 head 374 pending true reactors []
+sync: <nil>
+status when producers stopped: enabled true cursor 535 head 536 pending true reactors [{id 207 name kanban/lane-count priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 553 head 553 pending false reactors [{id 207 name kanban/done-at priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 205 head 1009 pending true reactors []
+sync: <nil>
+status when producers stopped: enabled true cursor 1411 head 1412 pending true reactors [{id 207 name kanban/lane-count priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 981 head 982 pending true reactors [{id 207 name kanban/done-at priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 205 head 362 pending true reactors []
+sync: <nil>
+status when producers stopped: enabled true cursor 457 head 457 pending false reactors [{id 207 name kanban/lane-count priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 437 head 438 pending true reactors [{id 207 name kanban/done-at priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 205 head 1131 pending true reactors []
+sync: <nil>
+status when producers stopped: enabled true cursor 1771 head 1772 pending true reactors [{id 207 name kanban/lane-count priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 1392 head 1393 pending true reactors [{id 207 name kanban/done-at priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 205 head 385 pending true reactors []
+sync: <nil>
+status when producers stopped: enabled true cursor 509 head 510 pending true reactors [{id 207 name kanban/lane-count priority 0 sinceTx 208}]
+sync: <nil>
+status when producers stopped: enabled true cursor 494 head 495 pending true reactors [{id 207 name kanban/done-at priority 0 sinceTx 208}]
+sync: <nil>

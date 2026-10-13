@@ -1,0 +1,14 @@
+retain=false seed: 524288 bytes
+  after   2000 commits (  40000 facts, 18s):   4194304 bytes
+  after   4000 commits (  80000 facts, 47s):   8388608 bytes
+  after   6000 commits ( 120000 facts, 1m14s):  16777216 bytes
+  after   8000 commits ( 160000 facts, 1m43s):  16777216 bytes
+  after  10000 commits ( 200000 facts, 2m7s):  33554432 bytes
+  5s later: 33554432 bytes
+retain=true seed: 524288 bytes
+  after   2000 commits (  40000 facts, 20s):   4194304 bytes
+  after   4000 commits (  80000 facts, 45s):  33554432 bytes
+  after   6000 commits ( 120000 facts, 1m13s):  33554432 bytes
+  after   8000 commits ( 160000 facts, 1m34s):  33554432 bytes
+  after  10000 commits ( 200000 facts, 1m58s):  33554432 bytes
+  35s later: 33554432 bytes

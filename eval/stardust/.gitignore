@@ -1,0 +1,5 @@
+license.token
+*.db
+*.db-*
+bin/
+*.so
