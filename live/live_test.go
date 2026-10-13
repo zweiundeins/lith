@@ -249,6 +249,108 @@ func TestStatsCountReadTransactionsAndRendersByKey(t *testing.T) {
 	}
 }
 
+// sqlite.QuerierFrom gives a Render its worker's prepared statements: each
+// SQL text is prepared once on the worker's connection, whatever the
+// number of renders and ticks, and runs in the render's snapshot. A query
+// that runs again while its rows are open, as in a nested loop, runs on a
+// statement of its own.
+func TestRenderQuerierPreparesOnce(t *testing.T) {
+	write, read, prepares := countingDB(t, 4)
+	l := &logs{}
+	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond, Log: l.logger()})
+	const one, names = `select n from counter where name = ?`, `select name from counter`
+	render := func(ctx context.Context, tx *sql.Tx) (string, error) {
+		q, ok := sqlite.QuerierFrom(ctx)
+		if !ok {
+			return "", errors.New("no Querier in the ctx")
+		}
+		var before, after int
+		if err := q.QueryRowContext(ctx, one, "a").Scan(&before); err != nil {
+			return "", err
+		}
+		if _, err := write.Exec(`update counter set n = n + 1 where name = 'b'`); err != nil {
+			return "", err
+		}
+		if err := q.QueryRowContext(ctx, one, "a").Scan(&after); err != nil {
+			return "", err
+		}
+		if after != before {
+			return "", fmt.Errorf("the Querier left the render's snapshot: %d, then %d", before, after)
+		}
+		rows, err := q.QueryContext(ctx, names)
+		if err != nil {
+			return "", err
+		}
+		defer rows.Close()
+		pairs := 0
+		for rows.Next() {
+			inner, err := q.QueryContext(ctx, names)
+			if err != nil {
+				return "", err
+			}
+			for inner.Next() {
+				pairs++
+			}
+			if err := inner.Close(); err != nil {
+				return "", err
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%d/%d", before, pairs), nil
+	}
+	if _, err := write.Exec(`insert into counter values ('b', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	c := serve(h, Spec{Views: []View{text("n", []string{"counter"}, render)}}, "")
+	waitFor(t, "the first frame", func() bool { return c.has(`<p id="n">0/4</p>`) })
+	for i := 1; i <= 5; i++ {
+		increment(t, write)
+		h.Changed([]string{"counter"})
+		waitFor(t, "the next frame", func() bool { return c.has(fmt.Sprintf(`<p id="n">%d/4</p>`, i)) })
+	}
+	if strings.Contains(l.String(), "render") {
+		t.Fatalf("logged %s", l.String())
+	}
+	if n := prepares.Load(); n != 2 {
+		t.Fatalf("%d statements prepared for two queries in six ticks, want 2", n)
+	}
+}
+
+// A row that a Render leaves unscanned does not keep its statement busy,
+// nor the worker's snapshot from moving on; a Querier kept beyond its
+// tick fails.
+func TestRenderQuerierAfterTheRender(t *testing.T) {
+	write, read, _ := countingDB(t, 4)
+	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond})
+	kept := make(chan sqlite.Querier, 1)
+	v := text("n", []string{"counter"}, func(ctx context.Context, tx *sql.Tx) (string, error) {
+		n, err := count(ctx, tx)
+		if err != nil {
+			return "", err
+		}
+		q, _ := sqlite.QuerierFrom(ctx)
+		q.QueryRowContext(context.Background(), `select n from counter where name = ?`, "a")
+		select {
+		case kept <- q:
+		default:
+		}
+		return strconv.Itoa(n), nil
+	})
+	c := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the first frame", func() bool { return c.has(`<p id="n">0</p>`) })
+	for i := 1; i <= 3; i++ {
+		increment(t, write)
+		h.Changed([]string{"counter"})
+		waitFor(t, "a frame of the new snapshot", func() bool { return c.has(fmt.Sprintf(`<p id="n">%d</p>`, i)) })
+	}
+	var n int
+	if err := (<-kept).QueryRowContext(context.Background(), `select n from counter where name = ?`, "a").Scan(&n); err == nil {
+		t.Fatal("a Querier read after its tick")
+	}
+}
+
 // slowViews returns views v0, v1, ... that each take a millisecond to
 // render their key.
 func slowViews(n int) []View {

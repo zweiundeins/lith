@@ -8,12 +8,21 @@ import (
 	"sync"
 )
 
+// Querier is sqlite.Querier, which this package cannot import.
+type Querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // Value is a transaction in a context.
 type Value struct {
 	Tx *sql.Tx
 	// Pool is the pool Tx came from, nil when the code that put it there
 	// does not know.
 	Pool *sql.DB
+	// Querier runs queries in Tx with prepared statements; nil: Tx's own.
+	Querier Querier
 
 	mu    sync.Mutex
 	file  string

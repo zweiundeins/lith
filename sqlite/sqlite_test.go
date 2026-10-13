@@ -267,6 +267,24 @@ func TestViewJoinsTheTransactionInCtx(t *testing.T) {
 	}
 }
 
+func TestQuerierFrom(t *testing.T) {
+	ctx := context.Background()
+	if _, ok := QuerierFrom(ctx); ok {
+		t.Fatal("a plain context carries a Querier")
+	}
+	d := open(t, Options{})
+	err := d.View(ctx, func(tx *sql.Tx) error {
+		q, ok := QuerierFrom(WithTx(ctx, tx))
+		if !ok || q != Querier(tx) {
+			t.Fatalf("QuerierFrom gave %v, %v for the transaction from WithTx", q, ok)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A transaction on another database is not joined: each View reads its
 // own database.
 func TestViewKeepsToItsDatabase(t *testing.T) {
