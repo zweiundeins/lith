@@ -397,6 +397,79 @@ func TestWatchAndUnwatch(t *testing.T) {
 	waitFor(t, "the panel after watching again", func() bool { return c.has(`<p id="panel">2</p>`) })
 }
 
+// A page's command to watch a view can arrive before its stream opens:
+// the stream that opens with the ID watches the view from the start.
+func TestWatchBeforeTheStreamOpens(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	panel := text("panel", nil, func(context.Context, *sql.Tx) (string, error) { return "panel", nil })
+	page := text("page", nil, func(context.Context, *sql.Tx) (string, error) { return "page", nil })
+	if h.Watch("tab1", panel) {
+		t.Fatal("Watch reported a stream that is not open")
+	}
+	if h.Watch("", panel) {
+		t.Fatal("Watch reported a stream without an ID")
+	}
+	c := serve(h, Spec{ID: "tab1", Views: []View{page}}, "")
+	waitFor(t, "the pending view", func() bool { return c.has(`<p id="panel">panel</p>`) })
+	if p := c.patches(); len(p) != 2 || p[0] != `<p id="page">page</p>` {
+		t.Fatalf("got %q, want the page, then the panel", p)
+	}
+	if n := h.Count("panel"); n != 1 {
+		t.Fatalf("%d streams on the panel", n)
+	}
+	// Once the stream took the view, nothing waits for a later one.
+	c.leave(t)
+	again := serve(h, Spec{ID: "tab1", Views: []View{page}}, "")
+	waitFor(t, "the page", func() bool { return again.has(`<p id="page">page</p>`) })
+	time.Sleep(30 * time.Millisecond)
+	if again.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a second stream with the ID got the view")
+	}
+}
+
+// A pending view waits PendingWatch at most, Unwatch drops it, and a
+// negative PendingWatch keeps none.
+func TestPendingWatchEnds(t *testing.T) {
+	panel := text("panel", nil, func(context.Context, *sql.Tx) (string, error) { return "panel", nil })
+	page := text("page", nil, func(context.Context, *sql.Tx) (string, error) { return "page", nil })
+	opened := func(h *Hub, id string) *client {
+		c := serve(h, Spec{ID: id, Views: []View{page}}, "")
+		waitFor(t, "the page", func() bool { return c.has(`<p id="page">page</p>`) })
+		time.Sleep(30 * time.Millisecond)
+		return c
+	}
+	h := start(t, Options{Tick: 5 * time.Millisecond, PendingWatch: 50 * time.Millisecond})
+	h.Watch("late", panel)
+	h.Watch("dropped", panel)
+	if !h.Unwatch("dropped", "panel") || h.Unwatch("dropped", "panel") {
+		t.Fatal("Unwatch of a pending view")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if c := opened(h, "late"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a view waited longer than PendingWatch")
+	}
+	if c := opened(h, "dropped"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("an unwatched view waited")
+	}
+
+	h = start(t, Options{Tick: 5 * time.Millisecond, MaxStreams: 3})
+	for _, id := range []string{"x", "y", "z", "w"} {
+		h.Watch(id, panel)
+	}
+	if c := opened(h, "w"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("views waited for more IDs than MaxStreams")
+	}
+	if c := opened(h, "x"); !c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a view did not wait")
+	}
+
+	h = start(t, Options{Tick: 5 * time.Millisecond, PendingWatch: -1})
+	h.Watch("tab", panel)
+	if c := opened(h, "tab"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a view waited with a negative PendingWatch")
+	}
+}
+
 // When the hub stops, every stream ends at once, even one stuck in a
 // write to a client that stopped reading.
 func TestShutdownWaitsForNoStream(t *testing.T) {

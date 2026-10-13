@@ -107,6 +107,15 @@ func (h *Hub) attach(s *stream, views []View) {
 	for _, v := range views {
 		marked = h.watch(s, v) || marked
 	}
+	if ps := h.pending[s.id]; ps != nil {
+		delete(h.pending, s.id)
+		now := time.Now()
+		for _, p := range ps {
+			if now.Before(p.until) {
+				marked = h.watch(s, p.def) || marked
+			}
+		}
+	}
 	h.mu.Unlock()
 	if marked {
 		h.poke()

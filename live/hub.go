@@ -52,6 +52,11 @@ type Options struct {
 	// MaxStreams is how many streams may be open at once (default 2000).
 	// Serve answers 503 to more.
 	MaxStreams int
+	// PendingWatch is how long Watch keeps a view for a stream ID that is
+	// not open yet, for the stream that opens with it (default 10s,
+	// negative: Watch keeps none). Views wait for at most MaxStreams IDs
+	// at once.
+	PendingWatch time.Duration
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
@@ -115,6 +120,7 @@ type Hub struct {
 	tick          time.Duration
 	workers       int
 	maxStreams    int
+	pendingFor    time.Duration
 	heartbeat     time.Duration
 	renderTimeout time.Duration
 	log           *slog.Logger
@@ -135,6 +141,8 @@ type Hub struct {
 	dirty   []*view
 	byID    map[string]*stream
 	streams int
+	pending map[string][]pendingView // by stream ID, in the order of Watch
+	sweepAt time.Time                // when pending is next swept
 
 	ticks, renders, sent, dropped, overruns atomic.Int64
 
@@ -196,6 +204,9 @@ func New(o Options) *Hub {
 	if o.MaxStreams <= 0 {
 		o.MaxStreams = 2000
 	}
+	if o.PendingWatch == 0 {
+		o.PendingWatch = 10 * time.Second
+	}
 	if o.Heartbeat <= 0 {
 		o.Heartbeat = 20 * time.Second
 	}
@@ -214,6 +225,7 @@ func New(o Options) *Hub {
 		tick:          o.Tick,
 		workers:       o.Workers,
 		maxStreams:    o.MaxStreams,
+		pendingFor:    o.PendingWatch,
 		heartbeat:     o.Heartbeat,
 		renderTimeout: o.RenderTimeout,
 		log:           o.Log,
@@ -227,6 +239,7 @@ func New(o Options) *Hub {
 		topics:        map[string]map[*view]struct{}{},
 		every:         map[*view]struct{}{},
 		byID:          map[string]*stream{},
+		pending:       map[string][]pendingView{},
 	}
 }
 
@@ -271,13 +284,19 @@ func (h *Hub) Count(key string) int {
 }
 
 // Watch makes the open stream with this ID watch v as well: it gets v's
-// current frame at once, or its first one. It reports whether there is
-// such a stream.
+// current frame at once, or its first one. It reports whether such a
+// stream is open. If none is, as when a page's command arrives before its
+// stream, a stream that opens with the ID within Options.PendingWatch
+// watches v from the start, after the views of its Spec.
 func (h *Hub) Watch(streamID string, v View) bool {
 	check(v)
+	if streamID == "" {
+		return false
+	}
 	h.mu.Lock()
 	s := h.byID[streamID]
-	if streamID == "" || s == nil {
+	if s == nil {
+		h.pend(streamID, v, time.Now())
 		h.mu.Unlock()
 		return false
 	}
@@ -291,13 +310,23 @@ func (h *Hub) Watch(streamID string, v View) bool {
 
 // Unwatch stops the stream with this ID from watching the view: after it
 // returns, the stream sends no frame of the view, unless it is writing
-// one already. It reports whether the stream watched the view.
+// one already. It reports whether the stream watched the view, or the
+// view waited for the stream to open.
 func (h *Hub) Unwatch(streamID, key string) bool {
 	h.mu.Lock()
 	s := h.byID[streamID]
 	if streamID == "" || s == nil {
+		ps := h.pending[streamID]
+		i := slices.IndexFunc(ps, func(p pendingView) bool { return p.def.Key == key })
+		if i >= 0 {
+			if ps = slices.Delete(ps, i, i+1); len(ps) == 0 {
+				delete(h.pending, streamID)
+			} else {
+				h.pending[streamID] = ps
+			}
+		}
 		h.mu.Unlock()
-		return false
+		return i >= 0
 	}
 	i := slices.IndexFunc(s.watches, func(w *watch) bool { return w.v.key == key })
 	if i < 0 {
@@ -351,6 +380,41 @@ func (s *stream) poke() {
 	case s.wake <- struct{}{}:
 	default:
 	}
+}
+
+// pendingView is a view that waits for its stream to open.
+type pendingView struct {
+	def   View
+	until time.Time
+}
+
+// pend keeps def for the stream that opens with id before h.pendingFor
+// has passed. Hub.mu is held.
+func (h *Hub) pend(id string, def View, now time.Time) {
+	if h.pendingFor < 0 {
+		return
+	}
+	if !now.Before(h.sweepAt) {
+		for k, ps := range h.pending {
+			ps = slices.DeleteFunc(ps, func(p pendingView) bool { return !now.Before(p.until) })
+			if len(ps) == 0 {
+				delete(h.pending, k)
+			} else {
+				h.pending[k] = ps
+			}
+		}
+		h.sweepAt = now.Add(h.pendingFor)
+	}
+	ps := h.pending[id]
+	if ps == nil && len(h.pending) >= h.maxStreams {
+		return
+	}
+	p := pendingView{def: def, until: now.Add(h.pendingFor)}
+	if i := slices.IndexFunc(ps, func(p pendingView) bool { return p.def.Key == def.Key }); i >= 0 {
+		ps[i] = p
+		return
+	}
+	h.pending[id] = append(ps, p)
 }
 
 // mark puts v on the dirty list and reports whether it was not on it
