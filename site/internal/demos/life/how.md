@@ -121,7 +121,7 @@ var cellTags = func() (t [len(cellClass)]string) {
 }()
 ```
 
-## Births and deaths in CSS
+## The board in CSS
 
 The morph changes the class of each cell born or died, and CSS animates the change. A cell is a square of its colour painted in the middle of its box, a circle in the smooth style, sized with `background-size`. A cell that dies shrinks and cools into its dot in three steps, one each generation, which leaves a short trail behind whatever moves; a cell born grows in two.
 
@@ -142,7 +142,9 @@ The morph changes the class of each cell born or died, and CSS animates the chan
 }
 ```
 
-The page morphs 4,000 elements ten times a second, so what the browser does per cell counts. A transform such as `scale` gives an element a paint layer of its own; a gradient sized with `background-size` needs none. A stepped transition changes a cell's look only at its steps, so the browser repaints it two or three times instead of every frame. In headless Chromium on an i5-13500, a tab on a fresh soup keeps its main thread 30 to 40% busy without the transitions and 65 to 85% with them (`TestLifePageCost`).
+A transform such as `scale` would give each of the 4,000 cells a paint layer of its own; a gradient sized with `background-size` needs none. A stepped transition changes a cell's look only at its steps, so the browser repaints it two or three times instead of every frame. In headless Chromium on an i5-13500, a tab on a fresh soup keeps its main thread 30 to 40% busy without the transitions and 65 to 85% with them (`TestLifePageCost`).
+
+On a narrow screen CSS stands the board on its side: the same 80 by 50 cells in 50 columns of 80, half again as large on a phone, and the pointer's maths swap the axes.
 
 ## Drawing
 
@@ -161,19 +163,19 @@ const flush = `$_life.stroke !== '' && (
 )`
 ```
 
-On a narrow screen CSS stands the board on its side: the same 80 by 50 cells in 50 columns of 80, half again as large on a phone, and the pointer's maths swap the axes.
-
 ## Measured
 
-On an i5-13500 on 13 October 2026, with the site running as in production (`GOMEMLIMIT=192MiB`, on four cores) and the streams opened by `TestLoad` in another process:
+On an i5-13500 on 13 October 2026, with the site running as in production (`GOMEMLIMIT=192MiB`, on four cores) and the streams opened by `TestLoad` in another process, 20 to 30 seconds a run:
 
 | Streams | CPU per generation | Bytes a frame per stream | Resident |
 | --- | --- | --- | --- |
-| 1 | 0.8 ms | 476 | 46 MB |
-| 10 | 1.2 ms | 425 | 76 MB |
-| 100 | 7.7 ms | 404 | 187 MB |
+| 1 | 0.8 to 3 ms | 210 to 520 | 41 to 49 MB |
+| 10 | 1.2 to 6 ms | 280 to 520 | 68 to 77 MB |
+| 100 | 7.7 to 28 ms | 280 to 560 | 166 to 190 MB |
 
-Every stream got ten frames a second and none was dropped. With 100 streams the server used 0.08 cores, and the streams' zstd encoders held 87 MB, 2^18 windows in low-memory mode as the site's budget hands them out. Go collects when the heap has doubled since the last collection, so the process holds up to twice what lives, and `GOMEMLIMIT` keeps that under 192 MiB.
+Every stream got ten frames a second and none was dropped. The bytes depend on the soup: a young one changes more cells each generation. The CPU time follows the clock of the cores, which ran at 0.9 to 2.2 GHz in the slower runs, idle between frames. Measured back to back, where the cores stay fast, a generation costs 0.3 ms for the step and the render, and compressing it costs 30 to 40 µs for each stream (`BenchmarkCompress`).
+
+With 100 streams, the streams' zstd encoders held 87 MB, 2^18 windows in low-memory mode as the site's budget hands them out. Go collects when the heap has doubled since the last collection, so the process holds up to twice what lives, and `GOMEMLIMIT` keeps that under 192 MiB. With nobody watching, the server spent 10 to 20 ms of CPU in 10 seconds, on the site as a whole.
 
 ## Credits
 

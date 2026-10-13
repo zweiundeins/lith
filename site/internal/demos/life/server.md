@@ -2,6 +2,6 @@ The board is one row of `life_board` in SQLite: 4,000 bytes, one for each cell, 
 
 When you draw, the page posts the cells under your pointer to `/cmd/life/draw` every 100 ms; a click with a pattern posts it to `/cmd/life/drop`, with your tab id and a new op id. The handlers check the rate limits for your session and your address, and wait for the writer. The command paints the cells into the same row in your colour, notes the op in your tab's row of `site_tabs`, and touches two topics: `life`, and your tab's.
 
-In the next tick, at most 50 ms later, the hub renders the board once for every tab: 45 KB of HTML, a `<p>` for each cell and the counters above them. Each stream compresses that frame with zstd against the frames before it, to 400 to 500 bytes. "Here now" is the hub's count of the streams on the board, read during the render.
+In the next tick, at most 50 ms later, the hub renders the board once for every tab: 45 KB of HTML, a `<p>` for each cell and the counters above them. Each stream compresses that frame with zstd against the frames before it, to between 200 and 600 bytes. "Here now" is the hub's count of the streams on the board, read during the render.
 
 A board that has died out gets a new soup after 15 seconds, one that only repeats itself (still lifes, blinkers) after 30, unless someone draws on it. Reset clears the board, at most once in 10 seconds for everyone. Every five minutes a sweep forgets the colours chosen more than 30 days ago.
