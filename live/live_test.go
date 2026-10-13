@@ -840,6 +840,44 @@ func TestJoinRetriesViewWithoutFrame(t *testing.T) {
 	waitFor(t, "the frame", func() bool { return c.has(`<p id="v">ok</p>`) })
 }
 
+// A stream that starts watching a view during its first render gets the
+// frame of that render, and the view does not render again for it. If
+// that render fails, the view renders again, as for a later stream.
+func TestJoinDuringFirstRender(t *testing.T) {
+	for _, fails := range []bool{false, true} {
+		h := start(t, Options{Tick: 2 * time.Millisecond})
+		entered, release := make(chan struct{}), make(chan struct{})
+		var renders atomic.Int64
+		v := text("v", nil, func(context.Context, *sql.Tx) (string, error) {
+			if renders.Add(1) == 1 {
+				close(entered)
+				<-release
+				if fails {
+					return "", errors.New("not yet")
+				}
+			}
+			return "v", nil
+		})
+		a := serve(h, Spec{Views: []View{v}}, "")
+		<-entered
+		b := serve(h, Spec{Views: []View{v}}, "")
+		waitFor(t, "the second stream", func() bool { return h.Count("v") == 2 })
+		close(release)
+		waitFor(t, "the frame", func() bool { return a.has(`<p id="v">v</p>`) && b.has(`<p id="v">v</p>`) })
+		// Any render the join set off comes in a tick before the probe's.
+		p := text("probe", nil, func(context.Context, *sql.Tx) (string, error) { return "p", nil })
+		probe := serve(h, Spec{Views: []View{p}}, "")
+		waitFor(t, "the probe", func() bool { return probe.has(`<p id="probe">p</p>`) })
+		want := int64(1)
+		if fails {
+			want = 2
+		}
+		if n := renders.Load(); n != want {
+			t.Fatalf("first render fails: %v; %d renders, want %d", fails, n, want)
+		}
+	}
+}
+
 func TestUnchangedFrameIsNotSent(t *testing.T) {
 	h := start(t, Options{Tick: 5 * time.Millisecond})
 	v := text("v", []string{"t"}, func(context.Context, *sql.Tx) (string, error) { return "same", nil })

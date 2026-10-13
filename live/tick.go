@@ -164,6 +164,7 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 		if v.every > 0 {
 			v.due = start.Add(v.every)
 		}
+		v.rendering = true
 		t.views = append(t.views, v)
 	}
 	clear(h.dirty)
@@ -193,13 +194,19 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 // publish stores the new frames and offers them to their streams. A
 // stream gets all of its offers of the tick at once, so the views that
 // changed together go out together. Views that no worker took from the
-// queue are dirty again, for the next tick.
+// queue are dirty again, for the next tick, and so is a view still
+// without a frame that a stream started watching during the tick.
 func (h *Hub) publish(t *tick) {
 	taken := min(int(t.next.Load()), len(t.views))
 	h.mu.Lock()
 	for i, v := range t.views[:taken] {
+		joined := v.joined
+		v.rendering, v.joined = false, false
 		f := t.frames[i]
 		if t.errs[i] != nil || f == nil || same(v.frame.Load(), f) {
+			if joined {
+				h.mark(v)
+			}
 			continue
 		}
 		nf := &frame{value: f}
@@ -209,6 +216,7 @@ func (h *Hub) publish(t *tick) {
 		}
 	}
 	for _, v := range t.views[taken:] {
+		v.rendering, v.joined = false, false
 		h.mark(v)
 	}
 	h.mu.Unlock()
