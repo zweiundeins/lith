@@ -51,10 +51,8 @@ shared view, a per-tab view backed by SQLite, a button that stays pending until
 its frame arrives. It comes with tests, CI, systemd and Caddy files, a deploy
 script with rollback and a backup timer.
 
-While this repository is private, Go needs to know: `go env -w
-GOPRIVATE=github.com/zweiundeins/*`, plus git access to the repository. For
-work across checkouts, `lith-new -lith <dir>` writes a `replace` directive
-instead.
+For work across checkouts, `lith-new -lith <dir>` writes a `replace`
+directive to a local lith instead.
 
 ## Wiring
 

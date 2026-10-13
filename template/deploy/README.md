@@ -27,7 +27,7 @@ Then add the block in `Caddyfile` to Caddy's configuration with the real domain,
 
 `app-deploy <binary>` checks that the file is an ELF binary that prints its version (it runs `--version` as the `app` user, without network, for ten seconds at most), keeps the running binary aside, restarts `app` and waits up to 30 seconds for `/healthz` to answer `ok <new version>`. If it does not, the script puts the old binary back and restarts again. `app-deploy rollback` returns to the binary that ran before the last good deploy.
 
-CI can deploy by piping the binary over SSH into `app-deploy -`, as a user whose key may run that one command only: `restrict,command="sudo -n /usr/local/bin/app-deploy -"` in its `authorized_keys`, and a sudoers line that allows exactly that command. Starbase's `deploy/setup-host.sh` creates such a user.
+CI can deploy by piping the binary over SSH into `app-deploy -`, as a user whose key may run that one command only: `restrict,command="sudo -n /usr/local/bin/app-deploy -"` in its `authorized_keys`, and a sudoers line that allows exactly that command. `setup-host.sh` creates such a user: run it as root, from a copy of this folder, with the public half of CI's key (`bash setup-host.sh app-deploy-key.pub`). lith's `.github/workflows/deploy-site.yml` is a workflow that deploys this way.
 
 ## Backups
 
