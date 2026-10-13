@@ -5,9 +5,10 @@
 // same bytes can go to any number of streams. Each stream compresses them
 // with a window that spans the whole stream, so a frame that repeats much
 // of an earlier one costs little on the wire. The encoders are tuned for
-// many long-lived streams: zstd at its fastest level with a 512 KiB window
-// (about 1 MiB of heap per stream) when the client accepts it, else brotli
-// at quality 4 with a 256 KiB window (about 2 MiB), else gzip.
+// many long-lived streams: zstd at its fastest level (Options.ZstdLevel)
+// with a 512 KiB window (about 1.7 MiB of heap per stream, 1 MiB with
+// Options.ZstdLowMemory) when the client accepts it, else brotli at
+// quality 4 with a 256 KiB window (about 2 MiB), else gzip.
 //
 // Every write has its own deadline, so run the server without a
 // WriteTimeout and let a stream that cannot take a write in time fail
@@ -45,6 +46,10 @@ type Options struct {
 	Compress chan struct{}
 	// ZstdWindow is the base 2 logarithm of zstd's window (default 19).
 	ZstdWindow int
+	// ZstdLevel is zstd's level (default zstd.SpeedFastest). A higher one
+	// sends fewer bytes per frame for more CPU and heap per stream:
+	// bench/RESULTS.md has the trade-off measured on a shared board.
+	ZstdLevel zstd.EncoderLevel
 	// ZstdLowMemory keeps zstd's history at its window: about 1 MiB per
 	// stream instead of 1.65 MiB, for twice the CPU per frame once the
 	// streams no longer fit in the CPU's cache (measured with 200 streams),
@@ -108,6 +113,9 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 	if o.ZstdWindow == 0 {
 		o.ZstdWindow = 19
 	}
+	if o.ZstdLevel == 0 {
+		o.ZstdLevel = zstd.SpeedFastest
+	}
 	if o.BrotliQuality == 0 {
 		o.BrotliQuality = 4
 	}
@@ -125,7 +133,7 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 	switch s.encoding {
 	case Zstd:
 		s.enc, err = zstd.NewWriter(&s.buf,
-			zstd.WithEncoderLevel(zstd.SpeedFastest),
+			zstd.WithEncoderLevel(o.ZstdLevel),
 			zstd.WithWindowSize(1<<o.ZstdWindow),
 			zstd.WithEncoderConcurrency(1),
 			zstd.WithLowerEncoderMem(o.ZstdLowMemory),

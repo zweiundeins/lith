@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zweiundeins/lith/internal/txctx"
 )
 
 // Run renders views until ctx ends. Then it ends every stream: a write
@@ -35,7 +37,7 @@ func (h *Hub) Run(ctx context.Context) error {
 	}
 	ws := make([]*worker, n)
 	for i := range ws {
-		ws[i] = &worker{h: h, start: make(chan *tick, 1)}
+		ws[i] = &worker{h: h, start: make(chan *tick, 1), stmts: map[string]*stmt{}}
 		if h.read == nil {
 			continue
 		}
@@ -60,6 +62,7 @@ func (h *Hub) Run(ctx context.Context) error {
 	wg.Wait()
 	for _, w := range ws {
 		if w.conn != nil {
+			w.closeStmts()
 			w.conn.Close()
 		}
 	}
@@ -244,6 +247,7 @@ type worker struct {
 	h     *Hub
 	conn  *sql.Conn
 	start chan *tick
+	stmts map[string]*stmt // prepared on conn, by their SQL text
 }
 
 func (w *worker) run() {
@@ -257,7 +261,9 @@ func (w *worker) render(t *tick) {
 	if int(t.next.Load()) >= len(t.views) {
 		return
 	}
+	ctx := t.ctx
 	var tx *sql.Tx
+	var q *reads
 	if w.conn != nil {
 		var err error
 		if tx, err = w.begin(t.ctx); err != nil {
@@ -266,16 +272,24 @@ func (w *worker) render(t *tick) {
 			}
 			return
 		}
+		w.h.readTxs.Add(1)
+		q = &reads{w: w, tx: tx}
+		ctx = txctx.With(ctx, &txctx.Value{Tx: tx, Pool: w.h.read, Querier: q})
 	}
 	for {
 		i := int(t.next.Add(1)) - 1
 		if i >= len(t.views) {
 			break
 		}
-		t.frames[i], t.errs[i] = w.h.render(t.ctx, t.views[i], tx)
+		t.frames[i], t.errs[i] = w.h.render(ctx, t.views[i], tx)
+		if q != nil {
+			q.release(false)
+		}
+		t.views[i].renders.Add(1)
 		w.h.renders.Add(1)
 	}
 	if tx != nil {
+		q.release(true)
 		if err := tx.Commit(); err != nil && t.ctx.Err() == nil {
 			w.h.log.Error("live: ending a read transaction", "err", err)
 		}
@@ -290,6 +304,7 @@ func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
 	if err == nil || ctx.Err() != nil {
 		return tx, err
 	}
+	w.closeStmts()
 	// The pool discards a connection on ErrBadConn; Close would keep it.
 	w.conn.Raw(func(any) error { return driver.ErrBadConn })
 	c, err2 := w.h.read.Conn(ctx)

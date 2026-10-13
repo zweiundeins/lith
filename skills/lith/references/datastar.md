@@ -34,7 +34,9 @@ write-up; look there before changing the behaviour.
   need `data-preserve-attr` for those attributes. [kanban, starbase]
 - Open a stream with `retry: 'always'`: by default Datastar does not reopen a
   stream the server closed cleanly, so every deploy leaves pages silently
-  stale. Add a watchdog on the server's ping. [kanban]
+  stale. Add a watchdog on the server's ping. An SSE comment never reaches the
+  page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
+  watchdog can read. [kanban]
 - Datastar cancels an in-flight request to the same URL when a new one starts.
   Actions that must all arrive (painting, moves) use
   `requestCancellation: 'disabled'`. [starbase, kanban]

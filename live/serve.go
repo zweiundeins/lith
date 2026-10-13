@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/zweiundeins/lith/internal/shutdown"
@@ -24,6 +26,20 @@ type Spec struct {
 	// only what this stream has not seen). Nil: frames are []byte events,
 	// written as they are. An error ends the stream.
 	Write func(s *sse.Stream, key string, frame any) error
+	// WriteTick, if set, takes Write's place: it gets the new frames of
+	// the stream's views at once, so that one s.Write compresses and
+	// flushes them together, where each call of Write is a write of its
+	// own. Each call has the newest frame of every view that changed
+	// since the last one, in the order the stream watches them: one
+	// tick's, or several ticks' when the stream fell behind. frames is
+	// valid during the call only. An error ends the stream.
+	WriteTick func(s *sse.Stream, frames []Frame) error
+}
+
+// Frame is a view's new frame, for Spec.WriteTick.
+type Frame struct {
+	Key   string
+	Value any
 }
 
 var (
@@ -79,7 +95,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		return err
 	}
 	defer st.Close()
-	s := &stream{seq: seq, id: spec.ID, write: spec.Write, cancel: cancel, wake: make(chan struct{}, 1)}
+	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1)}
 	h.attach(s, spec.Views)
 	defer h.detach(s)
 	err = h.pump(ctx, s, st)
@@ -106,6 +122,15 @@ func (h *Hub) attach(s *stream, views []View) {
 	marked := false
 	for _, v := range views {
 		marked = h.watch(s, v) || marked
+	}
+	if ps := h.pending[s.id]; ps != nil {
+		delete(h.pending, s.id)
+		now := time.Now()
+		for _, p := range ps {
+			if now.Before(p.until) {
+				marked = h.watch(s, p.def) || marked
+			}
+		}
 	}
 	h.mu.Unlock()
 	if marked {
@@ -140,12 +165,14 @@ func (s *stream) unwatched(w *watch) bool {
 }
 
 // pump sends the stream's new frames as they come, and a heartbeat when
-// it has been silent for h.heartbeat.
+// it has been silent for h.heartbeat, or every h.heartbeat with a
+// heartbeat signal.
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
 	var batch []offer
 	var parts [][]byte
+	var frames []Frame
 	for {
 		s.mu.Lock()
 		for _, w := range s.watches {
@@ -159,6 +186,10 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		_, wire := st.Sent()
 		for _, o := range batch {
 			if s.unwatched(o.w) {
+				continue
+			}
+			if s.writeTick != nil {
+				frames = append(frames, Frame{Key: o.w.v.key, Value: o.f.value})
 				continue
 			}
 			if s.write != nil {
@@ -177,6 +208,16 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		clear(batch)
 		batch = batch[:0]
+		if len(frames) > 0 {
+			err := s.writeTick(st, frames)
+			n := len(frames)
+			clear(frames)
+			frames = frames[:0]
+			if err != nil {
+				return err
+			}
+			h.sent.Add(int64(n))
+		}
 		if len(parts) > 0 {
 			err := st.Write(parts...)
 			n := len(parts)
@@ -187,7 +228,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			}
 			h.sent.Add(int64(n))
 		}
-		if _, now := st.Sent(); now != wire {
+		if _, now := st.Sent(); now != wire && h.ping == nil {
 			idle.Reset(h.heartbeat)
 		}
 
@@ -196,10 +237,19 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			return nil
 		case <-s.wake:
 		case <-idle.C:
-			if err := st.Write(heartbeat); err != nil {
+			if err := st.Write(h.beat()); err != nil {
 				return err
 			}
 			idle.Reset(h.heartbeat)
 		}
 	}
+}
+
+// beat is a heartbeat: a comment, or a patch of the heartbeat signal.
+func (h *Hub) beat() []byte {
+	if h.ping == nil {
+		return heartbeat
+	}
+	b := strconv.AppendInt(slices.Clone(h.ping), h.pings.Add(1), 10)
+	return sse.PatchSignals(append(b, '}'), false)
 }

@@ -229,6 +229,53 @@ func TestOrder(t *testing.T) {
 	}
 }
 
+// Flush returns once the commands sent before it are applied: a read
+// after it sees them. It is no command itself.
+func TestFlush(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	if err := f.w.Flush(ctx); err != nil {
+		t.Fatalf("Flush on an idle writer: %v", err)
+	}
+	if s := f.w.Stats(); s.Commands != 0 || s.Batches != 0 {
+		t.Fatalf("a Flush counted as a command: %+v", s)
+	}
+
+	release := f.block(t)
+	for range 3 {
+		if err := f.w.Send(increment(1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	flushed := make(chan error, 1)
+	go func() { flushed <- f.w.Flush(ctx) }()
+	f.queued(t, 4)
+	select {
+	case err := <-flushed:
+		t.Fatalf("Flush returned before the commands ran: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	short, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	if err := f.w.Flush(short); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Flush past its deadline: %v", err)
+	}
+	release()
+	if err := <-flushed; err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(t, "SELECT n FROM counters WHERE id = 1"); n != 3 {
+		t.Fatalf("after Flush the counter is %d, want the 3 sent", n)
+	}
+	if s := f.w.Stats(); s.Commands != 4 {
+		t.Fatalf("%d commands, want the block and 3 increments", s.Commands)
+	}
+	f.w.Close()
+	if err := f.w.Flush(ctx); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Flush after Close: %v", err)
+	}
+}
+
 // Many writers on one hot row: every increment lands, none is lost or
 // refused, readers never see SQLITE_BUSY, and the batches grow.
 func TestContention(t *testing.T) {
@@ -319,6 +366,71 @@ func TestSendAndQueueFull(t *testing.T) {
 		t.Fatalf("want the failed Send logged, and not the failed Do:\n%s", log)
 	}
 }
+
+type sendError struct {
+	cmd string
+	err error
+}
+
+// OnSendError gets the failed Sends, whatever failed them, and replaces
+// the log line; a failed Do goes to its caller only.
+func TestOnSendError(t *testing.T) {
+	var mu sync.Mutex
+	var got []sendError
+	f := start(t, sqlite.Options{}, Options{OnSendError: func(cmd Command, err error) {
+		mu.Lock()
+		got = append(got, sendError{fmt.Sprint(cmd.(named).name), err})
+		mu.Unlock()
+	}})
+	ctx := context.Background()
+	refused := errors.New("refused")
+	release := f.block(t)
+	f.w.Send(named{"ok", increment(1)})
+	f.w.Send(named{"refused", func(*Tx) error { return refused }})
+	f.w.Send(named{"panicked", func(*Tx) error { panic("broken") }})
+	done := make(chan error, 1)
+	go func() { done <- f.w.Do(ctx, named{"do", func(*Tx) error { return refused }}) }()
+	f.queued(t, 4)
+	release()
+	if err := <-done; err == nil {
+		t.Fatal("no error")
+	}
+	// A command that ends the transaction fails its whole batch.
+	release = f.block(t)
+	f.w.Send(named{"batch", increment(1)})
+	f.w.Send(named{"rollback", func(tx *Tx) error { _, err := tx.Exec("ROLLBACK"); return err }})
+	f.queued(t, 2)
+	release()
+	if err := f.w.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	names := make([]string, len(got))
+	for i, e := range got {
+		names[i] = e.cmd
+	}
+	if !slices.Equal(names, []string{"refused", "panicked", "batch", "rollback"}) {
+		t.Fatalf("OnSendError got %v", got)
+	}
+	if !errors.Is(got[0].err, refused) || !errors.Is(got[1].err, ErrPanic) {
+		t.Fatalf("errors %v", got)
+	}
+	if got[2].err == nil || got[2].err != got[3].err {
+		t.Fatalf("the batch's failure: %v, %v", got[2].err, got[3].err)
+	}
+	if strings.Contains(f.log.String(), "command failed") {
+		t.Fatalf("logged a failed Send that OnSendError got:\n%s", f.log.String())
+	}
+}
+
+// named is a command that carries a name for the test to recognise.
+type named struct {
+	name string
+	fn   Func
+}
+
+func (n named) Apply(tx *Tx) error { return n.fn(tx) }
 
 type who struct{}
 
@@ -428,6 +540,19 @@ func TestCloseDrainsTheQueue(t *testing.T) {
 	}
 }
 
+// entered is a context that reports a Do past the writer's closed check:
+// enqueue asks for Done only to wait for room in the queue.
+type entered struct {
+	context.Context
+	in   chan<- struct{}
+	once sync.Once
+}
+
+func (c *entered) Done() <-chan struct{} {
+	c.once.Do(func() { c.in <- struct{}{} })
+	return c.Context.Done()
+}
+
 func TestRunStopsWithItsContext(t *testing.T) {
 	db := openDB(t, sqlite.Options{})
 	defer db.Close()
@@ -441,8 +566,14 @@ func TestRunStopsWithItsContext(t *testing.T) {
 	f := &fixture{db: db, w: w}
 	release := f.block(t)
 	var wg sync.WaitGroup
+	in := make(chan struct{}, 20)
 	for range 20 { // more than the queue holds: some Do wait for room
-		wg.Go(func() { w.Do(context.Background(), increment(1)) })
+		wg.Go(func() { w.Do(&entered{Context: context.Background(), in: in}, increment(1)) })
+	}
+	// A Do that has not reached the queue when Run stops is refused, so
+	// cancel once all of them are queued or waiting for room.
+	for range 20 {
+		<-in
 	}
 	f.queued(t, 8)
 	cancel()
@@ -496,6 +627,19 @@ func TestOneWriterPerDatabase(t *testing.T) {
 	defer w.Close()
 	if _, err := New(db, Options{}); err == nil {
 		t.Fatal("a second writer took the connection")
+	}
+}
+
+func TestNewRefusesReadOnly(t *testing.T) {
+	db := openDB(t, sqlite.Options{})
+	db.Close()
+	ro, err := sqlite.Open(context.Background(), db.Path, sqlite.Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	if _, err := New(ro, Options{}); err == nil || !strings.Contains(err.Error(), "ReadOnly") {
+		t.Fatalf("a writer on a read-only database: %v", err)
 	}
 }
 
@@ -738,6 +882,84 @@ func TestNestedQueries(t *testing.T) {
 	}))
 	if err != nil || len(again) != 3 {
 		t.Fatalf("after leaked rows: %v, %v", again, err)
+	}
+}
+
+// itemCount is query code written once for every Querier: the read pool,
+// a read transaction and a command's Tx.
+func itemCount(ctx context.Context, q sqlite.Querier, name string) (int, error) {
+	var n int
+	err := q.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE name = ?", name).Scan(&n)
+	return n, err
+}
+
+// A command's Tx serves query code that takes a sqlite.Querier: it runs on
+// the batch's transaction with its statement cache, and a cancelled ctx
+// does not stop it halfway through a batch.
+func TestTxIsAQuerier(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	add := func(name string) error {
+		return f.w.Do(ctx, Func(func(tx *Tx) error {
+			if _, err := tx.ExecContext(cancelled, "INSERT INTO items (name) VALUES (?)", name); err != nil {
+				return err
+			}
+			n, err := itemCount(cancelled, tx, name)
+			if err == nil && n != 1 {
+				err = fmt.Errorf("the command sees %d rows of its own insert", n)
+			}
+			return err
+		}))
+	}
+	if err := add("a"); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	f.w.Do(ctx, Func(func(*Tx) error { before = len(f.w.stmts); return nil }))
+	for i := range 5 {
+		if err := add(fmt.Sprint("b", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := f.w.Do(ctx, Func(func(tx *Tx) error {
+		if len(f.w.stmts) != before {
+			t.Errorf("%d statements cached after one run, %d after six", before, len(f.w.stmts))
+		}
+		rows, err := tx.QueryContext(cancelled, "SELECT name FROM items ORDER BY name")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var names []string
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				return err
+			}
+			names = append(names, n)
+		}
+		if len(names) != 6 {
+			t.Errorf("read %v", names)
+		}
+		return rows.Err()
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := itemCount(ctx, f.db.R, "a"); err != nil || n != 1 {
+		t.Fatalf("on the read pool: %d, %v", n, err)
+	}
+	err = f.db.View(ctx, func(tx *sql.Tx) error {
+		n, err := itemCount(ctx, tx, "b4")
+		if err == nil && n != 1 {
+			err = fmt.Errorf("%d rows", n)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatalf("in a read transaction: %v", err)
 	}
 }
 

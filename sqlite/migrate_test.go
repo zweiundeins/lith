@@ -2,6 +2,9 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -148,6 +151,84 @@ func TestMigrationRebuildsParentTable(t *testing.T) {
 	// The constraint holds again.
 	if _, err := d.W.Exec("INSERT INTO child VALUES (12, 99)"); err == nil {
 		t.Fatal("inserted a child of a missing parent")
+	}
+}
+
+// A project's own runner, here one with a schema_migrations table like
+// pendlerpreis', runs on the write connection instead of Migrations.
+func TestCustomMigrate(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "m.db")
+	var got *sql.DB
+	runner := func(ctx context.Context, w *sql.DB) error {
+		got = w
+		if _, err := w.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (file TEXT PRIMARY KEY);
+			CREATE TABLE IF NOT EXISTS t (x INTEGER)`); err != nil {
+			return err
+		}
+		_, err := w.ExecContext(ctx, `INSERT OR IGNORE INTO schema_migrations VALUES ('001_t.sql')`)
+		return err
+	}
+	d, err := Open(ctx, path, Options{Synchronous: "NORMAL", Migrate: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if got != d.W {
+		t.Fatal("the runner did not get the write connection")
+	}
+	if n := scalar(t, d, "SELECT count(*) FROM schema_migrations"); n != 1 {
+		t.Fatalf("%d migrations recorded", n)
+	}
+	if v := scalar(t, d, "PRAGMA user_version"); v != 0 {
+		t.Fatalf("user_version %d: the built-in runner ran too", v)
+	}
+
+	boom := errors.New("boom")
+	_, err = Open(ctx, filepath.Join(t.TempDir(), "f.db"), Options{Synchronous: "NORMAL",
+		Migrate: func(context.Context, *sql.DB) error { return boom }})
+	if !errors.Is(err, boom) {
+		t.Fatalf("a failed runner: %v", err)
+	}
+
+	both := filepath.Join(t.TempDir(), "both.db")
+	_, err = Open(ctx, both, Options{Synchronous: "NORMAL", Migrate: runner, Migrations: files(nil)})
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("Migrations and Migrate: %v", err)
+	}
+	if _, err := os.Stat(both); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused Open created the file: %v", err)
+	}
+}
+
+// Migrate is the runner Open uses, for any connection to the file.
+func TestMigrateOnAConnection(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "m.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ms := files(map[string]string{"1_a.sql": "CREATE TABLE a (x);", "2_b.sql": "CREATE TABLE b (x);"})
+	if err := Migrate(ctx, db, ms); err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&v); err != nil || v != 2 {
+		t.Fatalf("user_version %d, %v", v, err)
+	}
+	err = Migrate(ctx, db, files(map[string]string{"1_a.sql": "CREATE TABLE a (x);"}))
+	if err == nil || !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("an older set of migrations: %v", err)
+	}
+	d, err := openAt(path, map[string]string{"1_a.sql": "", "2_b.sql": "", "3_c.sql": "CREATE TABLE c (x);"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if n := scalar(t, d, "SELECT count(*) FROM sqlite_master WHERE name IN ('a', 'b', 'c')"); n != 3 {
+		t.Fatalf("%d tables", n)
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"runtime"
 	"slices"
@@ -39,8 +40,11 @@ import (
 // selects its default.
 type Options struct {
 	// Read is the read pool. Each worker holds one of its connections for
-	// the hub's lifetime, so the pool needs more connections than there
-	// are workers. Without it, views render with a nil transaction.
+	// the hub's lifetime, and everything else that reads (GET documents)
+	// shares the rest: the pool needs Workers connections plus the reads
+	// that run at once besides the hub. sqlite.Options.Readers' default,
+	// GOMAXPROCS + 4 and at least 8, leaves at least four beside the
+	// default Workers. Without Read, views render with a nil transaction.
 	Read *sql.DB
 	// Tick is the shortest time from one tick to the next (default 50ms).
 	Tick time.Duration
@@ -49,9 +53,20 @@ type Options struct {
 	// MaxStreams is how many streams may be open at once (default 2000).
 	// Serve answers 503 to more.
 	MaxStreams int
+	// PendingWatch is how long Watch keeps a view for a stream ID that is
+	// not open yet, for the stream that opens with it (default 10s,
+	// negative: Watch keeps none). Views wait for at most MaxStreams IDs
+	// at once.
+	PendingWatch time.Duration
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
+	// HeartbeatSignal, if set, names a top-level signal, such as "_ping",
+	// that the heartbeat patches instead of sending a comment, which the
+	// page never sees: a watchdog on the page can then tell a stream that
+	// went quiet without closing. The heartbeat then goes out every
+	// Heartbeat, frames or not, and its number grows with every one.
+	HeartbeatSignal string
 	// RenderTimeout is how long a Render may take (default 2s): its ctx
 	// ends then, and a Render still running is logged. Nothing stops a
 	// Render that ignores its ctx. It holds up only its worker while the
@@ -78,11 +93,14 @@ type View struct {
 	// Topics mark the view dirty when a commit touches one of them.
 	Topics []string
 	// Render renders the view in the worker's read transaction, with a
-	// ctx that ends after Options.RenderTimeout. Its frame goes to every
-	// stream that watches the view and must not change afterwards. When
-	// Render fails, the error is logged and the previous frame stays; a
-	// nil frame also keeps the previous one, and so does a []byte frame
-	// equal to it.
+	// ctx that ends after Options.RenderTimeout and carries the
+	// transaction (sqlite.TxFrom): a sqlite.DB.View called with ctx runs
+	// in it, so code that takes a ctx reads the render's snapshot.
+	// sqlite.QuerierFrom(ctx) runs queries in it on statements the worker
+	// prepared once on its connection. Its frame goes to every stream that
+	// watches the view and must not change afterwards. When Render fails, the error is logged and the
+	// previous frame stays; a nil frame also keeps the previous one, and
+	// so does a []byte frame equal to it.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
@@ -101,6 +119,10 @@ type Stats struct {
 	Overruns      int64 // ticks that took longer than Options.Tick
 	Streams       int
 	Views         int
+	ReadTxs       int64 // read transactions the render workers began
+	// RendersByKey counts the renders of each view watched now, by its
+	// key, since it was first watched.
+	RendersByKey map[string]int64
 }
 
 // Hub renders views and streams them. Create it with New and start it
@@ -110,7 +132,10 @@ type Hub struct {
 	tick          time.Duration
 	workers       int
 	maxStreams    int
+	pendingFor    time.Duration
 	heartbeat     time.Duration
+	ping          []byte       // the heartbeat signal's patch up to its number, nil for none
+	pings         atomic.Int64 // the heartbeat signal's last number
 	renderTimeout time.Duration
 	log           *slog.Logger
 	onTick        func(time.Duration)
@@ -130,8 +155,10 @@ type Hub struct {
 	dirty   []*view
 	byID    map[string]*stream
 	streams int
+	pending map[string][]pendingView // by stream ID, in the order of Watch
+	sweepAt time.Time                // when pending is next swept
 
-	ticks, renders, sent, dropped, overruns atomic.Int64
+	ticks, renders, sent, dropped, overruns, readTxs atomic.Int64
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
@@ -145,7 +172,8 @@ type view struct {
 	every    time.Duration
 	presence bool
 
-	frame atomic.Pointer[frame]
+	frame   atomic.Pointer[frame]
+	renders atomic.Int64
 
 	// Guarded by Hub.mu.
 	watches []*watch
@@ -168,11 +196,12 @@ type watch struct {
 }
 
 type stream struct {
-	seq    uint64 // order of arrival
-	id     string
-	write  func(*sse.Stream, string, any) error
-	cancel context.CancelFunc
-	wake   chan struct{}
+	seq       uint64 // order of arrival
+	id        string
+	write     func(*sse.Stream, string, any) error
+	writeTick func(*sse.Stream, []Frame) error
+	cancel    context.CancelFunc
+	wake      chan struct{}
 
 	mu sync.Mutex
 	// The views the stream watches, in the order it started watching
@@ -191,6 +220,9 @@ func New(o Options) *Hub {
 	if o.MaxStreams <= 0 {
 		o.MaxStreams = 2000
 	}
+	if o.PendingWatch == 0 {
+		o.PendingWatch = 10 * time.Second
+	}
 	if o.Heartbeat <= 0 {
 		o.Heartbeat = 20 * time.Second
 	}
@@ -203,13 +235,20 @@ func New(o Options) *Hub {
 	if o.SSE.Compress == nil {
 		o.SSE.Compress = make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/2))
 	}
+	var ping []byte
+	if o.HeartbeatSignal != "" {
+		name, _ := json.Marshal(o.HeartbeatSignal)
+		ping = append(append([]byte("{"), name...), ':')
+	}
 	done, stop := context.WithCancel(context.Background())
-	return &Hub{
+	h := &Hub{
 		read:          o.Read,
 		tick:          o.Tick,
 		workers:       o.Workers,
 		maxStreams:    o.MaxStreams,
+		pendingFor:    o.PendingWatch,
 		heartbeat:     o.Heartbeat,
+		ping:          ping,
 		renderTimeout: o.RenderTimeout,
 		log:           o.Log,
 		onTick:        o.OnTick,
@@ -222,7 +261,12 @@ func New(o Options) *Hub {
 		topics:        map[string]map[*view]struct{}{},
 		every:         map[*view]struct{}{},
 		byID:          map[string]*stream{},
+		pending:       map[string][]pendingView{},
 	}
+	// From the clock, so a page that reconnects to a new process still
+	// sees the number grow.
+	h.pings.Store(time.Now().UnixMilli())
+	return h
 }
 
 // Changed marks dirty every view with one of the topics. It is meant for
@@ -266,13 +310,19 @@ func (h *Hub) Count(key string) int {
 }
 
 // Watch makes the open stream with this ID watch v as well: it gets v's
-// current frame at once, or its first one. It reports whether there is
-// such a stream.
+// current frame at once, or its first one. It reports whether such a
+// stream is open. If none is, as when a page's command arrives before its
+// stream, a stream that opens with the ID within Options.PendingWatch
+// watches v from the start, after the views of its Spec.
 func (h *Hub) Watch(streamID string, v View) bool {
 	check(v)
+	if streamID == "" {
+		return false
+	}
 	h.mu.Lock()
 	s := h.byID[streamID]
-	if streamID == "" || s == nil {
+	if s == nil {
+		h.pend(streamID, v, time.Now())
 		h.mu.Unlock()
 		return false
 	}
@@ -286,13 +336,23 @@ func (h *Hub) Watch(streamID string, v View) bool {
 
 // Unwatch stops the stream with this ID from watching the view: after it
 // returns, the stream sends no frame of the view, unless it is writing
-// one already. It reports whether the stream watched the view.
+// one already. It reports whether the stream watched the view, or the
+// view waited for the stream to open.
 func (h *Hub) Unwatch(streamID, key string) bool {
 	h.mu.Lock()
 	s := h.byID[streamID]
 	if streamID == "" || s == nil {
+		ps := h.pending[streamID]
+		i := slices.IndexFunc(ps, func(p pendingView) bool { return p.def.Key == key })
+		if i >= 0 {
+			if ps = slices.Delete(ps, i, i+1); len(ps) == 0 {
+				delete(h.pending, streamID)
+			} else {
+				h.pending[streamID] = ps
+			}
+		}
 		h.mu.Unlock()
-		return false
+		return i >= 0
 	}
 	i := slices.IndexFunc(s.watches, func(w *watch) bool { return w.v.key == key })
 	if i < 0 {
@@ -316,6 +376,10 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 func (h *Hub) Stats() Stats {
 	h.mu.Lock()
 	streams, views := h.streams, len(h.views)
+	byKey := make(map[string]int64, len(h.views))
+	for k, v := range h.views {
+		byKey[k] = v.renders.Load()
+	}
 	h.mu.Unlock()
 	return Stats{
 		Ticks:         h.ticks.Load(),
@@ -325,6 +389,8 @@ func (h *Hub) Stats() Stats {
 		Overruns:      h.overruns.Load(),
 		Streams:       streams,
 		Views:         views,
+		ReadTxs:       h.readTxs.Load(),
+		RendersByKey:  byKey,
 	}
 }
 
@@ -346,6 +412,41 @@ func (s *stream) poke() {
 	case s.wake <- struct{}{}:
 	default:
 	}
+}
+
+// pendingView is a view that waits for its stream to open.
+type pendingView struct {
+	def   View
+	until time.Time
+}
+
+// pend keeps def for the stream that opens with id before h.pendingFor
+// has passed. Hub.mu is held.
+func (h *Hub) pend(id string, def View, now time.Time) {
+	if h.pendingFor < 0 {
+		return
+	}
+	if !now.Before(h.sweepAt) {
+		for k, ps := range h.pending {
+			ps = slices.DeleteFunc(ps, func(p pendingView) bool { return !now.Before(p.until) })
+			if len(ps) == 0 {
+				delete(h.pending, k)
+			} else {
+				h.pending[k] = ps
+			}
+		}
+		h.sweepAt = now.Add(h.pendingFor)
+	}
+	ps := h.pending[id]
+	if ps == nil && len(h.pending) >= h.maxStreams {
+		return
+	}
+	p := pendingView{def: def, until: now.Add(h.pendingFor)}
+	if i := slices.IndexFunc(ps, func(p pendingView) bool { return p.def.Key == def.Key }); i >= 0 {
+		ps[i] = p
+		return
+	}
+	h.pending[id] = append(ps, p)
 }
 
 // mark puts v on the dirty list and reports whether it was not on it

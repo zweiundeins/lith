@@ -3,6 +3,8 @@
 // MaxBatch, without waiting for more) into one transaction with a
 // savepoint per command: under load one commit, and one fsync, covers many
 // commands, and a command that fails undoes only its own changes.
+// Commands are applied in the order they arrive in the queue, from Send
+// and Do alike.
 //
 //	w, err := writer.New(db, writer.Options{OnCommit: views.Changed})
 //	go w.Run(ctx)
@@ -80,9 +82,14 @@ type Options struct {
 	// before the writer checkpoints it (default 1000). It applies only
 	// when the database was opened with sqlite.CheckpointWriter.
 	CheckpointPages int
-	// Log gets panics, failed Sends and maintenance errors (default
-	// slog.Default()).
+	// Log gets panics, failed batches, failed Sends without OnSendError
+	// and maintenance errors (default slog.Default()).
 	Log *slog.Logger
+	// OnSendError, if set, gets every command from Send that failed, with
+	// its error: its own, its panic (ErrPanic) or its batch's failure. It
+	// is called on the writer's goroutine once the batch has ended, after
+	// OnCommit, and must not block. Nil: a command's own error is logged.
+	OnSendError func(cmd Command, err error)
 }
 
 // Stats are the writer's counters since New.
@@ -98,7 +105,7 @@ type Stats struct {
 }
 
 type request struct {
-	cmd  Command
+	cmd  Command // nil for Flush
 	ctx  context.Context
 	done chan error // nil for Send
 }
@@ -127,6 +134,7 @@ type Writer struct {
 	pages    int  // WAL pages written since the last checkpoint
 	dirty    bool // WAL pages written since the last TRUNCATE checkpoint
 	opsReady bool // lith_ops exists
+	resReady bool // lith_results exists
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
 	times                                            durations
@@ -149,6 +157,9 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 	}
 	if opts.Log == nil {
 		opts.Log = slog.Default()
+	}
+	if db.W == nil {
+		return nil, errors.New("writer: the database has no write connection (sqlite.Options.ReadOnly)")
 	}
 	dbo := db.Options()
 	ctx, cancel := context.WithTimeout(context.Background(), dbo.BusyTimeout)
@@ -204,7 +215,8 @@ func (w *Writer) shut() {
 }
 
 // Send queues cmd and returns at once: ErrQueueFull if there is no room.
-// Nobody waits for its outcome, so a failure is logged.
+// Nobody waits for its outcome, so a failure goes to OnSendError, or to
+// the log.
 func (w *Writer) Send(cmd Command) error {
 	if err := validate(cmd); err != nil {
 		return err
@@ -229,6 +241,28 @@ func (w *Writer) Do(ctx context.Context, cmd Command) error {
 		return err
 	}
 	return <-r.done
+}
+
+// Flush returns once every command queued before it has been applied,
+// committed or failed: a failure goes to the command's Do, or for a Send
+// to OnSendError. Since commands are applied in the order they arrive, a read
+// after Flush sees what the commands sent before it committed. Flush
+// returns ctx's error if ctx ends first, and ErrClosed once the writer
+// has stopped taking commands.
+func (w *Writer) Flush(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r := &request{done: make(chan error, 1)}
+	if err := w.enqueue(ctx, r); err != nil {
+		return err
+	}
+	select {
+	case err := <-r.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func validate(cmd Command) error {
@@ -337,6 +371,18 @@ func (w *Writer) loop(ctx context.Context) {
 }
 
 func (w *Writer) apply(batch []*request) {
+	n := int64(0)
+	for _, r := range batch {
+		if r.cmd != nil {
+			n++
+		}
+	}
+	if n == 0 {
+		for _, r := range batch {
+			r.done <- nil
+		}
+		return
+	}
 	start := time.Now()
 	if cap(w.errs) < len(batch) {
 		w.errs = make([]error, len(batch))
@@ -348,6 +394,9 @@ func (w *Writer) apply(batch []*request) {
 		failed = fmt.Errorf("writer: begin: %w", err)
 	} else {
 		for i, r := range batch {
+			if r.cmd == nil {
+				continue
+			}
 			if errs[i], failed = w.one(r); failed != nil {
 				break
 			}
@@ -365,7 +414,6 @@ func (w *Writer) apply(batch []*request) {
 	}
 
 	elapsed := time.Since(start)
-	n := int64(len(batch))
 	w.batches.Add(1)
 	w.commands.Add(n)
 	w.busyNanos.Add(int64(elapsed))
@@ -375,8 +423,8 @@ func (w *Writer) apply(batch []*request) {
 	w.times.add(elapsed)
 	if failed != nil {
 		w.opts.Log.Error("writer: batch failed", "commands", n, "err", failed)
-		for i := range errs {
-			if errs[i] == nil {
+		for i, r := range batch {
+			if errs[i] == nil && r.cmd != nil {
 				errs[i] = failed
 			}
 		}
@@ -411,9 +459,13 @@ func (w *Writer) apply(batch []*request) {
 
 	for i, r := range batch {
 		err := errs[i]
-		if r.done != nil {
+		switch {
+		case r.done != nil:
 			r.done <- err
-		} else if err != nil && err != failed && !errors.Is(err, ErrPanic) {
+		case err == nil:
+		case w.opts.OnSendError != nil:
+			w.safely("OnSendError", func() { w.opts.OnSendError(r.cmd, err) })
+		case err != failed && !errors.Is(err, ErrPanic):
 			w.opts.Log.Warn("writer: command failed", "cmd", fmt.Sprintf("%T", r.cmd), "err", err)
 		}
 	}
@@ -428,9 +480,9 @@ func (w *Writer) one(r *request) (cmdErr, batchErr error) {
 		return nil, fmt.Errorf("writer: savepoint: %w", err)
 	}
 	tx := &Tx{w: w, ctx: r.ctx}
-	cmdErr = w.call(r.cmd, tx)
+	cmdErr, keep := unkept(w.call(r.cmd, tx))
 	tx.end()
-	if cmdErr != nil {
+	if !keep {
 		if err := w.exec("ROLLBACK TO cmd"); err != nil {
 			return cmdErr, fmt.Errorf("writer: roll back to savepoint: %w", err)
 		}
@@ -438,13 +490,29 @@ func (w *Writer) one(r *request) (cmdErr, batchErr error) {
 	if err := w.exec("RELEASE cmd"); err != nil {
 		return cmdErr, fmt.Errorf("writer: release savepoint: %w", err)
 	}
-	if cmdErr == nil {
+	if keep {
 		for _, t := range tx.topics {
 			w.topics[t] = struct{}{}
 		}
 		w.after = append(w.after, tx.after...)
 	}
 	return cmdErr, nil
+}
+
+// kept is the error of a command whose changes stay all the same:
+// OnceResult's record of a refusal.
+type kept struct{ err error }
+
+func (k *kept) Error() string { return k.err.Error() }
+func (k *kept) Unwrap() error { return k.err }
+
+// unkept returns the error a command reports and whether its changes
+// stay.
+func unkept(err error) (error, bool) {
+	if k, ok := err.(*kept); ok {
+		return k.err, true
+	}
+	return err, err == nil
 }
 
 // call runs cmd and turns a panic into its error: a broken command fails

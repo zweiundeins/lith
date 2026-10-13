@@ -6,9 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func open(t *testing.T, opts Options) *DB {
@@ -151,6 +153,35 @@ func TestReadPoolIsQueryOnlyAndKeepsItsConnections(t *testing.T) {
 	}
 }
 
+// A live hub's render workers, GOMAXPROCS of them by default, hold one
+// reader each for good. The default pool leaves at least four readers for
+// everything else.
+func TestDefaultReadersLeaveRoomBesideTheHub(t *testing.T) {
+	ctx := context.Background()
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
+	for _, procs := range []int{2, max(runtime.GOMAXPROCS(0), 6)} {
+		runtime.GOMAXPROCS(procs)
+		d := open(t, Options{})
+		if got, want := d.Options().Readers, max(8, procs+4); got != want {
+			t.Errorf("GOMAXPROCS %d: %d readers, want %d", procs, got, want)
+		}
+		conns := make([]*sql.Conn, 0, procs+4)
+		for i := range procs + 4 {
+			wait, cancel := context.WithTimeout(ctx, time.Second)
+			c, err := d.R.Conn(wait)
+			cancel()
+			if err != nil {
+				t.Fatalf("GOMAXPROCS %d: reader %d: %v", procs, i+1, err)
+			}
+			conns = append(conns, c)
+		}
+		for _, c := range conns {
+			c.Close()
+		}
+		d.Close()
+	}
+}
+
 func TestViewSeesOneSnapshot(t *testing.T) {
 	ctx := context.Background()
 	d := open(t, Options{})
@@ -181,6 +212,116 @@ func TestViewSeesOneSnapshot(t *testing.T) {
 	}
 	if n := count(d.R); n != 2 {
 		t.Fatalf("after View: %d rows", n)
+	}
+}
+
+var (
+	_ Querier = (*sql.DB)(nil)
+	_ Querier = (*sql.Tx)(nil)
+	_ Querier = (*sql.Conn)(nil)
+)
+
+// A View called with a context that carries a transaction on the same
+// database runs in it: a store called from a render sees the render's
+// snapshot, even after a commit, and leaves the transaction open.
+func TestViewJoinsTheTransactionInCtx(t *testing.T) {
+	ctx := context.Background()
+	d := open(t, Options{})
+	if _, err := d.W.Exec("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := TxFrom(ctx); ok {
+		t.Fatal("a plain context carries a transaction")
+	}
+	count := func(ctx context.Context) (n int) {
+		t.Helper()
+		err := d.View(ctx, func(tx *sql.Tx) error { return tx.QueryRow("SELECT count(*) FROM t").Scan(&n) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	err := d.View(ctx, func(tx *sql.Tx) error {
+		ctx := WithTx(ctx, tx)
+		if got, ok := TxFrom(ctx); !ok || got != tx {
+			t.Fatal("TxFrom lost the transaction")
+		}
+		before := count(ctx)
+		if _, err := d.W.Exec("INSERT INTO t VALUES (2)"); err != nil {
+			return err
+		}
+		if after := count(ctx); after != before {
+			t.Errorf("a View with the caller's transaction saw %d rows, the caller %d", after, before)
+		}
+		if err := d.View(ctx, func(*sql.Tx) error { return errors.New("refused") }); err == nil {
+			t.Error("the inner View lost its error")
+		}
+		var n int
+		return tx.QueryRow("SELECT count(*) FROM t").Scan(&n)
+	})
+	if err != nil {
+		t.Fatalf("the caller's transaction after the inner Views: %v", err)
+	}
+	if n := count(ctx); n != 2 {
+		t.Fatalf("%d rows after the View", n)
+	}
+}
+
+func TestQuerierFrom(t *testing.T) {
+	ctx := context.Background()
+	if _, ok := QuerierFrom(ctx); ok {
+		t.Fatal("a plain context carries a Querier")
+	}
+	d := open(t, Options{})
+	err := d.View(ctx, func(tx *sql.Tx) error {
+		q, ok := QuerierFrom(WithTx(ctx, tx))
+		if !ok || q != Querier(tx) {
+			t.Fatalf("QuerierFrom gave %v, %v for the transaction from WithTx", q, ok)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A transaction on another database is not joined: each View reads its
+// own database.
+func TestViewKeepsToItsDatabase(t *testing.T) {
+	ctx := context.Background()
+	a, b := open(t, Options{}), open(t, Options{})
+	if _, err := b.W.Exec("CREATE TABLE only_b (x INTEGER); INSERT INTO only_b VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	err := a.View(ctx, func(tx *sql.Tx) error {
+		return b.View(WithTx(ctx, tx), func(tx *sql.Tx) error {
+			var n int
+			return tx.QueryRow("SELECT count(*) FROM only_b").Scan(&n)
+		})
+	})
+	if err != nil {
+		t.Fatalf("b's View ran in a's transaction: %v", err)
+	}
+
+	// The same file, opened twice, is the same database.
+	c, err := Open(ctx, a.Path, Options{Synchronous: "NORMAL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := a.W.Exec("CREATE TABLE t (x INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	err = a.View(ctx, func(outer *sql.Tx) error {
+		return c.View(WithTx(ctx, outer), func(tx *sql.Tx) error {
+			if tx != outer {
+				t.Error("a second DB on the same file did not join the transaction")
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -218,6 +359,76 @@ func TestBackup(t *testing.T) {
 	}
 	if _, err := os.Stat(bad); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a failed backup left its file: %v", err)
+	}
+}
+
+// ReadOnly reads an existing database, here while another program writes
+// to it and its last commits are still in the WAL, and a backup of it.
+func TestReadOnly(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "rw.db")
+	rw, err := Open(ctx, path, Options{Synchronous: "NORMAL", Checkpoint: CheckpointExternal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rw.Close()
+	if _, err := rw.W.Exec("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1), (2)"); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := Open(ctx, path, Options{ReadOnly: true, Readers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.W != nil {
+		t.Fatal("a read-only database has a write connection")
+	}
+	count := func(d *DB) (n int) {
+		t.Helper()
+		err := d.View(ctx, func(tx *sql.Tx) error { return tx.QueryRow("SELECT count(*) FROM t").Scan(&n) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(d); n != 2 {
+		t.Fatalf("%d rows", n)
+	}
+	if _, err := d.R.Exec("INSERT INTO t VALUES (3)"); err == nil {
+		t.Fatal("wrote through a read-only database")
+	}
+	dst := filepath.Join(t.TempDir(), "copy.db")
+	if err := d.Backup(ctx, dst); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Open(ctx, dst, Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if n := count(c); n != 2 {
+		t.Fatalf("the backup has %d rows", n)
+	}
+}
+
+func TestReadOnlyCreatesNothing(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "missing")
+	path := filepath.Join(dir, "x.db")
+	if _, err := Open(ctx, path, Options{ReadOnly: true}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a missing database: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Open created the directory: %v", err)
+	}
+	d := open(t, Options{})
+	d.Close()
+	_, err := Open(ctx, d.Path, Options{ReadOnly: true, Migrations: files(nil)})
+	if err == nil || !strings.Contains(err.Error(), "ReadOnly") {
+		t.Fatalf("ReadOnly with migrations: %v", err)
 	}
 }
 

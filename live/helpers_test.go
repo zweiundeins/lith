@@ -28,25 +28,82 @@ import (
 // read pool of pool connections.
 func testDB(t *testing.T, pool int) (write, read *sql.DB) {
 	t.Helper()
+	dsn, write := counterDB(t)
+	read, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read.SetMaxOpenConns(pool)
+	t.Cleanup(func() { read.Close() })
+	return write, read
+}
+
+// counterDB creates the database of testDB and returns its DSN and its
+// write connection.
+func counterDB(t *testing.T) (string, *sql.DB) {
+	t.Helper()
 	dsn := "file:" + filepath.Join(t.TempDir(), "test.db") + "?_pragma=journal_mode(wal)&_pragma=synchronous(off)&_pragma=busy_timeout(5000)"
 	write, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { write.Close() })
 	write.SetMaxOpenConns(1)
 	if _, err := write.Exec(`create table counter (name text primary key, n integer not null); insert into counter values ('a', 0)`); err != nil {
 		t.Fatal(err)
 	}
-	read, err = sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	return dsn, write
+}
+
+// countingDB is testDB with a read pool that counts the statements
+// prepared on its connections. database/sql runs a query without a
+// prepared statement through the driver's QueryContext.
+func countingDB(t *testing.T, pool int) (write, read *sql.DB, prepares *atomic.Int64) {
+	t.Helper()
+	dsn, write := counterDB(t)
+	prepares = new(atomic.Int64)
+	read = sql.OpenDB(countingConnector{drv: write.Driver(), dsn: dsn, prepares: prepares})
 	read.SetMaxOpenConns(pool)
-	t.Cleanup(func() {
-		read.Close()
-		write.Close()
-	})
-	return write, read
+	t.Cleanup(func() { read.Close() })
+	return write, read, prepares
+}
+
+type countingConnector struct {
+	drv      driver.Driver
+	dsn      string
+	prepares *atomic.Int64
+}
+
+func (c countingConnector) Connect(context.Context) (driver.Conn, error) {
+	conn, err := c.drv.Open(c.dsn)
+	if err != nil {
+		return nil, err
+	}
+	return countingConn{conn, c.prepares}, nil
+}
+
+func (c countingConnector) Driver() driver.Driver { return c.drv }
+
+type countingConn struct {
+	driver.Conn
+	prepares *atomic.Int64
+}
+
+func (c countingConn) PrepareContext(ctx context.Context, q string) (driver.Stmt, error) {
+	c.prepares.Add(1)
+	return c.Conn.(driver.ConnPrepareContext).PrepareContext(ctx, q)
+}
+
+func (c countingConn) BeginTx(ctx context.Context, o driver.TxOptions) (driver.Tx, error) {
+	return c.Conn.(driver.ConnBeginTx).BeginTx(ctx, o)
+}
+
+func (c countingConn) QueryContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Rows, error) {
+	return c.Conn.(driver.QueryerContext).QueryContext(ctx, q, args)
+}
+
+func (c countingConn) ExecContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error) {
+	return c.Conn.(driver.ExecerContext).ExecContext(ctx, q, args)
 }
 
 // fakeDB is a read pool for views that do not query. A transaction

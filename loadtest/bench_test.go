@@ -4,6 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
+
+	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/loadtest"
 	"github.com/zweiundeins/lith/sqlite"
 	"github.com/zweiundeins/lith/sse"
@@ -18,33 +21,47 @@ import (
 //
 //	taskset -c 0-11 go test ./loadtest -run '^$' -bench SharedBoard -count 3
 func BenchmarkSharedBoard(b *testing.B) {
-	board := loadtest.Board{Rows: 200}
 	for _, coding := range []string{sse.Zstd, sse.Brotli} {
-		b.Run(coding, func(b *testing.B) {
-			var r loadtest.Report
-			for b.Loop() {
-				var err error
-				r, err = loadtest.Run(b.Context(), loadtest.Config{
-					SQLite:         sqlite.Options{Migrations: board.Migrations(), Checkpoint: sqlite.CheckpointWriter},
-					Seed:           board.Seed(),
-					Streams:        200,
-					Stream:         board.Stream,
-					AcceptEncoding: []string{coding},
-					Producers:      200,
-					Rate:           800,
-					Command:        board.Command,
-					Warmup:         2 * time.Second,
-					Duration:       10 * time.Second,
-				})
-				if err != nil {
-					b.Fatal(err)
-				}
-			}
-			b.Log("\n" + r.String())
-			for _, m := range r.Metrics() {
-				b.ReportMetric(m.Value, m.Unit)
-			}
-			b.ReportMetric(0, "ns/op")
-		})
+		b.Run(coding, func(b *testing.B) { sharedBoard(b, coding, sse.Options{}) })
 	}
+}
+
+// BenchmarkBoardZstdLevels is BenchmarkSharedBoard with every stream on
+// zstd at each level sse.Options.ZstdLevel offers short of the best: the
+// bytes per frame against the CPU and the heap per stream.
+//
+//	taskset -c 0-11 go test ./loadtest -run '^$' -bench BoardZstdLevels -count 3
+func BenchmarkBoardZstdLevels(b *testing.B) {
+	for _, level := range []zstd.EncoderLevel{zstd.SpeedFastest, zstd.SpeedDefault, zstd.SpeedBetterCompression} {
+		b.Run(level.String(), func(b *testing.B) { sharedBoard(b, sse.Zstd, sse.Options{ZstdLevel: level}) })
+	}
+}
+
+func sharedBoard(b *testing.B, coding string, streams sse.Options) {
+	board := loadtest.Board{Rows: 200}
+	var r loadtest.Report
+	for b.Loop() {
+		var err error
+		r, err = loadtest.Run(b.Context(), loadtest.Config{
+			SQLite:         sqlite.Options{Migrations: board.Migrations(), Checkpoint: sqlite.CheckpointWriter},
+			Seed:           board.Seed(),
+			Streams:        200,
+			Stream:         board.Stream,
+			AcceptEncoding: []string{coding},
+			Producers:      200,
+			Rate:           800,
+			Command:        board.Command,
+			Warmup:         2 * time.Second,
+			Duration:       10 * time.Second,
+			Hub:            live.Options{SSE: streams},
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.Log("\n" + r.String())
+	for _, m := range r.Metrics() {
+		b.ReportMetric(m.Value, m.Unit)
+	}
+	b.ReportMetric(0, "ns/op")
 }

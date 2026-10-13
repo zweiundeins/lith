@@ -1,13 +1,17 @@
 package live
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/sqlite"
 	"github.com/zweiundeins/lith/sse"
 )
 
@@ -151,6 +156,198 @@ func TestOneReadTransactionPerWorkerPerTick(t *testing.T) {
 		if err := tx.QueryRow(`select 1`).Scan(new(int)); !errors.Is(err, sql.ErrTxDone) {
 			t.Fatalf("a read transaction outlived its tick: %v", err)
 		}
+	}
+}
+
+// A Render's ctx carries its transaction, so a store that reads through
+// sqlite.DB.View with that ctx sees the render's snapshot, even when a
+// commit lands while the view renders.
+func TestStoreInRenderJoinsItsSnapshot(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "test.db"), sqlite.Options{Synchronous: "NORMAL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.W.Exec(`create table counter (name text primary key, n integer not null); insert into counter values ('a', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	store := func(ctx context.Context) (n int, err error) {
+		err = db.View(ctx, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(ctx, `select n from counter where name = 'a'`).Scan(&n)
+		})
+		return n, err
+	}
+	type seen struct {
+		carried     bool
+		render, got int
+	}
+	results := make(chan seen, 1)
+	h := start(t, Options{Read: db.R, Workers: 2})
+	v := text("v", nil, func(ctx context.Context, tx *sql.Tx) (string, error) {
+		var s seen
+		got, ok := sqlite.TxFrom(ctx)
+		s.carried = ok && got == tx
+		var err error
+		if s.render, err = count(ctx, tx); err != nil {
+			return "", err
+		}
+		if _, err := db.W.Exec(`update counter set n = n + 1 where name = 'a'`); err != nil {
+			return "", err
+		}
+		if s.got, err = store(ctx); err != nil {
+			return "", err
+		}
+		results <- s
+		return "v", nil
+	})
+	serve(h, Spec{Views: []View{v}}, "")
+	select {
+	case s := <-results:
+		if !s.carried {
+			t.Error("the Render's ctx does not carry its transaction")
+		}
+		if s.got != s.render {
+			t.Errorf("the store read %d, the render %d: it did not join the render's snapshot", s.got, s.render)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the view did not render")
+	}
+}
+
+// Stats count the read transactions the workers begin, at most one per
+// worker and tick, and the renders of each view watched now.
+func TestStatsCountReadTransactionsAndRendersByKey(t *testing.T) {
+	_, read := testDB(t, 4)
+	h := start(t, Options{Read: read, Workers: 2, Tick: 5 * time.Millisecond})
+	a := text("a", []string{"a"}, func(context.Context, *sql.Tx) (string, error) { return "a", nil })
+	b := text("b", []string{"b"}, func(context.Context, *sql.Tx) (string, error) { return "b", nil })
+	c := serve(h, Spec{ID: "tab", Views: []View{a, b}}, "")
+	waitFor(t, "the first frames", func() bool { return len(c.patches()) == 2 })
+	for i := int64(2); i <= 3; i++ {
+		h.Changed([]string{"a"})
+		waitFor(t, "a render of a", func() bool { return h.Stats().RendersByKey["a"] == i })
+	}
+	waitFor(t, "the third tick", func() bool { return h.Stats().Ticks == 3 })
+	s := h.Stats()
+	if want := map[string]int64{"a": 3, "b": 1}; !maps.Equal(s.RendersByKey, want) {
+		t.Fatalf("renders by key %v, want %v", s.RendersByKey, want)
+	}
+	if s.ReadTxs < s.Ticks || s.ReadTxs > 2*s.Ticks {
+		t.Fatalf("%d read transactions in %d ticks of two workers", s.ReadTxs, s.Ticks)
+	}
+	h.Unwatch("tab", "a")
+	if _, ok := h.Stats().RendersByKey["a"]; ok {
+		t.Fatal("a view nobody watches is still counted")
+	}
+
+	h = start(t, Options{Tick: 5 * time.Millisecond})
+	c = serve(h, Spec{Views: []View{a}}, "")
+	waitFor(t, "the frame", func() bool { return c.has(`<p id="a">a</p>`) })
+	if s := h.Stats(); s.ReadTxs != 0 || s.RendersByKey["a"] != 1 {
+		t.Fatalf("without a read pool: %+v", s)
+	}
+}
+
+// sqlite.QuerierFrom gives a Render its worker's prepared statements: each
+// SQL text is prepared once on the worker's connection, whatever the
+// number of renders and ticks, and runs in the render's snapshot. A query
+// that runs again while its rows are open, as in a nested loop, runs on a
+// statement of its own.
+func TestRenderQuerierPreparesOnce(t *testing.T) {
+	write, read, prepares := countingDB(t, 4)
+	l := &logs{}
+	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond, Log: l.logger()})
+	const one, names = `select n from counter where name = ?`, `select name from counter`
+	render := func(ctx context.Context, tx *sql.Tx) (string, error) {
+		q, ok := sqlite.QuerierFrom(ctx)
+		if !ok {
+			return "", errors.New("no Querier in the ctx")
+		}
+		var before, after int
+		if err := q.QueryRowContext(ctx, one, "a").Scan(&before); err != nil {
+			return "", err
+		}
+		if _, err := write.Exec(`update counter set n = n + 1 where name = 'b'`); err != nil {
+			return "", err
+		}
+		if err := q.QueryRowContext(ctx, one, "a").Scan(&after); err != nil {
+			return "", err
+		}
+		if after != before {
+			return "", fmt.Errorf("the Querier left the render's snapshot: %d, then %d", before, after)
+		}
+		rows, err := q.QueryContext(ctx, names)
+		if err != nil {
+			return "", err
+		}
+		defer rows.Close()
+		pairs := 0
+		for rows.Next() {
+			inner, err := q.QueryContext(ctx, names)
+			if err != nil {
+				return "", err
+			}
+			for inner.Next() {
+				pairs++
+			}
+			if err := inner.Close(); err != nil {
+				return "", err
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%d/%d", before, pairs), nil
+	}
+	if _, err := write.Exec(`insert into counter values ('b', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	c := serve(h, Spec{Views: []View{text("n", []string{"counter"}, render)}}, "")
+	waitFor(t, "the first frame", func() bool { return c.has(`<p id="n">0/4</p>`) })
+	for i := 1; i <= 5; i++ {
+		increment(t, write)
+		h.Changed([]string{"counter"})
+		waitFor(t, "the next frame", func() bool { return c.has(fmt.Sprintf(`<p id="n">%d/4</p>`, i)) })
+	}
+	if strings.Contains(l.String(), "render") {
+		t.Fatalf("logged %s", l.String())
+	}
+	if n := prepares.Load(); n != 2 {
+		t.Fatalf("%d statements prepared for two queries in six ticks, want 2", n)
+	}
+}
+
+// A row that a Render leaves unscanned does not keep its statement busy,
+// nor the worker's snapshot from moving on; a Querier kept beyond its
+// tick fails.
+func TestRenderQuerierAfterTheRender(t *testing.T) {
+	write, read, _ := countingDB(t, 4)
+	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond})
+	kept := make(chan sqlite.Querier, 1)
+	v := text("n", []string{"counter"}, func(ctx context.Context, tx *sql.Tx) (string, error) {
+		n, err := count(ctx, tx)
+		if err != nil {
+			return "", err
+		}
+		q, _ := sqlite.QuerierFrom(ctx)
+		q.QueryRowContext(context.Background(), `select n from counter where name = ?`, "a")
+		select {
+		case kept <- q:
+		default:
+		}
+		return strconv.Itoa(n), nil
+	})
+	c := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the first frame", func() bool { return c.has(`<p id="n">0</p>`) })
+	for i := 1; i <= 3; i++ {
+		increment(t, write)
+		h.Changed([]string{"counter"})
+		waitFor(t, "a frame of the new snapshot", func() bool { return c.has(fmt.Sprintf(`<p id="n">%d</p>`, i)) })
+	}
+	var n int
+	if err := (<-kept).QueryRowContext(context.Background(), `select n from counter where name = ?`, "a").Scan(&n); err == nil {
+		t.Fatal("a Querier read after its tick")
 	}
 }
 
@@ -337,6 +534,79 @@ func TestWatchAndUnwatch(t *testing.T) {
 	// Watching it again starts from its current state.
 	h.Watch("tab1", panel)
 	waitFor(t, "the panel after watching again", func() bool { return c.has(`<p id="panel">2</p>`) })
+}
+
+// A page's command to watch a view can arrive before its stream opens:
+// the stream that opens with the ID watches the view from the start.
+func TestWatchBeforeTheStreamOpens(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	panel := text("panel", nil, func(context.Context, *sql.Tx) (string, error) { return "panel", nil })
+	page := text("page", nil, func(context.Context, *sql.Tx) (string, error) { return "page", nil })
+	if h.Watch("tab1", panel) {
+		t.Fatal("Watch reported a stream that is not open")
+	}
+	if h.Watch("", panel) {
+		t.Fatal("Watch reported a stream without an ID")
+	}
+	c := serve(h, Spec{ID: "tab1", Views: []View{page}}, "")
+	waitFor(t, "the pending view", func() bool { return c.has(`<p id="panel">panel</p>`) })
+	if p := c.patches(); len(p) != 2 || p[0] != `<p id="page">page</p>` {
+		t.Fatalf("got %q, want the page, then the panel", p)
+	}
+	if n := h.Count("panel"); n != 1 {
+		t.Fatalf("%d streams on the panel", n)
+	}
+	// Once the stream took the view, nothing waits for a later one.
+	c.leave(t)
+	again := serve(h, Spec{ID: "tab1", Views: []View{page}}, "")
+	waitFor(t, "the page", func() bool { return again.has(`<p id="page">page</p>`) })
+	time.Sleep(30 * time.Millisecond)
+	if again.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a second stream with the ID got the view")
+	}
+}
+
+// A pending view waits PendingWatch at most, Unwatch drops it, and a
+// negative PendingWatch keeps none.
+func TestPendingWatchEnds(t *testing.T) {
+	panel := text("panel", nil, func(context.Context, *sql.Tx) (string, error) { return "panel", nil })
+	page := text("page", nil, func(context.Context, *sql.Tx) (string, error) { return "page", nil })
+	opened := func(h *Hub, id string) *client {
+		c := serve(h, Spec{ID: id, Views: []View{page}}, "")
+		waitFor(t, "the page", func() bool { return c.has(`<p id="page">page</p>`) })
+		time.Sleep(30 * time.Millisecond)
+		return c
+	}
+	h := start(t, Options{Tick: 5 * time.Millisecond, PendingWatch: 50 * time.Millisecond})
+	h.Watch("late", panel)
+	h.Watch("dropped", panel)
+	if !h.Unwatch("dropped", "panel") || h.Unwatch("dropped", "panel") {
+		t.Fatal("Unwatch of a pending view")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if c := opened(h, "late"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a view waited longer than PendingWatch")
+	}
+	if c := opened(h, "dropped"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("an unwatched view waited")
+	}
+
+	h = start(t, Options{Tick: 5 * time.Millisecond, MaxStreams: 3})
+	for _, id := range []string{"x", "y", "z", "w"} {
+		h.Watch(id, panel)
+	}
+	if c := opened(h, "w"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("views waited for more IDs than MaxStreams")
+	}
+	if c := opened(h, "x"); !c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a view did not wait")
+	}
+
+	h = start(t, Options{Tick: 5 * time.Millisecond, PendingWatch: -1})
+	h.Watch("tab", panel)
+	if c := opened(h, "tab"); c.has(`<p id="panel">panel</p>`) {
+		t.Fatal("a view waited with a negative PendingWatch")
+	}
 }
 
 // When the hub stops, every stream ends at once, even one stuck in a
@@ -616,6 +886,46 @@ func TestHeartbeat(t *testing.T) {
 	})
 }
 
+// With HeartbeatSignal, the heartbeat is a signal the page can watch, sent
+// every Heartbeat while frames flow too, with a number that grows.
+func TestHeartbeatSignal(t *testing.T) {
+	h := start(t, Options{Tick: 2 * time.Millisecond, Heartbeat: 20 * time.Millisecond, HeartbeatSignal: "_ping"})
+	var n atomic.Int64
+	v := View{Key: "v", Every: 5 * time.Millisecond, Render: func(context.Context, *sql.Tx) (any, error) {
+		return sse.PatchElements(fmt.Appendf(nil, `<p id="v">%d</p>`, n.Add(1))), nil
+	}}
+	c := serve(h, Spec{Views: []View{v}}, "")
+	pings := func() []int64 {
+		var out []int64
+		for _, e := range c.events() {
+			if e.name == "comment" {
+				t.Fatal("a heartbeat signal and a comment")
+			}
+			if e.name != "datastar-patch-signals" {
+				continue
+			}
+			var p struct {
+				Ping int64 `json:"_ping"`
+			}
+			if err := json.Unmarshal([]byte(e.data), &p); err != nil {
+				t.Fatalf("%q: %v", e.data, err)
+			}
+			out = append(out, p.Ping)
+		}
+		return out
+	}
+	waitFor(t, "three heartbeats", func() bool { return len(pings()) >= 3 })
+	p := pings()
+	for i := 1; i < len(p); i++ {
+		if p[i] <= p[i-1] {
+			t.Fatalf("the heartbeat's number does not grow: %v", p)
+		}
+	}
+	if len(c.patches()) < 6 {
+		t.Fatalf("only %d frames between the heartbeats", len(c.patches()))
+	}
+}
+
 // A stream whose frames all tailor to nothing still sends heartbeats.
 func TestHeartbeatWhenWriteSendsNothing(t *testing.T) {
 	h := start(t, Options{Tick: 2 * time.Millisecond, Heartbeat: 30 * time.Millisecond})
@@ -790,6 +1100,80 @@ func TestWriteTailorsFrames(t *testing.T) {
 	}
 	b := serve(h, Spec{Views: []View{list}, Write: tailored()}, "")
 	waitFor(t, "the whole list for a new stream", func() bool { return len(b.patches()) == 3 && b.has(`<li id="r1">B</li>`) })
+}
+
+// countingClient counts the writes that reach the client.
+type countingClient struct {
+	*client
+	writes atomic.Int64
+}
+
+func (c *countingClient) Write(p []byte) (int, error) {
+	c.writes.Add(1)
+	return c.client.Write(p)
+}
+
+// WriteTick gets the frames of a tick in one call, in the order the stream
+// watches the views, so they reach the client in one compressed write,
+// where Write makes a write of each.
+func TestWriteTick(t *testing.T) {
+	h := start(t, Options{Tick: 2 * time.Millisecond})
+	var n atomic.Int64
+	n.Store(1)
+	views := numbers(&n, "b", "a")
+	event := func(key string, frame any) []byte {
+		return sse.PatchElements(fmt.Appendf(nil, `<p id="%s">%d</p>`, key, frame))
+	}
+	var mu sync.Mutex
+	var calls [][]string
+	tick := func(s *sse.Stream, frames []Frame) error {
+		var got []string
+		var events [][]byte
+		for _, f := range frames {
+			got = append(got, fmt.Sprint(f.Key, f.Value))
+			events = append(events, event(f.Key, f.Value))
+		}
+		mu.Lock()
+		calls = append(calls, got)
+		mu.Unlock()
+		return s.Write(events...)
+	}
+	each := func(s *sse.Stream, key string, frame any) error { return s.Write(event(key, frame)) }
+	open := func(spec Spec) *countingClient {
+		var cc *countingClient
+		serveThrough(h, spec, sse.Zstd, func(c *client) http.ResponseWriter {
+			cc = &countingClient{client: c}
+			return cc
+		})
+		return cc
+	}
+	byTick := open(Spec{Views: views, WriteTick: tick, Write: func(*sse.Stream, string, any) error {
+		return errors.New("Write was called beside WriteTick")
+	}})
+	byView := open(Spec{Views: views, Write: each})
+	has := func(c *countingClient, n int64) bool {
+		b := unzstd(t, c.bytes())
+		return bytes.Contains(b, fmt.Appendf(nil, `<p id="a">%d</p>`, n)) && bytes.Contains(b, fmt.Appendf(nil, `<p id="b">%d</p>`, n))
+	}
+	waitFor(t, "the first frames", func() bool { return has(byTick, 1) && has(byView, 1) })
+	tickWrites, viewWrites := byTick.writes.Load(), byView.writes.Load()
+	n.Store(2)
+	h.Changed([]string{"t"})
+	waitFor(t, "the second frames", func() bool { return has(byTick, 2) && has(byView, 2) })
+	if d := byTick.writes.Load() - tickWrites; d != 1 {
+		t.Errorf("WriteTick: %d writes for a tick of two frames", d)
+	}
+	if d := byView.writes.Load() - viewWrites; d != 2 {
+		t.Errorf("Write: %d writes for a tick of two frames", d)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := [][]string{{"b1", "a1"}, {"b2", "a2"}}; !slices.EqualFunc(calls, want, slices.Equal) {
+		t.Fatalf("WriteTick got %q, want %q", calls, want)
+	}
+	if s := h.Stats(); s.FramesSent != 8 {
+		t.Fatalf("%d frames sent, want 4 to each stream", s.FramesSent)
+	}
 }
 
 // A new stream with the ID of an open one replaces it.
