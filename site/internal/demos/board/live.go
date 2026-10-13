@@ -55,7 +55,7 @@ func boardView() live.View {
 			if err != nil {
 				return nil, err
 			}
-			f, err := demo.Animated(ctx, LanesView(b, time.Now()), sse.Patch{})
+			f, err := demo.Animated(ctx, LanesView(b, time.Now()), sse.Patch{ViewTransitionSelector: "#board-lanes"})
 			if err != nil {
 				return nil, err
 			}

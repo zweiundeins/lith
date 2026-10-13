@@ -199,7 +199,15 @@ type Frame struct {
 
 // Animated renders c into a Frame whose later frames morph inside a view
 // transition, p's ViewTransition set; the first frame morphs at once.
+// p.ViewTransitionSelector is required: it scopes the transition to that
+// element (usually the one the frame patches), so the rest of the page
+// keeps taking clicks. A transition of the whole document gives every
+// press on the page to <html> while it runs. Browsers without scoped
+// transitions morph at once.
 func Animated(ctx context.Context, c templ.Component, p sse.Patch) (Frame, error) {
+	if p.ViewTransitionSelector == "" {
+		return Frame{}, errors.New("demo.Animated: set the patch's ViewTransitionSelector to the element that holds what moves")
+	}
 	var b strings.Builder
 	if err := c.Render(ctx, &b); err != nil {
 		return Frame{}, err

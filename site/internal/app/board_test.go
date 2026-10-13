@@ -156,9 +156,9 @@ func TestBoard(t *testing.T) {
 
 	// The mouse: Open a stream, from done to the top of to do.
 	// Straight after the move, while its view transition still runs: the
-	// cards take the pointer through the transition's overlay.
+	// cards take no presses then, and the drag finds the card by its box.
 	var active bool
-	ada.Eval(t, `document.documentElement.matches(':active-view-transition')`, &active)
+	ada.Eval(t, `document.querySelector('#board-lanes').matches(':active-view-transition')`, &active)
 	t.Logf("a view transition runs as the boardDrag starts: %v", active)
 	boardDrag(t, ada, "#board-card-9", "#board-card-1", 0.2)
 	bob.Wait(t, `document.querySelector('[data-lane="0"] .bd-slot')?.id === 'board-card-9'`, 5*time.Second)
