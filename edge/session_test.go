@@ -3,6 +3,7 @@ package edge
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -122,5 +123,48 @@ func TestSessionRenewAndClear(t *testing.T) {
 	got := cookies(w)
 	if len(got) != 1 || got[0].Name != "__Host-sid" || got[0].Value != "" || got[0].MaxAge >= 0 || !got[0].Secure {
 		t.Errorf("Clear: %q", w.Header().Get("Set-Cookie"))
+	}
+}
+
+func TestSessionAcceptsAnOlderFormat(t *testing.T) {
+	old := strings.Repeat("b", 27) // 160 bits, as starbase's ids
+	s := Sessions{Secure: true, Accept: regexp.MustCompile(`^[A-Za-z0-9_-]{27}$`).MatchString}
+	request := func(value string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.AddCookie(&http.Cookie{Name: "__Host-sid", Value: value})
+		return r
+	}
+	if id, ok := s.Get(request(old)); !ok || id != old {
+		t.Errorf("Get = %q, %v, want the older id", id, ok)
+	}
+	if _, ok := (Sessions{Secure: true}).Get(request(old)); ok {
+		t.Error("an older id passed without Accept")
+	}
+	for _, v := range []string{strings.Repeat("b", 26), strings.Repeat("b", 28), strings.Repeat("b", 26) + "+"} {
+		if _, ok := s.Get(request(v)); ok {
+			t.Errorf("Get took %q, which neither format allows", v)
+		}
+	}
+	if id, ok := s.Get(request(strings.Repeat("a", 43))); !ok || len(id) != 43 {
+		t.Error("Accept turned away the ids Sessions makes")
+	}
+
+	var inCtx string
+	w := httptest.NewRecorder()
+	s.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inCtx = SessionID(r.Context())
+	})).ServeHTTP(w, request(old))
+	if inCtx != old || w.Header().Get("Set-Cookie") != "" {
+		t.Errorf("Handler: id %q, Set-Cookie %q; want the older id kept", inCtx, w.Header().Get("Set-Cookie"))
+	}
+	if id := s.Renew(httptest.NewRecorder()); len(id) != 43 {
+		t.Errorf("a new id %q is not 256-bit", id)
+	}
+
+	all := Sessions{Accept: func(string) bool { return true }}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Cookie", "sid=")
+	if _, ok := all.Get(r); ok {
+		t.Error("an empty cookie passed")
 	}
 }
