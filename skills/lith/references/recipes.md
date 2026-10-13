@@ -135,7 +135,10 @@ func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
   log without one.
 - Commands run in the order they arrive. `w.Flush(ctx)` returns once every
   command queued before it is applied: a test sends, flushes, then reads.
-- Build SQL from constants: the writer prepares each SQL text once.
+- Build SQL from constants: the writer prepares each SQL text once, and
+  keeps the 512 used last. SQL built at runtime, such as an IN list with a
+  mark per value, goes through `tx.ExecUncached`, `tx.QueryUncached` or
+  `tx.QueryRowUncached`, which keep no statement.
 - Scan every `QueryRow` before the same query runs again: an unscanned row
   keeps its cached statement busy.
 - A retried request (a flaky network, a double click) runs once with

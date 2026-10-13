@@ -10,8 +10,10 @@ import (
 
 // Tx is what a Command gets: the batch's transaction on the writer's
 // connection. Its statements are prepared once, on that connection, and
-// kept by their SQL text, so build queries from constants and pass values
-// as arguments.
+// kept by their SQL text, the 512 used last. Build queries from constants
+// and pass values as arguments; SQL built at runtime, such as an IN list
+// with a mark per value, runs through ExecUncached, QueryUncached and
+// QueryRowUncached, which keep no statement.
 type Tx struct {
 	w      *Writer
 	ctx    context.Context
@@ -29,6 +31,7 @@ func (t *Tx) Context() context.Context { return t.ctx }
 func (t *Tx) Exec(query string, args ...any) (sql.Result, error) {
 	t.live()
 	if s := t.w.prepared(query); s != nil {
+		s.row = false
 		return s.s.ExecContext(t.ctx, args...)
 	}
 	return t.w.conn.ExecContext(t.ctx, query, args...)
@@ -42,6 +45,7 @@ func (t *Tx) Query(query string, args ...any) (*sql.Rows, error) {
 	var rows *sql.Rows
 	var err error
 	if s := t.w.prepared(query); s != nil {
+		s.row = false
 		if rows, err = s.s.QueryContext(t.ctx, args...); err == nil {
 			s.rows = rows
 		}
@@ -59,8 +63,35 @@ func (t *Tx) Query(query string, args ...any) (*sql.Rows, error) {
 func (t *Tx) QueryRow(query string, args ...any) *sql.Row {
 	t.live()
 	if s := t.w.prepared(query); s != nil {
+		s.row = true
 		return s.s.QueryRowContext(t.ctx, args...)
 	}
+	return t.w.conn.QueryRowContext(t.ctx, query, args...)
+}
+
+// ExecUncached is Exec for SQL built at runtime, such as an IN list with
+// a mark per value: the statement is prepared for this call only, instead
+// of taking a place in the cache for each length of the list.
+func (t *Tx) ExecUncached(query string, args ...any) (sql.Result, error) {
+	t.live()
+	return t.w.conn.ExecContext(t.ctx, query, args...)
+}
+
+// QueryUncached is Query for SQL built at runtime, without the statement
+// cache. Rows still open when the command returns are closed then.
+func (t *Tx) QueryUncached(query string, args ...any) (*sql.Rows, error) {
+	t.live()
+	rows, err := t.w.conn.QueryContext(t.ctx, query, args...)
+	if err == nil {
+		t.rows = append(t.rows, rows)
+	}
+	return rows, err
+}
+
+// QueryRowUncached is QueryRow for SQL built at runtime, without the
+// statement cache.
+func (t *Tx) QueryRowUncached(query string, args ...any) *sql.Row {
+	t.live()
 	return t.w.conn.QueryRowContext(t.ctx, query, args...)
 }
 
@@ -137,48 +168,80 @@ func (t *Tx) end() {
 		r.Close()
 	}
 	t.rows = nil
+	t.w.closeRetired()
 }
 
-// maxStmts bounds the statement cache. Queries built from constants never
-// reach it; past it, statements are prepared for each call again.
+// maxStmts bounds the statement cache, which keeps the statements used
+// last: SQL built at runtime pushes out the ones used longest ago, and
+// those are prepared again when they come back.
 const maxStmts = 512
 
 type stmt struct {
-	s    *sql.Stmt
-	rows *sql.Rows // the last rows read through s, maybe still open
+	s     *sql.Stmt
+	query string
+	rows  *sql.Rows // the last rows read through s, maybe still open
+	row   bool      // its last run was a QueryRow, whose row may not be scanned yet
+}
+
+// reading reports whether the rows of s's last Query are still open.
+func (s *stmt) reading() bool {
+	if s.rows == nil {
+		return false
+	}
+	if _, err := s.rows.Columns(); err == nil {
+		return true
+	}
+	s.rows = nil
+	return false
 }
 
 // prepared returns query's statement on the write connection, or nil if
-// the query should run unprepared: when the cache is full, when the SQL
-// has an error (the unprepared run reports it), or while rows of the
-// statement are open.
+// the query should run unprepared: when the SQL has an error (the
+// unprepared run reports it), or while rows of the statement are open. A
+// new statement in a full cache pushes out the one used longest ago.
 func (w *Writer) prepared(query string) *stmt {
-	s := w.stmts[query]
-	if s == nil {
-		if len(w.stmts) >= maxStmts {
+	if e := w.stmts[query]; e != nil {
+		w.lru.MoveToFront(e)
+		s := e.Value.(*stmt)
+		if s.reading() {
 			return nil
 		}
-		ps, err := w.conn.PrepareContext(context.Background(), query)
-		if err != nil {
-			return nil
-		}
-		s = &stmt{s: ps}
-		w.stmts[query] = s
 		return s
 	}
-	if s.rows != nil {
-		if _, err := s.rows.Columns(); err == nil {
-			return nil
-		}
-		s.rows = nil
+	ps, err := w.conn.PrepareContext(context.Background(), query)
+	if err != nil {
+		return nil
 	}
+	if w.lru.Len() >= maxStmts {
+		old := w.lru.Remove(w.lru.Back()).(*stmt)
+		delete(w.stmts, old.query)
+		if old.row || old.reading() {
+			// Closing it would pull the rows from under the command.
+			w.retired = append(w.retired, old.s)
+		} else {
+			old.s.Close()
+		}
+	}
+	s := &stmt{s: ps, query: query}
+	w.stmts[query] = w.lru.PushFront(s)
 	return s
+}
+
+// closeRetired closes the statements pushed out of the cache while a
+// command could still read their rows. Call it once that command ended.
+func (w *Writer) closeRetired() {
+	for _, s := range w.retired {
+		s.Close()
+	}
+	clear(w.retired)
+	w.retired = w.retired[:0]
 }
 
 // exec runs a statement of the writer's own, outside any command.
 func (w *Writer) exec(query string) error {
 	var err error
 	if s := w.prepared(query); s != nil {
+		s.row = false
 		_, err = s.s.Exec()
 	} else {
 		_, err = w.conn.ExecContext(context.Background(), query)
@@ -188,6 +251,7 @@ func (w *Writer) exec(query string) error {
 
 func (w *Writer) row(query string) *sql.Row {
 	if s := w.prepared(query); s != nil {
+		s.row = true
 		return s.s.QueryRow()
 	}
 	return w.conn.QueryRowContext(context.Background(), query)

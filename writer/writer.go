@@ -17,6 +17,7 @@
 package writer
 
 import (
+	"container/list"
 	"context"
 	"database/sql"
 	sqldriver "database/sql/driver"
@@ -135,7 +136,9 @@ type Writer struct {
 	err     error // set before done is closed
 
 	// The writer's goroutine alone uses these.
-	stmts    map[string]*stmt
+	stmts    map[string]*list.Element // of *stmt in lru, by SQL text
+	lru      list.List                // the statements, the one used last first
+	retired  []*sql.Stmt              // see closeRetired
 	batch    []*request
 	errs     []error
 	topics   map[string]struct{}
@@ -184,7 +187,7 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 		busy:   "PRAGMA busy_timeout = " + strconv.FormatInt(dbo.BusyTimeout.Milliseconds(), 10),
 		queue:  make(chan *request, opts.QueueSize),
 		done:   make(chan struct{}),
-		stmts:  map[string]*stmt{},
+		stmts:  map[string]*list.Element{},
 		topics: map[string]struct{}{},
 	}, nil
 }
@@ -623,10 +626,12 @@ func (w *Writer) runExclusive(ctx context.Context, fn func(context.Context, *sql
 // forget closes the prepared statements and drops what the writer knows
 // of the schema, which an Exclusive may have changed.
 func (w *Writer) forget() {
-	for _, s := range w.stmts {
-		s.s.Close()
+	for _, e := range w.stmts {
+		e.Value.(*stmt).s.Close()
 	}
 	clear(w.stmts)
+	w.lru.Init()
+	w.closeRetired()
 	w.opsReady, w.resReady = false, false
 }
 

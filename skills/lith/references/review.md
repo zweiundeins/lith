@@ -24,6 +24,10 @@ pattern matches, and what the review of October 2026 found where.
   serialises writes but does not batch them, and reads queue behind it.
 - A command that runs several autocommits (insert, then audit row, then
   publish) is not atomic. One command, one `Apply`, one savepoint.
+- ``rg -n 'tx\.(Exec|Query|QueryRow)\((fmt\.Sprintf|"[^"]*" *\+|`[^`]*` *\+)' --type go``:
+  SQL built at runtime in a command (an IN list with a mark per value) takes
+  a place in the writer's statement cache for every text it makes. Run it
+  through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`.
 - `rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go` inside commands:
   network calls do not belong in the writer. Use `tx.AfterCommit`.
 
