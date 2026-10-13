@@ -494,6 +494,38 @@ func TestShutdownEndsStreamCleanly(t *testing.T) {
 	}
 }
 
+// CloseWith sends its events in the last frame, also after the hub
+// stopped, in every coding.
+func TestCloseWithDuringShutdown(t *testing.T) {
+	for _, enc := range []string{"", Zstd, Brotli, Gzip} {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		w := newRecorder()
+		s, err := Open(w, request(ctx, enc), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Write(Comment("x")); err != nil {
+			t.Fatal(err)
+		}
+		cancel(shutdown.Cause)
+		s.abort()
+		if err := s.CloseWith(Comment("last")); err != nil {
+			t.Fatalf("%q: %v", enc, err)
+		}
+		var body io.Reader = bytes.NewReader(w.bytes())
+		if enc != "" {
+			body = decoder(t, enc, w.bytes())
+		}
+		got, err := io.ReadAll(body)
+		if err != nil || string(got) != ": x\n\n: last\n\n" {
+			t.Fatalf("%q: got %q, %v", enc, got, err)
+		}
+		if err := s.Write(Comment("y")); !errors.Is(err, ErrClosed) {
+			t.Fatalf("%q: a write after CloseWith: %v", enc, err)
+		}
+	}
+}
+
 // When the hub stops, a write under way fails at once, as when the client
 // leaves, and Close sends nothing after it.
 func TestShutdownCutsWriteUnderWay(t *testing.T) {

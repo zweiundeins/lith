@@ -69,6 +69,10 @@ pattern matches, and what the review of October 2026 found where.
 - Every stream counts against a cap, every network write has a deadline, and
   shutdown cancels stream contexts. A slot or lock held across a network
   write lets a few stalled clients stop every stream. (kanban, 2und1.)
+- `rg -n "retry: '(always|auto)'|@(get|post)\('[^']*(stream|sse|live)" -g '*.templ' -g '*.go'`:
+  a page's stream opens with `retry: 'error'` from an element whose id is the
+  stream's `Spec.Reconnect`. `'auto'` (the default) leaves pages stale after
+  a deploy; `'always'` also reopens streams the server ended on purpose.
 - Tab state lives in SQLite, not in a map in memory: `rg -n
   'map\[string\]\*?[tT]ab' --type go`. A deploy loses the map.
 - Every view names its topics, and every command touches the topics it

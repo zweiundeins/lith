@@ -32,10 +32,22 @@ write-up; look there before changing the behaviour.
   a signal, or the next frame resets what someone is typing. `<details>` needs
   `data-preserve-attr="open"`, and hosts whose attributes come from signals
   need `data-preserve-attr` for those attributes. [kanban, starbase]
-- Open a stream with `retry: 'always'`: by default Datastar does not reopen a
-  stream the server closed cleanly, so every deploy leaves pages silently
-  stale. Add a watchdog on the server's ping. An SSE comment never reaches the
-  page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
+- Datastar 1.0.4 retries a request by its `retry` option. `'auto'` (the
+  default) retries network errors only: it gives up at a proxy's 502 and
+  never reopens a stream the server ended cleanly, so a deploy leaves pages
+  silently stale. `'error'` also retries 4xx and 5xx answers. `'always'` also
+  reopens a stream that ended cleanly, one the server ended on purpose
+  included, and keeps a full server's 503s coming. A 204 stops every mode.
+  [libretto, kanban]
+- Open a stream with `data-init` on an element with an id and
+  `retry: 'error', retryMaxCount: Infinity`, and pass the id as
+  `live.Spec.Reconnect`. The server decides when the page reconnects: on a
+  deploy the hub ends each stream with `sse.Reconnect`, which re-creates that
+  element so its data-init runs again with its own options, and `'error'`
+  carries the request through the restart. A stream the server ends otherwise
+  stays closed. Refuse a stream for good with 204. [lith]
+- A watchdog on the page needs the server's ping. An SSE comment never reaches
+  the page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
   watchdog can read. [kanban]
 - Datastar cancels an in-flight request to the same URL when a new one starts.
   Actions that must all arrive (painting, moves) use

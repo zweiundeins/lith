@@ -71,3 +71,11 @@ func TestFormatSizesExactly(t *testing.T) {
 		}
 	}
 }
+
+func TestReconnect(t *testing.T) {
+	want := "event: datastar-patch-elements\ndata: selector body\ndata: mode append\n" +
+		`data: elements <div data-init="el.remove(); document.getElementById(&#34;stream&#34;)?.replaceWith(document.getElementById(&#34;stream&#34;).cloneNode(true))"></div>` + "\n\n"
+	if got := string(Reconnect("stream")); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}

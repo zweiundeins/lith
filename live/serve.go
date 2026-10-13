@@ -34,6 +34,12 @@ type Spec struct {
 	// tick's, or several ticks' when the stream fell behind. frames is
 	// valid during the call only. An error ends the stream.
 	WriteTick func(s *sse.Stream, frames []Frame) error
+	// Reconnect is the id of the page's element whose data-init opens this
+	// stream with retry 'error'. When the hub stops (a deploy), the stream
+	// ends with sse.Reconnect, so the page opens it again on the next
+	// process. Empty: the stream just ends, as it does when a newer stream
+	// with its ID replaces it.
+	Reconnect string
 }
 
 // Frame is a view's new frame, for Spec.WriteTick.
@@ -94,11 +100,15 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		}
 		return err
 	}
-	defer st.Close()
+	var last [][]byte
+	defer func() { st.CloseWith(last...) }()
 	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1)}
 	h.attach(s, spec.Views)
 	defer h.detach(s)
 	err = h.pump(ctx, s, st)
+	if h.done.Err() != nil && spec.Reconnect != "" && r.Context().Err() == nil {
+		last = append(last, sse.Reconnect(spec.Reconnect))
+	}
 	if errors.Is(err, context.Canceled) || h.done.Err() != nil {
 		return nil
 	}

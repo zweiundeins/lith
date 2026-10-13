@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -191,53 +192,123 @@ func TestShutdownEndsResponsesCleanly(t *testing.T) {
 	for _, p := range protocols {
 		for _, enc := range []string{"identity", sse.Zstd} {
 			t.Run(p.name+" "+enc, func(t *testing.T) {
-				h := New(Options{Tick: 5 * time.Millisecond, Log: slog.New(slog.DiscardHandler)})
-				hctx, stop := context.WithCancel(context.Background())
-				defer stop()
-				ran := make(chan error, 1)
-				go func() { ran <- h.Run(hctx) }()
-				v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
-				srv, results := realServer(t, h, p.h2, Spec{Views: []View{v}})
-				req, _ := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/a", nil)
-				req.Header.Set("Accept-Encoding", enc)
-				res, err := srv.Client().Do(req)
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer res.Body.Close()
-				var body io.Reader = res.Body
-				if enc == sse.Zstd {
-					d, err := zstd.NewReader(res.Body, zstd.WithDecoderConcurrency(1))
-					if err != nil {
-						t.Fatal(err)
-					}
-					defer d.Close()
-					body = d
-				}
-				r := bufio.NewReader(body)
-				for {
-					l, err := r.ReadString('\n')
-					if err != nil {
-						t.Fatalf("before the first frame: %v", err)
-					}
-					if strings.Contains(l, `<p id="v">v</p>`) {
-						break
-					}
-				}
-
-				stop()
-				if _, err := io.ReadAll(r); err != nil {
-					t.Fatalf("the response ended with %v", err)
-				}
-				if err := <-results["/a"]; err != nil {
-					t.Fatalf("Serve returned %v", err)
-				}
-				if err := <-ran; err != nil {
-					t.Fatal(err)
+				if rest := shutdownTail(t, p.h2, enc, Spec{}); strings.Contains(rest, "data-init") {
+					t.Errorf("a stream without Reconnect ended with %q", rest)
 				}
 			})
 		}
 	}
+}
+
+// A stream with Spec.Reconnect ends with sse.Reconnect when the hub stops,
+// compressed or not.
+func TestShutdownSendsReconnect(t *testing.T) {
+	want := string(sse.Reconnect("stream"))
+	for _, p := range protocols {
+		for _, enc := range []string{"identity", sse.Zstd} {
+			t.Run(p.name+" "+enc, func(t *testing.T) {
+				if rest := shutdownTail(t, p.h2, enc, Spec{Reconnect: "stream"}); !strings.HasSuffix(rest, want) {
+					t.Errorf("the stream ended with %q, want %q", rest, want)
+				}
+			})
+		}
+	}
+}
+
+// A stream that a newer one with its ID replaces ends without Reconnect:
+// the page must not open it again.
+func TestReplacedStreamGetsNoReconnect(t *testing.T) {
+	h := New(Options{Tick: 5 * time.Millisecond, Log: slog.New(slog.DiscardHandler)})
+	go h.Run(t.Context())
+	v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
+	srv, results := realServer(t, h, false, Spec{ID: "tab", Views: []View{v}, Reconnect: "stream"})
+	first := firstFrame(t, srv, "/a", "identity")
+	second := firstFrame(t, srv, "/b", "identity")
+	defer second.Close()
+	rest, err := io.ReadAll(first)
+	if err != nil {
+		t.Fatalf("the replaced stream ended with %v", err)
+	}
+	if strings.Contains(string(rest), "data-init") {
+		t.Errorf("the replaced stream ended with %q", rest)
+	}
+	if err := <-results["/a"]; err != nil {
+		t.Fatalf("Serve returned %v", err)
+	}
+}
+
+// shutdownTail opens a stream with spec and a view, waits for its first
+// frame, stops the hub, and returns what the client read after that, up
+// to the clean end of the response.
+func shutdownTail(t *testing.T, h2 bool, enc string, spec Spec) string {
+	t.Helper()
+	h := New(Options{Tick: 5 * time.Millisecond, Log: slog.New(slog.DiscardHandler)})
+	hctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	ran := make(chan error, 1)
+	go func() { ran <- h.Run(hctx) }()
+	spec.Views = []View{text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })}
+	srv, results := realServer(t, h, h2, spec)
+	r := firstFrame(t, srv, "/a", enc)
+	defer r.Close()
+
+	stop()
+	rest, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("the response ended with %v", err)
+	}
+	if err := <-results["/a"]; err != nil {
+		t.Fatalf("Serve returned %v", err)
+	}
+	if err := <-ran; err != nil {
+		t.Fatal(err)
+	}
+	return string(rest)
+}
+
+// firstFrame opens path and reads its events up to the first frame of
+// the view v, decoding zstd if enc asks for it.
+func firstFrame(t *testing.T, srv *httptest.Server, path, enc string) io.ReadCloser {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(t.Context(), "GET", srv.URL+path, nil)
+	req.Header.Set("Accept-Encoding", enc)
+	res, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body io.Reader = res.Body
+	closers := []io.Closer{res.Body}
+	if enc == sse.Zstd {
+		d, err := zstd.NewReader(res.Body, zstd.WithDecoderConcurrency(1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		closers = append(closers, d.IOReadCloser())
+		body = d
+	}
+	r := bufio.NewReader(body)
+	for {
+		l, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("%s before the first frame: %v", path, err)
+		}
+		if strings.Contains(l, `<p id="v">v</p>`) {
+			break
+		}
+	}
+	return readCloser{r, closers}
+}
+
+type readCloser struct {
+	io.Reader
+	closers []io.Closer
+}
+
+func (c readCloser) Close() error {
+	for _, x := range slices.Backward(c.closers) {
+		x.Close()
+	}
+	return nil
 }
 
 // When the hub stops, Run returns and every stream ends at once, the one

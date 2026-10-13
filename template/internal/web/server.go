@@ -99,7 +99,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := edge.SessionID(r.Context())
-	if err := s.hub.Serve(w, r, live.Spec{ID: tab, Views: []live.View{entriesView(), tabView(sid, tab)}}); err != nil {
+	if err := s.hub.Serve(w, r, live.Spec{ID: tab, Views: []live.View{entriesView(), tabView(sid, tab)}, Reconnect: "stream"}); err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)
 	}
 }

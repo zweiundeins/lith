@@ -13,9 +13,11 @@ func signals(tab string) string {
 	return fmt.Sprintf(`{_tab: %q, _name: '', _message: '', _op: '', _ack: '', _accepted: false, _problem: ''}`, tab)
 }
 
-// openStream opens the tab's stream. retry: 'always' reopens it after a
-// deploy too: Datastar does not reopen a stream the server ended otherwise.
-const openStream = `@get('/stream?tab=' + $_tab, {retry: 'always', retryMaxCount: Infinity, retryMaxWait: 10000})`
+// openStream opens the tab's stream on the element with id "stream".
+// retry 'error' retries through network errors, 502s and 503s and never
+// gives up, but leaves a stream the server ends closed: on a deploy the
+// server ends it with sse.Reconnect, which runs this again.
+const openStream = `@get('/stream?tab=' + $_tab, {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
 
 // sign sends the form with a new op id unless one is pending. The tab's
 // stream brings the op's outcome back as $_ack.

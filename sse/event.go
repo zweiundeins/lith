@@ -1,6 +1,10 @@
 package sse
 
-import "iter"
+import (
+	"html"
+	"iter"
+	"strconv"
+)
 
 // Mode is how patched elements are applied to the page.
 type Mode string
@@ -80,6 +84,19 @@ func PatchSignals(json []byte, onlyIfMissing bool) []byte {
 		return format(signalsEvent, []line{{"onlyIfMissing ", "true"}}, "signals ", json)
 	}
 	return format(signalsEvent, nil, "signals ", json)
+}
+
+// Reconnect is the last event of a stream that ends because its server
+// restarts. It appends to the body an element that replaces the element
+// with the given id by a copy of it, so that the copy's data-init, the
+// @get or @post that opened the stream, runs again with its own options.
+// That request must use retry 'error': Datastar 1.0.4 retries it while the
+// restart answers 502 or 503, where the default 'auto' gives up. A stream
+// that ends cleanly without Reconnect stays closed.
+func Reconnect(id string) []byte {
+	el := "document.getElementById(" + strconv.Quote(id) + ")"
+	js := "el.remove(); " + el + "?.replaceWith(" + el + ".cloneNode(true))"
+	return PatchElements([]byte(`<div data-init="`+html.EscapeString(js)+`"></div>`), Patch{Selector: "body", Mode: Append})
 }
 
 // Comment formats an SSE comment, which the page ignores (a heartbeat).

@@ -223,18 +223,39 @@ func (s *Stream) Write(events ...[]byte) error {
 // Close ends the compressed stream cleanly when it is still healthy and
 // releases the encoder. It does not end the HTTP response: the handler
 // does, by returning.
-func (s *Stream) Close() error {
+func (s *Stream) Close() error { return s.CloseWith() }
+
+// CloseWith is Close that sends events in the stream's last frame. It
+// sends them also when the stream shuts down (the hub stops), as live
+// does with Reconnect.
+func (s *Stream) CloseWith(events ...[]byte) error {
 	if s.stop == nil {
 		return nil
 	}
 	var err error
-	if s.enc != nil && s.err == nil && (s.ctx.Err() == nil || s.shuttingDown()) {
+	if s.err == nil && (s.ctx.Err() == nil || s.shuttingDown()) {
 		s.mu.Lock()
 		s.closing = true
 		s.mu.Unlock()
-		s.buf.Reset()
-		if err = s.enc.Close(); err == nil && s.buf.Len() > 0 {
-			err = s.send(s.buf.Bytes())
+		if s.enc != nil {
+			s.buf.Reset()
+			for _, e := range events {
+				if _, err = s.enc.Write(e); err != nil {
+					break
+				}
+				s.in += int64(len(e))
+			}
+			if err == nil {
+				err = s.enc.Close()
+			}
+			if err == nil && s.buf.Len() > 0 {
+				err = s.send(s.buf.Bytes())
+			}
+		} else if len(events) > 0 {
+			for _, e := range events {
+				s.in += int64(len(e))
+			}
+			err = s.send(events...)
 		}
 	}
 	s.stop()

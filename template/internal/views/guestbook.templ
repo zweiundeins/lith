@@ -29,7 +29,7 @@ templ Guestbook(p Page) {
 		</head>
 		<body>
 			<main data-signals={ signals(p.Tab) }>
-				<div hidden data-init={ openStream }></div>
+				<div id="stream" hidden data-init={ openStream }></div>
 				<h1>Guestbook</h1>
 				<form data-on:submit__prevent={ sign } data-on:datastar-fetch={ failed } data-effect={ settle }>
 					<label>

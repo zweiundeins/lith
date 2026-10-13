@@ -243,8 +243,12 @@ func boardView(id int64) live.View {
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := readTabID(r)
-	s.hub.Serve(w, r, live.Spec{ID: tab, Views: []live.View{boardView(id), s.tabView(sid, tab)}})
+	s.hub.Serve(w, r, live.Spec{ID: tab, Views: []live.View{boardView(id), s.tabView(sid, tab)}, Reconnect: "stream"})
 }
+```
+
+```html
+<div id="stream" hidden data-init="@get('/stream?tab=' + $_tab, {retry: 'error', retryMaxCount: Infinity})"></div>
 ```
 
 - Nothing about the viewer goes into a shared view. Per-user parts (the
@@ -263,7 +267,13 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   `Options.PendingWatch` (10 s), and the stream that opens with that ID
   watches it from the start; Unwatch drops it again. Watch reports whether
   the stream is open now, so a retry loop is not needed.
-- The page opens its stream with `data-init` and `retry: 'always'`. A
+- The page opens its stream with `data-init` on the element that
+  `Spec.Reconnect` names, with `retry: 'error'`: a deploy ends the stream
+  with `sse.Reconnect`, which runs that data-init again, and `'error'`
+  retries until the next process answers (datastar.md). A stream that ends
+  without it, such as one a newer stream from the same tab replaced, stays
+  closed. A handler that streams without the hub ends with
+  `st.CloseWith(sse.Reconnect(id))` when the server stops. A
   watchdog on the page needs a heartbeat it can see: with
   `Options.HeartbeatSignal: "_ping"` the hub patches `$_ping` every
   Heartbeat (20 s), frames or not, with a number that grows, instead of an
