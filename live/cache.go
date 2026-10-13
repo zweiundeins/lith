@@ -3,6 +3,7 @@ package live
 import (
 	"hash/maphash"
 	"math/bits"
+	"math/rand/v2"
 	"sync"
 )
 
@@ -28,6 +29,7 @@ type Cache[K comparable] struct {
 	protMax   int
 	itemMax   int // larger fragments are not kept
 	sketch    sketch
+	rnd       *rand.Rand // admits a warm candidate that ties, as Caffeine does
 	stats     CacheStats
 }
 
@@ -54,6 +56,7 @@ func NewCache[K comparable](maxBytes int) *Cache[K] {
 		protMax:   main * 4 / 5,
 		itemMax:   max(maxBytes/16, 1),
 		sketch:    newSketch(maxBytes / 512),
+		rnd:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 	}
 }
 
@@ -134,7 +137,7 @@ func (c *Cache[K]) admit(cand *entry[K]) {
 		if victim == nil {
 			victim = c.protected.back()
 		}
-		if victim == nil || c.sketch.estimate(cand.hash) <= c.sketch.estimate(victim.hash) {
+		if victim == nil || !c.wins(cand, victim) {
 			delete(c.entries, cand.key)
 			c.stats.Rejected++
 			return
@@ -143,6 +146,18 @@ func (c *Cache[K]) admit(cand *entry[K]) {
 	}
 	cand.where = inProbation
 	c.probation.pushFront(cand)
+}
+
+// wins reports whether cand may push victim out. Counters saturate at 15
+// and collide, so a fragment that keeps coming back can tie with one asked
+// for once; a warm candidate that does not win outright gets in one time
+// in 128, which Caffeine uses for the same reason.
+func (c *Cache[K]) wins(cand, victim *entry[K]) bool {
+	cf, vf := c.sketch.estimate(cand.hash), c.sketch.estimate(victim.hash)
+	if cf > vf {
+		return true
+	}
+	return cf >= 6 && c.rnd.IntN(128) == 0
 }
 
 func (c *Cache[K]) evict(e *entry[K]) {
