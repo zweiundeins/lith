@@ -67,6 +67,11 @@ type Options struct {
 	// went quiet without closing. The heartbeat then goes out every
 	// Heartbeat, frames or not, and its number grows with every one.
 	HeartbeatSignal string
+	// Hibernate, if set, is how long a stream may send no frame before it
+	// hibernates (sse.Stream.Hibernate): a zstd stream then gives its
+	// encoder back until its next frame, which starts without the history
+	// of the ones before. Heartbeats go out without waking it.
+	Hibernate time.Duration
 	// RenderTimeout is how long a Render may take (default 2s): its ctx
 	// ends then, and a Render still running is logged. Nothing stops a
 	// Render that ignores its ctx. It holds up only its worker while the
@@ -134,6 +139,7 @@ type Hub struct {
 	maxStreams    int
 	pendingFor    time.Duration
 	heartbeat     time.Duration
+	hibernate     time.Duration
 	ping          []byte       // the heartbeat signal's patch up to its number, nil for none
 	pings         atomic.Int64 // the heartbeat signal's last number
 	renderTimeout time.Duration
@@ -250,6 +256,7 @@ func New(o Options) *Hub {
 		maxStreams:    o.MaxStreams,
 		pendingFor:    o.PendingWatch,
 		heartbeat:     o.Heartbeat,
+		hibernate:     max(0, o.Hibernate),
 		ping:          ping,
 		renderTimeout: o.RenderTimeout,
 		log:           o.Log,

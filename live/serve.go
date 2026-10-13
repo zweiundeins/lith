@@ -60,8 +60,9 @@ var heartbeat = sse.Comment("")
 // Serve streams the views of spec to the client until it leaves or the
 // hub stops, and then returns nil. It sends each view's current frame (a
 // view without one renders in the next tick), then every new frame. When
-// the hub is full or stopped, it answers 503 and returns ErrFull or
-// ErrStopped; a failed write ends the stream with its error.
+// the hub is full or stopped, or the streams' budget refuses the stream,
+// it answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a
+// failed write ends the stream with its error.
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	for _, v := range spec.Views {
 		check(v)
@@ -97,6 +98,8 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 			w.Header().Del("Content-Encoding")
 			http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
 			return ErrStopped
+		case errors.Is(err, sse.ErrNoRoom):
+			http.Error(w, "too many streams", http.StatusServiceUnavailable)
 		}
 		return err
 	}
@@ -180,6 +183,14 @@ func (s *stream) unwatched(w *watch) bool {
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
+	var rest <-chan time.Time // fires when the stream should hibernate
+	var restTimer *time.Timer
+	asleep := false
+	if h.hibernate > 0 {
+		restTimer = time.NewTimer(h.hibernate)
+		defer restTimer.Stop()
+		rest = restTimer.C
+	}
 	var batch []offer
 	var parts [][]byte
 	var frames []Frame
@@ -238,8 +249,14 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			}
 			h.sent.Add(int64(n))
 		}
-		if _, now := st.Sent(); now != wire && h.ping == nil {
-			idle.Reset(h.heartbeat)
+		if _, now := st.Sent(); now != wire {
+			if h.ping == nil {
+				idle.Reset(h.heartbeat)
+			}
+			if restTimer != nil {
+				restTimer.Reset(h.hibernate)
+				asleep = false
+			}
 		}
 
 		select {
@@ -250,7 +267,17 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			if err := st.Write(h.beat()); err != nil {
 				return err
 			}
+			if asleep {
+				if err := st.Hibernate(); err != nil {
+					return err
+				}
+			}
 			idle.Reset(h.heartbeat)
+		case <-rest:
+			if err := st.Hibernate(); err != nil {
+				return err
+			}
+			asleep = true
 		}
 	}
 }
