@@ -23,6 +23,7 @@ package live
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -325,6 +326,37 @@ func (h *Hub) Count(key string) int {
 		return len(v.watches)
 	}
 	return 0
+}
+
+// Watchers are the IDs of the streams watching the view, each once, in the
+// order the streams opened; streams without an ID are left out. A view
+// with Presence that calls it in its Render lists who is there.
+func (h *Hub) Watchers(key string) []string {
+	h.mu.Lock()
+	v := h.views[key]
+	if v == nil {
+		h.mu.Unlock()
+		return nil
+	}
+	ss := make([]*stream, 0, len(v.watches))
+	for _, w := range v.watches {
+		if w.s.id != "" {
+			ss = append(ss, w.s)
+		}
+	}
+	h.mu.Unlock()
+	slices.SortFunc(ss, func(a, b *stream) int { return cmp.Compare(a.seq, b.seq) })
+	ids := make([]string, 0, len(ss))
+	seen := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		// A stream that replaces one with its ID watches beside it until
+		// the old one has ended.
+		if !seen[s.id] {
+			seen[s.id] = true
+			ids = append(ids, s.id)
+		}
+	}
+	return ids
 }
 
 // Watch makes the open stream with this ID watch v as well: it gets v's
