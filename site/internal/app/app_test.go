@@ -60,7 +60,7 @@ func TestPages(t *testing.T) {
 			t.Errorf("%s: no canonical link", path)
 		}
 	}
-	for _, path := range []string{"/nope", "/docs/nope", "/demos/nope", "/docs/guides"} {
+	for _, path := range []string{"/nope", "/docs/nope", "/demos/nope"} {
 		if res, body := get(t, c, base+path); res.StatusCode != http.StatusNotFound || !strings.Contains(body, "Nothing here") {
 			t.Errorf("%s: %d", path, res.StatusCode)
 		}
@@ -122,7 +122,7 @@ func TestStatic(t *testing.T) {
 		}
 	}
 	_, sitemap := get(t, c, base+"/sitemap.xml")
-	if !strings.Contains(sitemap, base+"/docs/concepts/ticks</loc>") || !strings.Contains(sitemap, base+"/demos/guestbook</loc>") || strings.Contains(sitemap, "/docs/guides") {
+	if !strings.Contains(sitemap, base+"/docs/concepts/ticks</loc>") || !strings.Contains(sitemap, base+"/demos/guestbook</loc>") || !strings.Contains(sitemap, base+"/docs/reference/writer</loc>") {
 		t.Errorf("sitemap:\n%s", sitemap)
 	}
 }

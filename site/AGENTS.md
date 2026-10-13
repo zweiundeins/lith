@@ -12,6 +12,7 @@ All commands run in `site/`.
 - `go tool task shots`: screenshots of the pages and of their transitions in `tmp/shots`. Look at your pages before you call them done.
 - `go tool templ generate` after editing a `.templ` file; the `_templ.go` files are committed.
 - `go tool task build`: the static binary. `deploy/README.md` installs and deploys it.
+- `go tool task docs` (`go generate ./content`): writes the docs' generated parts, the package reference and the charts drawn from lith's benchmark CSVs ([The docs](#the-docs)).
 
 ## Packages
 
@@ -19,7 +20,7 @@ All commands run in `site/`.
 - `internal/app`: the wiring, as in lith's template: SQLite through a timed driver (dbmetrics), the writer, the live hub, the edge, `/healthz` and `/readyz`, the metrics registry, the sweep. `internal/app/apptest` runs the whole site in process for tests.
 - `internal/web`: routes, pages, the tabs' streams, static files, `robots.txt` and the sitemap. `Stylesheets` in `assets.go` is the CSS bundle's order: a new stylesheet goes there.
 - `internal/views`: templ. The frame (`Document`, `Header`, `Menu`, `Footer`), the landing page, the docs, the demo pages, and helpers for demos: `Art`, `Icon`, `Count`.
-- `content/docs` and `internal/docs`: the docs, one directory per section, read by the loader (front matter: `title`, `summary`, `order`, `nav`, `draft`); `internal/markdown` renders them.
+- `content/docs` and `internal/docs`: the docs, one directory per section, read by the loader (front matter: `title`, `summary`, `order`, `nav`, `draft`); `internal/markdown` renders them. `internal/docs/example` is the app the guides list code from, `internal/docs/gen` and `cmd/docgen` write the reference and the charts' rows ([The docs](#the-docs)).
 - `internal/demo`: the kit every demo is built with. `internal/demos`: the list. `internal/demos/<slug>`: one demo each. `internal/demo/demotest`: a database and a writer for a demo's tests.
 - `internal/migrate` and `migrations`: migrations in scopes (below).
 - `internal/starbase`, `cmd/vendor-starbase` and `internal/web/static/vendor/starbase`: Starbase's components (below).
@@ -50,6 +51,7 @@ A command reads and writes in its `Apply(tx *writer.Tx)`, touches the topics it 
 
 - A shared view's key carries nothing of the viewer (`guestbook:entries`); a tab's own view is keyed by `demo.TabTopic(slug, tab)` and renders from `demo.LoadTab`.
 - `demo.Patch(ctx, component)` renders an event that morphs elements by their ids, `demo.Signals(v)` one that patches signals, `demo.Querier(ctx, tx)` runs queries on the render worker's prepared statements.
+- Who is here: `demo.Watching(ctx, key)` counts the streams on a view and `demo.Watchers(ctx, key)` lists their tab ids, with the ctx of a `Part`'s Render, a view's Render or a sweep (`tx.Context()`); a view that shows them sets `Presence: true`. Never keep the hub in a package variable: tests run several sites in one process.
 - The page's signals live under one local object, `$_<slug>` (`data-signals="{_guestbook: {...}}"`), and actions send `$_tab`, the page's tab id. A button that acts makes an op id, stays pending (`aria-busy`, read-only inputs) until the tab's view patches the same op id back, and shows a failed request (`datastar-fetch` with `error`) next to the form: the guestbook's `expr.go` has each expression.
 - Inputs in a region the stream morphs need `data-ignore-morph` and their value in a signal; keep forms out of morphed regions, as the guestbook does.
 
@@ -138,6 +140,17 @@ To add a component: put its slug in `pins.json` (or move `catalog` to a newer sn
 ## Monitoring
 
 `/metrics` listens on 127.0.0.1 at the public port + 100, never on the public listener. It serves `lith_site_http_requests_total{route,code}` and `lith_site_http_request_duration_seconds{route}` (the route is the ServeMux pattern, so keep patterns fixed: never a raw path in a label), lith's `lith_site_writer_*`, `lith_site_live_*` and `lith_site_sse_budget_*`, the statements' `lith_site_db_*`, `go_*` and `process_*`. `deploy/observability` has the Grafana dashboard for lith apps and their alert rules; `TestDashboard` fails when they read a metric the site does not export. Logs are slog JSON on stdout.
+
+## The docs
+
+`content/docs/<section>/index.md` leads a section, its other `.md` files follow by `order`; `{#id}` after a heading sets its id (the reference's `Writer.Do`). The sections: Getting started, Concepts, Guides, Datastar notes, Performance, Package reference, Review checklist, Credits. Every page is in the navigation, whose order `transitions.js` reads for the direction of a page's transition.
+
+- **The guides' code is real.** The guides follow one app, boards of lanes and cards, in `internal/docs/example`: `board` (commands, queries, schema), `web` (handlers, views, the page, a load test), `tenants` (a pool of databases), and `backup` (the Litestream wiring, a module of its own so that the site never pulls in Litestream; `TestBackupExample` runs `go vet` in it). The site's `go vet` and tests compile and run the rest. A fenced block with `source=<path from lith's root>` in its info string is a listing: the caption links the file, and `TestListings` fails unless the block, whitespace aside, is in that file. List the example, lith's template, or this site's own code; change the code first, then copy it into the page.
+- **Generated parts.** go:embed cannot reach outside the site's module, so `cmd/docgen` (`go tool task docs`) copies in what comes from the rest of the repository: `content/docs/reference/*.md`, one page per package of `gen.Packages`, from the Go doc comments through go/doc (signatures with their field comments, examples from `_test.go` files), and the rows of every chart whose spec names `columns:`. Never edit those by hand. `TestUpToDate` (`internal/docs/gen`) fails when a doc comment, a package or a CSV changed and the docs did not: run the task and commit the result. A new package goes into `gen.Packages`.
+- **Charts.** A ```` ```chart ```` block is a spec (`kind: bars|lines`, `title`, `x`, `y`, `source`, optional `x-prefix`, `x-suffix`) and, after a `---` line, CSV rows of series, x and y. `internal/markdown` draws it as inline SVG with a legend and a table of the numbers, coloured by the four series hues in `docs.css` (checked for colour vision deficiencies against the inset surface of both themes; a fifth series is an error). Rows are typed in, from `source`, or filled by docgen from a CSV file with `columns: series, x, y`, `where: col=value, col!=value`, `series: label=value; ...` and `step:`. `TestChartNumbers` fails when a number a chart draws is not in its source file.
+- **One source of truth with the skill.** `skills/lith` teaches coding agents what these pages teach people. The two registers differ (the skill is terse rules with the projects' names, the pages explain the symptom, the cause and the fix), so neither is generated from the other: both are written, and a test ties them. `TestSkill` (`internal/docs/skill_test.go`) holds them together from the skill's side: every `rg` command of `references/review.md` must be on `/docs/review`, every code span of `references/datastar.md` on `/docs/datastar`, and every section of `references/recipes.md` and `references/performance.md` must have a page that covers it (the map in the test). A change to a fact on either side changes the other in the same commit; the test catches what the skill gains and the docs lack, not the reverse.
+- **Numbers.** A number on a performance page comes from `bench/RESULTS.md` or `bench/budget`, with its machine and date; a number measured for a guide says when and where it was measured.
+- **Screenshots.** `TestShotsDocs` (`internal/app/docs_shots_test.go`, part of `go tool task shots`) shoots the sections on desktop and mobile, in both themes, and each chart of the writer's and the budget's pages close up.
 
 ## Writing
 
