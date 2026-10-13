@@ -1,13 +1,14 @@
 ---
 name: lith
-description: How zwei und eins builds Go + SQLite + Datastar apps on the shared module github.com/zweiundeins/lith (one batching writer, a read pool, a tick-based render loop with shared views, per-stream zstd or brotli SSE, the request edge). Use when writing, reviewing or debugging code in a project that imports lith (starbase, kanban, 2und1.ch-2027, libretto, swisscyberguard, pendlerpreis), when moving a project onto lith, or when starting a new app of that kind. Covers commands, views and topics, tab state, migrations, backups, load tests, and the Datastar gotchas these projects share.
+description: How zwei und eins builds Go + SQLite + Datastar apps on the shared module github.com/zweiundeins/lith, short for Linear writes, Immediate mode, Ticks, Hypermedia (one batching writer, a read pool, a tick-based render loop with shared views, per-stream zstd or brotli SSE, the request edge). Use when writing, reviewing or debugging code in a project that imports lith (starbase, kanban, 2und1.ch-2027, libretto, swisscyberguard, pendlerpreis), when moving a project onto lith, or when starting a new app of that kind. Covers commands, views and topics, tab state, migrations, backups, load tests, and the Datastar gotchas these projects share.
 ---
 
 # lith
 
 The Go projects of zwei und eins share one architecture: CQRS on one SQLite
 file, server-rendered views pushed over SSE, Datastar in the browser. lith is
-that runtime as a module. This skill ships in the lith repo, so its rules match
+that runtime as a module, and its name is its design: Linear writes, Immediate
+mode, Ticks, Hypermedia. This skill ships in the lith repo, so its rules match
 the lith version in a project's go.mod.
 
 The reasoning behind the design is Anders Murphy's (hyperlith,

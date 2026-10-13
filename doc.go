@@ -1,7 +1,8 @@
-// Package lith is the shared runtime of the Go, SQLite and Datastar
-// projects: one writer for SQLite that batches commands, a read pool,
-// a render loop that renders each changed view once per tick, and SSE
-// streams that send the newest frame through their own compressor.
+// Package lith (Linear writes, Immediate mode, Ticks, Hypermedia) is the
+// shared runtime of the Go, SQLite and Datastar projects: one writer for
+// SQLite that batches commands, a read pool, a render loop that renders each
+// changed view once per tick, and SSE streams that send the newest frame
+// through their own compressor.
 //
 // The packages are used together but imported one by one:
 //
