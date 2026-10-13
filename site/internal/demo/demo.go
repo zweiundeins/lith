@@ -117,7 +117,8 @@ type Embed struct {
 const SweepEvery = 5 * time.Minute
 
 // reserved are slugs that name the site's own routes, scope or tables.
-var reserved = map[string]bool{"site": true, "static": true, "stream": true, "cmd": true, "docs": true, "demos": true, "lith": true}
+// "stream" is free: a demo's names go on after its slug ("stream-payload").
+var reserved = map[string]bool{"site": true, "static": true, "cmd": true, "docs": true, "demos": true, "lith": true}
 
 var slugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}[a-z0-9]$`)
 

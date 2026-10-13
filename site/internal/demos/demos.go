@@ -10,7 +10,9 @@ import (
 
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/demos/board"
+	"github.com/zweiundeins/lith/site/internal/demos/canvas"
 	"github.com/zweiundeins/lith/site/internal/demos/guestbook"
+	"github.com/zweiundeins/lith/site/internal/demos/stream"
 	"github.com/zweiundeins/lith/site/internal/migrate"
 	"github.com/zweiundeins/lith/site/migrations"
 )
@@ -18,6 +20,8 @@ import (
 // All are the site's demos, in the order of their cards.
 var All = []demo.Demo{
 	guestbook.Demo,
+	stream.Demo,
+	canvas.Demo,
 	board.Demo,
 }
 

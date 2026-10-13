@@ -1,0 +1,136 @@
+package canvas
+
+import "strconv"
+
+// Page is what the canvas's page draws: the board, the palette with the
+// tab's brush, the painters here and the pulse.
+type Page struct {
+	Cells    string // the board's cells attribute
+	Painters []Painter
+	Pulse    Pulse
+	Color    int    // the tab's brush
+	Me       string // the tab's tag
+}
+
+// Stage is the canvas on its page. The board, the painters and the pulse
+// are the three shared views; the palette and the brush are the tab's own,
+// in signals under $_canvas.
+templ Stage(p Page) {
+	<div class="cv" data-signals={ signals(p.Color) } data-init={ start }>
+		@you(p.Me)
+		<span class="cv__probe" aria-hidden="true"></span>
+		<div class="cv__canvas">
+			<p class="cv__caption">One canvas for all · 64 × 64</p>
+			<div class="cv__frame">
+				@Board(p.Cells)
+			</div>
+			<p class="outcome is-problem cv__problem" role="alert" data-text="$_canvas.problem"></p>
+		</div>
+		<div class="cv__side">
+			@palette(p.Color)
+			@Here(p.Painters)
+			@Activity(p.Pulse)
+		</div>
+		<div class="cv__notes">
+			<p><strong>A day per pixel.</strong> Each pixel fades back to the background 24 hours after it was last painted. Paint over one to give it another day.</p>
+			<p>Drag to paint, 20 pixels a second each. On the keyboard, the arrow keys move over the canvas and Space paints.</p>
+		</div>
+	</div>
+}
+
+// Board is the canvas, the same for every painter: the shared view
+// renders it once per tick with the newest cells, and its morph changes
+// nothing else. The palette and the colour are the tab's, from its
+// signals, so the morph keeps them (data-preserve-attr).
+templ Board(cells string) {
+	<sb-pixel-board
+		id="canvas-board"
+		size={ strconv.Itoa(Size) }
+		cells={ cells }
+		data-on:sb-paint={ paint }
+		data-on:datastar-fetch={ refused }
+		data-on:pointerdown="$_canvas.problem = ''"
+		data-attr:palette="$_canvas.palette"
+		data-attr:color="$_canvas.color"
+		data-preserve-attr="palette color"
+	></sb-pixel-board>
+}
+
+// palette is the brush's colour: sixteen swatches, each a token of the
+// site's. A change is the tab's own (its brush) and goes to the server,
+// which shows it in the list of painters.
+templ palette(color int) {
+	<fieldset class="cv__palette" data-on:input={ choose } data-on:change__debounce.300ms={ pick } data-on:datastar-fetch={ pickFailed }>
+		<legend>Brush</legend>
+		<div class="cv__swatches">
+			for _, i := range swatchOrder {
+				<label class="cv__swatch tip" data-c={ strconv.Itoa(i) }>
+					<input
+						type="radio"
+						name="canvas-color"
+						value={ strconv.Itoa(i) }
+						if i == color {
+							checked
+						}
+					/>
+					<span class="tip__bubble">{ colorNames[i] }</span>
+				</label>
+			}
+		</div>
+	</fieldset>
+}
+
+// Here is the shared list of the painters on this page, each a face of
+// pixels in the colour of their brush, with the pixels they painted in
+// the last minute. Which one is the viewer's comes from the style that
+// the document renders for its tab (you), not from this view.
+templ Here(list []Painter) {
+	<section id="canvas-here" class="cv__here" aria-labelledby="canvas-here-title">
+		<h3 id="canvas-here-title">{ hereTitle(len(list)) }</h3>
+		<ul class="cv__painters" role="list">
+			for _, p := range shown(list) {
+				<li
+					id={ "canvas-painter-" + p.Tag }
+					class="cv__painter"
+					data-tag={ p.Tag }
+					data-c={ strconv.Itoa(p.Color) }
+					if p.Active {
+						data-active
+					}
+				>
+					<svg viewBox="0 0 5 5" aria-hidden="true" focusable="false"><path d={ face(p.Tag) }></path></svg>
+					if p.Pixels > 0 {
+						<span class="cv__painted" aria-hidden="true">{ strconv.Itoa(p.Pixels) }</span>
+					}
+					<span class="visually-hidden">{ describe(p) }</span>
+				</li>
+			}
+		</ul>
+		if more := len(list) - Shown; more > 0 {
+			<p class="cv__more">and { strconv.Itoa(more) } more</p>
+		}
+	</section>
+}
+
+// Activity is the shared pulse of the canvas: the pixels of the last
+// minute, second by second, and how many pixels the canvas holds and will
+// lose within the hour.
+templ Activity(p Pulse) {
+	<section id="canvas-pulse" class="cv__pulse" aria-labelledby="canvas-pulse-title">
+		<h3 id="canvas-pulse-title">Last minute</h3>
+		<p class="cv__minute">
+			<strong class="cv__n" style={ "--canvas-n: " + strconv.Itoa(p.Minute) }><span class="visually-hidden">{ strconv.Itoa(p.Minute) }</span></strong>
+			{ plural(p.Minute, "pixel", "pixels") } painted
+		</p>
+		<div class="cv__bars" aria-hidden="true">
+			for _, n := range p.Seconds {
+				<i style={ bar(n, p.Peak) }></i>
+			}
+		</div>
+		<dl class="cv__facts">
+			<div><dt>On the canvas</dt><dd>{ thousands(p.On) }</dd></div>
+			<div><dt>Fade within the hour</dt><dd>{ thousands(p.Fading) }</dd></div>
+			<div><dt>Painted since the start</dt><dd>{ thousands(int(p.Total)) }</dd></div>
+		</dl>
+	</section>
+}
