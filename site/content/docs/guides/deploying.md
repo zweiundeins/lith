@@ -50,19 +50,23 @@ This site runs in less, beside other apps on its host:
 
 ```ini source=site/deploy/lith-site.service
 # Memory. The live hub gives the streams' encoders half of GOMEMLIMIT, 96
-# MiB: about 55 streams at zstd 2^19, about 115 once the budget moves them
-# to 2^18 with low memory, then uncompressed (a guestbook frame is a few
-# KB). An idle stream gives its encoder back after a minute (Hibernate).
-# The rest is the process: Go, the page caches of 7 SQLite connections at
-# 4 MiB at most, the static files. -streams caps the open tabs. Change these
-# together.
+# MiB: about 55 streams at zstd 2^19, about 136 once the budget moves them
+# down to 2^17 with low memory, then uncompressed (a guestbook frame is a
+# few KB). An idle stream gives its encoder back after a minute (Hibernate).
+# The rest is the process: Go, the page caches of the SQLite connections at
+# 4 MiB at most and their prepared statements at 0.5 MiB at most, the
+# static files. -streams caps the open tabs. Change these together.
 Environment=GOMEMLIMIT=192MiB
 MemoryHigh=224M
 MemoryMax=256M
 TasksMax=128
+
+# CPU: half the weight of the host's other units, so that a crowd on the
+# demos cannot slow the apps beside it down when the cores are busy.
+CPUWeight=50
 ```
 
-Measured with 200 open streams, it held 110 MB resident, 100 MB of them the encoders' budget: 115 streams at zstd 2^18 with low memory, the rest uncompressed.
+Measured with 200 open streams and the budget's windows down to 2^18, it held 110 MB resident, 100 MB of them the encoders' budget: 115 streams at zstd 2^18 with low memory, the rest uncompressed. With windows down to 2^17, as the site runs now, the same budget compresses about 136.
 
 ## Caddy
 
