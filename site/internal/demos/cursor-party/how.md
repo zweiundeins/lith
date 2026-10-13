@@ -119,7 +119,13 @@ With reduced motion there is no trail, and each frame puts every cursor in its p
 
 ## The counter
 
-The tabs here are the streams that watch the party, as the hub counts them; the counter's view has `Presence`, so it renders again when a tab comes or goes. The moves are those of the last whole second. Both numbers are integers registered with `@property`, which CSS draws as counters, so when a frame changes one it rolls to the new value.
+The tabs here are the streams that watch the party, as the hub counts them; the counter's view has `Presence`, so it renders again when a tab comes or goes. Beside them are the moves of the last whole second, and Starbase's `sb-sparkline` with the moves of each of the last 30 seconds, one row a second in `cursor_party_seconds`. The second under way is left out, so the counter's frame changes once a second at most.
+
+```go title=views.templ
+<sb-sparkline values={ spark(history) } length={ strconv.Itoa(History) } scale="fixed" min="0" max={ sparkTop(history) } aria-hidden="true"></sb-sparkline>
+```
+
+The numbers are integers registered with `@property`, which CSS draws as counters, so when a frame changes one it rolls to the new value.
 
 ```css title=cursor-party.css
 @property --cursor-party-rate {

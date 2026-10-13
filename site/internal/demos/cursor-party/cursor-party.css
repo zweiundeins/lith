@@ -235,7 +235,22 @@
 			font-style: normal;
 		}
 
+		/* Starbase's sb-sparkline: the moves of the last 30 seconds. It
+		 * holds its place before its script defines it. */
+		& sb-sparkline {
+			--sb-sparkline-width: 4.5rem;
+			--sb-sparkline-height: 1rem;
+			margin-inline-start: var(--lith-space-3);
+		}
+
+		& sb-sparkline:not(:defined) {
+			display: inline-block;
+			inline-size: var(--sb-sparkline-width);
+			block-size: var(--sb-sparkline-height);
+		}
+
 		.cp-badge & {
+			align-items: center;
 			padding-inline-start: var(--lith-space-2);
 			border-inline-start: 1px solid var(--lith-border);
 		}
@@ -249,6 +264,13 @@
 				color: var(--lith-accent-text);
 				font-size: var(--lith-text-xl);
 				line-height: 1;
+			}
+
+			& sb-sparkline {
+				--sb-sparkline-width: 9rem;
+				--sb-sparkline-height: 1.75rem;
+				align-self: center;
+				margin-inline-start: var(--lith-space-4);
 			}
 		}
 	}

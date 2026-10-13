@@ -45,18 +45,28 @@ func cursors(ctx context.Context, q sqlite.Querier, now time.Time) ([]Cursor, er
 	return list, rows.Err()
 }
 
-// movesPerSecond is how many moves the writer applied in the last whole
-// second before now.
-func movesPerSecond(ctx context.Context, q sqlite.Querier, now time.Time) (int, error) {
-	var second, moves, last int64
-	if err := q.QueryRowContext(ctx, `SELECT second, moves, last FROM cursor_party_rate WHERE id = 1`).Scan(&second, &moves, &last); err != nil {
-		return 0, err
+// History is how many whole seconds of moves the counter's sparkline
+// shows.
+const History = 30
+
+// history returns the moves of each of the History whole seconds before
+// now, the oldest first. The last is the counter's moves a second; the
+// second under way is left out, so the numbers change once a second.
+func history(ctx context.Context, q sqlite.Querier, now time.Time) ([]int, error) {
+	from := now.Unix() - History
+	rows, err := q.QueryContext(ctx, `SELECT second, moves FROM cursor_party_seconds WHERE second >= ? AND second < ?`, from, from+History)
+	if err != nil {
+		return nil, err
 	}
-	switch now.Unix() {
-	case second + 1:
-		return int(moves), nil
-	case second:
-		return int(last), nil
+	defer rows.Close()
+	h := make([]int, History)
+	for rows.Next() {
+		var second int64
+		var n int
+		if err := rows.Scan(&second, &n); err != nil {
+			return nil, err
+		}
+		h[second-from] = n
 	}
-	return 0, nil
+	return h, rows.Err()
 }

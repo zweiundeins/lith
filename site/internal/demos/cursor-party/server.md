@@ -10,4 +10,4 @@ That frame holds your own cursor as well. The page came with a `<style>` that hi
 
 A cursor that has not moved for 3 seconds fades, after 6 it leaves the layer, and after 2 minutes its row goes.
 
-Fifty pointers moving at the full rate, 746 moves a second, cost the writer, the renders and the compression for their 50 tabs 0.18 of a core, in process on an Intel i5-13500. Each move takes 9 µs through the site's edge.
+Fifty pointers moving at the full rate, 746 moves a second, cost the writer, the renders and the compression for their 50 tabs 0.19 of a core, in process on an Intel i5-13500. Each move takes 8 µs through the site's edge.

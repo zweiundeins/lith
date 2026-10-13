@@ -64,14 +64,9 @@ func (c Move) Apply(tx *writer.Tx) error {
 			return err
 		}
 	}
-	// The counter's moves a second: a move counts in its second, and one
-	// that arrives after a later second has begun counts in that one.
-	sec := c.At.Unix()
-	if _, err := tx.Exec(`UPDATE cursor_party_rate SET
-		last = CASE WHEN ?1 <= second THEN last WHEN ?1 = second + 1 THEN moves ELSE 0 END,
-		moves = CASE WHEN ?1 <= second THEN moves + 1 ELSE 1 END,
-		second = max(second, ?1)
-		WHERE id = 1`, sec); err != nil {
+	// The counter's moves of each second.
+	if _, err := tx.Exec(`INSERT INTO cursor_party_seconds (second, moves) VALUES (?, 1)
+		ON CONFLICT (second) DO UPDATE SET moves = moves + 1`, c.At.Unix()); err != nil {
 		return err
 	}
 	tx.Touch(Topic)
@@ -89,8 +84,12 @@ func makeRoom(tx *writer.Tx, at int64) error {
 	return err
 }
 
-// sweep deletes the rows of tabs that have not moved for Keep.
+// sweep deletes the rows of tabs that have not moved for Keep, and the
+// seconds older than that.
 func sweep(tx *writer.Tx, now time.Time) error {
+	if _, err := tx.Exec(`DELETE FROM cursor_party_seconds WHERE second < ?`, now.Add(-Keep).Unix()); err != nil {
+		return err
+	}
 	res, err := tx.Exec(`DELETE FROM cursor_party_cursors WHERE at < ?`, now.Add(-Keep).UnixMilli())
 	if err != nil {
 		return err

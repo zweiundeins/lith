@@ -42,8 +42,9 @@ func cursorsView() live.View {
 
 // countView is the counter: the tabs at the party, which the hub counts
 // (Presence renders it again when one comes or goes), and the moves of
-// the last second. It renders with the layer, but its frame changes once
-// a second at most, and a frame equal to the last one is not sent.
+// the last whole seconds. It renders with the layer, but its frame
+// changes once a second at most, and a frame equal to the last one is not
+// sent.
 func countView() live.View {
 	return live.View{
 		Key:      countKey,
@@ -51,11 +52,11 @@ func countView() live.View {
 		Every:    time.Second,
 		Presence: true,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			rate, err := movesPerSecond(ctx, demo.Querier(ctx, tx), time.Now())
+			h, err := history(ctx, demo.Querier(ctx, tx), time.Now())
 			if err != nil {
 				return nil, err
 			}
-			return demo.Patch(ctx, Count(here(), rate))
+			return demo.Patch(ctx, Count(here(), h))
 		},
 	}
 }
@@ -70,33 +71,33 @@ func here() int {
 
 // renderPage draws the party on the demo's page.
 func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component, error) {
-	html, rate, err := party(ctx, tx)
+	html, h, err := party(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
-	return Stage(selfStyle(v.Tab), html, arriving(), rate), nil
+	return Stage(selfStyle(v.Tab), html, arriving(), h), nil
 }
 
 // renderEmbed draws the party behind the landing page's title.
 func renderEmbed(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component, error) {
-	html, rate, err := party(ctx, tx)
+	html, h, err := party(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
-	return Hero(selfStyle(v.Tab), html, arriving(), rate), nil
+	return Hero(selfStyle(v.Tab), html, arriving(), h), nil
 }
 
 // party reads what a page starts with, in the document's transaction:
-// the layer as the views render it, and the moves of the last second.
-func party(ctx context.Context, tx *sql.Tx) (html []byte, rate int, err error) {
+// the layer as the views render it, and the moves of the last seconds.
+func party(ctx context.Context, tx *sql.Tx) (html []byte, h []int, err error) {
 	now := time.Now()
 	q := demo.Querier(ctx, tx)
 	list, err := cursors(ctx, q, now)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
-	rate, err = movesPerSecond(ctx, q, now)
-	return layer(list, now), rate, err
+	h, err = history(ctx, q, now)
+	return layer(list, now), h, err
 }
 
 // arriving is the count a new page starts with: the tabs there already,

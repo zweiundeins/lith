@@ -1,7 +1,9 @@
 package cursorparty
 
 import (
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -47,6 +49,19 @@ func ms(d time.Duration) string {
 func countStyle(here, rate int) templ.SafeCSS {
 	return templ.SafeCSS(fmt.Sprintf("--cursor-party-here:%d;--cursor-party-rate:%d", here, rate))
 }
+
+// rate is the counter's moves a second: those of the last whole second.
+func rate(h []int) int { return h[len(h)-1] }
+
+// spark is the sparkline's data, a JSON array.
+func spark(h []int) string {
+	b, _ := json.Marshal(h)
+	return string(b)
+}
+
+// sparkTop is the top of the sparkline's scale: its highest point, and at
+// least the 15 moves a second of one pointer, so a quiet party stays low.
+func sparkTop(h []int) string { return strconv.Itoa(max(15, slices.Max(h))) }
 
 // countText is the counter for those who do not see it.
 func countText(here, rate int) string {

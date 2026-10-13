@@ -1,6 +1,6 @@
 -- One row per tab at the party: where its pointer is, as fractions of the
 -- party's width and height, and when it last moved. The key is a hash of
--- the tab's id: pages see it, and a tab id never leaves the server.
+-- the tab's id: every page sees it, and no page learns another's tab id.
 CREATE TABLE cursor_party_cursors (
     id   TEXT PRIMARY KEY, -- 12 hex digits of SHA-256 of the tab id
     sid  TEXT NOT NULL,    -- the session that moves it
@@ -15,13 +15,9 @@ CREATE TABLE cursor_party_cursors (
 
 CREATE INDEX cursor_party_cursors_at ON cursor_party_cursors (at);
 
--- The moves of the latest second and of the one before it, for the
--- counter: one row, so there is nothing to sweep.
-CREATE TABLE cursor_party_rate (
-    id     INTEGER PRIMARY KEY CHECK (id = 1),
-    second INTEGER NOT NULL, -- unix seconds
-    moves  INTEGER NOT NULL, -- moves in that second so far
-    last   INTEGER NOT NULL  -- moves in the second before it
+-- The moves of each second, for the counter and its sparkline: a row a
+-- second while someone moves, swept after two minutes.
+CREATE TABLE cursor_party_seconds (
+    second INTEGER PRIMARY KEY, -- unix seconds
+    moves  INTEGER NOT NULL
 );
-
-INSERT INTO cursor_party_rate (id, second, moves, last) VALUES (1, 0, 0, 0);

@@ -59,6 +59,7 @@ var Demo = demo.Demo{
 	Server:     server,
 	How:        how,
 	CSS:        css,
+	Components: []string{"sparkline"},
 	Mount:      mount,
 	Page:       demo.Part{Render: renderPage, Views: views},
 	Embed:      &demo.Embed{Slot: demo.SlotHero, Part: demo.Part{Render: renderEmbed, Views: views}},

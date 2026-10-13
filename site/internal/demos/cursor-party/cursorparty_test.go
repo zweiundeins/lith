@@ -68,30 +68,33 @@ func TestMove(t *testing.T) {
 	}
 }
 
-// TestRate counts moves by the second: the counter shows the last whole
-// second, and a move that arrives late counts in the second under way.
-func TestRate(t *testing.T) {
+// TestHistory counts the moves of each second: the counter shows the
+// whole seconds before now, the last of them as moves a second.
+func TestHistory(t *testing.T) {
 	e := demotest.Open(t, Demo)
 	at := func(ms int) time.Time { return t0.Add(time.Duration(ms) * time.Millisecond) }
-	for i, ms := range []int{0, 300, 900, 1100} {
+	for i, ms := range []int{0, 300, 900, 1100, 3500} {
 		e.Do(t, Move{Viewer: ada, X: 0.5, Y: 0.5, Seq: int64(i + 1), At: at(ms)})
 	}
-	rate := func(now time.Time) (n int) {
+	read := func(now time.Time) (h []int) {
 		e.View(t, func(ctx context.Context, tx *sql.Tx) (err error) {
-			n, err = movesPerSecond(ctx, tx, now)
+			h, err = history(ctx, tx, now)
 			return err
 		})
-		return n
+		return h
 	}
-	if got := rate(at(1500)); got != 3 {
-		t.Errorf("in the second after three moves: %d a second", got)
+	h := read(at(4000))
+	if len(h) != History || !slices.Equal(h[History-4:], []int{3, 1, 0, 1}) || rate(h) != 1 {
+		t.Errorf("four seconds in: %v", h)
 	}
-	e.Do(t, Move{Viewer: ada, X: 0.5, Y: 0.5, Seq: 9, At: at(800)}) // late
-	if got := rate(at(2000)); got != 2 {
-		t.Errorf("a second later, with the late move: %d a second", got)
+	if h := read(at(3999)); rate(h) != 0 || h[History-3] != 3 {
+		t.Errorf("the second under way counts: %v", h)
 	}
-	if got := rate(at(4000)); got != 0 {
-		t.Errorf("seconds later: %d a second", got)
+	if h := read(at(60_000)); slices.Max(h) != 0 {
+		t.Errorf("a minute later: %v", h)
+	}
+	if got := sparkTop(h); got != "15" {
+		t.Errorf("the sparkline's top of a quiet party: %s", got)
 	}
 }
 
@@ -180,11 +183,17 @@ func TestCount(t *testing.T) {
 			return err
 		}
 		frame := string(out.([]byte))
-		// No hub in this test: nobody is counted here.
-		for _, want := range []string{`id="cursor-party-count"`, `--cursor-party-here:0;--cursor-party-rate:`, `people here, `, ` moves a second`} {
+		// No hub in this test: nobody is counted here. The move a second
+		// ago is the last point, or the one before when a second began
+		// meanwhile.
+		for _, want := range []string{`id="cursor-party-count"`, `--cursor-party-here:0;--cursor-party-rate:`, `people here, `, ` moves a second`,
+			`<sb-sparkline values="[0,0,`, `" length="30" scale="fixed" min="0" max="15" aria-hidden="true">`} {
 			if !strings.Contains(frame, want) {
 				t.Errorf("no %q in the counter:\n%s", want, frame)
 			}
+		}
+		if !strings.Contains(frame, `,0,1]"`) && !strings.Contains(frame, `,1,0]"`) {
+			t.Errorf("the move is not in the sparkline:\n%s", frame)
 		}
 		return nil
 	})
@@ -223,6 +232,7 @@ func TestPage(t *testing.T) {
 				`data-signals="{_cursorParty: {seq: 0}}"`,
 				`id="cursor-party-count"`,
 				`--cursor-party-here:1;`,
+				`<sb-sparkline values="[`,
 			} {
 				if !strings.Contains(html, want) {
 					t.Errorf("%s: no %s in\n%s", name, want, html)
@@ -281,6 +291,13 @@ func TestSweep(t *testing.T) {
 	e.Do(t, writer.Func(func(tx *writer.Tx) error { return sweep(tx, t0.Add(Keep+time.Second)) }))
 	if n := rows(t, e); n != 1 {
 		t.Errorf("%d rows after the sweep", n)
+	}
+	var seconds int
+	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT count(*) FROM cursor_party_seconds`).Scan(&seconds)
+	})
+	if seconds != 1 {
+		t.Errorf("%d seconds after the sweep, want the one a minute later", seconds)
 	}
 	if got := e.Touched(); !slices.Equal(got, []string{Topic}) {
 		t.Errorf("the sweep touched %v", got)

@@ -62,8 +62,9 @@ func TestCursorPartyStream(t *testing.T) {
 // Cleo the landing page. Ada's pointer crosses the floor; Bob sees her
 // cursor arrive, named and coloured, and settle where her pointer rests,
 // and so does the hero behind Cleo's title, while Ada's own page keeps
-// her cursor hidden. Then Bob moves, and Ada sees him. With reduced
-// motion the trail is gone.
+// her cursor hidden. Then Bob moves, and Ada sees him; Dee drags a finger
+// across a phone's floor, and Bob sees her; Ada's cursor, at rest, fades
+// and leaves. With reduced motion the trail is gone.
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestCursorParty
 func TestCursorParty(t *testing.T) {
@@ -122,6 +123,11 @@ func TestCursorParty(t *testing.T) {
 	// The hero behind Cleo's title shows it.
 	cleo.Wait(t, sel+` && getComputedStyle(`+sel+`).display !== 'none' && `+sel+`.style.getPropertyValue('--x') === '70.0'`, 5*time.Second)
 	bob.Wait(t, `getComputedStyle(document.querySelector('#cursor-party-count')).getPropertyValue('--cursor-party-rate') !== '0'`, 5*time.Second)
+	// The counter's sparkline (Starbase's sb-sparkline) holds the last 30
+	// seconds, Ada's moves among them, on both pages.
+	for _, p := range []*browser.Page{bob, cleo} {
+		p.Wait(t, `(s => customElements.get('sb-sparkline') && s.data.length === 30 && Math.max(...s.data) > 0)(document.querySelector('#cursor-party-count sb-sparkline'))`, 5*time.Second)
+	}
 
 	// Bob moves; Ada sees him, and only him.
 	glide(t, bob, ".cp__floor", [][2]float64{{0.9, 0.9}, {0.3, 0.2}}, 8)
@@ -133,6 +139,16 @@ func TestCursorParty(t *testing.T) {
 		t.Errorf("Ada sees %d cursors, want Bob's", shown)
 	}
 
+	// A finger that drags across the floor of a phone moves its cursor
+	// too.
+	dee := b.NewPage(t, 390, 844)
+	dee.Call(t, "Emulation.setTouchEmulationEnabled", map[string]any{"enabled": true, "maxTouchPoints": 1})
+	dee.Navigate(t, base+"/demos/cursor-party")
+	dee.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
+	drag(t, dee, ".cp__floor", [2]float64{0.2, 0.8}, [2]float64{0.6, 0.3}, 10)
+	deeID := tabCursor(t, dee)
+	bob.Wait(t, `document.querySelector('#cursor-party-`+deeID+`')?.style.getPropertyValue('--x') === '60.0'`, 5*time.Second)
+
 	// Reduced motion: no trail, no easing. And in the smooth style the
 	// arrow has straight edges.
 	still := b.NewPage(t, 1280, 900)
@@ -140,20 +156,26 @@ func TestCursorParty(t *testing.T) {
 	still.Navigate(t, base+"/")
 	still.Eval(t, `document.cookie = 'lith-style=smooth; Path=/'`, nil)
 	still.Navigate(t, base+"/demos/cursor-party")
-	still.Wait(t, sel, 5*time.Second)
+	deeSel := `document.querySelector('#cursor-party-` + deeID + `')`
+	still.Wait(t, deeSel, 5*time.Second)
 	var motion struct {
 		Trail, Arrow string
 		Ease         float64 // the tag's longest transition, in seconds
 	}
 	still.Eval(t, `(() => {
-		const c = `+sel+`, b = c.querySelector('b'), d = getComputedStyle(b).transitionDuration.split(',').map(parseFloat)
+		const c = `+deeSel+`, b = c.querySelector('b'), d = getComputedStyle(b).transitionDuration.split(',').map(parseFloat)
 		return {trail: getComputedStyle(c, '::before').display, arrow: getComputedStyle(b, '::before').clipPath, ease: Math.max(...d)}
 	})()`, &motion)
 	if motion.Trail != "none" || motion.Ease > 0.001 || !strings.HasPrefix(motion.Arrow, "polygon(0px 0px, 16px 15.5px") {
 		t.Errorf("with reduced motion, smooth: %+v", motion)
 	}
 
-	for name, p := range map[string]*browser.Page{"Ada": ada, "Bob": bob, "Cleo": cleo, "the still page": still} {
+	// Ada has rested for a few seconds: her cursor fades on Bob's page,
+	// then leaves it.
+	bob.Wait(t, sel+`?.hasAttribute('data-idle')`, 5*time.Second)
+	bob.Wait(t, `!`+sel, 5*time.Second)
+
+	for name, p := range map[string]*browser.Page{"Ada": ada, "Bob": bob, "Cleo": cleo, "Dee": dee, "the still page": still} {
 		if errs := p.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %v", name, errs)
 		}
@@ -176,6 +198,23 @@ func glide(t *testing.T, p *browser.Page, selector string, points [][2]float64, 
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+// drag moves a finger over the element from one point to another
+// (fractions of its box) in steps, ten a second, and lifts it.
+func drag(t *testing.T, p *browser.Page, selector string, from, to [2]float64, steps int) {
+	t.Helper()
+	var r struct{ X, Y, W, H float64 }
+	p.Eval(t, `(() => { const e = document.querySelector(`+"`"+selector+"`"+`); e.scrollIntoView({block: 'center'}); const r = e.getBoundingClientRect(); return {x: r.left, y: r.top, w: r.width, h: r.height} })()`, &r)
+	at := func(f float64) []map[string]any {
+		return []map[string]any{{"x": r.X + r.W*(from[0]+(to[0]-from[0])*f), "y": r.Y + r.H*(from[1]+(to[1]-from[1])*f)}}
+	}
+	p.Call(t, "Input.dispatchTouchEvent", map[string]any{"type": "touchStart", "touchPoints": at(0)})
+	for s := 1; s <= steps; s++ {
+		time.Sleep(100 * time.Millisecond)
+		p.Call(t, "Input.dispatchTouchEvent", map[string]any{"type": "touchMove", "touchPoints": at(float64(s) / float64(steps))})
+	}
+	p.Call(t, "Input.dispatchTouchEvent", map[string]any{"type": "touchEnd", "touchPoints": []map[string]any{}})
 }
 
 // tabCursor is the id of the page's own cursor, from its tab id.
