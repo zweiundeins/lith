@@ -73,10 +73,10 @@ An error from `Apply`, or a panic, rolls back the command's savepoint: its chang
 For a one-off change, `writer.Func` makes a command of a function:
 
 ```go source=site/internal/docs/example/board/outbox.go
-		sent := writer.Func(func(tx *writer.Tx) error {
-			_, err := tx.Exec(`DELETE FROM outbox WHERE id = ?`, m.id)
-			return err
-		})
+sent := writer.Func(func(tx *writer.Tx) error {
+	_, err := tx.Exec(`DELETE FROM outbox WHERE id = ?`, m.id)
+	return err
+})
 ```
 
 ## Handing a command to the writer
@@ -113,18 +113,18 @@ func Create(ctx context.Context, w *writer.Writer, name string) (int64, error) {
 A handler validates, hands the command over and answers 204. The page learns the outcome from its stream, as every other page that shows the board does. `Do`'s error says which answer to give:
 
 ```go source=site/internal/docs/example/web/server.go
-	switch err := s.w.Do(r.Context(), writer.Once(sid+":"+a.Op, act)); {
-	case err == nil:
-		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, writer.ErrInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	case errors.Is(err, board.ErrNotFound):
-		http.Error(w, "no such card or lane", http.StatusNotFound)
-	case errors.Is(err, writer.ErrClosed):
-		http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
-	default:
-		s.fail(w, r, err)
-	}
+switch err := s.w.Do(r.Context(), writer.Once(sid+":"+a.Op, act)); {
+case err == nil:
+	w.WriteHeader(http.StatusNoContent)
+case errors.Is(err, writer.ErrInvalid):
+	http.Error(w, err.Error(), http.StatusBadRequest)
+case errors.Is(err, board.ErrNotFound):
+	http.Error(w, "no such card or lane", http.StatusNotFound)
+case errors.Is(err, writer.ErrClosed):
+	http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
+default:
+	s.fail(w, r, err)
+}
 ```
 
 `writer.ErrClosed` comes once the writer has stopped taking commands. Run the writer on a context that outlives the HTTP server and call `w.Close()` after `srv.Shutdown`, so the actions that arrive while the server drains still commit ([Wiring](/docs/getting-started/wiring#starting-and-stopping) has the order). A batch that fails as a whole, at its `BEGIN`, a savepoint or its `COMMIT`, fails every command in it that had not failed on its own, with the batch's error.
@@ -156,9 +156,9 @@ func TestFlush(t *testing.T) {
 A refusal is an outcome the user reads, such as "This lane is full." Return it as a `*writer.Refusal` with the message. Like any error it undoes the command's changes:
 
 ```go source=site/internal/docs/example/board/commands.go
-	if version != c.Seen {
-		return &writer.Refusal{Msg: "Someone moved this card meanwhile."}
-	}
+if version != c.Seen {
+	return &writer.Refusal{Msg: "Someone moved this card meanwhile."}
+}
 ```
 
 A page shows a refusal next to where the user acted, and it learns of it the way it learns of everything else: from its stream. So the board's actions run inside `Act`, which records the outcome in the tab's row. `tx.Savepoint` runs the action's command in a nested savepoint: a refusal undoes the command's changes and drops its topics, and `Act` writes the tab's row all the same.
@@ -188,8 +188,8 @@ The tab's view renders the row, and [Pages and Datastar](/docs/guides/pages#op-i
 A network repeats requests: a proxy retries, a user clicks twice, Datastar retries an action whose answer got lost. Each action carries an op id that the page made, and the handler wraps its command in `writer.Once` with a key of the session and the op:
 
 ```go source=site/internal/docs/example/web/server.go
-	act := board.Act{Session: sid, Tab: a.Tab, Op: a.Op, Cmd: cmd, At: time.Now()}
-	switch err := s.w.Do(r.Context(), writer.Once(sid+":"+a.Op, act)); {
+act := board.Act{Session: sid, Tab: a.Tab, Op: a.Op, Cmd: cmd, At: time.Now()}
+switch err := s.w.Do(r.Context(), writer.Once(sid+":"+a.Op, act)); {
 ```
 
 When the command succeeds, `Once` records the key in the table `lith_ops`, in the same savepoint. A command whose key is recorded succeeds without running again. A failed command recorded nothing, so a retry runs it again and gets its error afresh. `Act` turns a refusal into a success that wrote the tab's row, so a retry of a refused action replays nothing either.
@@ -197,15 +197,15 @@ When the command succeeds, `Once` records the key in the table `lith_ops`, in th
 `writer.OnceResult` keeps an answer as well, for an action whose response carries one. Creating a board answers with the new board's address, and a retry must get the same address, not a second board:
 
 ```go source=site/internal/docs/example/web/server.go
-	op := writer.OnceResult(edge.SessionID(r.Context())+":"+req.Op, board.CreateBoard{Name: req.Name})
-	switch err := s.w.Do(r.Context(), op); {
-	case errors.Is(err, writer.ErrInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	case err != nil:
-		s.fail(w, r, err)
-		return
-	}
+op := writer.OnceResult(edge.SessionID(r.Context())+":"+req.Op, board.CreateBoard{Name: req.Name})
+switch err := s.w.Do(r.Context(), op); {
+case errors.Is(err, writer.ErrInvalid):
+	http.Error(w, err.Error(), http.StatusBadRequest)
+	return
+case err != nil:
+	s.fail(w, r, err)
+	return
+}
 ```
 
 The command is a `writer.ResultCommand`: its `ApplyResult` returns a few bytes, here the id. `OnceResult` records them in `lith_results` with the key, and also records a refusal with its message: a retry of a refused command gets the same `*writer.Refusal` without running. After `Do`, `op.Result()` holds the bytes, from this run or the recorded one, and `op.Replayed()` says which. Other errors record nothing.
@@ -219,14 +219,14 @@ A command never waits for the network: every command queued behind it waits whil
 The board writes the mail into an outbox table in the command's own transaction, so the mail exists if and only if the change committed, and `AfterCommit` only wakes the sender:
 
 ```go source=site/internal/docs/example/board/commands.go
-	if _, err := tx.Exec(`INSERT INTO outbox (to_addr, subject, at) VALUES (?, ?, ?)`,
-		c.Email, "A card for you: "+title, c.At.Unix()); err != nil {
-		return err
-	}
-	tx.Touch(Topic(board), CardTopic(c.Card))
-	if c.Wake != nil {
-		tx.AfterCommit(c.Wake) // on the writer's goroutine, after the commit: must not block
-	}
+if _, err := tx.Exec(`INSERT INTO outbox (to_addr, subject, at) VALUES (?, ?, ?)`,
+	c.Email, "A card for you: "+title, c.At.Unix()); err != nil {
+	return err
+}
+tx.Touch(Topic(board), CardTopic(c.Card))
+if c.Wake != nil {
+	tx.AfterCommit(c.Wake) // on the writer's goroutine, after the commit: must not block
+}
 ```
 
 ```go source=site/internal/docs/example/board/outbox.go

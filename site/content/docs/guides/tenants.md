@@ -42,26 +42,26 @@ func Open(dir string, maxOpen int, hub *live.Hub, log *slog.Logger) *Accounts {
 The opener opens the file with small settings, since many are open at once, and starts the account's writer. Its commits mark the hub's views under topics that carry the account, so a commit of one account marks no view of another:
 
 ```go source=site/internal/docs/example/tenants/tenants.go
-	db, err := sqlite.Open(ctx, path, sqlite.Options{
-		Migrations: migrations.FS,
-		Readers:    2,    // few readers: an account's renders and GETs are few at a time
-		CacheKiB:   2000, // many files are open at once: a small page cache for each
-		Checkpoint: sqlite.CheckpointWriter,
-	})
-	if err != nil {
-		return nil, err
+db, err := sqlite.Open(ctx, path, sqlite.Options{
+	Migrations: migrations.FS,
+	Readers:    2,    // few readers: an account's renders and GETs are few at a time
+	CacheKiB:   2000, // many files are open at once: a small page cache for each
+	Checkpoint: sqlite.CheckpointWriter,
+})
+if err != nil {
+	return nil, err
+}
+w, err := writer.New(db, writer.Options{OnCommit: func(topics []string) {
+	scoped := make([]string, len(topics))
+	for i, t := range topics {
+		scoped[i] = Topic(key, t)
 	}
-	w, err := writer.New(db, writer.Options{OnCommit: func(topics []string) {
-		scoped := make([]string, len(topics))
-		for i, t := range topics {
-			scoped[i] = Topic(key, t)
-		}
-		hub.Changed(scoped)
-	}})
-	if err != nil {
-		return nil, errors.Join(err, db.Close())
-	}
-	go w.Run(context.Background()) // until Close: the pool evicts the account
+	hub.Changed(scoped)
+}})
+if err != nil {
+	return nil, errors.Join(err, db.Close())
+}
+go w.Run(context.Background()) // until Close: the pool evicts the account
 ```
 
 The opener's context carries the values of the request that needed the account, but not its cancellation: a request that gives up does not abort an open halfway. The commands stay the board's, unaware of accounts. The account's key names a file, so the pool accepts only keys made of lowercase letters, digits and dashes.

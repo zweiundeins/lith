@@ -15,21 +15,21 @@ The render loop works in ticks, so the whole system can be measured without an H
 A run takes the app's migrations, a seed, a description of each stream and a command per producer. The board app's benchmark runs its board view with its tailored stream writer, and renames cards:
 
 ```go source=site/internal/docs/example/web/load_test.go
-	return loadtest.Config{
-		SQLite: sqlite.Options{Migrations: migrations.FS},
-		Seed:   seed,
-		Stream: func(int) live.Spec {
-			return live.Spec{Views: []live.View{boardView(1)}, WriteTick: tailor()}
-		},
-		Streams:   streams,
-		Producers: streams,
-		Rate:      rate,
-		Command: func(p int, i int64) writer.Command {
-			return board.RenameCard{Card: 1 + (int64(p)*7+i)%100, Title: fmt.Sprint("renamed ", i), At: time.Now()}
-		},
-		Warmup:   warmup,
-		Duration: d,
-	}
+return loadtest.Config{
+	SQLite: sqlite.Options{Migrations: migrations.FS},
+	Seed:   seed,
+	Stream: func(int) live.Spec {
+		return live.Spec{Views: []live.View{boardView(1)}, WriteTick: tailor()}
+	},
+	Streams:   streams,
+	Producers: streams,
+	Rate:      rate,
+	Command: func(p int, i int64) writer.Command {
+		return board.RenameCard{Card: 1 + (int64(p)*7+i)%100, Title: fmt.Sprint("renamed ", i), At: time.Now()}
+	},
+	Warmup:   warmup,
+	Duration: d,
+}
 ```
 
 `Command(p, i)` makes producer `p`'s `i`-th command; the producers call it concurrently, `Rate` commands a second between them. Without `DB`, `Run` opens a new database in a temporary directory and removes it afterwards; `Hub` and `Writer` take the app's own options. The benchmark runs it and reports the numbers:

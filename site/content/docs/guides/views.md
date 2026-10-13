@@ -97,11 +97,11 @@ The rows behind both views are written by commands, so they survive a deploy ([P
 The stream's handler builds the tab's views and hands them to `hub.Serve`, which streams until the client leaves or the hub stops:
 
 ```go source=site/internal/docs/example/web/server.go
-	views := []live.View{boardView(id), presenceView(s.hub, id), tabView(sid, tab), prefsView(sid)}
-	if state.Panel != 0 {
-		views = append(views, cardView(state.Panel))
-	}
-	err = s.hub.Serve(w, r, live.Spec{ID: tab, Views: views, WriteTick: tailor(), Reconnect: StreamID})
+views := []live.View{boardView(id), presenceView(s.hub, id), tabView(sid, tab), prefsView(sid)}
+if state.Panel != 0 {
+	views = append(views, cardView(state.Panel))
+}
+err = s.hub.Serve(w, r, live.Spec{ID: tab, Views: views, WriteTick: tailor(), Reconnect: StreamID})
 ```
 
 `Serve` sends each view's current frame at once, or its first one when it has none yet, then every new frame. A stream keeps only the newest frame of each view, so a slow client skips frames and holds up no one else. Views that change in the same tick reach the stream together, in the order of `Spec.Views`.
@@ -153,20 +153,20 @@ func statsView(w *writer.Writer, hub *live.Hub) live.View {
 A tab opens a card's panel, and its stream should start rendering that card. `hub.Watch(tab, view)` adds a view to the open stream with that ID, and `hub.Unwatch(tab, key)` takes one away. The panel's handler records the open panel in the tab's row first, so a stream that reconnects after a deploy watches the card from its start:
 
 ```go source=site/internal/docs/example/web/server.go
-	old, err := s.db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, sid, a.Tab) })
-	if err == nil {
-		err = s.w.Do(ctx, board.OpenPanel{Session: sid, Tab: a.Tab, Card: a.Card, At: time.Now()})
-	}
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	if old.Panel != 0 && old.Panel != a.Card {
-		s.hub.Unwatch(a.Tab, board.CardTopic(old.Panel))
-	}
-	if a.Card != 0 {
-		s.hub.Watch(a.Tab, cardView(a.Card))
-	}
+old, err := s.db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, sid, a.Tab) })
+if err == nil {
+	err = s.w.Do(ctx, board.OpenPanel{Session: sid, Tab: a.Tab, Card: a.Card, At: time.Now()})
+}
+if err != nil {
+	s.fail(w, r, err)
+	return
+}
+if old.Panel != 0 && old.Panel != a.Card {
+	s.hub.Unwatch(a.Tab, board.CardTopic(old.Panel))
+}
+if a.Card != 0 {
+	s.hub.Watch(a.Tab, cardView(a.Card))
+}
 ```
 
 A command can arrive before its stream: a page that opens a panel while it loads. `Watch` then keeps the view for `Options.PendingWatch`, 10 s by default, and the stream that opens with that ID within that time watches it from its start, after the views of its `Spec`. `Watch` reports whether the stream was open, so there is no retry loop to write.
@@ -228,7 +228,7 @@ A stream that sends only what changed costs less CPU to compress and less work f
 A stream that has been silent for `Options.Heartbeat`, 20 s by default, sends a comment, so proxies keep the connection open. The page never sees a comment. With `Options.HeartbeatSignal` set, the heartbeat patches that signal instead, every 20 s, frames or not, with a number that grows:
 
 ```go source=site/internal/docs/example/web/hub.go
-		HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
+HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
 ```
 
 The page notes each heartbeat, and opens the stream again when none came for 50 s, as after a laptop's sleep:
@@ -267,17 +267,17 @@ func watchdog(b int64) string {
 The board's settings:
 
 ```go source=site/internal/docs/example/web/hub.go
-	return live.Options{
-		Read:            db.R,
-		MaxStreams:      500,
-		HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
-		Hibernate:       time.Minute, // an idle tab gives its zstd encoder back
-		Log:             log,
-		SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{
-			MinWindow: 17,
-			Refuse:    true,
-		})},
-	}
+return live.Options{
+	Read:            db.R,
+	MaxStreams:      500,
+	HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
+	Hibernate:       time.Minute, // an idle tab gives its zstd encoder back
+	Log:             log,
+	SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{
+		MinWindow: 17,
+		Refuse:    true,
+	})},
+}
 ```
 
 `hub.Stats()` counts ticks, renders, frames sent and dropped, overruns, open streams, watched views and the workers' read transactions. When a tick takes longer than `Tick`, the hub samples every tick for 20 s and logs their count, p50, p95, p99 and maximum ([Metrics and monitoring](/docs/guides/monitoring)).

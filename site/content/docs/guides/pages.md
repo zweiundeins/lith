@@ -12,20 +12,20 @@ A lith page is a document that a GET renders from one read transaction, and a st
 The board's document holds the page's signals, the element that opens the stream, the add form and the board:
 
 ```templ source=site/internal/docs/example/web/board.templ
-			<main data-signals={ signals(p.Tab, p.Prefs) } data-class:compact="$_compact">
-				<div id={ StreamID } hidden data-init={ "$_beat = Date.now(); " + openStream(p.Board.ID) } data-effect={ beat } data-on-interval__duration.10s={ watchdog(p.Board.ID) }></div>
-				<h1>{ p.Board.Name }</h1>
-				@Presence(0)
-				<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
-				<form data-on:submit__prevent={ add(firstLane(p.Board)) } data-on:datastar-fetch={ failed } data-effect={ settle }>
-					<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending }/>
-					<button type="submit" data-attr:aria-busy={ busy }>Add</button>
-				</form>
-				<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
-				@Outcome(board.TabState{})
-				@Board(p.Lanes)
-				@NoPanel()
-			</main>
+<main data-signals={ signals(p.Tab, p.Prefs) } data-class:compact="$_compact">
+	<div id={ StreamID } hidden data-init={ "$_beat = Date.now(); " + openStream(p.Board.ID) } data-effect={ beat } data-on-interval__duration.10s={ watchdog(p.Board.ID) }></div>
+	<h1>{ p.Board.Name }</h1>
+	@Presence(0)
+	<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
+	<form data-on:submit__prevent={ add(firstLane(p.Board)) } data-on:datastar-fetch={ failed } data-effect={ settle }>
+		<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending }/>
+		<button type="submit" data-attr:aria-busy={ busy }>Add</button>
+	</form>
+	<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
+	@Outcome(board.TabState{})
+	@Board(p.Lanes)
+	@NoPanel()
+</main>
 ```
 
 The expressions live in Go, in `expr.go`, beside the templates that use them. Every signal starts with `_`: such signals stay in the browser, and an action sends only the payload it names. The tab's id, `$_tab`, is new for every document, so two tabs of one browser are two tabs to the server; the server never stores it until the tab acts.
@@ -153,9 +153,9 @@ An action answers 204 with no body. What it changed reaches the page on the stre
 An answer may patch signals of the tab that sent it, for what concerns that tab alone. Creating a board sends the page to the new board, and a retry must send it to the same one:
 
 ```go source=site/internal/docs/example/web/server.go
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Write(sse.PatchSignals(fmt.Appendf(nil, `{"_goto":"/boards/%s"}`, op.Result()), false))
+w.Header().Set("Content-Type", "text/event-stream")
+w.Header().Set("Cache-Control", "no-store")
+w.Write(sse.PatchSignals(fmt.Appendf(nil, `{"_goto":"/boards/%s"}`, op.Result()), false))
 ```
 
 The page that posts it follows the signal with `data-effect="$_goto && location.assign($_goto)"`.

@@ -131,18 +131,18 @@ func (o *Outbox) Run(ctx context.Context) {
 ```
 
 ```go source=site/internal/docs/example/board/outbox.go
-	for _, m := range waiting {
-		if err := o.send(ctx, m.to, m.subject); err != nil {
-			return err
-		}
-		sent := writer.Func(func(tx *writer.Tx) error {
-			_, err := tx.Exec(`DELETE FROM outbox WHERE id = ?`, m.id)
-			return err
-		})
-		if err := o.w.Do(ctx, sent); err != nil {
-			return err
-		}
+for _, m := range waiting {
+	if err := o.send(ctx, m.to, m.subject); err != nil {
+		return err
 	}
+	sent := writer.Func(func(tx *writer.Tx) error {
+		_, err := tx.Exec(`DELETE FROM outbox WHERE id = ?`, m.id)
+		return err
+	})
+	if err := o.w.Do(ctx, sent); err != nil {
+		return err
+	}
+}
 ```
 
 A mail whose row the job could not delete goes out again on the next pass: the receiver may get it twice, and never zero times. Start every job from `main`, on a context that ends at shutdown, and wait for it before the writer closes. A job that nothing starts does nothing.

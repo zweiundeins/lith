@@ -29,24 +29,24 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 `lith/prom` is a module of its own, so an app without Prometheus never pulls in its client. `prom.New(namespace, sources)` returns a collector that reads the sources' stats on every scrape. `dbmetrics` times the statements a database/sql driver runs: register its wrapper of modernc's driver once, name it in `sqlite.Options.Driver`, and the write connection, the read pool and `Backup` all open through it. This site wires both:
 
 ```go source=site/internal/app/app.go
-	driverOnce.Do(func() {
-		driverErr = dbmetrics.Register(driver, "sqlite", dbmetrics.Options{Observer: dbMetrics, Logger: cfg.Log})
-	})
+driverOnce.Do(func() {
+	driverErr = dbmetrics.Register(driver, "sqlite", dbmetrics.Options{Observer: dbMetrics, Logger: cfg.Log})
+})
 ```
 
 ```go source=site/internal/app/app.go
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		prom.New(Namespace, prom.Sources{Writer: w, Hub: hub}),
-		dbMetrics,
-		httpMetrics,
-		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Namespace: Namespace, Name: "build_info", Help: "1, labelled with the running version.",
-			ConstLabels: prometheus.Labels{"version": cfg.Version},
-		}, func() float64 { return 1 }),
-	)
+reg := prometheus.NewRegistry()
+reg.MustRegister(
+	collectors.NewGoCollector(),
+	collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	prom.New(Namespace, prom.Sources{Writer: w, Hub: hub}),
+	dbMetrics,
+	httpMetrics,
+	prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: Namespace, Name: "build_info", Help: "1, labelled with the running version.",
+		ConstLabels: prometheus.Labels{"version": cfg.Version},
+	}, func() float64 { return 1 }),
+)
 ```
 
 `dbMetrics` is `dbprom.New(Namespace)`, from the module `lith/dbmetrics/prom`. `dbmetrics` also logs every statement that takes 100 ms or more at Warn, with its SQL text and never its arguments (`Options.SlowThreshold`, negative to turn it off).
@@ -70,14 +70,14 @@ Requests by route are the app's own: this site's `internal/metrics` counts `lith
 The metrics never go on the public listener. This site serves them on 127.0.0.1 at its public port plus 100, where the host's Prometheus scrapes every app, and refuses an address that is not loopback:
 
 ```go source=site/cmd/lith-site/main.go
-	host, _, err := net.SplitHostPort(flagValue)
-	if err != nil {
-		return "", fmt.Errorf("-metrics: %w", err)
-	}
-	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-		return "", fmt.Errorf("-metrics %s: the metrics listen on loopback only", flagValue)
-	}
-	return flagValue, nil
+host, _, err := net.SplitHostPort(flagValue)
+if err != nil {
+	return "", fmt.Errorf("-metrics: %w", err)
+}
+if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+	return "", fmt.Errorf("-metrics %s: the metrics listen on loopback only", flagValue)
+}
+return flagValue, nil
 ```
 
 ## The dashboard

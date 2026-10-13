@@ -69,15 +69,15 @@ Measured with 200 open streams, it held 110 MB resident, 100 MB of them the enco
 Caddy terminates TLS and proxies to the socket. The app compresses its pages, files and streams itself, so the block has no `encode`:
 
 ```text source=template/deploy/Caddyfile
-	reverse_proxy unix//run/app/app.sock {
-		# The client's address for the rate limits. app takes it only from
-		# the socket or loopback, the last X-Forwarded-For address before
-		# X-Real-IP, and a client cannot set either: these replace them.
-		header_up X-Forwarded-For {http.request.remote.host}
-		header_up X-Real-IP {http.request.remote.host}
-		# Server-sent events: pass every write through at once.
-		flush_interval -1
-	}
+reverse_proxy unix//run/app/app.sock {
+	# The client's address for the rate limits. app takes it only from
+	# the socket or loopback, the last X-Forwarded-For address before
+	# X-Real-IP, and a client cannot set either: these replace them.
+	header_up X-Forwarded-For {http.request.remote.host}
+	header_up X-Real-IP {http.request.remote.host}
+	# Server-sent events: pass every write through at once.
+	flush_interval -1
+}
 ```
 
 `flush_interval -1` passes every write of a stream through at once; without it, Caddy buffers frames. The access log is JSON, in `/var/log/caddy`, with mode 0640. Run as root, `caddy validate` creates the log owned by root and the next reload fails; `chown caddy:caddy` on the file fixes it.
@@ -113,16 +113,16 @@ A migration runs when the new binary opens the database, and an older binary ref
 On `SIGTERM` the app stops in an order that loses no action and strands no page:
 
 ```go source=template/cmd/app/main.go
-	log.Info("shutting down")
-	stopHub() // 1. every stream ends, so Shutdown does not wait for them
-	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(sctx); err != nil { // 2. actions finish, and still reach the writer
-		log.Warn("shutdown", "err", err)
-	}
-	jobs.Wait()
-	<-hubDone
-	return errors.Join(err, w.Close(), db.Close()) // 3. the writer applies what is queued; 4. the database closes
+log.Info("shutting down")
+stopHub() // 1. every stream ends, so Shutdown does not wait for them
+sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+if err := srv.Shutdown(sctx); err != nil { // 2. actions finish, and still reach the writer
+	log.Warn("shutdown", "err", err)
+}
+jobs.Wait()
+<-hubDone
+return errors.Join(err, w.Close(), db.Close()) // 3. the writer applies what is queued; 4. the database closes
 ```
 
 1. The hub stops: every stream's last event is `sse.Reconnect`, and the page opens its stream again, with `retry: 'error'` carrying it through the seconds without a process.

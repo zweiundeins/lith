@@ -63,10 +63,10 @@ A hub shares a memory budget among its streams' encoders, so that the server hol
 For pages with large, frequent frames, an uncompressed stream sends every frame whole: the board's 142 KB twenty times a second. Such an app sets the budget's floor to its largest frame and refuses the streams that do not fit:
 
 ```go source=site/internal/docs/example/web/hub.go
-		SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{
-			MinWindow: 17,
-			Refuse:    true,
-		})},
+SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{
+	MinWindow: 17,
+	Refuse:    true,
+})},
 ```
 
 A refused stream gets a 503, and a page that opens its stream with `retry: 'error'` asks again, with Datastar's backoff, until a stream closes and makes room.

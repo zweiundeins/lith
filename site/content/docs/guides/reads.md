@@ -11,23 +11,23 @@ order: 3
 A GET renders its whole document from one read transaction, so every part of the page shows the same moment. `db.View(ctx, fn)` begins it, runs `fn` and ends it:
 
 ```go source=site/internal/docs/example/web/server.go
-	ctx := r.Context()
-	var buf bytes.Buffer
-	err = s.db.View(ctx, func(tx *sql.Tx) error {
-		b, err := board.Load(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		prefs, err := board.SessionPrefs(ctx, tx, edge.SessionID(ctx))
-		if err != nil {
-			return err
-		}
-		lanes, err := renderLanes(ctx, b)
-		if err != nil {
-			return err
-		}
-		return Page(PageData{Tab: newID(), Datastar: s.datastar, Board: b, Lanes: lanes, Prefs: prefs}).Render(ctx, &buf)
-	})
+ctx := r.Context()
+var buf bytes.Buffer
+err = s.db.View(ctx, func(tx *sql.Tx) error {
+	b, err := board.Load(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	prefs, err := board.SessionPrefs(ctx, tx, edge.SessionID(ctx))
+	if err != nil {
+		return err
+	}
+	lanes, err := renderLanes(ctx, b)
+	if err != nil {
+		return err
+	}
+	return Page(PageData{Tab: newID(), Datastar: s.datastar, Board: b, Lanes: lanes, Prefs: prefs}).Render(ctx, &buf)
+})
 ```
 
 The handler renders into a buffer inside the transaction and writes the buffer after it, as the template's does: an error halfway through still gets a clean 500, and the transaction never waits for a slow client.
@@ -37,7 +37,7 @@ A GET writes nothing: no session row, no visit counter, no "last seen". A crawle
 `db.ViewValue` is `View` for a function that returns a value. It returns the zero value with any error:
 
 ```go source=site/internal/docs/example/web/server.go
-	state, err := s.db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, sid, tab) })
+state, err := s.db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, sid, tab) })
 ```
 
 A read transaction's snapshot begins with its first read: until then, a commit can still land in it.
@@ -59,7 +59,7 @@ func LaneCount(ctx context.Context, q sqlite.Querier, lane int64) (n int, err er
 In a command, the `*writer.Tx` is the querier, and its context is the command's (`tx.Context()`):
 
 ```go source=site/internal/docs/example/board/commands.go
-	n, err := LaneCount(tx.Context(), tx, c.Lane) // the same query a GET and a view run
+n, err := LaneCount(tx.Context(), tx, c.Lane) // the same query a GET and a view run
 ```
 
 A `*writer.Tx` runs the query in the batch's transaction, on the writer's statement cache, and ignores the context it is given: a statement never stops halfway through a batch.
@@ -69,14 +69,14 @@ A `*writer.Tx` runs the query in the batch's transaction, on the writer's statem
 A view's `Render` gets the worker's read transaction. `sqlite.QuerierFrom(ctx)` returns a querier for it that runs each SQL text on a statement the worker prepared once, on its own connection:
 
 ```go source=site/internal/docs/example/web/views.go
-		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			q, _ := sqlite.QuerierFrom(ctx) // the worker's prepared statements, in this render's transaction
-			b, err := board.Load(ctx, q, id)
-			if err != nil {
-				return nil, err
-			}
-			return renderBoard(ctx, b)
-		},
+Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+	q, _ := sqlite.QuerierFrom(ctx) // the worker's prepared statements, in this render's transaction
+	b, err := board.Load(ctx, q, id)
+	if err != nil {
+		return nil, err
+	}
+	return renderBoard(ctx, b)
+},
 ```
 
 modernc's SQLite parses and plans every query that has no prepared statement, so a render that queries through `tx` directly pays that each time. Each worker keeps the 512 statements it used last. SQL built at runtime, such as an `IN` list with a mark per value, belongs on `tx`, which keeps nothing.
@@ -100,8 +100,8 @@ func (s Store) Board(ctx context.Context, id int64) (Board, error) {
 A render's context carries its worker's transaction already. A GET hands its own down with `sqlite.WithTx`:
 
 ```go source=site/internal/docs/example/board/board_test.go
-		ctx := sqlite.WithTx(ctx, tx) // code that takes only a ctx joins this snapshot
-		b, err := store.Board(ctx, id)
+ctx := sqlite.WithTx(ctx, tx) // code that takes only a ctx joins this snapshot
+b, err := store.Board(ctx, id)
 ```
 
 The transaction's owner ends it; a `View` that joined one leaves it open. `sqlite.TxFrom(ctx)` returns the transaction a context carries. A context that carries a transaction on another file, as when a render of one database reads another, gets a transaction of its own ([One database per account](/docs/guides/tenants#views-of-an-account)).
