@@ -1515,6 +1515,28 @@ func TestOnTick(t *testing.T) {
 	}
 }
 
+// Done stays open while the hub runs, and closes when Run's ctx ends.
+func TestDone(t *testing.T) {
+	h := New(Options{Log: slog.New(slog.DiscardHandler)})
+	ctx, cancel := context.WithCancel(context.Background())
+	ran := make(chan error, 1)
+	go func() { ran <- h.Run(ctx) }()
+	select {
+	case <-h.Done():
+		t.Fatal("Done closed while the hub runs")
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-h.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("Done stayed open after the hub stopped")
+	}
+	if err := <-ran; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunTwice(t *testing.T) {
 	h := start(t, Options{})
 	time.Sleep(10 * time.Millisecond)
