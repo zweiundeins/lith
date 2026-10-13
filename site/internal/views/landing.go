@@ -73,7 +73,7 @@ err := w.Do(r.Context(), Sign{Name: name, Message: msg})`,
 		Lang: "go", ListingTitle: "a shared view",
 		Listing: `live.View{
 	Key:    "board:42",           // everyone on board 42 shares it
-	Topics: []string{"board:42"}, // a commit that touches it marks it dirty
+	Topics: []string{"board:42"}, // a commit to it marks it dirty
 	Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
 		return renderBoard(ctx, tx, 42) // once a tick, for all
 	},

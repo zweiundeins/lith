@@ -241,7 +241,7 @@ func LandingPage(l Landing) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></section><section class=\"band\" aria-labelledby=\"numbers-title\"><div class=\"wrap section\"><header class=\"section__head reveal\"><h2 id=\"numbers-title\">Measured</h2><p>In process, on an Intel i5-13500 with Go 1.27 and SQLite 3.53, October 2026. With <span class=\"tip\" tabindex=\"0\">synchronous=NORMAL<span class=\"tip__bubble\" role=\"tooltip\">SQLite syncs the log only at checkpoints: a power loss can undo up to about 35 s of commits, a crash of the process none. FULL syncs every batch.</span></span> unless it says otherwise.</p></header><dl class=\"stats reveal\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></section><section class=\"band\" aria-labelledby=\"numbers-title\"><div class=\"wrap section\"><header class=\"section__head reveal\"><h2 id=\"numbers-title\">Measured</h2><p>In process, on an Intel i5-13500 under Linux, in October 2026. With <span class=\"tip\" tabindex=\"0\">synchronous=NORMAL<span class=\"tip__bubble\" role=\"tooltip\">SQLite syncs the log only at checkpoints: a power loss can undo up to about 35 s of commits, a crash of the process none. FULL syncs every batch.</span></span> unless it says otherwise.</p></header><dl class=\"stats reveal\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
