@@ -167,7 +167,14 @@
 		position: sticky;
 		inset-block-start: calc(var(--lith-header-height) + var(--lith-space-6));
 		display: grid;
+		align-content: start;
 		gap: var(--lith-space-2);
+		/* A long page's table of contents scrolls on its own, like the
+		 * navigation, instead of reaching past the window. */
+		max-block-size: calc(100dvh - var(--lith-header-height) - var(--lith-space-10));
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		scrollbar-width: thin;
 		font-size: var(--lith-text-sm);
 
 		@container docs (width < 72rem) {
@@ -279,6 +286,207 @@
 	@keyframes progress {
 		to {
 			scale: 1 1;
+		}
+	}
+}
+
+/* Charts in the docs (internal/markdown's ```chart blocks): a figure like
+ * a code block, an SVG that scrolls sideways where the column is narrower
+ * than it, a legend and the numbers as a table. The four series hues are
+ * the chart's own, checked for colour vision deficiencies against the
+ * inset surface of both themes; text stays in the text tokens. */
+@layer components {
+	.chart {
+		--_n: calc(3px * var(--lith-notch));
+		--_c1: light-dark(oklch(58% 0.155 46), oklch(66% 0.162 52));
+		--_c2: light-dark(oklch(52% 0.11 245), oklch(62% 0.11 240));
+		--_c3: light-dark(oklch(56% 0.12 150), oklch(64% 0.12 150));
+		--_c4: light-dark(oklch(48% 0.14 350), oklch(55% 0.14 350));
+		display: grid;
+		margin: 0;
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background: var(--lith-surface-inset);
+
+		.prose & {
+			margin-block: var(--lith-space-6);
+		}
+	}
+
+	.chart__bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--lith-space-1) var(--lith-space-4);
+		padding: var(--lith-space-2) var(--lith-space-4);
+		border-block-end: 1px solid var(--lith-border-subtle);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+	}
+
+	.chart__title {
+		color: var(--lith-text-1);
+		font-weight: 600;
+	}
+
+	.chart__source {
+		color: var(--lith-text-muted);
+	}
+
+	/* Where the column is narrower than the chart, the chart scrolls
+	 * sideways, and a shade at the edge shows that more is there: the
+	 * covers scroll with the content, the shades stay with the box. */
+	.chart__plot {
+		overflow-x: auto;
+		padding: var(--lith-space-3) var(--lith-space-3) 0;
+		background:
+			linear-gradient(to right, var(--lith-surface-inset) 40%, transparent) left / 2.5rem 100% no-repeat local,
+			linear-gradient(to left, var(--lith-surface-inset) 40%, transparent) right / 2.5rem 100% no-repeat local,
+			linear-gradient(to right, var(--lith-border-strong), transparent) left / 0.75rem 100% no-repeat scroll,
+			linear-gradient(to left, var(--lith-border-strong), transparent) right / 0.75rem 100% no-repeat scroll;
+
+		& svg {
+			display: block;
+			inline-size: 100%;
+			min-inline-size: 34rem;
+			block-size: auto;
+		}
+	}
+
+	.chart__s1 { --_c: var(--_c1); }
+	.chart__s2 { --_c: var(--_c2); }
+	.chart__s3 { --_c: var(--_c3); }
+	.chart__s4 { --_c: var(--_c4); }
+
+	.chart svg {
+		& text {
+			font-family: var(--lith-font-ui);
+			font-size: 12px;
+			font-variant-numeric: tabular-nums;
+		}
+
+		& .chart__tick,
+		& .chart__axis {
+			fill: var(--lith-text-muted);
+		}
+
+		& .chart__value {
+			fill: var(--lith-text-2);
+			font-size: 11.5px;
+		}
+
+		& .chart__grid {
+			stroke: var(--lith-border-subtle);
+			stroke-width: 1;
+			shape-rendering: crispEdges;
+		}
+
+		& .chart__baseline {
+			stroke: var(--lith-border-strong);
+			stroke-width: 1;
+			shape-rendering: crispEdges;
+		}
+
+		& .chart__mark {
+			fill: var(--_c);
+			shape-rendering: crispEdges;
+		}
+
+		& .chart__line {
+			fill: none;
+			stroke: var(--_c);
+			stroke-width: 2;
+			stroke-linejoin: round;
+			stroke-linecap: round;
+		}
+
+		& .chart__dot {
+			fill: var(--_c);
+			stroke: var(--lith-surface-inset);
+			stroke-width: 2;
+		}
+
+		& .chart__hit {
+			fill: transparent;
+		}
+
+		& .chart__hit:hover {
+			fill: var(--_c);
+			fill-opacity: 0.35;
+		}
+	}
+
+	/* .chart doubles the class, to outrank the prose's rules for lists and
+	 * tables (prose.css). */
+	.chart .chart__legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-1) var(--lith-space-5);
+		margin: 0;
+		padding: var(--lith-space-2) var(--lith-space-4) var(--lith-space-3);
+		list-style: none;
+		color: var(--lith-text-2);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+
+		& li {
+			display: inline-flex;
+			align-items: center;
+			gap: var(--lith-space-2);
+			margin: 0;
+		}
+	}
+
+	.chart__key {
+		inline-size: 0.75rem;
+		block-size: 0.75rem;
+		background: var(--_c);
+
+		.chart--lines & {
+			block-size: 3px;
+			inline-size: 1rem;
+		}
+	}
+
+	.chart .chart__data {
+		border-block-start: 1px solid var(--lith-border-subtle);
+		font-size: var(--lith-text-xs);
+
+		& summary {
+			padding: var(--lith-space-2) var(--lith-space-4);
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			cursor: pointer;
+		}
+
+		& table {
+			display: block;
+			max-block-size: 20rem;
+			margin: 0;
+			padding: 0 var(--lith-space-4) var(--lith-space-3);
+			overflow: auto;
+			font-family: var(--lith-font-ui);
+			font-variant-numeric: tabular-nums;
+		}
+
+		& :is(th, td) {
+			min-inline-size: 0;
+			text-align: end;
+		}
+	}
+
+	/* A table of five columns or more holds numbers: its cells take the
+	 * width of their content, not the prose's eight rems each. */
+	.prose table:has(th:nth-child(5)) td {
+		min-inline-size: 0;
+	}
+
+	@media (forced-colors: active) {
+		.chart__mark,
+		.chart__key {
+			forced-color-adjust: none;
 		}
 	}
 }

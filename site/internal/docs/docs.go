@@ -43,6 +43,9 @@ type Page struct {
 	Section  *Section // nil for /docs itself
 	HTML     string
 	Headings []markdown.Heading
+	// IDs are the ids of all its headings, the table of contents' and
+	// the deeper ones.
+	IDs []string
 	// Prev and Next are the pages before and after this one in reading
 	// order, nil at the ends.
 	Prev, Next *Page
@@ -194,7 +197,7 @@ func readPage(fsys fs.FS, file, urlPath string) (*Page, error) {
 	if doc.Title != "" {
 		return nil, errors.New("the page's title comes from its front matter: leave out the # heading")
 	}
-	p.HTML, p.Headings = doc.HTML, doc.Headings
+	p.HTML, p.Headings, p.IDs = doc.HTML, doc.Headings, doc.IDs
 	return p, nil
 }
 

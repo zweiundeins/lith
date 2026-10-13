@@ -1,0 +1,45 @@
+package web
+
+import (
+	"strconv"
+
+	"github.com/zweiundeins/lith/live"
+	"github.com/zweiundeins/lith/sse"
+	"github.com/zweiundeins/lith/writer"
+)
+
+templ StatusPage(datastar string, w writer.Stats, h live.Stats, b sse.BudgetStats) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<title>Status</title>
+			<script type="module" src={ datastar }></script>
+		</head>
+		<body>
+			<main>
+				<div id="status-stream" hidden data-init="@get('/status/stream', {retry: 'error', retryMaxCount: Infinity})"></div>
+				<h1>Status</h1>
+				@Stats(w, h, b)
+			</main>
+		</body>
+	</html>
+}
+
+// Stats are the numbers of the writer, the hub and the streams' budget.
+templ Stats(w writer.Stats, h live.Stats, b sse.BudgetStats) {
+	<dl id="stats">
+		<dt>Commands</dt>
+		<dd>{ strconv.FormatInt(w.Commands, 10) } in { strconv.FormatInt(w.Batches, 10) } transactions, { strconv.FormatInt(w.Failures, 10) } failed</dd>
+		<dt>Commit, p99 of the last 1024</dt>
+		<dd>{ w.P99Commit.String() }</dd>
+		<dt>Streams</dt>
+		<dd>{ strconv.Itoa(h.Streams) } open, { strconv.FormatInt(b.Refused, 10) } refused</dd>
+		<dt>Frames</dt>
+		<dd>{ strconv.FormatInt(h.FramesSent, 10) } sent, { strconv.FormatInt(h.FramesDropped, 10) } dropped</dd>
+		<dt>Ticks</dt>
+		<dd>{ strconv.FormatInt(h.Ticks, 10) }, { strconv.FormatInt(h.Overruns, 10) } over the tick</dd>
+		<dt>Encoders</dt>
+		<dd>{ strconv.FormatInt(b.Reserved>>20, 10) } of { strconv.FormatInt(b.Limit>>20, 10) } MiB</dd>
+	</dl>
+}

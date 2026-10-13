@@ -1,8 +1,13 @@
 // Package markdown renders the site's Markdown: the docs pages and the
 // demos' notes. GitHub's flavour (tables, task lists, autolinks), an id on
-// every heading with a link to it, and code blocks highlighted by chroma
-// into classes that the stylesheet colours with the semantic code tokens
-// (--lith-code-*), so one block reads in both themes.
+// every heading with a link to it ({#id} after a heading sets its own),
+// code blocks highlighted by chroma into classes that the stylesheet
+// colours with the semantic code tokens (--lith-code-*), so one block
+// reads in both themes, and charts drawn as SVG from ```chart blocks.
+//
+// A code block's info string may carry title=<label> for its caption, or
+// source=<path>: a file of lith's repository that holds the listing, which
+// the caption names and links (the docs' tests check that it does).
 package markdown
 
 import (
@@ -39,11 +44,13 @@ type Doc struct {
 	Title string
 	// Headings are the level-2 and level-3 headings, in order.
 	Headings []Heading
+	// IDs are the ids of every heading, at any level.
+	IDs []string
 }
 
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
-	goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+	goldmark.WithParserOptions(parser.WithAutoHeadingID(), parser.WithAttribute()),
 	goldmark.WithRendererOptions(
 		gmhtml.WithUnsafe(), // the content is the site's own, reviewed like code
 		renderer.WithNodeRenderers(
@@ -67,6 +74,9 @@ func Render(src []byte) (Doc, error) {
 			if b, ok := v.([]byte); ok {
 				id = string(b)
 			}
+		}
+		if id != "" {
+			d.IDs = append(d.IDs, id)
 		}
 		switch {
 		case h.Level == 1 && d.Title == "":
@@ -148,17 +158,9 @@ func (r *blockRenderer) code(w util.BufWriter, src []byte, node ast.Node, enteri
 	if !entering {
 		return ast.WalkContinue, nil
 	}
-	lang, title := "", ""
+	lang, title, source := "", "", ""
 	if n, ok := node.(*ast.FencedCodeBlock); ok && n.Info != nil {
-		fields := strings.Fields(string(n.Info.Segment.Value(src)))
-		if len(fields) > 0 {
-			lang = fields[0]
-		}
-		for _, f := range fields[min(1, len(fields)):] {
-			if t, ok := strings.CutPrefix(f, "title="); ok {
-				title = t
-			}
-		}
+		lang, title, source = Info(string(n.Info.Segment.Value(src)))
 	}
 	var code strings.Builder
 	lines := node.Lines()
@@ -166,8 +168,44 @@ func (r *blockRenderer) code(w util.BufWriter, src []byte, node ast.Node, enteri
 		seg := lines.At(i)
 		code.Write(seg.Value(src))
 	}
+	if lang == "chart" {
+		c, err := ParseChart(code.String())
+		if err != nil {
+			return ast.WalkStop, err
+		}
+		w.WriteString(c.HTML())
+		return ast.WalkSkipChildren, nil
+	}
+	if source != "" {
+		w.WriteString(codeBlock(code.String(), lang, `<a href="`+html.EscapeString(SourceURL(source))+`">`+html.EscapeString(source)+`</a>`))
+		return ast.WalkSkipChildren, nil
+	}
 	w.WriteString(CodeBlock(code.String(), lang, title))
 	return ast.WalkSkipChildren, nil
+}
+
+// Info splits a fenced block's info string into its language and the
+// values of title= and source=.
+func Info(info string) (lang, title, source string) {
+	fields := strings.Fields(info)
+	if len(fields) > 0 {
+		lang = fields[0]
+	}
+	for _, f := range fields[min(1, len(fields)):] {
+		if t, ok := strings.CutPrefix(f, "title="); ok {
+			title = t
+		}
+		if s, ok := strings.CutPrefix(f, "source="); ok {
+			source = s
+		}
+	}
+	return lang, title, source
+}
+
+// SourceURL is the address of a file of lith's repository on GitHub, by
+// its path from the repository's root.
+func SourceURL(path string) string {
+	return "https://github.com/zweiundeins/lith/blob/main/" + path
 }
 
 // CodeBlock is a highlighted block of code in a figure, captioned with
@@ -177,10 +215,15 @@ func CodeBlock(code, lang, title string) string {
 	if label == "" {
 		label = langName(lang)
 	}
+	return codeBlock(code, lang, html.EscapeString(label))
+}
+
+// codeBlock is CodeBlock with a caption of HTML.
+func codeBlock(code, lang, label string) string {
 	var b strings.Builder
 	b.WriteString(`<figure class="code">`)
 	b.WriteString(`<figcaption class="code__bar"><span class="code__label">`)
-	b.WriteString(html.EscapeString(label))
+	b.WriteString(label)
 	b.WriteString(`</span><button class="code__copy" type="button" data-on:click="`)
 	b.WriteString(html.EscapeString(copyCode))
 	b.WriteString(`"><span class="code__copy-idle">Copy</span><span class="code__copy-done" aria-live="polite">Copied</span></button></figcaption>`)
