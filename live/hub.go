@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"runtime"
 	"slices"
@@ -60,6 +61,12 @@ type Options struct {
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
+	// HeartbeatSignal, if set, names a top-level signal, such as "_ping",
+	// that the heartbeat patches instead of sending a comment, which the
+	// page never sees: a watchdog on the page can then tell a stream that
+	// went quiet without closing. The heartbeat then goes out every
+	// Heartbeat, frames or not, and its number grows with every one.
+	HeartbeatSignal string
 	// RenderTimeout is how long a Render may take (default 2s): its ctx
 	// ends then, and a Render still running is logged. Nothing stops a
 	// Render that ignores its ctx. It holds up only its worker while the
@@ -126,6 +133,8 @@ type Hub struct {
 	maxStreams    int
 	pendingFor    time.Duration
 	heartbeat     time.Duration
+	ping          []byte       // the heartbeat signal's patch up to its number, nil for none
+	pings         atomic.Int64 // the heartbeat signal's last number
 	renderTimeout time.Duration
 	log           *slog.Logger
 	onTick        func(time.Duration)
@@ -225,14 +234,20 @@ func New(o Options) *Hub {
 	if o.SSE.Compress == nil {
 		o.SSE.Compress = make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/2))
 	}
+	var ping []byte
+	if o.HeartbeatSignal != "" {
+		name, _ := json.Marshal(o.HeartbeatSignal)
+		ping = append(append([]byte("{"), name...), ':')
+	}
 	done, stop := context.WithCancel(context.Background())
-	return &Hub{
+	h := &Hub{
 		read:          o.Read,
 		tick:          o.Tick,
 		workers:       o.Workers,
 		maxStreams:    o.MaxStreams,
 		pendingFor:    o.PendingWatch,
 		heartbeat:     o.Heartbeat,
+		ping:          ping,
 		renderTimeout: o.RenderTimeout,
 		log:           o.Log,
 		onTick:        o.OnTick,
@@ -247,6 +262,10 @@ func New(o Options) *Hub {
 		byID:          map[string]*stream{},
 		pending:       map[string][]pendingView{},
 	}
+	// From the clock, so a page that reconnects to a new process still
+	// sees the number grow.
+	h.pings.Store(time.Now().UnixMilli())
+	return h
 }
 
 // Changed marks dirty every view with one of the topics. It is meant for

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/zweiundeins/lith/internal/shutdown"
@@ -163,7 +165,8 @@ func (s *stream) unwatched(w *watch) bool {
 }
 
 // pump sends the stream's new frames as they come, and a heartbeat when
-// it has been silent for h.heartbeat.
+// it has been silent for h.heartbeat, or every h.heartbeat with a
+// heartbeat signal.
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
@@ -225,7 +228,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			}
 			h.sent.Add(int64(n))
 		}
-		if _, now := st.Sent(); now != wire {
+		if _, now := st.Sent(); now != wire && h.ping == nil {
 			idle.Reset(h.heartbeat)
 		}
 
@@ -234,10 +237,19 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			return nil
 		case <-s.wake:
 		case <-idle.C:
-			if err := st.Write(heartbeat); err != nil {
+			if err := st.Write(h.beat()); err != nil {
 				return err
 			}
 			idle.Reset(h.heartbeat)
 		}
 	}
+}
+
+// beat is a heartbeat: a comment, or a patch of the heartbeat signal.
+func (h *Hub) beat() []byte {
+	if h.ping == nil {
+		return heartbeat
+	}
+	b := strconv.AppendInt(slices.Clone(h.ping), h.pings.Add(1), 10)
+	return sse.PatchSignals(append(b, '}'), false)
 }

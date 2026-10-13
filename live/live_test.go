@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -781,6 +782,46 @@ func TestHeartbeat(t *testing.T) {
 		}
 		return n >= 3
 	})
+}
+
+// With HeartbeatSignal, the heartbeat is a signal the page can watch, sent
+// every Heartbeat while frames flow too, with a number that grows.
+func TestHeartbeatSignal(t *testing.T) {
+	h := start(t, Options{Tick: 2 * time.Millisecond, Heartbeat: 20 * time.Millisecond, HeartbeatSignal: "_ping"})
+	var n atomic.Int64
+	v := View{Key: "v", Every: 5 * time.Millisecond, Render: func(context.Context, *sql.Tx) (any, error) {
+		return sse.PatchElements(fmt.Appendf(nil, `<p id="v">%d</p>`, n.Add(1))), nil
+	}}
+	c := serve(h, Spec{Views: []View{v}}, "")
+	pings := func() []int64 {
+		var out []int64
+		for _, e := range c.events() {
+			if e.name == "comment" {
+				t.Fatal("a heartbeat signal and a comment")
+			}
+			if e.name != "datastar-patch-signals" {
+				continue
+			}
+			var p struct {
+				Ping int64 `json:"_ping"`
+			}
+			if err := json.Unmarshal([]byte(e.data), &p); err != nil {
+				t.Fatalf("%q: %v", e.data, err)
+			}
+			out = append(out, p.Ping)
+		}
+		return out
+	}
+	waitFor(t, "three heartbeats", func() bool { return len(pings()) >= 3 })
+	p := pings()
+	for i := 1; i < len(p); i++ {
+		if p[i] <= p[i-1] {
+			t.Fatalf("the heartbeat's number does not grow: %v", p)
+		}
+	}
+	if len(c.patches()) < 6 {
+		t.Fatalf("only %d frames between the heartbeats", len(c.patches()))
+	}
 }
 
 // A stream whose frames all tailor to nothing still sends heartbeats.
