@@ -56,17 +56,9 @@ func countView() live.View {
 			if err != nil {
 				return nil, err
 			}
-			return demo.Patch(ctx, Count(here(), h))
+			return demo.Patch(ctx, Count(demo.Watching(ctx, countKey), h))
 		},
 	}
-}
-
-// here is how many tabs watch the party, on both pages.
-func here() int {
-	if h := hub.Load(); h != nil {
-		return h.Count(countKey)
-	}
-	return 0
 }
 
 // renderPage draws the party on the demo's page.
@@ -75,7 +67,7 @@ func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component
 	if err != nil {
 		return nil, err
 	}
-	return Stage(selfStyle(v.Tab), html, arriving(), h), nil
+	return Stage(selfStyle(v.Tab), html, arriving(ctx), h), nil
 }
 
 // renderEmbed draws the party behind the landing page's title.
@@ -84,7 +76,7 @@ func renderEmbed(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Componen
 	if err != nil {
 		return nil, err
 	}
-	return Hero(selfStyle(v.Tab), html, arriving(), h), nil
+	return Hero(selfStyle(v.Tab), html, arriving(ctx), h), nil
 }
 
 // party reads what a page starts with, in the document's transaction:
@@ -103,4 +95,4 @@ func party(ctx context.Context, tx *sql.Tx) (html []byte, h []int, err error) {
 // arriving is the count a new page starts with: the tabs there already,
 // and at least this one. Its stream's frames then count it, so the number
 // rises as the tab arrives instead of falling back first.
-func arriving() int { return max(here(), 1) }
+func arriving(ctx context.Context) int { return max(demo.Watching(ctx, countKey), 1) }

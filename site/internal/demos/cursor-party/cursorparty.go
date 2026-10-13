@@ -9,10 +9,7 @@ package cursorparty
 import (
 	"embed"
 	"io/fs"
-	"sync/atomic"
 	"time"
-
-	"github.com/zweiundeins/lith/live"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
 )
@@ -65,10 +62,6 @@ var Demo = demo.Demo{
 	Embed:      &demo.Embed{Slot: demo.SlotHero, Part: demo.Part{Render: renderEmbed, Views: views}},
 	Sweep:      sweep,
 }
-
-// hub is the hub of the site that mounted the demo: the counter asks it
-// how many streams watch the party. Nil in tests without a site.
-var hub atomic.Pointer[live.Hub]
 
 //go:embed migrations
 var migrationFiles embed.FS

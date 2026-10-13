@@ -12,7 +12,6 @@ import (
 )
 
 func mount(k *demo.Kit) {
-	hub.Store(k.Hub)
 	k.Command("move", demo.Rate{Every: moveEvery, Burst: moveBurst}, func(w http.ResponseWriter, r *http.Request) {
 		edge.Quiet(r) // 15 a second from every pointer: a log line each at Debug only
 		var req struct {
