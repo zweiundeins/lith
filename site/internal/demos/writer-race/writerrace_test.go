@@ -84,8 +84,8 @@ func TestStart(t *testing.T) {
 	again := startCmd(other, "op2", 50, "NORMAL", at)
 	again.Joined = func() { woke++ }
 	e.Do(t, again)
-	if o := tab(t, e, other); o.Race.ID != 1 || !strings.Contains(o.State.Refusal, "Race 1 is yours and still in line") {
-		t.Fatalf("a second race of a session: %+v", o)
+	if o := tab(t, e, other); o.Race.ID != 1 || !o.State.Again || said(o) != "Race 1 is yours: next on the track. One race at a time for each visitor." {
+		t.Fatalf("a second race of a session: %+v, %q", o, said(o))
 	}
 	if got := e.Touched(); !slices.Equal(got, []string{"writer-race:tab:t2"}) {
 		t.Errorf("a refusal touched %v", got)

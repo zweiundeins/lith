@@ -49,18 +49,23 @@ func producers(n int) string {
 	return strconv.Itoa(n) + " producers"
 }
 
-// said is what the tab hears about its race.
+// said is what the tab hears about its race. A start that found the
+// session's race still in line or on the track says so while it is.
 func said(o outcome) string {
 	r := o.Race
 	name := "Race " + strconv.FormatInt(r.ID, 10) + " is yours: "
+	again := ""
+	if o.State.Again {
+		again = " One race at a time for each visitor."
+	}
 	switch r.State {
 	case "queued":
 		if o.Place <= 1 {
-			return name + "next on the track."
+			return name + "next on the track." + again
 		}
-		return name + ordinal(o.Place) + " in line."
+		return name + ordinal(o.Place) + " in line." + again
 	case "running":
-		return name + "on the track now."
+		return name + "on the track now." + again
 	case "done":
 		return name + group(int64(r.Rate())) + " commands a second, " + strconv.FormatFloat(r.PerTx(), 'f', 0, 64) + " to a transaction."
 	case "failed":

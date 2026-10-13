@@ -116,7 +116,7 @@ func (e *Engine) path(id int64) string {
 func (e *Engine) Clean() {
 	files, _ := filepath.Glob(filepath.Join(e.Dir, "writer-race-*.db*"))
 	for _, f := range files {
-		if err := os.Remove(f); err != nil {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
 			e.Log.Warn("writer race: remove a file left behind", "file", f, "err", err)
 		}
 	}

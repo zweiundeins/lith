@@ -453,9 +453,11 @@
 		opacity: 0.14;
 	}
 
+	/* The line in the accent's edge: the accent itself on the dark
+	 * theme, and dark enough to read on the light one. */
 	.wr-chart__line {
 		fill: none;
-		stroke: var(--lith-accent);
+		stroke: var(--lith-accent-edge);
 		stroke-width: 2px;
 		stroke-linejoin: miter;
 	}
@@ -467,7 +469,7 @@
 		inline-size: 7px;
 		block-size: 7px;
 		translate: -50% -50%;
-		background: var(--lith-accent);
+		background: var(--lith-accent-edge);
 		box-shadow: 0 0 10px var(--lith-glow-color);
 
 		[data-state="running"] & {
@@ -610,7 +612,7 @@
 		align-self: end;
 		block-size: max(2px, calc(var(--h) * 100%));
 		background: var(--lith-accent);
-		box-shadow: inset 0 -3px 0 color-mix(in oklch, var(--lith-accent), black 25%);
+		box-shadow: inset 0 0 0 1px var(--lith-accent-edge);
 		transition: block-size 160ms var(--lith-ease-glide);
 
 		li[style*="--h: 0.000"] > & {

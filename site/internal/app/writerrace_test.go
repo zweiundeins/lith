@@ -109,7 +109,7 @@ func TestWriterRaceStream(t *testing.T) {
 		t.Fatalf("bob's second start: %d", code)
 	}
 	bobs := listen(t, bob, base+"/demos/writer-race/stream?tab=tab3")
-	next(t, bobs, "Race 2 is yours and")
+	next(t, bobs, "One race at a time")
 	// Bob's race starts after the pause and runs its three seconds.
 	writerRaceNext(t, events, `id="writer-race-result-2"`)
 	writerRaceOver(t, a)
@@ -130,6 +130,43 @@ func TestWriterRaceStream(t *testing.T) {
 	if files, _ := filepath.Glob(filepath.Join(filepath.Dir(a.DB().Path), "writer-race-*")); len(files) != 0 {
 		t.Errorf("race files left behind: %v", files)
 	}
+}
+
+// TestWriterRaceRestart stops the site in the middle of a race, as a
+// deploy does, and starts it again on the same database: the race that
+// was cut short ends as interrupted, the race in line runs, and no race
+// file is left.
+func TestWriterRaceRestart(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "site.db")
+	shared := func(c *app.Config) { c.DB = db }
+	a, base := apptest.Start(t, shared)
+	for i, body := range []string{`{"tab":"tab1","op":"op1","producers":200,"sync":"FULL"}`, `{"tab":"tab2","op":"op1","producers":1,"sync":"NORMAL"}`} {
+		c := client(t)
+		get(t, c, base+"/demos/writer-race")
+		if code := post(t, c, base+"/cmd/writer-race/start", body); code != http.StatusNoContent {
+			t.Fatalf("start %d: %d", i, code)
+		}
+	}
+	state := func(a *app.App, id int) (s string) {
+		a.DB().R.QueryRow(`SELECT state FROM writer_race_races WHERE id = ?`, id).Scan(&s)
+		return s
+	}
+	waitFor(t, "the first race on the track", func() bool { return state(a, 1) == "running" })
+	time.Sleep(500 * time.Millisecond)
+	a.StopStreams()
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	b, _ := apptest.Start(t, shared)
+	writerRaceOver(t, b)
+	if s1, s2 := state(b, 1), state(b, 2); s1 != "interrupted" || s2 != "done" {
+		t.Errorf("after the restart: race 1 %s, race 2 %s", s1, s2)
+	}
+	waitFor(t, "the race files gone", func() bool {
+		files, _ := filepath.Glob(filepath.Join(filepath.Dir(db), "writer-race-*"))
+		return len(files) == 0
+	})
 }
 
 // TestWriterRace starts a race in one browser and watches it in another:
@@ -225,7 +262,7 @@ func TestShotsWriterRace(t *testing.T) {
 	// Three people at once: one race on the track, two in line, in the
 	// light theme.
 	light := open(1440, 1000, "document.cookie = 'lith-theme=light; Path=/'")
-	others := []*browser.Page{open(1280, 900, ""), open(1280, 900, "")}
+	others := []*browser.Page{open(1280, 900, ""), open(390, 844, "")}
 	writerRaceStart(t, light, 200, "FULL")
 	light.Wait(t, `document.querySelector('#writer-race-track[data-state="running"]')`, 10*time.Second)
 	writerRaceStart(t, others[0], 50, "NORMAL")
@@ -234,6 +271,9 @@ func TestShotsWriterRace(t *testing.T) {
 	time.Sleep(1200 * time.Millisecond)
 	light.Screenshot(t, filepath.Join(dir, "writer-race-light-running.png"), true)
 	others[0].ShotElement(t, ".demo-stage", filepath.Join(dir, "detail-writer-race-line.png"), 1)
+	others[1].Eval(t, `document.querySelector('#writer-race-track').scrollIntoView({block: 'start'})`, nil)
+	time.Sleep(300 * time.Millisecond)
+	others[1].Screenshot(t, filepath.Join(dir, "mobile-writer-race-running.png"), false)
 	writerRaceOver(t, a)
 	time.Sleep(1200 * time.Millisecond)
 

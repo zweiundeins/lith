@@ -14,10 +14,12 @@ import (
 
 // TabState is a tab's state in site_tabs: the op id of its last start,
 // the race that start is about, and why it put no race in line, if it
-// did not.
+// did not: Again when the session's own race was in line or on the track
+// already (that race is Race), Refusal when the line was full.
 type TabState struct {
 	Op      string `json:"op,omitempty"`
 	Race    int64  `json:"race,omitempty"`
+	Again   bool   `json:"again,omitempty"`
 	Refusal string `json:"refusal,omitempty"`
 }
 
@@ -47,16 +49,14 @@ func (c Start) Validate() error {
 func (c Start) Apply(tx *writer.Tx) error {
 	state := TabState{Op: c.Op}
 	var mine int64
-	var mineState string
-	err := tx.QueryRow(`SELECT id, state FROM writer_race_races WHERE sid = ? AND state IN ('queued', 'running') ORDER BY id LIMIT 1`,
-		c.Viewer.Session).Scan(&mine, &mineState)
+	err := tx.QueryRow(`SELECT id FROM writer_race_races WHERE sid = ? AND state IN ('queued', 'running') ORDER BY id LIMIT 1`,
+		c.Viewer.Session).Scan(&mine)
 	switch {
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return err
-	case err == nil && mineState == "running":
-		state.Race, state.Refusal = mine, fmt.Sprintf("Race %d is yours and on the track now. One at a time.", mine)
 	case err == nil:
-		state.Race, state.Refusal = mine, fmt.Sprintf("Race %d is yours and still in line. One at a time.", mine)
+		// The tab follows the session's race from now on.
+		state.Race, state.Again = mine, true
 	default:
 		var waiting int
 		if err := tx.QueryRow(`SELECT count(*) FROM writer_race_races WHERE state = 'queued'`).Scan(&waiting); err != nil {
