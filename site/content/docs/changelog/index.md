@@ -38,4 +38,4 @@ The first release: the runtime for Go, SQLite and Datastar apps, with a template
 
 ### Website
 
-lith.zweiundeins.gmbh runs on lith, from `site/`: the landing page, the docs (guides that follow one app, Datastar notes, performance, the package reference from the doc comments, a review checklist and this changelog), and live demos: a guestbook, a writer race, a stream inspector, a pixel canvas, a shared board, a cursor party and a million checkboxes.
+lith.zweiundeins.gmbh runs on lith, from `site/`: the landing page, the docs (guides that follow one app, Datastar notes, performance, the package reference from the doc comments, a review checklist and this changelog), and eight live demos: a guestbook, a writer race, a stream inspector, a pixel canvas, a shared board, a cursor party, a Game of Life and a million checkboxes.
