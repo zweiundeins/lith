@@ -35,6 +35,13 @@ func TestContent(t *testing.T) {
 			if d.Page(p.Path) != p {
 				t.Errorf("%s: not found by its path", p.Path)
 			}
+			seen := map[string]bool{}
+			for _, id := range p.IDs {
+				if seen[id] {
+					t.Errorf("%s: two headings with the id %q", p.Path, id)
+				}
+				seen[id] = true
+			}
 			for _, bad := range []string{"\u2014", "\u2013"} { // em and en dash
 				if strings.Contains(p.HTML, bad) {
 					t.Errorf("%s: a long dash in the text", p.Path)
@@ -52,8 +59,8 @@ func checkLinks(t *testing.T, d *docs.Docs) {
 	ids := map[string]map[string]bool{}
 	for _, p := range d.Order {
 		ids[p.Path] = map[string]bool{}
-		for _, h := range p.Headings {
-			ids[p.Path][h.ID] = true
+		for _, id := range p.IDs {
+			ids[p.Path][id] = true
 		}
 	}
 	for _, p := range d.Order {

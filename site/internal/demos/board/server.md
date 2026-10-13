@@ -1,0 +1,7 @@
+When you drop a card, the page posts the card, the lane, the place in it, the card's version as your page shows it, your tab id and a new op id to `/cmd/board/move`. The handler checks the rate limits for your address and your session, wraps a `Move` command in `writer.Once` and waits for the commit. Then it answers 204, with nothing in it for the page.
+
+`Move` reads the card in the writer's transaction. If its version is not the one your page showed, someone moved the card after your page drew it: the command writes why into your tab's row of `site_tabs` and changes nothing else. Otherwise it closes the gap in the card's old lane, makes room in the new one, gives the card the next version, and touches two topics: `board`, and your tab's.
+
+In the next tick, at most 50 ms later, the hub renders the board once and sends that frame to every tab that shows it, inside a view transition, so the cards glide to their new places. Your tab's own view renders as well: the line under the board, and the op id and board version that end the pending state. The numbers above the board come from these renders: each one records how many moves it took in and how many streams were watching.
+
+Each tab says hello when its stream opens. The row of avatars shows the hellos whose stream the hub has open, one avatar per session. Every five minutes a sweep forgets the hellos of tabs that closed, and once the board has gone an hour without a move, it puts every card back where it started.
