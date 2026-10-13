@@ -351,6 +351,140 @@ func TestRenderQuerierAfterTheRender(t *testing.T) {
 	}
 }
 
+// renderOnce runs render in a view's Render, with the Render's Querier
+// and worker, and returns its result once the Render is done.
+func renderOnce[T any](t *testing.T, read *sql.DB, render func(context.Context, sqlite.Querier, *worker) (T, error)) T {
+	t.Helper()
+	h := start(t, Options{Read: read, Workers: 1})
+	type result struct {
+		v   T
+		err error
+	}
+	results := make(chan result, 1)
+	v := text("v", nil, func(ctx context.Context, _ *sql.Tx) (string, error) {
+		q, _ := sqlite.QuerierFrom(ctx)
+		r, err := render(ctx, q, q.(*reads).w)
+		results <- result{r, err}
+		return "v", err
+	})
+	c := serve(h, Spec{Views: []View{v}}, "")
+	var r result
+	select {
+	case r = <-results:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the view did not render")
+	}
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	waitFor(t, "the end of the render", func() bool { return c.has(`<p id="v">v</p>`) })
+	return r.v
+}
+
+func closed(s *sql.Stmt) bool {
+	_, err := s.ExecContext(context.Background())
+	return err != nil && strings.Contains(err.Error(), "closed")
+}
+
+// A worker's statement cache keeps the statements used last: SQL built at
+// runtime pushes out, and closes, the ones used longest ago, and a
+// statement that comes later still gets a place.
+func TestRenderQuerierKeepsTheLastUsed(t *testing.T) {
+	_, read := testDB(t, 4)
+	const hot = `select n from counter where name = ?`
+	built := func(i int) string { return fmt.Sprintf(`select n + %d from counter where name = ?`, i) }
+	first := renderOnce(t, read, func(ctx context.Context, q sqlite.Querier, w *worker) (*sql.Stmt, error) {
+		var first *sql.Stmt
+		for i := range maxStmts + 10 {
+			var n int
+			if err := q.QueryRowContext(ctx, built(i), "a").Scan(&n); err != nil {
+				return nil, err
+			}
+			if i == 0 {
+				first = w.stmts[built(0)].s
+			}
+			if err := q.QueryRowContext(ctx, hot, "a").Scan(&n); err != nil {
+				return nil, err
+			}
+		}
+		switch {
+		case len(w.stmts) != maxStmts:
+			return nil, fmt.Errorf("%d statements cached, want %d", len(w.stmts), maxStmts)
+		case w.stmts[hot] == nil:
+			return nil, errors.New("the statement used all along has no place")
+		case w.stmts[built(maxStmts+9)] == nil:
+			return nil, errors.New("the statement used last has no place")
+		case w.stmts[built(0)] != nil:
+			return nil, errors.New("the statement used longest ago is still cached")
+		}
+		return first, nil
+	})
+	if !closed(first) {
+		t.Fatal("a statement pushed out is still open after its Render")
+	}
+}
+
+// A statement pushed out of a worker's cache while the Render still reads
+// it, its rows open or its row not scanned yet, stays open until the
+// Render is done.
+func TestRenderQuerierEvictionUnderAnOpenQuery(t *testing.T) {
+	write, read := testDB(t, 4)
+	if _, err := write.Exec(`insert into counter values ('b', 1), ('c', 2)`); err != nil {
+		t.Fatal(err)
+	}
+	const all, one = `select name from counter order by name`, `select n from counter where name = ?`
+	type result struct {
+		names     []string
+		found     int
+		pushedOut []*sql.Stmt
+	}
+	r := renderOnce(t, read, func(ctx context.Context, q sqlite.Querier, w *worker) (r result, err error) {
+		rows, err := q.QueryContext(ctx, all)
+		if err != nil {
+			return r, err
+		}
+		defer rows.Close()
+		row := q.QueryRowContext(ctx, one, "c")
+		r.pushedOut = []*sql.Stmt{w.stmts[all].s, w.stmts[one].s}
+		if !rows.Next() {
+			return r, errors.New("no first row")
+		}
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return r, err
+		}
+		r.names = append(r.names, name)
+		// More SQL texts built at runtime than the cache holds.
+		for i := 1; i <= maxStmts+10; i++ {
+			var n int
+			if err := q.QueryRowContext(ctx, fmt.Sprintf(`select count(*) from counter limit %d`, i)).Scan(&n); err != nil {
+				return r, err
+			}
+		}
+		if w.stmts[all] != nil || w.stmts[one] != nil {
+			return r, errors.New("the statements read from are still cached")
+		}
+		if err := row.Scan(&r.found); err != nil {
+			return r, err
+		}
+		for rows.Next() {
+			if err := rows.Scan(&name); err != nil {
+				return r, err
+			}
+			r.names = append(r.names, name)
+		}
+		return r, rows.Err()
+	})
+	if r.found != 2 || !slices.Equal(r.names, []string{"a", "b", "c"}) {
+		t.Fatalf("read %v and %d", r.names, r.found)
+	}
+	for _, s := range r.pushedOut {
+		if !closed(s) {
+			t.Fatal("a statement pushed out is still open after its Render")
+		}
+	}
+}
+
 // slowViews returns views v0, v1, ... that each take a millisecond to
 // render their key.
 func slowViews(n int) []View {
@@ -838,6 +972,44 @@ func TestJoinRetriesViewWithoutFrame(t *testing.T) {
 	waitFor(t, "the failed render", func() bool { return calls.Load() == 1 })
 	c := serve(h, Spec{Views: []View{v}}, "")
 	waitFor(t, "the frame", func() bool { return c.has(`<p id="v">ok</p>`) })
+}
+
+// A stream that starts watching a view during its first render gets the
+// frame of that render, and the view does not render again for it. If
+// that render fails, the view renders again, as for a later stream.
+func TestJoinDuringFirstRender(t *testing.T) {
+	for _, fails := range []bool{false, true} {
+		h := start(t, Options{Tick: 2 * time.Millisecond})
+		entered, release := make(chan struct{}), make(chan struct{})
+		var renders atomic.Int64
+		v := text("v", nil, func(context.Context, *sql.Tx) (string, error) {
+			if renders.Add(1) == 1 {
+				close(entered)
+				<-release
+				if fails {
+					return "", errors.New("not yet")
+				}
+			}
+			return "v", nil
+		})
+		a := serve(h, Spec{Views: []View{v}}, "")
+		<-entered
+		b := serve(h, Spec{Views: []View{v}}, "")
+		waitFor(t, "the second stream", func() bool { return h.Count("v") == 2 })
+		close(release)
+		waitFor(t, "the frame", func() bool { return a.has(`<p id="v">v</p>`) && b.has(`<p id="v">v</p>`) })
+		// Any render the join set off comes in a tick before the probe's.
+		p := text("probe", nil, func(context.Context, *sql.Tx) (string, error) { return "p", nil })
+		probe := serve(h, Spec{Views: []View{p}}, "")
+		waitFor(t, "the probe", func() bool { return probe.has(`<p id="probe">p</p>`) })
+		want := int64(1)
+		if fails {
+			want = 2
+		}
+		if n := renders.Load(); n != want {
+			t.Fatalf("first render fails: %v; %d renders, want %d", fails, n, want)
+		}
+	}
 }
 
 func TestUnchangedFrameIsNotSent(t *testing.T) {

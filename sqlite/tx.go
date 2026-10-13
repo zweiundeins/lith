@@ -36,10 +36,13 @@ func TxFrom(ctx context.Context) (*sql.Tx, bool) {
 // QuerierFrom returns a Querier for the transaction ctx carries. In a live
 // Render it runs each SQL text on a statement that the worker prepared
 // once on its connection, in the render's transaction: modernc.org/sqlite
-// parses and plans every query that has no prepared statement. As with a
-// command's Tx, scan a row before the same query runs again: until then
-// its statement is busy. Elsewhere it is the transaction from WithTx.
-// Like TxFrom, it does not tell which database the transaction reads.
+// parses and plans every query that has no prepared statement. The worker
+// keeps the 512 statements used last; SQL built at runtime, such as an IN
+// list with a mark per value, runs on the Render's tx, which keeps none.
+// As with a command's Tx, scan a row before the same query runs again:
+// until then its statement is busy. Elsewhere it is the transaction from
+// WithTx. Like TxFrom, it does not tell which database the transaction
+// reads.
 func QuerierFrom(ctx context.Context) (Querier, bool) {
 	v := txctx.From(ctx)
 	switch {

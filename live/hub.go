@@ -176,10 +176,12 @@ type view struct {
 	renders atomic.Int64
 
 	// Guarded by Hub.mu.
-	watches []*watch
-	dirty   bool
-	dead    bool      // no longer watched
-	due     time.Time // when Every renders it again
+	watches   []*watch
+	dirty     bool
+	dead      bool      // no longer watched
+	rendering bool      // in the tick under way
+	joined    bool      // a stream started watching it during that tick, before its first frame
+	due       time.Time // when Every renders it again
 }
 
 type frame struct {
@@ -484,8 +486,15 @@ func (h *Hub) watch(s *stream, def View) bool {
 			h.every[v] = struct{}{}
 		}
 		marked = h.mark(v)
-	} else if v.presence || v.frame.Load() == nil {
+	} else if v.presence {
 		marked = h.mark(v)
+	} else if v.frame.Load() == nil {
+		// A render under way publishes to every watch, this one too.
+		if v.rendering {
+			v.joined = true
+		} else {
+			marked = h.mark(v)
+		}
 	}
 	w := &watch{s: s, v: v, i: len(v.watches)}
 	v.watches = append(v.watches, w)

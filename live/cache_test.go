@@ -71,17 +71,19 @@ func TestCacheAdmitsWhatComesBack(t *testing.T) {
 	for k := range 200 {
 		c.Get(k, fragment(k, 500))
 	}
-	for range 30 {
+	// A tie with a victim whose counters collide with hot keys is broken at
+	// random, one time in 128, so give it rounds enough for that.
+	for k := 1000; k < 1000+4000*10; k += 10 {
+		before := c.Stats().Hits
 		c.Get(-1, fragment(1, 500))
-		for k := 1000; k < 1010; k++ {
-			c.Get(k, fragment(k, 500))
+		if c.Stats().Hits > before {
+			return
+		}
+		for j := k; j < k+10; j++ {
+			c.Get(j, fragment(j, 500))
 		}
 	}
-	before := c.Stats().Hits
-	c.Get(-1, fragment(1, 500))
-	if c.Stats().Hits == before {
-		t.Fatal("a fragment asked for every round never got in")
-	}
+	t.Fatal("a fragment asked for every round never got in")
 }
 
 func TestCacheSkipsLargeFragments(t *testing.T) {
