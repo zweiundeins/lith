@@ -1,0 +1,37 @@
+# Changelog
+
+Until 1.0, a minor release may change the API; its entry says what to change in an app.
+
+## v0.1.0 (2026-10-13)
+
+The first release: the runtime that kanban, Starbase and Libretto grew, in one module, with a template for new apps, a skill for coding agents and the website at lith.zweiundeins.gmbh. It needs Go 1.27 and builds with `CGO_ENABLED=0`.
+
+### Packages
+
+- `sqlite`: one write connection and a `query_only` read pool; pragmas; migrations by `user_version` or a project's own runner; read-only opens; `View` and `ViewValue` in one snapshot, joining a transaction a ctx carries; `VACUUM INTO` backups. Each read connection keeps the 128 statements it ran last prepared.
+- `writer`: the single writer. `Send`, `Do` and `DoValue` queue commands, which run in batches of one transaction with a savepoint each, on statements prepared once; `Once` and `OnceResult` for requests a client retries; `Flush`; `Exclusive` for work between batches; checkpoints and `PRAGMA optimize`.
+- `live`: commits touch topics, topics mark views dirty, and each tick renders every dirty view once, in one read transaction per worker, for all the streams that watch it. Presence, `Every`, `Watch` and `Unwatch`, `WriteTick`, a stream cap, heartbeats, and `Spec.Reconnect`, which ends each stream with `sse.Reconnect` when the server stops, so that pages open their stream again on the next process.
+- `sse`: Datastar's events, formatted once and written to many streams; zstd, brotli or gzip per stream, with a deadline on every write; a memory budget that shrinks the streams' windows as more open; idle streams that give their encoder back (`Hibernate`).
+- `edge`: sessions, CSRF, the client's address behind a proxy, a CSP with a nonce, compression, precompressed static files, rate limiters, request logs, health checks.
+- `tenant`: one open database per account, refcounted, evicted at a soft cap.
+- `dbmetrics`: statement timing and a slow-query log through a wrapping driver.
+- `loadtest`: the writer and the render loop under load, in process, without HTTP.
+- `backup` (a module of its own): Litestream to S3, a restore when the file is missing, snapshots, a daily verify.
+- `dbmetrics/prom` and `prom` (modules of their own): the statements', the writer's, the hub's and the stream budget's numbers in Prometheus.
+
+### Defaults to know
+
+- `synchronous=NORMAL`: a power loss or a kernel crash can undo the commits of the last 35 seconds or so; a crash of the process loses none. `sqlite.Options{Synchronous: "FULL"}` syncs every batch.
+- The streams share a memory budget of half of GOMEMLIMIT, or of the cgroup's limit: a few streams compress with 512 KiB windows, many with 256 KiB, and the rest go out uncompressed, or not at all with `Refuse`.
+- An idle stream keeps its encoder until `live.Options.Hibernate` is set.
+- A page opens its stream with `retry: 'error'` from an element with an id, the one `Spec.Reconnect` names.
+
+### Tools
+
+- `cmd/lith-new` copies the template into a new module that requires the lith it ran from: a guestbook with tests, CI, a systemd unit, a Caddy block, a deploy script with rollback and a backup timer.
+- `skills/lith`: the rules for coding agents, with review commands, Datastar notes, recipes and performance numbers.
+- `bench`: the writer, render and stream benchmarks, with the commands to run them again (`bench/RESULTS.md`).
+
+### Website
+
+lith.zweiundeins.gmbh runs on lith, from `site/`: the landing page, the docs (guides that follow one app, Datastar notes, performance, the package reference from the doc comments, a review checklist and this changelog), and live demos: a guestbook, a writer race, a stream inspector, a pixel canvas, a shared board, a cursor party and a million checkboxes.

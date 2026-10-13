@@ -1,7 +1,7 @@
 // Package gen writes the parts of the docs that come from files outside
 // the site's module, which go:embed cannot reach: the package reference,
-// from the Go doc comments of lith's packages, and the rows of the charts
-// that plot a CSV file of lith's benchmarks. cmd/docgen runs it (go
+// from the Go doc comments of lith's packages, the rows of the charts that
+// plot a CSV file of lith's benchmarks, and the changelog. cmd/docgen runs it (go
 // generate ./content), and TestUpToDate fails when the files it would
 // write differ from those in content/docs.
 package gen
@@ -43,8 +43,8 @@ func Root(dir string) (string, error) {
 const Docs = "site/content/docs"
 
 // Generate returns every file the generator writes, by its path relative
-// to the root: the reference's pages, and each page with a chart drawn
-// from a CSV file.
+// to the root: the reference's pages, each page with a chart drawn from a
+// CSV file, and the changelog's.
 func Generate(root string) (map[string][]byte, error) {
 	ref, err := Reference(root)
 	if err != nil {
@@ -54,9 +54,14 @@ func Generate(root string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	changelog, err := Changelog(root)
+	if err != nil {
+		return nil, err
+	}
 	files := map[string][]byte{}
 	maps.Copy(files, ref)
 	maps.Copy(files, charts)
+	maps.Copy(files, changelog)
 	return files, nil
 }
 

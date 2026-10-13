@@ -42,6 +42,7 @@ func TestShotsDocs(t *testing.T) {
 		{"docs-reference", "/docs/reference", 1440, 900, false, ""},
 		{"docs-reference-live", "/docs/reference/live", 1440, 900, false, light},
 		{"docs-review", "/docs/review", 1440, 900, false, ""},
+		{"docs-changelog", "/docs/changelog", 1440, 900, false, ""},
 		{"mobile-docs-guide", "/docs/guides/views", 390, 844, false, ""},
 		{"mobile-docs-chart-light", "/docs/performance/encoders", 390, 844, true, light},
 		{"mobile-docs-reference", "/docs/reference/writer", 390, 844, false, ""},

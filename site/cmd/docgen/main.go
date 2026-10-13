@@ -1,6 +1,7 @@
 // Command docgen writes the docs' generated parts: the package reference,
-// from the Go doc comments of lith's packages, and the rows of the charts
-// drawn from lith's benchmark CSV files. go:embed cannot reach outside the
+// from the Go doc comments of lith's packages, the rows of the charts
+// drawn from lith's benchmark CSV files, and the changelog, from
+// CHANGELOG.md. go:embed cannot reach outside the
 // site's module, so the docs hold a copy, and internal/docs/gen's
 // TestUpToDate fails when it drifts. Run it from anywhere inside lith's
 // repository:
