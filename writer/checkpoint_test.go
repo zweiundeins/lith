@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/dbmetrics"
 	"github.com/zweiundeins/lith/sqlite"
 )
 
@@ -112,4 +116,26 @@ func TestIdleCheckpointDoesNotWaitForReaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the WAL to be truncated after the reader left", func() bool { return walSize(t, f.db) == 0 })
+}
+
+// registrations keeps driver names unique when a test runs more than once
+// in one process: sql.Register cannot be undone.
+var registrations atomic.Int32
+
+// A driver that wraps modernc's (sqlite.Options.Driver) still lets the
+// writer read what it wrote to the WAL, so it checkpoints.
+func TestCheckpointThroughAWrappingDriver(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("sqlite-wrapped-%d", registrations.Add(1))
+	if err := dbmetrics.Register(name, "sqlite", dbmetrics.Options{SlowThreshold: -1}); err != nil {
+		t.Fatal(err)
+	}
+	f := start(t, sqlite.Options{Checkpoint: sqlite.CheckpointWriter, Driver: name}, Options{CheckpointPages: 64})
+	fill(t, f, 200)
+	if size := walSize(t, f.db); size > 1<<20 {
+		t.Fatalf("WAL %d bytes after 200 batches", size)
+	}
+	if log := f.log.String(); strings.Contains(log, "WAL size") {
+		t.Fatalf("the writer could not read the WAL size:\n%s", log)
+	}
 }

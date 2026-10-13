@@ -19,6 +19,7 @@ package writer
 import (
 	"context"
 	"database/sql"
+	sqldriver "database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -661,15 +662,21 @@ func (w *Writer) checkpoint() {
 }
 
 // walPages returns the pages the connection wrote to the WAL since the
-// last call.
+// last call. A wrapping driver (sqlite.Options.Driver) hands out its own
+// connection, which must Unwrap to modernc's.
 func (w *Writer) walPages() (n int, err error) {
 	err = w.conn.Raw(func(dc any) error {
-		s, ok := dc.(driver.DBStatus)
-		if !ok {
-			return fmt.Errorf("%T has no DBStatus", dc)
+		for {
+			if s, ok := dc.(driver.DBStatus); ok {
+				n, _, err = s.Status(driver.DBStatusCacheWrite, true)
+				return err
+			}
+			u, ok := dc.(interface{ Unwrap() sqldriver.Conn })
+			if !ok {
+				return fmt.Errorf("%T has no DBStatus", dc)
+			}
+			dc = u.Unwrap()
 		}
-		n, _, err = s.Status(driver.DBStatusCacheWrite, true)
-		return err
 	})
 	return n, err
 }

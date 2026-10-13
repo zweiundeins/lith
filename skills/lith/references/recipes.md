@@ -54,6 +54,19 @@ A CLI that only reads opens the file with `sqlite.Options{ReadOnly: true}`:
 no write connection, no migrations, and a missing file is an error instead
 of a new empty database.
 
+To time every statement and log the slow ones, register dbmetrics' wrapper
+of modernc's driver once and name it in `Driver`: the write connection, the
+read pool and `Backup` then all open through it.
+
+```go
+m := prom.New("app") // github.com/zweiundeins/lith/dbmetrics/prom
+prometheus.MustRegister(m)
+if err := dbmetrics.Register("sqlite-timed", "sqlite", dbmetrics.Options{Observer: m}); err != nil {
+	return err
+}
+db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{Synchronous: "FULL", Driver: "sqlite-timed"})
+```
+
 The request edge, built from the inside out:
 
 ```go

@@ -73,6 +73,13 @@ type Options struct {
 	BusyTimeout time.Duration
 	// Checkpoint picks who checkpoints the WAL (default CheckpointAuto).
 	Checkpoint Checkpoint
+	// Driver is the database/sql driver every connection opens with
+	// (default "sqlite", modernc.org/sqlite's), such as a wrapper of it
+	// that dbmetrics.Register named. It must be modernc's driver
+	// underneath: the DSN carries its _pragma parameters, and with
+	// CheckpointWriter the writer reaches its connection through Unwrap,
+	// as dbmetrics' connections allow.
+	Driver string
 }
 
 func (o Options) withDefaults() (Options, error) {
@@ -108,6 +115,9 @@ func (o Options) withDefaults() (Options, error) {
 	}
 	if o.BusyTimeout <= 0 {
 		o.BusyTimeout = 5 * time.Second
+	}
+	if o.Driver == "" {
+		o.Driver = "sqlite"
 	}
 	return o, nil
 }
@@ -160,7 +170,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
 	}
 	var file string
-	r, err := sql.Open("sqlite", dsn(path, rp, ro))
+	r, err := sql.Open(opts.Driver, dsn(path, rp, ro))
 	if err == nil {
 		r.SetMaxOpenConns(opts.Readers)
 		r.SetMaxIdleConns(opts.Readers)
@@ -190,7 +200,7 @@ func openWriter(ctx context.Context, path string, opts Options, pragmas []string
 	if opts.Checkpoint != CheckpointAuto {
 		wp = append(wp, "wal_autocheckpoint(0)")
 	}
-	w, err := sql.Open("sqlite", dsn(path, wp, url.Values{"_txlock": {"immediate"}}))
+	w, err := sql.Open(opts.Driver, dsn(path, wp, url.Values{"_txlock": {"immediate"}}))
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +269,7 @@ func (d *DB) Backup(ctx context.Context, dst string) error {
 
 func (d *DB) backup(ctx context.Context, dst string) error {
 	pragmas := []string{fmt.Sprintf("busy_timeout(%d)", d.opts.BusyTimeout.Milliseconds())}
-	c, err := sql.Open("sqlite", dsn(d.Path, pragmas, url.Values{"mode": {"ro"}}))
+	c, err := sql.Open(d.opts.Driver, dsn(d.Path, pragmas, url.Values{"mode": {"ro"}}))
 	if err != nil {
 		return err
 	}
