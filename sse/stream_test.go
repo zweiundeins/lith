@@ -494,6 +494,27 @@ func TestShutdownEndsStreamCleanly(t *testing.T) {
 	}
 }
 
+// NoCompression sends the events as they are, whatever the client accepts.
+func TestNoCompression(t *testing.T) {
+	w := newRecorder()
+	s, err := Open(w, request(t.Context(), Zstd), Options{NoCompression: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if s.Encoding() != "" || w.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("encoding %q, header %q", s.Encoding(), w.Header().Get("Content-Encoding"))
+	}
+	if got := string(w.bytes()); got != ": x\n\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 // CloseWith sends its events in the last frame, also after the hub
 // stopped, in every coding.
 func TestCloseWithDuringShutdown(t *testing.T) {

@@ -61,6 +61,10 @@ type Options struct {
 	BrotliQuality int
 	// BrotliWindow is the base 2 logarithm of brotli's window (default 18).
 	BrotliWindow int
+	// NoCompression sends the stream as it is, whatever the client accepts:
+	// for small, frequent events, where an encoder's heap (0.4 MiB and up
+	// per stream) costs more than it saves.
+	NoCompression bool
 }
 
 // The content codings a stream can use, in the server's order of
@@ -130,6 +134,9 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 		ctx:      r.Context(),
 		opt:      o,
 		encoding: Negotiate(r.Header.Get("Accept-Encoding")),
+	}
+	if o.NoCompression {
+		s.encoding = ""
 	}
 	var err error
 	switch s.encoding {
