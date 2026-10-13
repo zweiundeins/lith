@@ -229,6 +229,53 @@ func TestOrder(t *testing.T) {
 	}
 }
 
+// Flush returns once the commands sent before it are applied: a read
+// after it sees them. It is no command itself.
+func TestFlush(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	if err := f.w.Flush(ctx); err != nil {
+		t.Fatalf("Flush on an idle writer: %v", err)
+	}
+	if s := f.w.Stats(); s.Commands != 0 || s.Batches != 0 {
+		t.Fatalf("a Flush counted as a command: %+v", s)
+	}
+
+	release := f.block(t)
+	for range 3 {
+		if err := f.w.Send(increment(1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	flushed := make(chan error, 1)
+	go func() { flushed <- f.w.Flush(ctx) }()
+	f.queued(t, 4)
+	select {
+	case err := <-flushed:
+		t.Fatalf("Flush returned before the commands ran: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	short, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	if err := f.w.Flush(short); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Flush past its deadline: %v", err)
+	}
+	release()
+	if err := <-flushed; err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(t, "SELECT n FROM counters WHERE id = 1"); n != 3 {
+		t.Fatalf("after Flush the counter is %d, want the 3 sent", n)
+	}
+	if s := f.w.Stats(); s.Commands != 4 {
+		t.Fatalf("%d commands, want the block and 3 increments", s.Commands)
+	}
+	f.w.Close()
+	if err := f.w.Flush(ctx); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Flush after Close: %v", err)
+	}
+}
+
 // Many writers on one hot row: every increment lands, none is lost or
 // refused, readers never see SQLITE_BUSY, and the batches grow.
 func TestContention(t *testing.T) {

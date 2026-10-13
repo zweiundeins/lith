@@ -3,6 +3,8 @@
 // MaxBatch, without waiting for more) into one transaction with a
 // savepoint per command: under load one commit, and one fsync, covers many
 // commands, and a command that fails undoes only its own changes.
+// Commands are applied in the order they arrive in the queue, from Send
+// and Do alike.
 //
 //	w, err := writer.New(db, writer.Options{OnCommit: views.Changed})
 //	go w.Run(ctx)
@@ -98,7 +100,7 @@ type Stats struct {
 }
 
 type request struct {
-	cmd  Command
+	cmd  Command // nil for Flush
 	ctx  context.Context
 	done chan error // nil for Send
 }
@@ -234,6 +236,28 @@ func (w *Writer) Do(ctx context.Context, cmd Command) error {
 	return <-r.done
 }
 
+// Flush returns once every command queued before it has been applied,
+// committed or failed: a failure goes to the command's Do, or for a Send
+// to the log. Since commands are applied in the order they arrive, a read
+// after Flush sees what the commands sent before it committed. Flush
+// returns ctx's error if ctx ends first, and ErrClosed once the writer
+// has stopped taking commands.
+func (w *Writer) Flush(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r := &request{done: make(chan error, 1)}
+	if err := w.enqueue(ctx, r); err != nil {
+		return err
+	}
+	select {
+	case err := <-r.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func validate(cmd Command) error {
 	if cmd == nil {
 		return fmt.Errorf("%w: nil", ErrInvalid)
@@ -340,6 +364,18 @@ func (w *Writer) loop(ctx context.Context) {
 }
 
 func (w *Writer) apply(batch []*request) {
+	n := int64(0)
+	for _, r := range batch {
+		if r.cmd != nil {
+			n++
+		}
+	}
+	if n == 0 {
+		for _, r := range batch {
+			r.done <- nil
+		}
+		return
+	}
 	start := time.Now()
 	if cap(w.errs) < len(batch) {
 		w.errs = make([]error, len(batch))
@@ -351,6 +387,9 @@ func (w *Writer) apply(batch []*request) {
 		failed = fmt.Errorf("writer: begin: %w", err)
 	} else {
 		for i, r := range batch {
+			if r.cmd == nil {
+				continue
+			}
 			if errs[i], failed = w.one(r); failed != nil {
 				break
 			}
@@ -368,7 +407,6 @@ func (w *Writer) apply(batch []*request) {
 	}
 
 	elapsed := time.Since(start)
-	n := int64(len(batch))
 	w.batches.Add(1)
 	w.commands.Add(n)
 	w.busyNanos.Add(int64(elapsed))
@@ -378,8 +416,8 @@ func (w *Writer) apply(batch []*request) {
 	w.times.add(elapsed)
 	if failed != nil {
 		w.opts.Log.Error("writer: batch failed", "commands", n, "err", failed)
-		for i := range errs {
-			if errs[i] == nil {
+		for i, r := range batch {
+			if errs[i] == nil && r.cmd != nil {
 				errs[i] = failed
 			}
 		}
