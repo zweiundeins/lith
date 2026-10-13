@@ -1,0 +1,300 @@
+---
+title: backup
+summary: Replicates SQLite databases to S3-compatible storage with Litestream, embedded in the process.
+order: 9
+---
+
+Import path `github.com/zweiundeins/lith/backup`, a module of its own: `go get github.com/zweiundeins/lith/backup`. Generated from the doc comments in [backup/](https://github.com/zweiundeins/lith/tree/main/backup).
+
+It is a module of its own so that projects without it never pull in Litestream's dependencies.
+
+A Manager replicates every database attached to it, each under a name: its key prefix in the bucket, such as an account ID. Without a bucket (or Dir) the Manager is disabled and does nothing, so development runs without credentials.
+
+Start each database in this order:
+
+ 1. RestoreIfMissing, before the database is opened. Opening creates an empty file, and a restore that finds a file does nothing.
+ 2. Open the database. While the Manager is enabled its write connection sets PRAGMA wal\_autocheckpoint=0 (see WALAutocheckpoint) and leaves checkpoints to Litestream, which makes them at positions it has replicated. Without Litestream the WAL would grow without bound, so keep SQLite's default then.
+ 3. Attach. It returns once the first sync has reached the replica.
+
+Run RunMaintenanceLoop and RunVerifyLoop once per process. Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
+
+Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time.
+
+## Constants
+
+```go
+const (
+	DefaultRetentionWindow     = 30 * 24 * time.Hour
+	DefaultSnapshotInterval    = 24 * time.Hour
+	DefaultMaintenanceInterval = time.Hour
+	DefaultVerifyInterval      = 24 * time.Hour
+)
+```
+
+Policy defaults. RetentionWindow is also the point-in-time recovery floor: nothing older is restorable.
+
+## Variables
+
+```go
+var (
+	// ErrNothingToRestore means nothing was ever replicated under the name,
+	// or nothing at or before the requested time.
+	ErrNothingToRestore = errors.New("backup: nothing to restore")
+	// ErrDisabled is returned by the operations that need a replica (Restore,
+	// RestoreAt, RestoreWindow, RestoreTimeline, VerifyRestore) when the
+	// Manager is disabled.
+	ErrDisabled = errors.New("backup: not configured")
+)
+```
+
+## Functions
+
+### func MetaPath {#MetaPath}
+
+```go
+func MetaPath(dbPath string) string
+```
+
+MetaPath is the directory Litestream keeps beside a replicated database (".\<file>-litestream"). Remove it with the database when erasing one.
+
+## Types
+
+### type Config {#Config}
+
+```go
+type Config struct {
+	Bucket          string
+	Endpoint        string // empty for AWS; set for other S3-compatible services
+	Region          string
+	AccessKeyID     string // empty: the AWS default credential chain
+	SecretAccessKey string
+	ForcePathStyle  bool // most S3-compatible services other than AWS need it
+
+	Dir string
+
+	// Prefix goes in front of every replica's name, so that deployments can
+	// share a bucket.
+	Prefix string
+
+	// Zero means DefaultRetentionWindow and DefaultSnapshotInterval.
+	RetentionWindow  time.Duration
+	SnapshotInterval time.Duration
+
+	// Logger defaults to slog.Default().
+	Logger *slog.Logger
+}
+```
+
+Config says where replicas go: set Bucket for S3, or Dir for a local directory (a mounted volume, or tests). With neither, the Manager is disabled.
+
+#### func ConfigFromEnv {#ConfigFromEnv}
+
+```go
+func ConfigFromEnv(prefix string) (Config, error)
+```
+
+ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION and SNAPSHOT\_INTERVAL (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
+
+### type Manager {#Manager}
+
+```go
+type Manager struct {
+	// contains filtered or unexported fields
+}
+```
+
+Manager owns replication for the process. Its methods are safe for concurrent use.
+
+#### func New {#New}
+
+```go
+func New(cfg Config) (*Manager, error)
+```
+
+New returns a Manager for cfg.
+
+#### func (*Manager) Attach {#Manager.Attach}
+
+```go
+func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(context.Context) error, err error)
+```
+
+Attach starts replicating the database at dbPath under name. It returns once the first sync has reached the replica, since until then a final sync does nothing. dbPath must exist and name must not be attached already.
+
+Call detach once, before the application's last checkpoint and close: it is the final sync. A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
+
+#### func (*Manager) Collector {#Manager.Collector}
+
+```go
+func (m *Manager) Collector(namespace string) prometheus.Collector
+```
+
+Collector returns a prometheus.Collector of the Manager's state, read from Status on each scrape. Register it even when the Manager is disabled: \<namespace>\_backup\_enabled 0 is the alert for a process without a backup.
+
+#### func (*Manager) Enabled {#Manager.Enabled}
+
+```go
+func (m *Manager) Enabled() bool
+```
+
+Enabled reports whether the Manager replicates.
+
+#### func (*Manager) MaintainAll {#Manager.MaintainAll}
+
+```go
+func (m *Manager) MaintainAll(ctx context.Context, now time.Time) map[string]error
+```
+
+MaintainAll runs one maintenance pass on every attached replica, as of now: a full snapshot when the newest is older than the snapshot interval, then pruning of the history older than the retention window.
+
+#### func (*Manager) PurgeReplica {#Manager.PurgeReplica}
+
+```go
+func (m *Manager) PurgeReplica(ctx context.Context, name string) error
+```
+
+PurgeReplica deletes everything replicated under name, for an erasure. The database must be detached first. Purging a name never replicated, or on a disabled Manager, does nothing.
+
+#### func (*Manager) Restore {#Manager.Restore}
+
+```go
+func (m *Manager) Restore(ctx context.Context, name, out string) error
+```
+
+Restore writes the latest state of the replica under name to out, which must not exist yet.
+
+#### func (*Manager) RestoreAt {#Manager.RestoreAt}
+
+```go
+func (m *Manager) RestoreAt(ctx context.Context, name, out string, at time.Time) error
+```
+
+RestoreAt writes the replica under name as of at (zero for the latest) to out, which must not exist yet. Any moment inside the retention window is reachable, not only snapshots. A time before the oldest retained point gives ErrNothingToRestore; check it against RestoreWindow for a clearer message.
+
+#### func (*Manager) RestoreIfMissing {#Manager.RestoreIfMissing}
+
+```go
+func (m *Manager) RestoreIfMissing(ctx context.Context, name, dbPath string) error
+```
+
+RestoreIfMissing restores the replica under name to dbPath when no file is there: a first boot on a fresh disk, or recovery after losing one. It does nothing when the Manager is disabled, the file exists, or nothing was ever replicated under name. A restore that fails quick\_check is removed again.
+
+#### func (*Manager) RestoreTimeline {#Manager.RestoreTimeline}
+
+```go
+func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, error)
+```
+
+RestoreTimeline lists the replica under name as a Timeline. Snapshots are listed first, so a truncated timeline still has all of them.
+
+#### func (*Manager) RestoreWindow {#Manager.RestoreWindow}
+
+```go
+func (m *Manager) RestoreWindow(ctx context.Context, name string) (earliest, latest time.Time, err error)
+```
+
+RestoreWindow reports the times a restore of the replica under name can reach: after earliest, the oldest full image (a snapshot or the first sync), up to latest. It lists the replica, so call it on demand, not per request.
+
+#### func (*Manager) RetentionWindow {#Manager.RetentionWindow}
+
+```go
+func (m *Manager) RetentionWindow() time.Duration
+```
+
+RetentionWindow is how far back a restore can reach.
+
+#### func (*Manager) RunMaintenanceLoop {#Manager.RunMaintenanceLoop}
+
+```go
+func (m *Manager) RunMaintenanceLoop(ctx context.Context, interval time.Duration)
+```
+
+RunMaintenanceLoop runs MaintainAll every interval (DefaultMaintenanceInterval if zero) until ctx is done. The interval only has to be shorter than the snapshot interval: a pass that is not due for a snapshot costs one listing per replica.
+
+#### func (*Manager) RunVerifyLoop {#Manager.RunVerifyLoop}
+
+```go
+func (m *Manager) RunVerifyLoop(ctx context.Context, interval time.Duration, onFail func(name string, err error))
+```
+
+RunVerifyLoop verifies every attached replica every interval (DefaultVerifyInterval if zero) until ctx is done, starting after at most ten minutes. Failures are logged and, if onFail is set, passed to it.
+
+#### func (*Manager) Status {#Manager.Status}
+
+```go
+func (m *Manager) Status() []ReplicaStatus
+```
+
+Status reports every attached replica, sorted by name. It reads no network, so it is cheap enough for a metrics scrape.
+
+#### func (*Manager) VerifyAll {#Manager.VerifyAll}
+
+```go
+func (m *Manager) VerifyAll(ctx context.Context) map[string]error
+```
+
+VerifyAll runs VerifyRestore on every attached replica.
+
+#### func (*Manager) VerifyRestore {#Manager.VerifyRestore}
+
+```go
+func (m *Manager) VerifyRestore(ctx context.Context, name string) error
+```
+
+VerifyRestore proves the replica under name is restorable: it restores the latest state to a temporary file, runs PRAGMA integrity\_check and removes it. The result shows in Status. It reads the whole replica, so it belongs in a daily loop, not on a request.
+
+#### func (*Manager) WALAutocheckpoint {#Manager.WALAutocheckpoint}
+
+```go
+func (m *Manager) WALAutocheckpoint() int
+```
+
+WALAutocheckpoint is the value for PRAGMA wal\_autocheckpoint on the application's write connection: 0 while the Manager replicates, since Litestream then checkpoints, and SQLite's default of 1000 pages otherwise.
+
+### type ReplicaStatus {#ReplicaStatus}
+
+```go
+type ReplicaStatus struct {
+	Name       string
+	Path       string
+	LastSyncAt time.Time // zero until the first sync
+	TXID       string    // replicated position, "" until known
+
+	LastVerifyAt time.Time // zero until VerifyRestore ran
+	VerifyOK     bool      // the last VerifyRestore restored and passed integrity_check
+
+	// From the last maintenance pass; zero until one ran.
+	LastSnapshotAt time.Time
+	ReplicaObjects int
+	ReplicaBytes   int64
+}
+```
+
+ReplicaStatus is the state of one attached replica, read from memory.
+
+### type RestorePoint {#RestorePoint}
+
+```go
+type RestorePoint struct {
+	At       time.Time
+	TXID     string
+	Level    int
+	Snapshot bool // a full image of the database, not a WAL segment
+	Size     int64
+}
+```
+
+RestorePoint is one point a restore can land on: an LTX file's time and position. A restore to a time lands on the last point at or before it.
+
+### type Timeline {#Timeline}
+
+```go
+type Timeline struct {
+	Earliest  time.Time
+	Latest    time.Time
+	Points    []RestorePoint
+	Truncated bool // the listing stopped at maxRestorePoints: the newest WAL segments are missing
+}
+```
+
+Timeline is every restore point of a replica, oldest first, for a point-in-time picker that shows where history is and where it has gaps.

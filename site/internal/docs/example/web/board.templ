@@ -1,0 +1,97 @@
+package web
+
+import (
+	"strconv"
+
+	"github.com/zweiundeins/lith/site/internal/docs/example/board"
+)
+
+// PageData is what the board's document shows.
+type PageData struct {
+	Tab      string // new for every document: names the tab's stream and its row
+	Datastar string // the URL of Datastar's script
+	Board    board.Board
+	Lanes    [][]byte // each lane rendered, as the board's view renders them
+	Prefs    board.Prefs
+}
+
+templ Page(p PageData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ p.Board.Name }</title>
+			<script type="module" src={ p.Datastar }></script>
+		</head>
+		<body>
+			<main data-signals={ signals(p.Tab, p.Prefs) } data-class:compact="$_compact">
+				<div id={ StreamID } hidden data-init={ "$_beat = Date.now(); " + openStream(p.Board.ID) } data-effect={ beat } data-on-interval__duration.10s={ watchdog(p.Board.ID) }></div>
+				<h1>{ p.Board.Name }</h1>
+				@Presence(0)
+				<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
+				<form data-on:submit__prevent={ add(firstLane(p.Board)) } data-on:datastar-fetch={ failed } data-effect={ settle }>
+					<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending }/>
+					<button type="submit" data-attr:aria-busy={ busy }>Add</button>
+				</form>
+				<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
+				@Outcome(board.TabState{})
+				@Board(p.Lanes)
+				@NoPanel()
+			</main>
+		</body>
+	</html>
+}
+
+// Board is the shared region, the same for every viewer: the lanes,
+// rendered one by one. A click on a card's button is handled here, on the
+// board, so a frame carries no expression per card.
+templ Board(lanes [][]byte) {
+	<div id="board" data-on:click={ onBoard } data-on:datastar-fetch={ failed }>
+		for _, l := range lanes {
+			@templ.Raw(string(l))
+		}
+	</div>
+}
+
+// Lane is one lane, morphed in by its id. next is the lane its cards move
+// on to, 0 for the last.
+templ Lane(l board.Lane, next int64) {
+	<section id={ "lane-" + id(l.ID) } class="lane">
+		<h2>{ l.Name } <span class="count">{ strconv.Itoa(len(l.Cards)) }/{ strconv.Itoa(l.Max) }</span></h2>
+		<ol>
+			for _, c := range l.Cards {
+				<li id={ "card-" + id(c.ID) }>
+					<button type="button" data-card={ id(c.ID) }>{ c.Title }</button>
+					if next != 0 {
+						<button type="button" data-card={ id(c.ID) } data-lane={ id(next) } data-seen={ id(c.Version) } aria-label="Move on">→</button>
+					}
+				</li>
+			}
+		</ol>
+	</section>
+}
+
+// Outcome is the tab's own region: why its last action changed nothing.
+templ Outcome(s board.TabState) {
+	<p id="outcome" role="status">{ s.Refusal }</p>
+}
+
+// Presence says how many tabs show the board.
+templ Presence(n int) {
+	<p id="presence">{ people(n) }</p>
+}
+
+// Panel is a card's details, in the tabs that opened it.
+templ Panel(c board.Card) {
+	<aside id="panel">
+		<h2>{ c.Title }</h2>
+		<p>Version { strconv.FormatInt(c.Version, 10) }</p>
+		<button type="button" data-on:click={ panel("0") }>Close</button>
+	</aside>
+}
+
+// NoPanel holds the panel's place while none is open.
+templ NoPanel() {
+	<aside id="panel" hidden></aside>
+}

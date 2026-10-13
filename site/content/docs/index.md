@@ -13,4 +13,7 @@ lith owns that runtime and nothing above it. Routing stays with `net/http`, HTML
 
 - [Getting started](/docs/getting-started) makes a project from lith's template and runs it.
 - [Concepts](/docs/concepts) explains the four ideas in the name: Linear writes, Immediate mode, Ticks, Hypermedia.
+- The [guides](/docs/guides) take one task each, from a command with an op id to a deploy with a rollback, with code that compiles against this site's lith.
+- The [Datastar notes](/docs/datastar) list what goes wrong in the browser, and the [review checklist](/docs/review) what to look for before a release.
+- [Performance](/docs/performance) has the measured numbers, and the [package reference](/docs/reference) every exported name.
 - The [demos](/demos) run on this server, on lith, each with the code that does it.

@@ -259,7 +259,9 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   the tab, or come from CSS on a data attribute.
 - `Every: time.Second` re-renders a view without commits (clocks, live stats).
   `Presence: true` re-renders it when streams join or leave; `hub.Count(key)`
-  is how many watch.
+  is how many watch, `hub.Watchers(key)` the IDs of their streams, in the
+  order they opened. A stream's ID is its tab's: render a hash of it, never
+  the ID, since whoever knows it can open a stream that ends the tab's own.
 - `Spec.Write` tailors a shared frame per stream (kanban sends only the lanes
   a stream has not seen). Keep it free of formatting: format once in Render.
   `Spec.WriteTick(s, frames)` gets all of a stream's new frames at once, in

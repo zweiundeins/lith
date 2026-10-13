@@ -23,6 +23,7 @@ package live
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -103,15 +104,16 @@ type View struct {
 	Key string
 	// Topics mark the view dirty when a commit touches one of them.
 	Topics []string
-	// Render renders the view in the worker's read transaction, with a
-	// ctx that ends after Options.RenderTimeout and carries the
+	// Render renders the view in the worker's read transaction. Its ctx
+	// comes from the one Run got, with its values (a logger, the app's
+	// services), ends after Options.RenderTimeout and carries the
 	// transaction (sqlite.TxFrom): a sqlite.DB.View called with ctx runs
 	// in it, so code that takes a ctx reads the render's snapshot.
 	// sqlite.QuerierFrom(ctx) runs queries in it on statements the worker
 	// prepared once on its connection. Its frame goes to every stream that
-	// watches the view and must not change afterwards. When Render fails, the error is logged and the
-	// previous frame stays; a nil frame also keeps the previous one, and
-	// so does a []byte frame equal to it.
+	// watches the view and must not change afterwards. When Render fails,
+	// the error is logged and the previous frame stays; a nil frame also
+	// keeps the previous one, and so does a []byte frame equal to it.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
@@ -325,6 +327,37 @@ func (h *Hub) Count(key string) int {
 		return len(v.watches)
 	}
 	return 0
+}
+
+// Watchers are the IDs of the streams watching the view, each once, in the
+// order the streams opened; streams without an ID are left out. A view
+// with Presence that calls it in its Render lists who is there.
+func (h *Hub) Watchers(key string) []string {
+	h.mu.Lock()
+	v := h.views[key]
+	if v == nil {
+		h.mu.Unlock()
+		return nil
+	}
+	ss := make([]*stream, 0, len(v.watches))
+	for _, w := range v.watches {
+		if w.s.id != "" {
+			ss = append(ss, w.s)
+		}
+	}
+	h.mu.Unlock()
+	slices.SortFunc(ss, func(a, b *stream) int { return cmp.Compare(a.seq, b.seq) })
+	ids := make([]string, 0, len(ss))
+	seen := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		// A stream that replaces one with its ID watches beside it until
+		// the old one has ended.
+		if !seen[s.id] {
+			seen[s.id] = true
+			ids = append(ids, s.id)
+		}
+	}
+	return ids
 }
 
 // Watch makes the open stream with this ID watch v as well: it gets v's
