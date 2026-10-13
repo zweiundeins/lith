@@ -22,21 +22,37 @@ it points at a local path.
 
 ```go
 db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{
-	Synchronous: "FULL",             // or "NORMAL": a durability choice, see performance.md
-	Migrations:  migrations,         // fs.Sub(embedded, "migrations"): NNN_name.sql files
-	Readers:     runtime.GOMAXPROCS(0) + 4, // the render workers hold one each, GETs need the rest
-	Checkpoint:  sqlite.CheckpointWriter,    // CheckpointExternal when Litestream is attached
+	Synchronous: "FULL",                  // or "NORMAL": a durability choice, see performance.md
+	Migrations:  migrations,              // fs.Sub(embedded, "migrations"): NNN_name.sql files
+	Checkpoint:  sqlite.CheckpointWriter, // CheckpointExternal when Litestream is attached
 })
 hub := live.New(live.Options{Read: db.R})
 w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
 
-go w.Run(appCtx)   // appCtx outlives the HTTP server: actions still write while it drains
-go hub.Run(hubCtx) // cancelling hubCtx ends every stream at once
+go w.Run(context.Background()) // not the signal context: see below
+go hub.Run(hubCtx)             // cancelling hubCtx ends every stream at once
 ```
 
 Shutdown, in this order: cancel `hubCtx` (streams end, so `Shutdown` does not
 wait for them), `srv.Shutdown` (actions finish and still reach the writer),
 `w.Close()` (the queue drains), `db.Close()` (optimize, checkpoint, close).
+Ending `w.Run`'s context drains the queue like `w.Close()` and makes Send and
+Do return `ErrClosed` from then on, so a writer on the signal context refuses
+the actions that arrive while the server drains.
+
+The read pool's default size, GOMAXPROCS + 4 and at least 8, is the hub's
+render workers (GOMAXPROCS, each holding a connection for good) plus four or
+more for GET documents and other reads. Set `Readers` higher when more reads
+run at once besides the hub.
+
+A project with its own migration runner (a `schema_migrations` table, a list
+of versions in Go) passes it in `Migrate` instead of `Migrations`: Open calls
+it with the write connection before the read pool opens.
+`sqlite.Migrate(ctx, db, fsys)` is the built-in runner, for a test or a tool.
+
+A CLI that only reads opens the file with `sqlite.Options{ReadOnly: true}`:
+no write connection, no migrations, and a missing file is an error instead
+of a new empty database.
 
 The request edge, built from the inside out:
 
@@ -101,14 +117,80 @@ func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
 ```
 
 - `Do` waits for the commit and returns this command's error; `Send` returns
-  at once (`ErrQueueFull` when the queue is full) and logs failures.
+  at once (`ErrQueueFull` when the queue is full). A failed Send goes to
+  `writer.Options.OnSendError(cmd, err)` on the writer's goroutine, or to the
+  log without one.
+- Commands run in the order they arrive. `w.Flush(ctx)` returns once every
+  command queued before it is applied: a test sends, flushes, then reads.
 - Build SQL from constants: the writer prepares each SQL text once.
-- Scan every `QueryRow`: an unscanned row keeps its cached statement busy.
+- Scan every `QueryRow` before the same query runs again: an unscanned row
+  keeps its cached statement busy.
 - A retried request (a flaky network, a double click) runs once with
   `writer.Once(opID, cmd)`. Only successes are recorded; a refusal runs again
   and refuses again.
 - Mail, HTTP calls and anything slow go in `tx.AfterCommit` or outside the
   writer. A command never waits for the network.
+
+A retry that must get the first answer, a refusal included, goes through
+`writer.OnceResult`. A refusal is a `*writer.Refusal`: its changes are undone
+like any error's, but the key is recorded with its message and the result.
+Other errors record nothing, so a retry runs the command again.
+
+```go
+op := writer.OnceResult(opID, writer.ResultFunc(func(tx *writer.Tx) ([]byte, error) {
+	var free int
+	if err := tx.QueryRow(`SELECT free FROM lanes WHERE id = ?`, lane).Scan(&free); err != nil {
+		return nil, err
+	}
+	if free == 0 {
+		return nil, &writer.Refusal{Msg: "This list is full."}
+	}
+	res, err := tx.Exec(`INSERT INTO cards (lane_id, title) VALUES (?, ?)`, lane, title)
+	if err != nil {
+		return nil, err
+	}
+	id, err := res.LastInsertId()
+	return strconv.AppendInt(nil, id, 10), err
+}))
+err := s.w.Do(r.Context(), op) // the same *writer.Refusal on every retry
+```
+
+After `Do`, `op.Result()` holds the first run's result (the card's id) and
+`op.Replayed()` tells a retry. `writer.PruneOnce` forgets old keys of both.
+
+## Query code for reads and commands
+
+A query written once against `sqlite.Querier` serves a GET, a view and a
+command.
+
+```go
+func laneCount(ctx context.Context, q sqlite.Querier, lane int64) (n int, err error) {
+	err = q.QueryRowContext(ctx, `SELECT count(*) FROM cards WHERE lane_id = ?`, lane).Scan(&n)
+	return n, err
+}
+```
+
+```go
+n, err := laneCount(tx.Context(), tx, lane) // in a command
+
+q, _ := sqlite.QuerierFrom(ctx) // in a view's Render
+n, err := laneCount(ctx, q, lane)
+
+err := db.View(ctx, func(tx *sql.Tx) (err error) { // in a GET
+	n, err = laneCount(ctx, tx, lane)
+	return err
+})
+```
+
+A `*writer.Tx` runs the query on the batch's transaction with the writer's
+statement cache; the ctx it gets cancels nothing. In a view, the worker runs
+each SQL text on a statement it prepared once on its connection, in the
+render's snapshot.
+
+A store that takes only a ctx reads through `db.View(ctx, fn)`. Called from a
+render, View runs fn in the render's transaction, when it reads the same
+database file, instead of opening a second snapshot; `sqlite.WithTx(ctx, tx)`
+hands a GET's transaction down the same way.
 
 ## A view
 
@@ -149,7 +231,19 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   is how many watch.
 - `Spec.Write` tailors a shared frame per stream (kanban sends only the lanes
   a stream has not seen). Keep it free of formatting: format once in Render.
-- The page opens its stream with `data-init` and `retry: 'always'`.
+  `Spec.WriteTick(s, frames)` gets all of a stream's new frames at once, in
+  the order it watches the views: one `s.Write(events...)` of them is one
+  compressed write and flush per tick instead of one per view.
+- A page's command to watch a view (a panel that scrolls into view) can
+  arrive before its stream. `hub.Watch(tab, v)` then keeps v for
+  `Options.PendingWatch` (10 s), and the stream that opens with that ID
+  watches it from the start; Unwatch drops it again. Watch reports whether
+  the stream is open now, so a retry loop is not needed.
+- The page opens its stream with `data-init` and `retry: 'always'`. A
+  watchdog on the page needs a heartbeat it can see: with
+  `Options.HeartbeatSignal: "_ping"` the hub patches `$_ping` every
+  Heartbeat (20 s), frames or not, with a number that grows, instead of an
+  SSE comment, which Datastar never shows the page.
 
 ## Tab state and preferences
 
@@ -243,12 +337,19 @@ func (c Record) Apply(tx *writer.Tx) error {
   restores a missing file before `sqlite.Open`, attaches, verifies a restore
   daily; open the database with `sqlite.CheckpointExternal` so Litestream
   owns the checkpoints.
+- A check of a copy opens it with `sqlite.Options{ReadOnly: true}` and runs
+  `PRAGMA integrity_check` on `db.R`: nothing is written, and a missing copy
+  is an error.
 
 ## Measuring a change
 
 - In process: `lith/loadtest` runs the writer and the hub with N streams and
   M producers and reports tick percentiles, renders per tick, bytes per frame
   and heap per stream. Run it before and after.
+- `hub.Stats()` counts the workers' read transactions (`ReadTxs`, at most one
+  per worker and tick) and the renders of each view watched now
+  (`RendersByKey`): a view that renders more often than its topics change
+  listens to too much.
 - End to end: kanban's `cmd/netem` and `cmd/loadtest`.
 - Write the numbers into `benchmarks/RESULTS.md` with date, machine and the
   exact command.
