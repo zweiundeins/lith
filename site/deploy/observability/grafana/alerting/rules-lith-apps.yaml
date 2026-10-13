@@ -1,6 +1,7 @@
 # Alert rules for the apps on lith (github.com/zweiundeins/lith), from the
-# metrics of their second listener (the go_runtime job) and the blackbox
-# probes. Install as /etc/grafana/provisioning/alerting/rules-lith-apps.yaml.
+# metrics of their second listener (the go_runtime job). A site that stops
+# answering trips the host's rule on every blackbox probe, so none here.
+# Install as /etc/grafana/provisioning/alerting/rules-lith-apps.yaml.
 #
 # NOTE ON PROVENANCE: hand-authored to the schema of the host's exported
 # rule files, without a running instance. Before trusting them, import them,
@@ -8,10 +9,10 @@
 # data, and export them over this file (see the host's observability README).
 # The thresholds are starting points.
 #
-# The rules over the apps' own metrics match any lith app by its metric
-# names ({__name__=~".+_writer_..."}) and group by its app label, so a new
-# lith app needs no new rule. Rates of counters that do not exist yet (no
-# failure since the start) return nothing: noDataState OK.
+# The rules match any lith app by its metric names
+# ({__name__=~".+_writer_..."}) and group by its app label, so a new lith app
+# needs no new rule. Rates of counters that do not exist yet (no failure since
+# the start) return nothing: noDataState OK.
 apiVersion: 1
 groups:
     - orgId: 1
@@ -19,59 +20,10 @@ groups:
       folder: "Libretto Alerts"
       interval: 1m
       rules:
-        # The blackbox probes of lith-site.targets.yml: the page did not answer 200 with its keyword.
-        - uid: lith-site-down
-          title: 'lith-site down'
-          condition: C
-          data:
-            - refId: A
-              queryType: range
-              relativeTimeRange:
-                from: 600
-                to: 0
-              datasourceUid: prometheus-ds
-              model:
-                expr: 'min by (instance) (probe_success{service="lith-site"})'
-                intervalMs: 1000
-                maxDataPoints: 43200
-                refId: A
-            - refId: B
-              relativeTimeRange:
-                from: 600
-                to: 0
-              datasourceUid: __expr__
-              model:
-                expression: A
-                intervalMs: 1000
-                maxDataPoints: 43200
-                reducer: last
-                refId: B
-                type: reduce
-            - refId: C
-              relativeTimeRange:
-                from: 600
-                to: 0
-              datasourceUid: __expr__
-              model:
-                conditions:
-                    - evaluator:
-                        params:
-                            - 1
-                        type: lt
-                expression: B
-                intervalMs: 1000
-                maxDataPoints: 43200
-                refId: C
-                type: threshold
-          noDataState: Alerting
-          execErrState: Alerting
-          for: 5m
-          annotations:
-            summary: '{{ $labels.instance }} has failed its blackbox probe for 5 minutes'
-          isPaused: false
-        # Counts only with at least 5 errors in 5 minutes, so a quiet site and a few streams cut by a restart do not page. NoData is a quiet app: OK.
         - uid: lith-apps-5xx-ratio
           title: 'lith app: 5xx ratio above 2%'
+          # Counts only with at least 5 errors in 5 minutes, so a quiet site
+          # and a few streams cut by a restart do not page.
           condition: C
           data:
             - refId: A
@@ -119,9 +71,10 @@ groups:
           annotations:
             summary: '{{ $labels.app }} answers more than 2% of its requests with a 5xx'
           isPaused: false
-        # A tick overruns when its renders take longer than Options.Tick (50 ms): frames come late for everyone. The app logs the ticks' percentiles.
         - uid: lith-apps-tick-overruns
           title: 'lith app: ticks overrun'
+          # Renders that take longer than Options.Tick (50 ms) make frames late
+          # for everyone. The app logs the ticks' percentiles.
           condition: C
           data:
             - refId: A
@@ -169,9 +122,10 @@ groups:
           annotations:
             summary: '{{ $labels.app }} has had more than one tick in ten take longer than the tick, for 10 minutes'
           isPaused: false
-        # A stream keeps only the newest frame of each view: a slow client skips some. Many at once means the streams cannot keep up (CPU, network, the budget).
         - uid: lith-apps-frames-dropped
           title: 'lith app: frames dropped'
+          # A stream keeps only each view's newest frame, so a slow client skips
+          # some. Many means the streams cannot keep up (CPU, network, budget).
           condition: C
           data:
             - refId: A
@@ -219,9 +173,10 @@ groups:
           annotations:
             summary: '{{ $labels.app }} drops more than 5% of its frames for 10 minutes'
           isPaused: false
-        # A command that returned an error or panicked, or whose batch failed (a full disk, a locked database). The app logs each one.
         - uid: lith-apps-writer-failures
           title: 'lith app: writer failures'
+          # A command that returned an error or panicked, or whose batch failed
+          # (a full disk, a locked database). The app logs each one.
           condition: C
           data:
             - refId: A
@@ -269,9 +224,10 @@ groups:
           annotations:
             summary: '{{ $labels.app }} has had more than 3 commands fail in 10 minutes'
           isPaused: false
-        # Only an app whose budget sets Refuse turns streams away (503); the pages retry. Raise the memory, or lower MinWindow.
         - uid: lith-apps-budget-refusals
           title: 'lith app: streams refused'
+          # Only an app whose budget sets Refuse turns streams away (503); the
+          # pages retry. Raise the memory, or lower MinWindow.
           condition: C
           data:
             - refId: A
