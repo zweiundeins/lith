@@ -8,7 +8,7 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 ## v0.1.0 (2026-10-13)
 
-The first release: the runtime that kanban, Starbase and Libretto grew, in one module, with a template for new apps, a skill for coding agents and the website at lith.zweiundeins.gmbh. It needs Go 1.27 and builds with `CGO_ENABLED=0`.
+The first release: the runtime for Go, SQLite and Datastar apps, with a template for new apps, a skill for coding agents and the website at lith.zweiundeins.gmbh. It needs Go 1.27 and builds with `CGO_ENABLED=0`.
 
 ### Packages
 
