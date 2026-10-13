@@ -2,6 +2,7 @@ package writerrace
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,15 @@ func (t track) rateNote() string {
 		return "over the last quarter second, from writer.Stats every 50 ms"
 	}
 	return "over the whole race: commands divided by its time"
+}
+
+// perTx writes commands per transaction, rounded: "1 command", "122
+// commands".
+func perTx(f float64) string {
+	if math.Round(f) == 1 {
+		return "1 command"
+	}
+	return strconv.FormatFloat(f, 'f', 0, 64) + " commands"
 }
 
 func producers(n int) string {

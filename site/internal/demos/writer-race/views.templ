@@ -193,8 +193,10 @@ templ chartFigure(c chart, class string) {
 templ Line(list []Race) {
 	<section id="writer-race-line" class="wr-line" aria-labelledby="writer-race-line-title">
 		<h3 id="writer-race-line-title">In line</h3>
-		if waiting(list) == 0 {
+		if len(list) == 0 {
 			<p class="wr-line__empty">Nobody waits. A race you start now runs at once.</p>
+		} else if waiting(list) == 0 {
+			<p class="wr-line__empty">Nobody else waits. A race you start now runs next.</p>
 		}
 		<ol class="wr-line__list" role="list">
 			for i, r := range list {
@@ -315,7 +317,7 @@ templ embedLive(t track) {
 				} else {
 					Race { strconv.FormatInt(t.Race.ID, 10) } on this server:
 				}
-				{ producers(t.Race.Producers) }, synchronous={ t.Race.Sync }, { strconv.FormatFloat(t.PerTx, 'f', 0, 64) } commands to a transaction.
+				{ producers(t.Race.Producers) }, synchronous={ t.Race.Sync }, { perTx(t.PerTx) } to a transaction.
 			</p>
 			@chartFigure(t.Chart, "wr-chart wr-chart--mini")
 		}
