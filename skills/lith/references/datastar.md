@@ -11,8 +11,10 @@ write-up; look there before changing the behaviour.
   [swisscyberguard CLAUDE.md, Stack]
 - HTML lowercases attribute names: `data-bind:fullFare` binds a second, empty
   signal `fullfare`. Use kebab-case keys. [pendlerpreis docs/03-findings.md]
-- There is no `load` plugin: `data-on:load` on the body never fires. Open
-  streams with `data-init`. [pendlerpreis]
+- There is no `load` plugin: `data-on:load` never fires, on the body or any
+  other element, with or without modifiers. Open streams with `data-init`.
+  [pendlerpreis; swisscyberguard's two streams and its credential auto-hide
+  never ran]
 - A regex in `filterSignals` needs its slashes; without them the whole handler
   fails to compile. [pendlerpreis]
 - Signals that start with `_` stay in the browser and are not sent with
@@ -45,7 +47,11 @@ write-up; look there before changing the behaviour.
   deploy the hub ends each stream with `sse.Reconnect`, which re-creates that
   element so its data-init runs again with its own options, and `'error'`
   carries the request through the restart. A stream the server ends otherwise
-  stays closed. Refuse a stream for good with 204. [lith]
+  stays closed. Refuse a stream for good with 204. [lith; kanban's e2e test
+  restarts the server under an open board]
+- The element that `Spec.Reconnect` names does nothing but open the stream:
+  every deploy runs its data-init again, so a tab id or a signal made there
+  would change. [2und1]
 - A watchdog on the page needs the server's ping. An SSE comment never reaches
   the page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
   watchdog can read. [kanban]

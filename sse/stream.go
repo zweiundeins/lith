@@ -12,8 +12,10 @@
 //
 // Every write has its own deadline, so run the server without a
 // WriteTimeout and let a stream that cannot take a write in time fail
-// alone. Pages should open their streams with Datastar's retry: 'always',
-// since the default does not reopen a stream that the server ends.
+// alone. Pages open their streams with Datastar's retry: 'error' from an
+// element with an id: a server that ends its streams to restart sends
+// Reconnect last (live does, with Spec.Reconnect), and 'error' carries the
+// page's request through the restart. The default retry reopens neither.
 package sse
 
 import (

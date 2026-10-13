@@ -73,6 +73,11 @@ pattern matches, and what the review of October 2026 found where.
   a page's stream opens with `retry: 'error'` from an element whose id is the
   stream's `Spec.Reconnect`. `'auto'` (the default) leaves pages stale after
   a deploy; `'always'` also reopens streams the server ended on purpose.
+- `rg -n 'BaseContext' --type go`: the server's BaseContext must not end
+  with the signal. Request contexts would end before the hub stops, the
+  streams would end without sse.Reconnect, and Chrome takes a cut stream for
+  a clean end, so even retry 'error' does not reopen it. Stop the hub first;
+  give the server `context.WithoutCancel`. (swisscyberguard)
 - Tab state lives in SQLite, not in a map in memory: `rg -n
   'map\[string\]\*?[tT]ab' --type go`. A deploy loses the map.
 - Every view names its topics, and every command touches the topics it
