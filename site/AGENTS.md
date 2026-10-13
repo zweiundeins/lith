@@ -105,12 +105,12 @@ Chromium-based browsers get all of it, which `TestTransitionTypes` checks. Safar
 
 - A page that streams sets `Shell.Stream`: the frame renders `<div id="stream" data-indicator:_live data-init="@get(...)">` with `retry: 'error'`. Its id is the stream's `live.Spec.Reconnect`: when the server stops, each stream's last event re-creates that element and the page reconnects to the next process. `$_live` is true while the stream is open (the "live" badge reads it).
 - One stream per tab (`Spec.ID` is the tab id); the site writes each tick's frames in one write (`frameWriter`).
-- The hub hibernates a stream's encoder after a minute without frames and shares a memory budget among the encoders (the default: half of GOMEMLIMIT). Keep frames well under 256 KB, the smallest window the budget gives.
+- The hub hibernates a stream's encoder after a minute without frames and shares a memory budget among the encoders (half of GOMEMLIMIT, windows from 2^19 down to 2^17). Keep what a frame refers back to under 128 KB, the smallest window: a frame compresses against the stream's last 128 KB, and the checkbox grid's twelve tiles already take 104 KB.
 - What must survive a deploy is a row, written by a command: a tab's state in `site_tabs` (`demo.SaveTab`), never a map in memory.
 
 ## Memory
 
-The unit runs with `MemoryMax=256M` and `GOMEMLIMIT=192MiB` beside other apps on a host with about 1.3 GB free. Measured with 200 open streams: 110 MB resident, 100 MB of it the encoders' budget (115 streams at zstd 2^18, the rest uncompressed). So:
+The unit runs with `MemoryMax=256M` and `GOMEMLIMIT=192MiB` beside other apps on a host with about 1.3 GB free. Measured with 200 open streams: 110 MB resident, 100 MB of it the encoders' budget (115 streams at zstd 2^18, the rest uncompressed). The budget now goes down to 2^17, 720 KiB a stream, so about 136 streams compress before the rest go out uncompressed; a busy cursor party sends an uncompressed stream about 90 KB a second. So:
 
 - Nothing per tab in memory; no unbounded caches. Every table that grows has a sweep.
 - Static files are compressed at brotli -11 when the process starts: a 1.1 MB file costs about 85 MB of heap for a moment, and Go keeps it. That is why ECharts is not vendored; think twice before adding any large file.
