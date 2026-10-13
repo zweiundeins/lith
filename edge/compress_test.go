@@ -93,6 +93,29 @@ func TestCompressNegotiates(t *testing.T) {
 	}
 }
 
+func TestNegotiate(t *testing.T) {
+	for _, c := range []struct {
+		accept  string
+		codings []string
+		want    string
+	}{
+		{"gzip, deflate, br, zstd", nil, "br"},
+		{"zstd", nil, "zstd"},
+		{"zstd, gzip", nil, "zstd"},
+		{"gzip;q=1, br;q=0.5", nil, "gzip"},
+		{"*;q=0, x-gzip", nil, "gzip"},
+		{"deflate", nil, ""},
+		{"", nil, ""},
+		{"zstd, gzip", []string{"br", "gzip"}, "gzip"},
+		{"zstd", []string{"br", "gzip"}, ""},
+		{"gzip, deflate, br, zstd", []string{"zstd", "br"}, "zstd"},
+	} {
+		if got := Negotiate(c.accept, c.codings...); got != c.want {
+			t.Errorf("Negotiate(%q, %q) = %q, want %q", c.accept, c.codings, got, c.want)
+		}
+	}
+}
+
 func TestCompressHeaders(t *testing.T) {
 	w := serveCompressed(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()

@@ -4,26 +4,32 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/fs"
 	"mime"
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 )
 
-// Static serves the files of an fs.FS under a URL prefix. URL names a file by
-// its content, as in /static/site.3f2a9c1b2d4e.css, and that answer is
-// immutable: browsers keep it for a year without asking again. A file asked
-// for by its plain name, or by a hash that is no longer its content (a page
-// from before a deploy), comes with no-cache and its ETag, so browsers ask
-// each time and mostly get a 304. Text files go out precompressed (see
-// Precompress), compressed in the background from the start; other files go
-// out as they are, with ranges.
+// Static serves the files of an fs.FS, and those Add gives it, under a URL
+// prefix. URL names a file by its content, as in
+// /static/site.3f2a9c1b2d4e.css, and that answer is immutable: browsers keep
+// it for a year without asking again. A file asked for by its plain name, or
+// by a hash that is no longer its content (a page from before a deploy, or a
+// name with another number of hex digits, from 8 to 64), comes with no-cache
+// and its ETag, so browsers ask each time and mostly get a 304. Text files go
+// out precompressed (see Precompress), compressed in the background from the
+// start; other files go out as they are, with ranges.
 type Static struct {
-	fsys   fs.FS
-	prefix string
+	fsys    fs.FS
+	prefix  string
+	hashLen int
+
+	mu     sync.RWMutex
 	files  map[string]*staticFile // by name
 	hashed map[string]*staticFile // by hashed name
 }
@@ -31,16 +37,37 @@ type Static struct {
 type staticFile struct {
 	name, hashed, ctype string
 	sum                 [32]byte
-	body                []byte // text, kept to serve precompressed
+	body                []byte // nil: read from fsys when served
+	text                bool   // served precompressed
+}
+
+// A StaticOption changes how NewStatic names files.
+type StaticOption func(*Static)
+
+// StaticHashLen puts n hex digits of a file's SHA-256 in the names URL makes,
+// instead of 12. Names an app made the same way before, with that many
+// digits, then stay current. It panics unless 8 <= n <= 64.
+func StaticHashLen(n int) StaticOption {
+	if n < 8 || n > 64 {
+		panic(fmt.Sprintf("edge: StaticHashLen(%d) is not between 8 and 64", n))
+	}
+	return func(s *Static) { s.hashLen = n }
 }
 
 // NewStatic reads every file of fsys, to serve them under prefix, such as
-// "/static/". Mount it there, without http.StripPrefix.
-func NewStatic(fsys fs.FS, prefix string) (*Static, error) {
+// "/static/". Mount it there, without http.StripPrefix. fsys may be nil, for
+// a Static that serves only what Add gives it.
+func NewStatic(fsys fs.FS, prefix string, opts ...StaticOption) (*Static, error) {
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	s := &Static{fsys: fsys, prefix: prefix, files: map[string]*staticFile{}, hashed: map[string]*staticFile{}}
+	s := &Static{fsys: fsys, prefix: prefix, hashLen: 12, files: map[string]*staticFile{}, hashed: map[string]*staticFile{}}
+	for _, opt := range opts {
+		opt(s)
+	}
+	if fsys == nil {
+		return s, nil
+	}
 	var text []*staticFile
 	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -50,11 +77,11 @@ func NewStatic(fsys fs.FS, prefix string) (*Static, error) {
 		if err != nil {
 			return err
 		}
-		f := &staticFile{name: name, ctype: staticType(name, b), sum: sha256.Sum256(b)}
-		f.hashed = hashName(name, hex.EncodeToString(f.sum[:6]))
-		if compressible(f.ctype) {
-			f.body = b
+		f := s.newFile(name, b)
+		if f.text {
 			text = append(text, f)
+		} else {
+			f.body = nil
 		}
 		s.files[name], s.hashed[f.hashed] = f, f
 		return nil
@@ -64,18 +91,54 @@ func NewStatic(fsys fs.FS, prefix string) (*Static, error) {
 	}
 	go func() {
 		for _, f := range text {
-			if len(f.body) >= minSize {
-				precompress(f.body, f.sum)
-			}
+			warm(f)
 		}
 	}()
 	return s, nil
 }
 
+// Add serves data as the file name, in place of a file of that name. URL
+// names the new content at once, and the URL of the content it replaces
+// gets the new one with no-cache, like a hash from before a deploy. Add may
+// run while s serves; s keeps data, which must not change after. It panics
+// on a name that fs.ValidPath refuses.
+func (s *Static) Add(name string, data []byte) {
+	if !fs.ValidPath(name) || name == "." {
+		panic(fmt.Sprintf("edge: Static.Add(%q): not a file name", name))
+	}
+	f := s.newFile(name, data)
+	s.mu.Lock()
+	if old := s.files[name]; old != nil {
+		delete(s.hashed, old.hashed)
+	}
+	s.files[name], s.hashed[f.hashed] = f, f
+	s.mu.Unlock()
+	if f.text {
+		go warm(f)
+	}
+}
+
+func (s *Static) newFile(name string, b []byte) *staticFile {
+	f := &staticFile{name: name, ctype: staticType(name, b), sum: sha256.Sum256(b), body: b}
+	f.hashed = hashName(name, hex.EncodeToString(f.sum[:])[:s.hashLen])
+	f.text = compressible(f.ctype)
+	return f
+}
+
+// warm compresses a text file ahead of its first request.
+func warm(f *staticFile) {
+	if len(f.body) >= minSize {
+		precompress(f.body, f.sum)
+	}
+}
+
 // URL returns the hashed, immutable URL of the named file, or its plain URL
 // when there is no such file.
 func (s *Static) URL(name string) string {
-	if f, ok := s.files[name]; ok {
+	s.mu.RLock()
+	f := s.files[name]
+	s.mu.RUnlock()
+	if f != nil {
 		return s.prefix + f.hashed
 	}
 	return s.prefix + name
@@ -92,15 +155,7 @@ func (s *Static) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	f, current := s.hashed[name], true
-	if f == nil {
-		current = false
-		if f = s.files[name]; f == nil {
-			if plain, ok := unhash(name); ok {
-				f = s.files[plain]
-			}
-		}
-	}
+	f, current := s.lookup(name)
 	if f == nil {
 		http.NotFound(w, r)
 		return
@@ -112,8 +167,13 @@ func (s *Static) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		h.Set("Cache-Control", "no-cache")
 	}
-	if f.body != nil {
+	if f.text {
 		serveContent(w, r, f.body, f.sum)
+		return
+	}
+	if f.body != nil {
+		h.Set("ETag", `"`+etagOf(f.sum)+`"`)
+		http.ServeContent(w, r, f.name, time.Time{}, bytes.NewReader(f.body))
 		return
 	}
 	file, err := s.fsys.Open(f.name)
@@ -133,6 +193,22 @@ func (s *Static) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Set("ETag", `"`+etagOf(f.sum)+`"`)
 	http.ServeContent(w, r, f.name, time.Time{}, rs)
+}
+
+// lookup finds the file a request names, and whether the name is its current
+// hashed one.
+func (s *Static) lookup(name string) (f *staticFile, current bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if f = s.hashed[name]; f != nil {
+		return f, true
+	}
+	if f = s.files[name]; f == nil {
+		if plain, ok := unhash(name); ok {
+			f = s.files[plain]
+		}
+	}
+	return f, false
 }
 
 // hashName puts hash before the extension: css/site.css becomes
@@ -163,7 +239,7 @@ func unhash(name string) (string, bool) {
 }
 
 func isHash(s string) bool {
-	if len(s) != 12 {
+	if len(s) < 8 || len(s) > 64 {
 		return false
 	}
 	for i := 0; i < len(s); i++ {

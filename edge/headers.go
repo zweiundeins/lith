@@ -76,9 +76,20 @@ type SecurityHeaders struct {
 	// CSP is the Content-Security-Policy, none when nil. Its frame-ancestors
 	// also sets X-Frame-Options, for browsers that predate it.
 	CSP CSP
+	// Policy, when set, gives each request its policy in place of CSP, for
+	// sources that depend on the request: starbase's script-src names the
+	// request's own origin's /static/ and /c/, where 'self' would allow every
+	// path of it. It runs on every request, and a nil policy sends none.
+	// What it reads from the request, such as the Host header, is the
+	// client's to choose: check it before it goes into the policy.
+	Policy func(r *http.Request) CSP
 	// HSTS sends Strict-Transport-Security for two years, subdomains
 	// included. Set it when the site is served over HTTPS.
 	HSTS bool
+	// HSTSNoSubdomains leaves the subdomains out of HSTS, for a domain whose
+	// subdomains are not all served over HTTPS, such as a mail host on plain
+	// HTTP.
+	HSTSNoSubdomains bool
 	// Referrer is the Referrer-Policy, strict-origin-when-cross-origin when
 	// empty.
 	Referrer string
@@ -92,7 +103,7 @@ type nonceKey struct{}
 // Handler returns next behind the headers.
 func (s SecurityHeaders) Handler(next http.Handler) http.Handler {
 	var csp []string
-	if s.CSP != nil {
+	if s.CSP != nil && s.Policy == nil {
 		csp = s.CSP.parts()
 	}
 	set := [][2]string{
@@ -100,29 +111,39 @@ func (s SecurityHeaders) Handler(next http.Handler) http.Handler {
 		{"Referrer-Policy", cmp.Or(s.Referrer, "strict-origin-when-cross-origin")},
 		{"Cross-Origin-Opener-Policy", "same-origin"},
 	}
-	switch strings.Join(s.CSP["frame-ancestors"], " ") {
-	case "'none'":
-		set = append(set, [2]string{"X-Frame-Options", "DENY"})
-	case "'self'":
-		set = append(set, [2]string{"X-Frame-Options", "SAMEORIGIN"})
+	if xfo := frameOptions(s.CSP); xfo != "" && s.Policy == nil {
+		set = append(set, [2]string{"X-Frame-Options", xfo})
 	}
 	if s.HSTS {
-		set = append(set, [2]string{"Strict-Transport-Security", "max-age=63072000; includeSubDomains"})
+		hsts := "max-age=63072000; includeSubDomains"
+		if s.HSTSNoSubdomains {
+			hsts = "max-age=63072000"
+		}
+		set = append(set, [2]string{"Strict-Transport-Security", hsts})
 	}
 	for _, k := range slices.Sorted(maps.Keys(s.Extra)) {
 		set = append(set, [2]string{k, s.Extra[k]})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		if csp != nil {
+		parts := csp
+		if s.Policy != nil {
+			if p := s.Policy(r); p != nil {
+				parts = p.parts()
+				if xfo := frameOptions(p); xfo != "" {
+					h.Set("X-Frame-Options", xfo)
+				}
+			}
+		}
+		if parts != nil {
 			nonce := ""
-			if len(csp) > 1 {
+			if len(parts) > 1 {
 				b := make([]byte, 16)
 				rand.Read(b)
 				nonce = base64.RawURLEncoding.EncodeToString(b)
 				r = r.WithContext(context.WithValue(r.Context(), nonceKey{}, nonce))
 			}
-			h.Set("Content-Security-Policy", strings.Join(csp, nonce))
+			h.Set("Content-Security-Policy", strings.Join(parts, nonce))
 		}
 		for _, kv := range set {
 			if kv[1] == "" {
@@ -133,6 +154,18 @@ func (s SecurityHeaders) Handler(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// frameOptions is the X-Frame-Options that says what a policy's
+// frame-ancestors says, or "" when it cannot.
+func frameOptions(c CSP) string {
+	switch strings.Join(c["frame-ancestors"], " ") {
+	case "'none'":
+		return "DENY"
+	case "'self'":
+		return "SAMEORIGIN"
+	}
+	return ""
 }
 
 // Nonce returns the CSP nonce SecurityHeaders put in ctx, or "" when its

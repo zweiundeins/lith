@@ -23,6 +23,11 @@ type Sessions struct {
 	// MaxAge is the cookie's lifetime, 400 days when zero (the longest
 	// browsers keep one).
 	MaxAge time.Duration
+	// Accept, when set, lets a cookie carry an id that Sessions would not
+	// make, such as one in an app's older format, so that a move to Sessions
+	// signs no one out. It must check the format: the value is the client's.
+	// New ids are 256-bit all the same.
+	Accept func(id string) bool
 }
 
 const sessionIDLen = 43 // 32 bytes in base64url without padding
@@ -45,7 +50,7 @@ func (s Sessions) cookieName() string {
 // Get returns the session id the request's cookie carries, if it is one.
 func (s Sessions) Get(r *http.Request) (string, bool) {
 	c, err := r.Cookie(s.cookieName())
-	if err != nil || !validSessionID(c.Value) {
+	if err != nil || !s.valid(c.Value) {
 		return "", false
 	}
 	return c.Value, true
@@ -107,6 +112,10 @@ func (s Sessions) Handler(next http.Handler) http.Handler {
 func SessionID(ctx context.Context) string {
 	v, _ := ctx.Value(sessionKey{}).(sessionValue)
 	return v.id
+}
+
+func (s Sessions) valid(id string) bool {
+	return validSessionID(id) || id != "" && s.Accept != nil && s.Accept(id)
 }
 
 func validSessionID(s string) bool {

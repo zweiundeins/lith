@@ -4,7 +4,7 @@ One binary and one SQLite file on a Linux server, behind Caddy. The files here:
 
 - `app.service`: the systemd unit. It runs as the `app` user, keeps the database in `/var/lib/app`, listens on the Unix socket `/run/app/app.sock`, cannot reach localhost, and is capped at 640 MB of memory.
 - `app-backup.service` and `app-backup.timer`: every six hours, `app backup` copies the database (VACUUM INTO) into `/var/lib/app/backups` and keeps the newest 28 copies.
-- `Caddyfile`: the site block. TLS, `reverse_proxy` to the socket, no `encode`, and `flush_interval -1` for the streams.
+- `Caddyfile`: the site block. TLS, `reverse_proxy` to the socket with the client's address in X-Forwarded-For and X-Real-IP, no `encode`, and `flush_interval -1` for the streams.
 - `app-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
 
 ## One-time setup
