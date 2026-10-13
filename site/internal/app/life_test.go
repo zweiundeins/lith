@@ -148,6 +148,57 @@ func TestLife(t *testing.T) {
 	}
 }
 
+// TestLifePhone drops a glider on a phone, where CSS stands the board on
+// its side: a tap on the 10th column and 20th row of the screen lands on
+// row 10, column 20 of the board, under the pattern's outline.
+func TestLifePhone(t *testing.T) {
+	a, base := apptest.Start(t)
+	b := browser.Start(t)
+	p := b.NewPage(t, 390, 844)
+	p.Navigate(t, base+"/demos/life")
+	p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
+	if err := a.Writer().Do(context.Background(), writer.Func(func(tx *writer.Tx) error {
+		_, err := tx.Exec(`UPDATE life_board SET cells = zeroblob(4000), quiet = ?`, time.Now().UnixMilli())
+		return err
+	})); err != nil {
+		t.Fatal(err)
+	}
+	p.Wait(t, `document.querySelector('#life-status').textContent.includes('The board is empty.')`, 5*time.Second)
+	var tall bool
+	p.Eval(t, `(() => { const f = document.querySelector('.life__field'); f.scrollIntoView({block: 'center'}); return f.clientHeight > f.clientWidth })()`, &tall)
+	if !tall {
+		t.Fatal("the board does not stand on its side on a phone")
+	}
+	var r struct{ X, Y, W, H float64 }
+	p.Eval(t, `(() => { const b = document.querySelector('.life__field').getBoundingClientRect(); return {x: b.left, y: b.top, w: b.width, h: b.height} })()`, &r)
+	px, py := r.X+10.5*r.W/life.H, r.Y+20.5*r.H/life.W
+	p.Call(t, "Input.dispatchMouseEvent", map[string]any{"type": "mouseMoved", "x": px, "y": py})
+	var anchor struct{ X, Y float64 }
+	p.Eval(t, `(() => { const s = document.querySelector('.life__cursor > .life__shape--side[data-shape="glider"]').getBoundingClientRect(); return {x: s.left + 1.5 * s.width / 3, y: s.top + 1.5 * s.height / 3} })()`, &anchor)
+	if d := max(anchor.X-px, px-anchor.X, anchor.Y-py, py-anchor.Y); d > 1 {
+		t.Errorf("the outline's anchor is at %.1f, %.1f, the pointer at %.1f, %.1f", anchor.X, anchor.Y, px, py)
+	}
+	for _, typ := range []string{"mousePressed", "mouseReleased"} {
+		p.Call(t, "Input.dispatchMouseEvent", map[string]any{"type": typ, "x": px, "y": py, "button": "left", "buttons": 1, "clickCount": 1})
+	}
+	waitFor(t, "the glider on the board", func() bool {
+		var cells []byte
+		a.DB().R.QueryRow(`SELECT cells FROM life_board`).Scan(&cells)
+		near := 0
+		for y := 7; y <= 13; y++ {
+			for x := 17; x <= 23; x++ {
+				if cells[y*life.W+x] != 0 {
+					near++
+				}
+			}
+		}
+		return near == 5 && life.Population(cells) == 5
+	})
+	if errs := p.Errors(); len(errs) > 0 {
+		t.Errorf("the phone's page: %v", errs)
+	}
+}
+
 // TestLifePageCost measures what a tab of the demo costs the browser: the
 // CPU time of its main thread over 10 s of a fresh soup, with the page's
 // transitions and without them. It only reports.
@@ -370,6 +421,13 @@ func TestShotsLife(t *testing.T) {
 	full.Eval(t, "document.fonts.ready.then(() => true)", nil)
 	full.Screenshot(t, filepath.Join(dir, "life-page.png"), true)
 	full.Close(t)
+
+	// The demo's card among the others.
+	cards := b.NewPage(t, 1440, 900)
+	cards.Navigate(t, base+"/demos")
+	cards.Eval(t, "document.fonts.ready.then(() => true)", nil)
+	cards.ShotElement(t, `[data-demo-card="life"]`, filepath.Join(dir, "life-card.png"), 1.5)
+	cards.Close(t)
 
 	// After a reset: the empty board counts down to its next soup.
 	p.Eval(t, `document.querySelector('.life__reset .btn').click()`, nil)

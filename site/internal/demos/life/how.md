@@ -7,6 +7,7 @@ func (c *clock) run() {
 	t := time.NewTicker(Idle)
 	defer t.Stop()
 	running := false
+	var logged time.Time // a broken database fails every step: log once a minute
 	for {
 		select {
 		case <-c.hub.Done():
@@ -28,8 +29,9 @@ func (c *clock) run() {
 		switch {
 		case errors.Is(err, writer.ErrClosed):
 			return
-		case err != nil:
+		case err != nil && time.Since(logged) > time.Minute:
 			c.log.Warn("life: a step failed", "err", err)
+			logged = time.Now()
 		}
 	}
 }

@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/writer"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
@@ -309,5 +311,32 @@ func TestStatus(t *testing.T) {
 	}
 	if got := number(1234567); got != "1,234,567" {
 		t.Errorf("number: %s", got)
+	}
+}
+
+// The clock waits while nobody watches, and ends when the hub stops.
+func TestClockEndsWithTheHub(t *testing.T) {
+	e := demotest.Open(t, Demo)
+	hub := live.New(live.Options{Read: e.DB.R, Log: slog.New(slog.DiscardHandler)})
+	ctx, stop := context.WithCancel(context.Background())
+	ran := make(chan error, 1)
+	go func() { ran <- hub.Run(ctx) }()
+	done := make(chan struct{})
+	go func() {
+		(&clock{w: e.W, hub: hub, log: slog.New(slog.DiscardHandler)}).run()
+		close(done)
+	}()
+	time.Sleep(3 * Idle)
+	if b := board(t, e); b.Generation != 0 || Population(b.Cells) != 0 {
+		t.Errorf("with nobody watching, the clock stepped to generation %d", b.Generation)
+	}
+	stop()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the clock outlived the hub")
+	}
+	if err := <-ran; err != nil {
+		t.Fatal(err)
 	}
 }
