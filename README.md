@@ -18,10 +18,8 @@ runtime for the Go, SQLite and Datastar apps of zwei und eins.
   tick for everyone who watches it.
 - **Hypermedia:** frames go out over SSE, each stream compressed on its own.
 
-The name nods to Anders Murphy's [hyperlith](https://github.com/andersmurphy/hyperlith),
-whose design lith follows in Go. lith owns the runtime and nothing above it:
-routing stays with `net/http`, HTML with templ, and each app keeps its own
-pages and domain model.
+lith owns the runtime and nothing above it: routing stays with `net/http`,
+HTML with templ, and each app keeps its own pages and domain model.
 
 ## Packages
 
@@ -104,7 +102,8 @@ lith	https://github.com/zweiundeins/lith	skills/lith
 
 ## Credits
 
-The design follows Anders Murphy's [hyperlith](https://github.com/andersmurphy/hyperlith)
-and his writing at [andersmurphy.com](https://andersmurphy.com). The code
-started in kanban, starbase and libretto, and the template's layout after
-[northstar](https://github.com/zangster300/northstar).
+Inspired by [hyperlith](https://github.com/andersmurphy/hyperlith) and
+[northstar](https://github.com/zangster300/northstar). The code started in
+[kanban](https://github.com/zweiundeins/kanban),
+[starbase](https://github.com/zweiundeins/starbase) and
+[Libretto](https://libretto.ch).
