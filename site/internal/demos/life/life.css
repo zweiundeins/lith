@@ -46,15 +46,6 @@
 				grid-template-columns: repeat(4, minmax(0, 1fr));
 				gap: var(--lith-space-2);
 			}
-
-			& dt {
-				font-size: 0.6875rem;
-				letter-spacing: 0.04em;
-			}
-
-			& dd {
-				font-size: var(--lith-text-lg);
-			}
 		}
 	}
 
@@ -86,6 +77,20 @@
 
 		&:first-child dd {
 			color: var(--lith-accent-text);
+		}
+
+		/* On a phone the four counters share one row: smaller, and the
+		 * labels in lower case, which fits "Generation" in a quarter. */
+		@container stage (width < 34rem) {
+			& dt {
+				font-size: 0.6875rem;
+				letter-spacing: 0;
+				text-transform: none;
+			}
+
+			& dd {
+				font-size: var(--lith-text-lg);
+			}
 		}
 	}
 
@@ -378,7 +383,21 @@
 	.life__colours {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
 		gap: var(--lith-space-2);
+	}
+
+	.life__label {
+		margin-inline-end: var(--lith-space-1);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+
+		@container stage (width < 30rem) {
+			flex-basis: 100%;
+		}
 	}
 
 	.life__swatch {

@@ -8,7 +8,7 @@ import (
 // The Datastar expressions of the demo. Its signals live under $_life, in
 // the browser only: an action sends just its payload.
 //
-//	tool, turn     the tool (draw or a pattern's name), and the pattern's quarter turns
+//	tool, turn     the tool (draw or a pattern's name, a glider at first), and the pattern's quarter turns
 //	x, y           the cell under the pointer or the keyboard's cursor; -1: none
 //	drawing, alive a stroke is under way, and whether it draws or clears
 //	stroke, last   the stroke's points not sent yet ("12,13"), and the last one sent
@@ -19,7 +19,7 @@ import (
 //	resetting      a reset is on its way
 //	problem        why the last action did not go through
 func signals(colour int) string {
-	return fmt.Sprintf(`{_life: {tool: 'draw', turn: 0, x: -1, y: -1, drawing: false, alive: true, stroke: '', last: -1, sent: 0, draft: '', pend: '', px: -1, py: -1, ptool: '', pturn: 0, op: '', ack: '', colour: %d, pick: %d, resetting: false, problem: ''}}`, colour, colour)
+	return fmt.Sprintf(`{_life: {tool: 'glider', turn: 0, x: -1, y: -1, drawing: false, alive: true, stroke: '', last: -1, sent: 0, draft: '', pend: '', px: -1, py: -1, ptool: '', pturn: 0, op: '', ack: '', colour: %d, pick: %d, resetting: false, problem: ''}}`, colour, colour)
 }
 
 // expr joins the parts of an expression, which Datastar runs as one.

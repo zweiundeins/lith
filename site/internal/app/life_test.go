@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zweiundeins/lith/writer"
 
 	"github.com/zweiundeins/lith/site/internal/app"
 	"github.com/zweiundeins/lith/site/internal/app/apptest"
@@ -142,6 +145,60 @@ func TestLife(t *testing.T) {
 		if errs := p.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %v", name, errs)
 		}
+	}
+}
+
+// TestLifePageCost measures what a tab of the demo costs the browser: the
+// CPU time of its main thread over 10 s of a fresh soup, with the page's
+// transitions and without them. It only reports.
+//
+//	LIFE_PAGE_COST=1 LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifePageCost -v
+func TestLifePageCost(t *testing.T) {
+	if os.Getenv("LIFE_PAGE_COST") == "" {
+		t.Skip("set LIFE_PAGE_COST=1 to measure")
+	}
+	a, base := apptest.Start(t)
+	b := browser.Start(t)
+	for _, v := range []struct{ name, css string }{
+		{"with the transitions", ""},
+		{"without them", "[data-demo=life] .life__board > p { transition: none !important }"},
+	} {
+		p := b.NewPage(t, 1440, 900)
+		p.Navigate(t, base+"/demos/life")
+		p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
+		p.Eval(t, scrollToStage, nil)
+		if v.css != "" {
+			p.Eval(t, "(() => { const s = document.createElement('style'); s.textContent = "+fmt.Sprintf("%q", v.css)+"; document.head.append(s) })()", nil)
+		}
+		// A fresh soup: the board empty and quiet since long ago.
+		if err := a.Writer().Do(context.Background(), writer.Func(func(tx *writer.Tx) error {
+			_, err := tx.Exec(`UPDATE life_board SET cells = zeroblob(4000), quiet = 1`)
+			return err
+		})); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Second)
+		p.Call(t, "Performance.enable", map[string]any{"timeDomain": "threadTicks"})
+		metrics := func() map[string]float64 {
+			var r struct {
+				Metrics []struct {
+					Name  string
+					Value float64
+				}
+			}
+			json.Unmarshal(p.Call(t, "Performance.getMetrics", nil), &r)
+			m := map[string]float64{}
+			for _, x := range r.Metrics {
+				m[x.Name] = x.Value
+			}
+			return m
+		}
+		before := metrics()
+		time.Sleep(10 * time.Second)
+		after := metrics()
+		d := func(k string) float64 { return after[k] - before[k] }
+		t.Logf("%s: main thread %.0f%% busy (script %.2f s, style %.2f s, layout %.2f s in 10 s)", v.name, d("ThreadTime")*10, d("ScriptDuration"), d("RecalcStyleDuration"), d("LayoutDuration"))
+		p.Close(t)
 	}
 }
 
@@ -301,6 +358,26 @@ func TestShotsLife(t *testing.T) {
 	m.Eval(t, scrollToStage, nil)
 	time.Sleep(300 * time.Millisecond)
 	shot("life-mobile", m)
+
+	// The whole page, "How it works" open; reduced motion turns off the
+	// scroll-driven reveals, which a picture of the whole page would miss.
+	full := b.NewPage(t, 1440, 900)
+	full.Call(t, "Emulation.setEmulatedMedia", map[string]any{"features": []map[string]string{{"name": "prefers-reduced-motion", "value": "reduce"}}})
+	full.Navigate(t, base+"/demos/life")
+	full.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
+	full.Eval(t, `document.querySelector('.howto').open = true`, nil)
+	time.Sleep(time.Second)
+	full.Eval(t, "document.fonts.ready.then(() => true)", nil)
+	full.Screenshot(t, filepath.Join(dir, "life-page.png"), true)
+	full.Close(t)
+
+	// After a reset: the empty board counts down to its next soup.
+	p.Eval(t, `document.querySelector('.life__reset .btn').click()`, nil)
+	p.Wait(t, `document.querySelector('#life-status').textContent.includes('The board is empty.')`, 5*time.Second)
+	p.Eval(t, `document.querySelector('.life__tool:nth-child(2)').click()`, nil)
+	click(t, p, 12, 10)
+	time.Sleep(1200 * time.Millisecond)
+	p.ShotElement(t, ".demo-stage", filepath.Join(dir, "life-empty.png"), 1)
 }
 
 // scrollToStage scrolls the stage to just below the sticky header.

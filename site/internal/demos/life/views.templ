@@ -59,7 +59,8 @@ templ Stage(b Board, here, colour int, now time.Time) {
 					<span>Turn</span>
 				</button>
 			</div>
-			<div class="life__colours" role="group" aria-label="Your colour">
+			<div class="life__colours" role="group" aria-labelledby="life-colour-label">
+				<span id="life-colour-label" class="life__label">Your colour</span>
 				for c := 1; c <= Colours; c++ {
 					<button
 						type="button"
