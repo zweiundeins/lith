@@ -331,7 +331,7 @@ func TestCanvasWire(t *testing.T) {
 	paintCanvasScene(t, a)
 	c := client(t)
 	get(t, c, base+"/demos/canvas")
-	const paints = 40
+	const paints = 16
 	for _, enc := range []string{"identity", "zstd", "br"} {
 		w := openCanvasRaw(t, c, base+"/demos/canvas/stream?tab=wire"+enc, enc)
 		time.Sleep(300 * time.Millisecond) // the first frames
@@ -341,7 +341,7 @@ func TestCanvasWire(t *testing.T) {
 			if code := post(t, c, base+"/cmd/canvas/paint", body); code != http.StatusNoContent {
 				t.Fatalf("paint: %d", code)
 			}
-			time.Sleep(120 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond) // two ticks: each paint has frames of its own
 		}
 		per := (w.bytes() - start) / paints
 		t.Logf("%s: %d bytes per paint, %d bytes for the first frames", enc, per, start)

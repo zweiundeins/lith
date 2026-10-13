@@ -248,5 +248,5 @@ Every table stays small: the board is one row, `canvas_painted` holds at most a 
 On an Intel i5-13500 under Linux, in October 2026, with other work on the machine:
 
 - The writer takes about 30,000 paints a second from 100 painters at once, 50 paints to a transaction: 60,000 pixels a second in the two-pixel batches of a stroke at the limit, 500,000 in batches of 60. The limits let 300 streams send 6,000.
-- The board's frame is 4.8 KB of HTML. After a one-pixel paint the board and the pulse together cost 43 bytes on the wire with zstd and 42 with brotli.
+- The board's frame is 4.8 KB of HTML. After a one-pixel paint the board and the pulse together cost 44 bytes on the wire with zstd and 42 with brotli; a painter's first frames, 1.3 KB.
 - 100 painters at the limit, 2,000 pixels a second together, on the built binary with the site's memory limit (192 MiB): no request refused or failed, the writer busy 9 to 20% of the time, the process at 0.4 to 0.75 cores, and 4 KB a second to each painter, about 105 bytes a frame. The live heap is about 95 MiB, 83 MiB of it the 100 streams' zstd encoders; the process stays near the limit, since the collector lets the heap use the room up to it.
