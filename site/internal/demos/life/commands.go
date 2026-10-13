@@ -164,7 +164,7 @@ func (c Reset) Apply(tx *writer.Tx) error {
 	case Population(b.Cells) == 0:
 		state.Refusal = "The board is empty already."
 	case since < ResetEvery:
-		state.Refusal = fmt.Sprintf("Someone reset the board %s ago. Try again in %s.", seconds(since), seconds(ResetEvery-since))
+		state.Refusal = fmt.Sprintf("Someone reset the board %s. Try again in %s.", ago(since), seconds(ResetEvery-since))
 	default:
 		b.Cells = make([]byte, Cells)
 		b.Generation, b.Reset = 0, now
@@ -177,9 +177,19 @@ func (c Reset) Apply(tx *writer.Tx) error {
 	return demo.SaveTab(tx, Slug, c.Viewer, state, c.At)
 }
 
-// seconds says a duration in whole seconds, at least one: "4 s".
+// seconds says a duration in whole seconds, rounded up, at least one:
+// "4 s".
 func seconds(d time.Duration) string {
 	return fmt.Sprintf("%d s", max(1, int((d+time.Second-1)/time.Second)))
+}
+
+// ago says how long ago, in whole seconds rounded down: "4 s ago", or
+// "just now" within the first second.
+func ago(d time.Duration) string {
+	if d < time.Second {
+		return "just now"
+	}
+	return fmt.Sprintf("%d s ago", int(d/time.Second))
 }
 
 // Pick sets the colour a session draws in, and touches the session's

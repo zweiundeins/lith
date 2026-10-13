@@ -175,5 +175,9 @@ templ Outcome(s TabState) {
 		} else {
 			class="outcome"
 		}
-	>{ s.Refusal }</p>
+	>
+		if s.Refusal != "" {
+			<span class="life__refusal">{ s.Refusal }</span>
+		}
+	</p>
 }

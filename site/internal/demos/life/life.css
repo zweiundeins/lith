@@ -261,6 +261,7 @@
 		overflow: visible;
 		rotate: calc(var(--turn) * 90deg);
 		transform-origin: calc((var(--ax) + 0.5) / var(--w) * 100%) calc((var(--ay) + 0.5) / var(--h) * 100%);
+		transition: rotate var(--lith-dur-2) var(--lith-ease-snap);
 
 		& rect {
 			fill: color-mix(in oklch, var(--me) 12%, transparent);
@@ -460,6 +461,22 @@
 		justify-content: end;
 		gap: var(--lith-space-3);
 		margin-inline-start: auto;
+	}
+
+	/* Why the board refused this tab's last action, and why an action did
+	 * not go through: each rises into place when it appears. */
+	.life__refusal,
+	.life__problem {
+		display: inline-block;
+		transition:
+			opacity var(--lith-dur-3) var(--lith-ease-glide),
+			translate var(--lith-dur-3) var(--lith-ease-glide),
+			display var(--lith-dur-3) allow-discrete;
+
+		@starting-style {
+			opacity: 0;
+			translate: 0 0.375rem;
+		}
 	}
 
 	.life__problem:empty {

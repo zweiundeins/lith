@@ -436,6 +436,12 @@ func TestShotsLife(t *testing.T) {
 	click(t, p, 12, 10)
 	time.Sleep(1200 * time.Millisecond)
 	p.ShotElement(t, ".demo-stage", filepath.Join(dir, "life-empty.png"), 1)
+
+	// A second reset too soon: only this tab hears why.
+	p.Eval(t, `document.querySelector('.life__reset .btn').click()`, nil)
+	p.Wait(t, `document.querySelector('#life-outcome').textContent.includes('Someone reset the board')`, 5*time.Second)
+	time.Sleep(500 * time.Millisecond)
+	p.ShotElement(t, ".life__foot", filepath.Join(dir, "life-refused.png"), 1.5)
 }
 
 // scrollToStage scrolls the stage to just below the sticky header.

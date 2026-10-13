@@ -219,6 +219,9 @@ func TestReset(t *testing.T) {
 	if s := tabState(t, e, bob); !strings.Contains(s.Refusal, "Someone reset the board 4 s ago. Try again in 6 s.") {
 		t.Errorf("a reset too soon: %+v", s)
 	}
+	if ago(1400*time.Millisecond)+" "+seconds(ResetEvery-1400*time.Millisecond) != "1 s ago 9 s" || ago(300*time.Millisecond) != "just now" {
+		t.Errorf("ago and seconds: %s, %s", ago(1400*time.Millisecond), ago(300*time.Millisecond))
+	}
 	if Population(board(t, e).Cells) != 3 {
 		t.Error("a refused reset cleared the board")
 	}

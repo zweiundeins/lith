@@ -8,7 +8,8 @@ import (
 // The Datastar expressions of the demo. Its signals live under $_life, in
 // the browser only: an action sends just its payload.
 //
-//	tool, turn     the tool (draw or a pattern's name, a glider at first), and the pattern's quarter turns
+//	tool, turn     the tool (draw or a pattern's name, a glider at first), and the pattern's quarter turns,
+//	               which only grow, so that the outline always turns clockwise
 //	x, y           the cell under the pointer or the keyboard's cursor; -1: none
 //	drawing, alive a stroke is under way, and whether it draws or clears
 //	stroke, last   the stroke's points not sent yet ("12,13"), and the last one sent
@@ -89,7 +90,7 @@ const drop = `(
 	$_life.problem = '',
 	` + newOp + `,
 	$_life.px = $_life.x, $_life.py = $_life.y, $_life.ptool = $_life.tool, $_life.pturn = $_life.turn,
-	@post('/cmd/life/drop', {payload: {tab: $_tab, op: $_life.op, pattern: $_life.tool, cell: $_life.y * 80 + $_life.x, turn: $_life.turn}, requestCancellation: 'disabled'})
+	@post('/cmd/life/drop', {payload: {tab: $_tab, op: $_life.op, pattern: $_life.tool, cell: $_life.y * 80 + $_life.x, turn: $_life.turn % 4}, requestCancellation: 'disabled'})
 )`
 
 // click drops a pattern where the board was clicked.
@@ -120,7 +121,7 @@ var key = `((k, t) => k.startsWith('Arrow') ? (
 ) : k === 'r' || k === 'R' ? (` + turn + `) : k === 'Escape' && ($_life.x = -1))(evt.key, ` + transposed + `)`
 
 // turn turns the pattern a quarter clockwise.
-const turn = `$_life.turn = ($_life.turn + 1) % 4`
+const turn = `$_life.turn = $_life.turn + 1`
 
 // pick asks for a colour, which stays pending until the tab's view
 // brings it back as $_life.colour.
