@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -209,6 +210,40 @@ func TestStoreInRenderJoinsItsSnapshot(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the view did not render")
+	}
+}
+
+// Stats count the read transactions the workers begin, at most one per
+// worker and tick, and the renders of each view watched now.
+func TestStatsCountReadTransactionsAndRendersByKey(t *testing.T) {
+	_, read := testDB(t, 4)
+	h := start(t, Options{Read: read, Workers: 2, Tick: 5 * time.Millisecond})
+	a := text("a", []string{"a"}, func(context.Context, *sql.Tx) (string, error) { return "a", nil })
+	b := text("b", []string{"b"}, func(context.Context, *sql.Tx) (string, error) { return "b", nil })
+	c := serve(h, Spec{ID: "tab", Views: []View{a, b}}, "")
+	waitFor(t, "the first frames", func() bool { return len(c.patches()) == 2 })
+	for i := int64(2); i <= 3; i++ {
+		h.Changed([]string{"a"})
+		waitFor(t, "a render of a", func() bool { return h.Stats().RendersByKey["a"] == i })
+	}
+	waitFor(t, "the third tick", func() bool { return h.Stats().Ticks == 3 })
+	s := h.Stats()
+	if want := map[string]int64{"a": 3, "b": 1}; !maps.Equal(s.RendersByKey, want) {
+		t.Fatalf("renders by key %v, want %v", s.RendersByKey, want)
+	}
+	if s.ReadTxs < s.Ticks || s.ReadTxs > 2*s.Ticks {
+		t.Fatalf("%d read transactions in %d ticks of two workers", s.ReadTxs, s.Ticks)
+	}
+	h.Unwatch("tab", "a")
+	if _, ok := h.Stats().RendersByKey["a"]; ok {
+		t.Fatal("a view nobody watches is still counted")
+	}
+
+	h = start(t, Options{Tick: 5 * time.Millisecond})
+	c = serve(h, Spec{Views: []View{a}}, "")
+	waitFor(t, "the frame", func() bool { return c.has(`<p id="a">a</p>`) })
+	if s := h.Stats(); s.ReadTxs != 0 || s.RendersByKey["a"] != 1 {
+		t.Fatalf("without a read pool: %+v", s)
 	}
 }
 

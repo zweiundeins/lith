@@ -269,6 +269,7 @@ func (w *worker) render(t *tick) {
 			}
 			return
 		}
+		w.h.readTxs.Add(1)
 		ctx = txctx.With(ctx, &txctx.Value{Tx: tx, Pool: w.h.read})
 	}
 	for {
@@ -277,6 +278,7 @@ func (w *worker) render(t *tick) {
 			break
 		}
 		t.frames[i], t.errs[i] = w.h.render(ctx, t.views[i], tx)
+		t.views[i].renders.Add(1)
 		w.h.renders.Add(1)
 	}
 	if tx != nil {

@@ -111,6 +111,10 @@ type Stats struct {
 	Overruns      int64 // ticks that took longer than Options.Tick
 	Streams       int
 	Views         int
+	ReadTxs       int64 // read transactions the render workers began
+	// RendersByKey counts the renders of each view watched now, by its
+	// key, since it was first watched.
+	RendersByKey map[string]int64
 }
 
 // Hub renders views and streams them. Create it with New and start it
@@ -144,7 +148,7 @@ type Hub struct {
 	pending map[string][]pendingView // by stream ID, in the order of Watch
 	sweepAt time.Time                // when pending is next swept
 
-	ticks, renders, sent, dropped, overruns atomic.Int64
+	ticks, renders, sent, dropped, overruns, readTxs atomic.Int64
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
@@ -158,7 +162,8 @@ type view struct {
 	every    time.Duration
 	presence bool
 
-	frame atomic.Pointer[frame]
+	frame   atomic.Pointer[frame]
+	renders atomic.Int64
 
 	// Guarded by Hub.mu.
 	watches []*watch
@@ -350,6 +355,10 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 func (h *Hub) Stats() Stats {
 	h.mu.Lock()
 	streams, views := h.streams, len(h.views)
+	byKey := make(map[string]int64, len(h.views))
+	for k, v := range h.views {
+		byKey[k] = v.renders.Load()
+	}
 	h.mu.Unlock()
 	return Stats{
 		Ticks:         h.ticks.Load(),
@@ -359,6 +368,8 @@ func (h *Hub) Stats() Stats {
 		Overruns:      h.overruns.Load(),
 		Streams:       streams,
 		Views:         views,
+		ReadTxs:       h.readTxs.Load(),
+		RendersByKey:  byKey,
 	}
 }
 
