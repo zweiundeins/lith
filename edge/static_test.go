@@ -2,6 +2,7 @@ package edge
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -23,6 +24,32 @@ func TestPrecompress(t *testing.T) {
 	br2, _ := Precompress(bytes.Clone(body))
 	if &br[0] != &br2[0] {
 		t.Error("the same content was compressed twice")
+	}
+}
+
+func TestPrecompressGzipIsTheStandardLibrarys(t *testing.T) {
+	for _, body := range [][]byte{page, bytes.Repeat(page, 20), []byte("tiny")} {
+		_, gz := Precompress(body)
+		var want bytes.Buffer
+		zw, _ := gzip.NewWriterLevel(&want, gzip.BestCompression)
+		zw.Write(body)
+		zw.Close()
+		if !bytes.Equal(gz, want.Bytes()) {
+			t.Errorf("%d bytes: gzip -9 of %d bytes, compress/gzip's of %d", len(body), len(gz), want.Len())
+		}
+	}
+}
+
+func TestBrotliLen(t *testing.T) {
+	for _, body := range [][]byte{nil, []byte("tiny"), page, bytes.Repeat(page, 20)} {
+		body = append(bytes.Clone(body), "measured, not served"...)
+		n := BrotliLen(body)
+		if _, kept := precompressCache.Load(sha256.Sum256(body)); kept {
+			t.Errorf("%d bytes: BrotliLen kept its compression", len(body))
+		}
+		if br, _ := Precompress(body); n != len(br) {
+			t.Errorf("%d bytes: BrotliLen = %d, Precompress gave %d", len(body), n, len(br))
+		}
 	}
 }
 
