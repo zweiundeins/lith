@@ -109,10 +109,10 @@ Boxes checked, toggles per second and people here render once a second, like a c
 
 ## What it costs
 
-Measured on the i5-13500 the site's numbers come from, in process with the site's memory limit (GOMEMLIMIT 192 MiB, so the streams' encoders share 96 MiB), on 13 October 2026, with `LITH_SITE_MEASURE=1 go test ./internal/app -run TestMeasureCheckboxes -v`:
+Measured in process with the production unit's memory limit (GOMEMLIMIT 192 MiB, so the streams' encoders share 96 MiB), on the i5-13500 of the site's other numbers, shared with other work, on 13 October 2026: `LITH_SITE_MEASURE=1 go test ./internal/app -run TestMeasureCheckboxes -v`.
 
-- The writer takes 14,500 to 18,600 clicks a second from one person waiting for each commit, 46,000 to 62,000 from 128 at once and 62,000 to 83,000 from 512, about 450 to a transaction. The site lets one address send 20 a second.
-- A tile is 8.6 KB of HTML. On a zstd stream a whole window, twelve tiles with the list and the numbers, is 8 KB, and a flip about 50 bytes.
-- 100 tabs at 100 places watch 1,200 chunk views: 113 MiB of heap, 83 MiB of it the streams' encoders and about 10 MiB the tiles the hub holds, 1 MiB a tab.
-- With those tabs open, 50 clicks a second take 2% of a core and 900 take 20%, with no tick over 50 ms. 48 windows a second, every tab moving every two seconds, take 8%.
-- 100 tabs at the same place share twelve views; 50 clicks a second in view of all of them take 17% of a core and 4.4 KiB a second for each tab.
+- The writer takes about 17,000 clicks a second from one person who waits for each commit, 36,000 from 16 at once, and 60,000 to 80,000 from 128 or 512, 300 to 470 clicks to a transaction. The site lets one address send 20 a second.
+- A tile is 8.7 KB of HTML. On a zstd stream a whole window, twelve tiles with the list and the numbers, takes 7 KB, and a flip 35 to 50 bytes.
+- 100 tabs at 100 places watch 1,200 chunk views: 123 MiB of heap, 83 MiB of it the streams' encoders and about 10 MiB the tiles the hub holds, 1.1 MiB a tab.
+- With those tabs open, 50 clicks a second take 2% of a core, 200 take 6% and 965 take 15%, with no tick over 50 ms. 48 windows a second, each tab moving every two seconds, take 8%.
+- 100 tabs at the same place share twelve chunk views; 50 clicks a second, all in view of all of them, take 18% of a core and send each tab 4.2 KiB a second.
