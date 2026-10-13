@@ -10,6 +10,11 @@
 // Options.ZstdLowMemory) when the client accepts it, else brotli at
 // quality 4 with a 256 KiB window (about 2 MiB), else gzip.
 //
+// A Budget shares a memory limit among the encoders of many streams: a
+// stream gets the largest window its share of the limit allows, and zstd
+// streams move to smaller windows as more streams open. Stream.Hibernate
+// lets an idle zstd stream give its encoder back until its next write.
+//
 // Every write has its own deadline, so run the server without a
 // WriteTimeout and let a stream that cannot take a write in time fail
 // alone. Pages open their streams with Datastar's retry: 'error' from an
@@ -65,6 +70,10 @@ type Options struct {
 	// for small, frequent events, where an encoder's heap (0.4 MiB and up
 	// per stream) costs more than it saves.
 	NoCompression bool
+	// Budget, if set, is shared by streams: it picks each stream's window
+	// within a memory limit, in place of ZstdWindow, ZstdLowMemory and
+	// BrotliWindow.
+	Budget *Budget
 }
 
 // The content codings a stream can use, in the server's order of
@@ -98,6 +107,12 @@ type Stream struct {
 	buf      bytes.Buffer // compressed output, before it goes out
 	in, out  int64
 	err      error
+	zstd     zstdKey // the settings of a zstd stream's encoder
+	asleep   bool    // a zstd stream without an encoder: between two frames
+	framed   bool    // the zstd encoder has begun a frame
+	tier     tier    // what the stream holds of its budget
+	user     bool    // the stream counts in its budget's fair share
+	seen     int64   // the budget's count of streams without room, at the stream's last tier
 
 	mu      sync.Mutex
 	writing bool // a write is under way
@@ -138,21 +153,42 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 	if o.NoCompression {
 		s.encoding = ""
 	}
+	if b := o.Budget; b != nil {
+		t, user, ok := b.open(s.encoding, o, &s.seen)
+		if !ok {
+			return nil, ErrNoRoom
+		}
+		s.tier, s.user = t, user
+		if t.coding == "" {
+			s.asleep = s.encoding == Zstd
+			if !s.asleep {
+				s.encoding = ""
+			}
+		}
+	}
 	var err error
 	switch s.encoding {
 	case Zstd:
-		s.enc, err = zstd.NewWriter(&s.buf,
-			zstd.WithEncoderLevel(o.ZstdLevel),
-			zstd.WithWindowSize(1<<o.ZstdWindow),
-			zstd.WithEncoderConcurrency(1),
-			zstd.WithLowerEncoderMem(o.ZstdLowMemory),
-			zstd.WithEncoderCRC(false))
+		s.zstd = zstdKey{o.ZstdLevel, o.ZstdWindow, o.ZstdLowMemory}
+		if s.tier.coding == Zstd {
+			s.zstd.window, s.zstd.lowMem = s.tier.window, s.tier.lowMem
+		}
+		if !s.asleep {
+			s.enc, err = s.zstd.encoder(&s.buf)
+		}
 	case Brotli:
-		s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: o.BrotliQuality, LGWin: o.BrotliWindow})
+		lgwin := o.BrotliWindow
+		if s.tier.coding == Brotli {
+			lgwin = s.tier.window
+		}
+		s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: o.BrotliQuality, LGWin: lgwin})
 	case Gzip:
 		s.enc, err = gzip.NewWriterLevel(&s.buf, gzip.BestSpeed)
 	}
 	if err != nil {
+		if o.Budget != nil {
+			o.Budget.close(s.tier, s.encoding, s.user)
+		}
 		return nil, err
 	}
 	h := w.Header()
@@ -198,9 +234,19 @@ func (s *Stream) Write(events ...[]byte) error {
 	if s.ctx.Err() != nil {
 		return s.ended()
 	}
-	if s.enc == nil {
+	if s.encoding == "" {
 		s.in += int64(n)
 		return s.send(events...)
+	}
+	if s.asleep {
+		ok, err := s.wake()
+		if err != nil {
+			return s.fail(err)
+		}
+		if !ok {
+			s.in += int64(n)
+			return s.send(rawFrame(events, n)...)
+		}
 	}
 	if s.opt.Compress != nil {
 		select {
@@ -211,11 +257,21 @@ func (s *Stream) Write(events ...[]byte) error {
 	}
 	s.in += int64(n)
 	s.buf.Reset()
-	var err error
+	err := s.shrink()
+	if err == nil && s.asleep {
+		// The budget took the stream's tier: the end of its frame, then the
+		// events in a raw one.
+		if s.opt.Compress != nil {
+			<-s.opt.Compress
+		}
+		return s.send(append([][]byte{s.buf.Bytes()}, rawFrame(events, n)...)...)
+	}
+	s.framed = true
 	for _, e := range events {
-		if _, err = s.enc.Write(e); err != nil {
+		if err != nil {
 			break
 		}
+		_, err = s.enc.Write(e)
 	}
 	if err == nil {
 		err = s.enc.Flush()
@@ -242,10 +298,15 @@ func (s *Stream) CloseWith(events ...[]byte) error {
 		return nil
 	}
 	var err error
+	clean := false
 	if s.err == nil && (s.ctx.Err() == nil || s.shuttingDown()) {
 		s.mu.Lock()
 		s.closing = true
 		s.mu.Unlock()
+		n := 0
+		for _, e := range events {
+			n += len(e)
+		}
 		if s.enc != nil {
 			s.buf.Reset()
 			for _, e := range events {
@@ -256,16 +317,25 @@ func (s *Stream) CloseWith(events ...[]byte) error {
 			}
 			if err == nil {
 				err = s.enc.Close()
+				clean = err == nil
 			}
 			if err == nil && s.buf.Len() > 0 {
 				err = s.send(s.buf.Bytes())
 			}
-		} else if len(events) > 0 {
-			for _, e := range events {
-				s.in += int64(len(e))
+		} else if n > 0 {
+			s.in += int64(n)
+			if s.asleep {
+				err = s.send(rawFrame(events, n)...)
+			} else {
+				err = s.send(events...)
 			}
-			err = s.send(events...)
 		}
+	}
+	if e, ok := s.enc.(*zstd.Encoder); ok && clean {
+		s.zstd.put(e)
+	}
+	if s.opt.Budget != nil {
+		s.opt.Budget.close(s.tier, s.encoding, s.user)
 	}
 	s.stop()
 	s.stop = nil
