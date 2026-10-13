@@ -1,0 +1,100 @@
+package checkboxes
+
+import "strconv"
+
+// Stage is the demo on its page: the numbers, the jump field, and the grid
+// at the tab's window, its tiles drawn from the document's read. The
+// stage holds the signals and the handlers; no frame morphs it.
+templ Stage(w Window, tiles [][]byte, s Stats) {
+	<div
+		class="cb"
+		data-signals={ signals }
+		data-init={ measure }
+		data-on:resize__window__debounce.150ms={ measure }
+		data-on:click={ flip }
+		data-on:keydown={ arrows }
+		data-on:datastar-prop-change={ settle }
+		data-on:datastar-fetch={ failed }
+		data-effect={ focusTarget }
+		data-style:--cb-pitch="$_checkboxes.pitch + 'px'"
+	>
+		<form class="cb-jump" data-on:submit__prevent={ jump }>
+			<label for="checkboxes-jump">Go to box</label>
+			<div class="cb-jump__row">
+				<input id="checkboxes-jump" class="input" type="number" min="1" max={ strconv.Itoa(Boxes) } step="1" inputmode="numeric" placeholder="500000" data-bind="_checkboxes.jump"/>
+				<button class="btn" type="submit">Go</button>
+			</div>
+		</form>
+		@StatsBar(s)
+		<p class="outcome is-problem cb__problem" role="alert" data-show="$_checkboxes.problem" data-text="$_checkboxes.problem"></p>
+		<div class="cb__frame">
+			@Board(w, tiles)
+		</div>
+		<div class="cb__foot">
+			<p class="cb__hint">Tick a box, and every tab that shows it sees it change within a tick. Your box blinks until the server's frame brings its new state.</p>
+			<ul class="cb-legend" role="list" aria-label="Key">
+				<li><i class="cb-key"></i>clear</li>
+				<li><i class="cb-key is-on"></i>checked</li>
+				<li><i class="cb-key is-sent"></i>sent, waiting</li>
+			</ul>
+		</div>
+	</div>
+}
+
+// StatsBar is the numbers, one view for everyone.
+templ StatsBar(s Stats) {
+	<dl id="checkboxes-stats" class="cb-stats">
+		<div class="cb-stat">
+			<dt>boxes checked</dt>
+			<dd>{ grouped(s.Checked) }</dd>
+		</div>
+		<div class="cb-stat cb-stat--rate">
+			<dt>toggles per second</dt>
+			<dd>{ grouped(s.PerSecond()) }</dd>
+			<sb-sparkline class="cb-stat__trend" values={ rateJSON(s.Rate) } length={ strconv.Itoa(Trend) } min="0" tone="brand" label="Toggles per second, the last 30 seconds"></sb-sparkline>
+		</div>
+		<div class="cb-stat">
+			<dt>people here</dt>
+			<dd>{ grouped(s.Here) }</dd>
+		</div>
+	</dl>
+}
+
+// Board is the list at a window: Starbase's sb-virtual-scroll, its items
+// the window's slots, chunk n's tile in slot n % Slots. The page measures
+// its tiles per row and row height (columns, item-size). Slots outside
+// the window wait in the park, so that a chunk's frame always finds its
+// slot. tiles holds the window's chunks for the GET document; the tab's
+// view sends the slots empty, and data-ignore-morph keeps their tiles.
+templ Board(w Window, tiles [][]byte) {
+	<div id="checkboxes-board" class="cb-board">
+		<sb-virtual-scroll
+			id="checkboxes-grid"
+			class="cb-grid"
+			label="A million checkboxes"
+			item-size={ strconv.Itoa(defaultItem) }
+			columns={ strconv.Itoa(defaultCols) }
+			buffer="240"
+			total={ strconv.Itoa(Chunks) }
+			offset={ strconv.Itoa(w.Start) }
+			data-attr:columns="$_checkboxes.cols"
+			data-attr:item-size="$_checkboxes.item"
+			data-preserve-attr="columns item-size"
+			data-on:sb-window={ setWindow }
+		>
+			for n := w.Start; n < w.End(); n++ {
+				<div id={ slotID(slot(n)) } class="cb-slot" data-ignore-morph>
+					if tiles != nil {
+						@tile(n, tiles[n-w.Start])
+					}
+				</div>
+			}
+		</sb-virtual-scroll>
+		<div class="cb-park" hidden>
+			for _, s := range parked(w) {
+				<div id={ slotID(s) } class="cb-slot" data-ignore-morph></div>
+			}
+		</div>
+		<i id={ "checkboxes-at-" + strconv.Itoa(w.Start) } hidden data-init="$_checkboxes.moved++"></i>
+	</div>
+}

@@ -1,0 +1,354 @@
+/* A million checkboxes. Its rules apply inside its own elements only. The
+ * page measures the grid (expr.go, measure): --cb-pitch is the distance
+ * from box to box, and a row of the list is a tile and --cb-chrome. */
+@scope ([data-demo="checkboxes"]) {
+	.cb {
+		--cb-chrome: 34px;
+		--_pitch: var(--cb-pitch, 20px);
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-4);
+	}
+
+	/* ── The jump field ─────────────────────────────────────────────── */
+	.cb-jump {
+		display: grid;
+		gap: var(--lith-space-1);
+		inline-size: min(100%, 19rem);
+
+		& label {
+			color: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			font-weight: 600;
+			letter-spacing: 0.02em;
+			transition: color var(--lith-dur-1) var(--lith-ease-snap);
+		}
+
+		&:has(:focus-visible) label {
+			color: var(--lith-accent-text);
+		}
+
+		& .input {
+			font-family: var(--lith-font-code);
+			font-variant-numeric: tabular-nums;
+		}
+	}
+
+	.cb-jump__row {
+		display: flex;
+		gap: var(--lith-space-2);
+
+		& .btn {
+			flex: none;
+			min-block-size: auto;
+		}
+	}
+
+	/* ── The numbers ────────────────────────────────────────────────── */
+	.cb-stats {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) minmax(0, 1fr);
+		margin: 0;
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+
+		@container stage (width < 32rem) {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+
+	.cb-stat {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-1);
+		padding: var(--lith-space-3) var(--lith-space-4);
+
+		& + & {
+			border-inline-start: 1px solid var(--lith-border-subtle);
+		}
+
+		& dt {
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			letter-spacing: var(--lith-tracking-caps);
+			text-transform: uppercase;
+		}
+
+		/* Numbers in the code face: every digit unmistakable. */
+		& dd {
+			order: -1;
+			margin: 0;
+			color: var(--lith-accent-text);
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-xl);
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+			line-height: 1.25;
+		}
+	}
+
+	/* The rate beside its last 30 seconds. On a narrow stage it takes a
+	 * row of its own, under the other two. */
+	.cb-stat--rate {
+		grid-template-columns: auto minmax(0, 1fr);
+		column-gap: var(--lith-space-3);
+
+		& dt {
+			grid-column: 1 / -1;
+		}
+
+		& dd {
+			min-inline-size: 2ch;
+		}
+
+		@container stage (width < 32rem) {
+			grid-column: 1 / -1;
+			order: 1;
+			border-block-start: 1px solid var(--lith-border-subtle);
+
+			.cb-stat + & {
+				border-inline-start: 0;
+			}
+		}
+	}
+
+	.cb-stat__trend {
+		--sb-sparkline-width: 100%;
+		--sb-sparkline-height: 1.5rem;
+		order: -1;
+		align-self: center;
+		min-inline-size: 0;
+	}
+
+	.cb__problem {
+		margin-block: calc(-1 * var(--lith-space-2));
+	}
+
+	/* ── The grid ───────────────────────────────────────────────────── */
+	.cb__frame {
+		container: cb-frame / inline-size;
+	}
+
+	.cb-grid {
+		/* The bars that stand in for tiles on their way. */
+		--sb-surface-hover: color-mix(in oklch, var(--lith-border-subtle) 50%, transparent);
+		block-size: min(38rem, 70dvh);
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background:
+			radial-gradient(ellipse 80% 50% at 50% 0%, var(--lith-accent-subtle), transparent),
+			var(--lith-surface-inset);
+		box-shadow: inset 0 1px 0 var(--lith-border-subtle);
+
+		/* The rows fade out at the frame's lower edge. */
+		&::part(scroller) {
+			mask-image: linear-gradient(#000 calc(100% - 1.5rem), transparent);
+		}
+	}
+
+	/* Before the list is defined its slots show as they will: tiles, one
+	 * or two to a row, cut off at the list's height. */
+	sb-virtual-scroll:not(:defined) {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		grid-auto-rows: calc(16 * var(--_pitch) + var(--cb-chrome));
+		overflow: hidden;
+
+		@container cb-frame (width >= 600px) {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+
+	.cb-slot {
+		display: grid;
+		justify-items: center;
+		align-content: start;
+		padding-block-start: 0.75rem;
+	}
+
+	.cb-tile {
+		display: grid;
+		grid-template-rows: 1.25rem auto;
+		inline-size: calc(16 * var(--_pitch) - 2px);
+
+		/* A tile that arrives, after a jump or further down, settles in. */
+		transition:
+			opacity var(--lith-dur-3) var(--lith-ease-glide),
+			translate var(--lith-dur-3) var(--lith-ease-glide);
+
+		@starting-style {
+			opacity: 0;
+			translate: 0 0.5rem;
+		}
+	}
+
+	.cb-tile__head {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: 0.6875rem;
+		font-variant-numeric: tabular-nums;
+		line-height: 1;
+		letter-spacing: 0.02em;
+
+		& span + span {
+			color: var(--lith-accent-text);
+		}
+	}
+
+	.cb-boxes {
+		display: grid;
+		grid-template-columns: repeat(16, calc(var(--_pitch) - 2px));
+		grid-auto-rows: calc(var(--_pitch) - 2px);
+		gap: 2px;
+	}
+
+	/* ── A box ──────────────────────────────────────────────────────────
+	 * A socket when clear, a lit lamp when checked: filled against hollow
+	 * tells them apart without the colour. The key under the grid draws
+	 * the same three states. */
+	.cb-boxes > input,
+	.cb-key {
+		appearance: none;
+		margin: 0;
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-sm) * 0.5 * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+	}
+
+	.cb-boxes > input {
+		inline-size: 100%;
+		block-size: 100%;
+		cursor: pointer;
+		/* A lamp that lights flares and settles: the curve overshoots. */
+		transition:
+			background-color var(--lith-dur-1) var(--lith-ease-snap),
+			border-color var(--lith-dur-1) var(--lith-ease-snap),
+			box-shadow var(--lith-dur-4) cubic-bezier(0.2, 2.4, 0.4, 1);
+
+		&:hover {
+			border-color: var(--lith-text-muted);
+			background: var(--lith-surface-hover);
+		}
+
+		&:focus-visible {
+			position: relative;
+			z-index: 1;
+			outline: 2px solid var(--lith-focus);
+			outline-offset: 2px;
+		}
+	}
+
+	.cb-boxes > input:checked,
+	.cb-key.is-on {
+		border-color: var(--lith-accent-edge);
+		background: var(--lith-accent);
+		box-shadow: inset 2px 2px 0 -1px var(--lith-art-seam-core), 0 0 6px var(--lith-glow-color);
+	}
+
+	.cb-boxes > input:checked:hover {
+		background: var(--lith-accent-strong);
+	}
+
+	/* Sent, waiting for the frame that flips it: the edge blinks (in the
+	 * key it holds still). */
+	.cb-boxes > input:indeterminate,
+	.cb-key.is-sent {
+		border-style: dashed;
+		border-color: var(--lith-accent-edge);
+	}
+
+	.cb-boxes > input:indeterminate {
+		animation: cb-sent 0.6s steps(2, jump-none) infinite;
+	}
+
+	/* The box asked for: a ring closes in on it as it takes the focus. */
+	@media (prefers-reduced-motion: no-preference) {
+		.cb-boxes > input:focus-visible {
+			animation: cb-found var(--lith-dur-5) var(--lith-ease-glide);
+		}
+
+		.cb-boxes > input:focus-visible:indeterminate {
+			animation:
+				cb-found var(--lith-dur-5) var(--lith-ease-glide),
+				cb-sent 0.6s steps(2, jump-none) infinite;
+		}
+	}
+
+	/* ── Under the grid ─────────────────────────────────────────────── */
+	.cb__foot {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		align-items: start;
+		gap: var(--lith-space-3) var(--lith-space-6);
+	}
+
+	.cb__hint {
+		flex: 1 1 18rem;
+		max-inline-size: 38rem;
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+	}
+
+	.cb-legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-2) var(--lith-space-4);
+		margin: 0;
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+
+		& li {
+			display: flex;
+			align-items: center;
+			gap: var(--lith-space-2);
+		}
+	}
+
+	.cb-key {
+		inline-size: 0.875rem;
+		block-size: 0.875rem;
+	}
+
+	@media (forced-colors: active) {
+		.cb-boxes > input,
+		.cb-key {
+			forced-color-adjust: none;
+			border-color: CanvasText;
+			background: Canvas;
+		}
+
+		.cb-boxes > input:checked,
+		.cb-key.is-on {
+			border-color: Highlight;
+			background: Highlight;
+			box-shadow: none;
+		}
+
+		.cb-boxes > input:focus-visible {
+			outline-color: CanvasText;
+		}
+	}
+}
+
+/* Keyframes are global: they stay outside the scope. */
+@keyframes cb-sent {
+	50% {
+		border-color: transparent;
+		background: var(--lith-accent-subtle);
+	}
+}
+
+@keyframes cb-found {
+	from {
+		outline-offset: 12px;
+		outline-color: transparent;
+	}
+}
