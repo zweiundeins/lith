@@ -4,7 +4,7 @@
 //
 // Where each piece comes from:
 //
-//	ClientIP, ClientKey  starbase and swisscyberguard: proxy headers count only from loopback or a Unix socket
+//	ClientIP, ClientKey  starbase and swisscyberguard: proxy headers count only from loopback or a Unix socket, X-Forwarded-For before X-Real-IP
 //	Sessions             starbase's cookie-only session, hyperlith's __Host-sid, swisscyberguard's 256-bit tokens
 //	CSRF                 Go's CrossOriginProtection rules, strict on missing headers like hyperlith and starbase, kanban's Datastar-Request check
 //	SecurityHeaders, CSP starbase's per-request nonce, hyperlith's policy as data, kanban's and swisscyberguard's other headers

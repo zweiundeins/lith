@@ -35,7 +35,12 @@ pattern matches, and what the review of October 2026 found where.
 - GET handlers never write: no session rows, no events, no counters per hit.
   Crawlers multiply them. (pendlerpreis created a session per `GET /`.)
 - `rg -n 'r\.Header\.Get\("X-(Real-IP|Forwarded-For)"\)' --type go`: client
-  IPs come from `edge`, which trusts those headers only from the local proxy.
+  IPs come from `edge`, which trusts those headers only from the local proxy
+  and takes the last X-Forwarded-For address before X-Real-IP. The proxy must
+  set X-Forwarded-For (Caddy's `reverse_proxy` does by default, nginx with
+  `$proxy_add_x_forwarded_for`). Caddy passes on an X-Real-IP the client sent
+  unless the site block sets it, so a check that believes X-Real-IP first can
+  be dodged. (kanban's and 2und1.ch-2027's Caddy blocks pass it on.)
 - Every non-GET route passes the CSRF middleware; exemptions are listed.
 - Every route that changes data checks authentication and membership.
   (tickit's `/api/*` routes had none.)

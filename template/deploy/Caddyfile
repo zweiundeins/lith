@@ -13,7 +13,9 @@ app.example.com {
 
 	reverse_proxy unix//run/app/app.sock {
 		# The client's address for the rate limits. app takes it only from
-		# the socket or loopback, and a client cannot set it: this replaces it.
+		# the socket or loopback, the last X-Forwarded-For address before
+		# X-Real-IP, and a client cannot set either: these replace them.
+		header_up X-Forwarded-For {http.request.remote.host}
 		header_up X-Real-IP {http.request.remote.host}
 		# Server-sent events: pass every write through at once.
 		flush_interval -1

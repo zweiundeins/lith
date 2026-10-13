@@ -6,19 +6,20 @@ import (
 	"strings"
 )
 
-// ClientIP returns the address of the client that sent r. The local reverse
-// proxy reaches the app over loopback or a Unix socket and names the client in
-// X-Real-IP, or as the last address of X-Forwarded-For. From any other peer
-// those headers are ignored: a client can send them itself, to dodge its rate
-// limit or to spend someone else's. The address is invalid when the peer is a
-// Unix socket and the proxy named no one.
+// ClientIP returns the address of the client that sent r. A peer on loopback
+// or a Unix socket is the local reverse proxy, which names the client as the
+// last address of X-Forwarded-For. The proxy must set that header: Caddy's
+// reverse_proxy does by default, nginx with proxy_set_header X-Forwarded-For
+// $proxy_add_x_forwarded_for. X-Real-IP counts only when there is no
+// X-Forwarded-For: a proxy may pass on an X-Real-IP the client sent, as Caddy
+// does unless the site block sets it. From any other peer both headers are
+// ignored: a client can send them itself, to dodge its rate limit or to spend
+// someone else's. When the proxy names no address that parses, the address is
+// the peer's, invalid for a Unix socket.
 func ClientIP(r *http.Request) netip.Addr {
 	peer := parseAddr(r.RemoteAddr)
 	if peer.IsValid() && !peer.IsLoopback() {
 		return peer
-	}
-	if ip := parseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip.IsValid() {
-		return ip
 	}
 	if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
 		last := xff[len(xff)-1]
@@ -28,6 +29,10 @@ func ClientIP(r *http.Request) netip.Addr {
 		if ip := parseAddr(strings.TrimSpace(last)); ip.IsValid() {
 			return ip
 		}
+		return peer
+	}
+	if ip := parseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ip.IsValid() {
+		return ip
 	}
 	return peer
 }
