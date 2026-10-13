@@ -1,0 +1,42 @@
+// lith-site's own slog output, from the journal to Loki: a block for the
+// host's Alloy config, beside the libretto source it is modelled on. The
+// binary writes one JSON object per line on stdout (`-log json`, the
+// default), systemd stamps SYSLOG_IDENTIFIER=lith-site on every line, and
+// only `job` and `level` become stream labels; everything else stays in the
+// JSON body for LogQL's `| json`.
+//
+// Unverified on the box: run `alloy validate`, and check the line shape with
+// `journalctl -u lith-site -o json | head` (MESSAGE carries the slog JSON).
+
+loki.relabel "lith_site_job" {
+	forward_to = []
+
+	// The job from relabeling, so that it survives relabel_rules (see the
+	// libretto source's note on why `labels` alone is replaced).
+	rule {
+		target_label = "job"
+		replacement  = "lith-site"
+	}
+}
+
+loki.source.journal "lith_site" {
+	forward_to     = [loki.process.lith_site_logs.receiver]
+	relabel_rules  = loki.relabel.lith_site_job.rules
+	labels         = {job = "lith-site"}
+	matches        = "SYSLOG_IDENTIFIER=lith-site"
+	format_as_json = false
+}
+
+loki.process "lith_site_logs" {
+	forward_to = [loki.write.default.receiver]
+
+	// slog's level (INFO, WARN, ERROR, DEBUG) as a label: an error-rate rule
+	// is then a label match, {job="lith-site", level="ERROR"}.
+	stage.json {
+		expressions = {level = "level"}
+	}
+
+	stage.labels {
+		values = {level = "level"}
+	}
+}

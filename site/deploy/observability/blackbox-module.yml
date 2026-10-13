@@ -1,0 +1,7 @@
+# The blackbox module for lith-site's probes (lith-site.targets.yml), to add
+# under `modules:` in the host's blackbox.yml. The body keyword fails a probe
+# that gets an error page with a 200.
+  http_2xx_lith:
+    prober: http
+    timeout: 5s
+    http: { <<: *http_2xx, fail_if_body_not_matches_regexp: ["Linear writes"] }
