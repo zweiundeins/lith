@@ -6,9 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func open(t *testing.T, opts Options) *DB {
@@ -148,6 +150,35 @@ func TestReadPoolIsQueryOnlyAndKeepsItsConnections(t *testing.T) {
 		if s.Idle != 4 || s.MaxIdleClosed != 0 || s.MaxLifetimeClosed != 0 || s.MaxIdleTimeClosed != 0 {
 			t.Fatalf("round %d: %+v", round, s)
 		}
+	}
+}
+
+// A live hub's render workers, GOMAXPROCS of them by default, hold one
+// reader each for good. The default pool leaves at least four readers for
+// everything else.
+func TestDefaultReadersLeaveRoomBesideTheHub(t *testing.T) {
+	ctx := context.Background()
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
+	for _, procs := range []int{2, max(runtime.GOMAXPROCS(0), 6)} {
+		runtime.GOMAXPROCS(procs)
+		d := open(t, Options{})
+		if got, want := d.Options().Readers, max(8, procs+4); got != want {
+			t.Errorf("GOMAXPROCS %d: %d readers, want %d", procs, got, want)
+		}
+		conns := make([]*sql.Conn, 0, procs+4)
+		for i := range procs + 4 {
+			wait, cancel := context.WithTimeout(ctx, time.Second)
+			c, err := d.R.Conn(wait)
+			cancel()
+			if err != nil {
+				t.Fatalf("GOMAXPROCS %d: reader %d: %v", procs, i+1, err)
+			}
+			conns = append(conns, c)
+		}
+		for _, c := range conns {
+			c.Close()
+		}
+		d.Close()
 	}
 }
 

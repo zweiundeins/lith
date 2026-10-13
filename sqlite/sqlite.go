@@ -58,7 +58,11 @@ type Options struct {
 	// connection's pragmas (foreign_keys) must set them back: the writer
 	// takes the connection over.
 	Migrate func(ctx context.Context, w *sql.DB) error
-	// Readers is the size of the read pool (default max(4, GOMAXPROCS)).
+	// Readers is the size of the read pool (default GOMAXPROCS + 4, at
+	// least 8). A live hub's render workers each hold one of its
+	// connections for the hub's life, GOMAXPROCS of them by default, and
+	// GET documents and every other read share the rest: size it as the
+	// hub's Workers plus the reads that run at once besides the hub.
 	Readers int
 	// CacheKiB is the page cache of each connection (default 32000).
 	CacheKiB int
@@ -94,7 +98,7 @@ func (o Options) withDefaults() (Options, error) {
 		return o, errors.New("sqlite: set Options.Migrations or Options.Migrate, not both")
 	}
 	if o.Readers <= 0 {
-		o.Readers = max(4, runtime.GOMAXPROCS(0))
+		o.Readers = max(8, runtime.GOMAXPROCS(0)+4)
 	}
 	if o.CacheKiB <= 0 {
 		o.CacheKiB = 32000

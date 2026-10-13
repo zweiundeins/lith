@@ -39,8 +39,11 @@ import (
 // selects its default.
 type Options struct {
 	// Read is the read pool. Each worker holds one of its connections for
-	// the hub's lifetime, so the pool needs more connections than there
-	// are workers. Without it, views render with a nil transaction.
+	// the hub's lifetime, and everything else that reads (GET documents)
+	// shares the rest: the pool needs Workers connections plus the reads
+	// that run at once besides the hub. sqlite.Options.Readers' default,
+	// GOMAXPROCS + 4 and at least 8, leaves at least four beside the
+	// default Workers. Without Read, views render with a nil transaction.
 	Read *sql.DB
 	// Tick is the shortest time from one tick to the next (default 50ms).
 	Tick time.Duration
