@@ -61,6 +61,10 @@ type Options struct {
 	// Log receives render errors and overrun reports (default
 	// slog.Default()).
 	Log *slog.Logger
+	// OnTick, if set, gets the duration of every tick that rendered
+	// views, as the overrun log measures it. It runs on the hub's loop
+	// and must not block.
+	OnTick func(time.Duration)
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else.
 	SSE sse.Options
@@ -109,6 +113,7 @@ type Hub struct {
 	heartbeat     time.Duration
 	renderTimeout time.Duration
 	log           *slog.Logger
+	onTick        func(time.Duration)
 	sse           sse.Options
 	sampleFor     time.Duration // how long tick durations are sampled after an overrun
 
@@ -207,6 +212,7 @@ func New(o Options) *Hub {
 		heartbeat:     o.Heartbeat,
 		renderTimeout: o.RenderTimeout,
 		log:           o.Log,
+		onTick:        o.OnTick,
 		sse:           o.SSE,
 		sampleFor:     20 * time.Second,
 		done:          done,
