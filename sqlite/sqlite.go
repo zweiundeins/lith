@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -306,8 +307,6 @@ func dsn(path string, pragmas []string, extra url.Values) string {
 	for _, p := range pragmas {
 		q.Add("_pragma", p)
 	}
-	for k, vs := range extra {
-		q[k] = vs
-	}
+	maps.Copy(q, extra)
 	return "file:" + uriPath.Replace(path) + "?" + q.Encode()
 }

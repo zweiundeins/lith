@@ -1430,8 +1430,7 @@ func TestOverrunReport(t *testing.T) {
 	l := &logs{}
 	h := New(Options{Tick: 5 * time.Millisecond, Log: l.logger()})
 	h.sampleFor = 100 * time.Millisecond
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go h.Run(ctx)
 	v := View{Key: "slow", Topics: []string{"t"}, Render: func(context.Context, *sql.Tx) (any, error) {
 		time.Sleep(15 * time.Millisecond)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -33,9 +34,7 @@ type snapMeta struct {
 func (m *Manager) MaintainAll(ctx context.Context, now time.Time) map[string]error {
 	m.mu.Lock()
 	items := make(map[string]*attachedDB, len(m.attached))
-	for name, a := range m.attached {
-		items[name] = a
-	}
+	maps.Copy(items, m.attached)
 	m.mu.Unlock()
 
 	out := make(map[string]error, len(items))

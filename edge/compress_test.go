@@ -257,9 +257,7 @@ func TestCompressReachesTheConnection(t *testing.T) {
 	defer srv.Close()
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			req, _ := http.NewRequest("GET", srv.URL, nil)
 			req.Header.Set("Accept-Encoding", "br")
 			res, err := srv.Client().Do(req)
@@ -272,7 +270,7 @@ func TestCompressReachesTheConnection(t *testing.T) {
 			if res.Header.Get("Content-Encoding") != "br" || !bytes.Equal(decode(t, "br", body), page) {
 				t.Errorf("over the wire: %v", res.Header)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

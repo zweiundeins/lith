@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -342,7 +343,7 @@ func (c *client) events() []event {
 
 func parse(b []byte) []event {
 	var out []event
-	for _, block := range strings.Split(string(b), "\n\n") {
+	for block := range strings.SplitSeq(string(b), "\n\n") {
 		if block == "" {
 			continue
 		}
@@ -378,12 +379,7 @@ func (c *client) patches() []string {
 }
 
 func (c *client) has(html string) bool {
-	for _, p := range c.patches() {
-		if p == html {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.patches(), html)
 }
 
 // unzstd decodes what a zstd stream sent so far.

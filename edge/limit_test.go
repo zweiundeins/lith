@@ -82,9 +82,7 @@ func TestLimiterConcurrent(t *testing.T) {
 	var mu sync.Mutex
 	allowed := 0
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range 50 {
 				if l.Allow("k", 1, now) {
 					mu.Lock()
@@ -92,7 +90,7 @@ func TestLimiterConcurrent(t *testing.T) {
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if allowed != 100 {

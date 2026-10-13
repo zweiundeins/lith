@@ -113,7 +113,7 @@ var (
 )
 
 func checkModule(module string) error {
-	for _, e := range strings.Split(module, "/") {
+	for e := range strings.SplitSeq(module, "/") {
 		if !moduleElem.MatchString(e) {
 			return fmt.Errorf("%q is not a module path, such as example.com/guestbook", module)
 		}

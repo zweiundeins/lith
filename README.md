@@ -1,7 +1,7 @@
 # lith
 
 [![CI](https://github.com/zweiundeins/lith/actions/workflows/ci.yml/badge.svg)](https://github.com/zweiundeins/lith/actions/workflows/ci.yml)
-[![Go 1.26](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Go 1.27](https://img.shields.io/badge/go-1.27-00ADD8?logo=go&logoColor=white)](go.mod)
 [![CGO_ENABLED=0](https://img.shields.io/badge/CGO__ENABLED-0-00ADD8?logo=go&logoColor=white)](#packages)
 [![SQLite: one writer, WAL](https://img.shields.io/badge/SQLite-one%20writer%2C%20WAL-003B57?logo=sqlite&logoColor=white)](sqlite)
 [![Datastar 1.0](https://img.shields.io/badge/Datastar-1.0-6c4fbb)](https://data-star.dev)
