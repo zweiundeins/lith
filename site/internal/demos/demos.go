@@ -11,6 +11,7 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/demos/board"
 	"github.com/zweiundeins/lith/site/internal/demos/canvas"
+	cursorparty "github.com/zweiundeins/lith/site/internal/demos/cursor-party"
 	"github.com/zweiundeins/lith/site/internal/demos/guestbook"
 	"github.com/zweiundeins/lith/site/internal/demos/stream"
 	writerrace "github.com/zweiundeins/lith/site/internal/demos/writer-race"
@@ -25,6 +26,7 @@ var All = []demo.Demo{
 	stream.Demo,
 	canvas.Demo,
 	board.Demo,
+	cursorparty.Demo,
 }
 
 // Check validates every demo, and that no two share a slug or a slot of

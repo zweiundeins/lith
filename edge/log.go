@@ -2,9 +2,11 @@ package edge
 
 import (
 	"cmp"
+	"context"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,13 +46,15 @@ func Recover(log *slog.Logger, next http.Handler) http.Handler {
 
 // LogRequests logs a line for each request as it ends: method, path, status,
 // bytes, duration and client. A 5xx, or a response a panic cut off, logs at
-// Error, the rest at Info. Mount it outside Recover, so it logs the 500.
+// Error, the rest at Info, or at Debug when the handler called Quiet. Mount
+// it outside Recover, so it logs the 500.
 func LogRequests(log *slog.Logger, next http.Handler) http.Handler {
 	log = cmp.Or(log, slog.Default())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &recorder{ResponseWriter: w}
 		completed := false
+		quiet := new(atomic.Bool)
 		defer func() {
 			status, level := rec.status, slog.LevelInfo
 			if status == 0 && completed {
@@ -58,6 +62,8 @@ func LogRequests(log *slog.Logger, next http.Handler) http.Handler {
 			}
 			if status >= 500 || !completed {
 				level = slog.LevelError
+			} else if quiet.Load() {
+				level = slog.LevelDebug
 			}
 			ip := "local"
 			if a := ClientIP(r); a.IsValid() {
@@ -76,9 +82,21 @@ func LogRequests(log *slog.Logger, next http.Handler) http.Handler {
 			}
 			log.LogAttrs(r.Context(), level, "request", attrs...)
 		}()
-		next.ServeHTTP(rec, r)
+		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), quietKey{}, quiet)))
 		completed = true
 	})
+}
+
+type quietKey struct{}
+
+// Quiet tells LogRequests that the request is one of many alike, such as
+// the moves of a pointer that a page sends several times a second: its
+// line goes out at Debug instead of Info, unless it fails with a 5xx or is
+// cut off, which still log at Error. Outside LogRequests it does nothing.
+func Quiet(r *http.Request) {
+	if q, ok := r.Context().Value(quietKey{}).(*atomic.Bool); ok {
+		q.Store(true)
+	}
 }
 
 // recorder notes the status and size of a response as it passes.

@@ -158,4 +158,4 @@ A check must not queue behind the writer: a command waits for every batch ahead 
 
 ## Errors and logs
 
-`edge.Recover(log, h)` turns a panic into a 500, logged with its stack; when the answer has begun, it aborts the connection instead, so the client can tell that the answer is incomplete. `edge.LogRequests(log, h)` logs a line per request as it ends: method, path, status, bytes, duration and client, at Error for a 5xx and at Info otherwise.
+`edge.Recover(log, h)` turns a panic into a 500, logged with its stack; when the answer has begun, it aborts the connection instead, so the client can tell that the answer is incomplete. `edge.LogRequests(log, h)` logs a line per request as it ends: method, path, status, bytes, duration and client, at Error for a 5xx and at Info otherwise. A handler whose requests come several times a second from one page calls `edge.Quiet(r)`, and their lines go out at Debug unless they fail: the cursor party's moves do, 15 a second from every pointer.
