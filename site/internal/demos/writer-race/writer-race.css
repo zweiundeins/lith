@@ -1,4 +1,13 @@
 /* The writer race. Its rules apply inside its own elements only. */
+
+/* How hot the track is: 0 at rest, 1 while a race runs. Registered, so
+ * that it animates. */
+@property --wr-heat {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 0;
+}
+
 @scope ([data-demo="writer-race"]) {
 	.wr {
 		display: grid;
@@ -171,31 +180,34 @@
 	}
 
 	/* ── The track ─────────────────────────────────────────────────── */
+	/* The track heats up while a race runs and cools down after it: one
+	 * animatable number (--wr-heat, from 0 to 1) drives the edge, the glow
+	 * and the progress blocks, so they all change together. */
 	.wr-track {
+		--wr-heat: 0;
 		container: track / inline-size;
 		position: relative;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		gap: var(--lith-space-4);
 		padding: var(--lith-space-5);
-		border: 1px solid var(--lith-border);
+		border: 1px solid color-mix(in oklch, var(--lith-accent-edge) calc(var(--wr-heat) * 100%), var(--lith-border));
 		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
 		background: var(--lith-surface-1);
-		box-shadow: var(--lith-shadow-2);
-		transition:
-			border-color var(--lith-dur-4) var(--lith-ease-glide),
-			box-shadow var(--lith-dur-4) var(--lith-ease-glide);
+		box-shadow:
+			0 0 0 1px color-mix(in oklch, var(--lith-accent-subtle) calc(var(--wr-heat) * 100%), transparent),
+			0 18px 48px -20px color-mix(in oklch, var(--lith-glow-color) calc(var(--wr-heat) * 100%), transparent),
+			var(--lith-shadow-2);
+		/* It cools slowly, like the guestbook's arrivals. */
+		transition: --wr-heat 2.4s var(--lith-ease-glide);
 
 		@container stage (width < 34rem) {
 			padding: var(--lith-space-4);
 		}
 
-		/* While a race runs, the track glows like the seam. */
 		&[data-state="running"] {
-			border-color: var(--lith-accent-edge);
-			box-shadow:
-				0 0 0 1px var(--lith-accent-subtle),
-				0 18px 48px -20px var(--lith-glow-color);
+			--wr-heat: 1;
+			transition-duration: var(--lith-dur-4);
 		}
 	}
 
@@ -300,7 +312,8 @@
 		& i {
 			display: block;
 			block-size: 100%;
-			background: repeating-linear-gradient(90deg, var(--lith-accent) 0 6px, transparent 6px 8px);
+			background: repeating-linear-gradient(90deg, color-mix(in oklch, var(--lith-accent) calc(45% + var(--wr-heat) * 55%), var(--lith-border)) 0 6px, transparent 6px 8px);
+			filter: drop-shadow(0 0 calc(var(--wr-heat) * 4px) var(--lith-glow-color));
 			scale: var(--p) 1;
 			transform-origin: left;
 			transition: scale 120ms linear;
@@ -310,9 +323,6 @@
 			}
 		}
 
-		[data-state="done"] & i {
-			background: repeating-linear-gradient(90deg, color-mix(in oklch, var(--lith-accent) 55%, var(--lith-border)) 0 6px, transparent 6px 8px);
-		}
 	}
 
 	/* ── The result of a race that is over ─────────────────────────── */
@@ -648,7 +658,6 @@
 	}
 
 	.wr-wait {
-		view-transition-class: writer-race-wait;
 		display: inline-flex;
 		align-items: center;
 		gap: var(--lith-space-2);
@@ -659,16 +668,26 @@
 		font-size: var(--lith-text-xs);
 		transition:
 			opacity var(--lith-dur-4) var(--lith-ease-glide),
-			translate var(--lith-dur-4) var(--lith-ease-glide);
+			translate var(--lith-dur-4) var(--lith-ease-glide),
+			background-color var(--lith-dur-4) var(--lith-ease-glide),
+			border-color var(--lith-dur-4) var(--lith-ease-glide),
+			box-shadow var(--lith-dur-4) var(--lith-ease-glide);
 
+		/* A race that joins slides in from where the line grows. */
 		@starting-style {
 			opacity: 0;
-			translate: 0.5rem 0;
+			translate: 0.75rem 0;
 		}
 
 		&.is-mine {
 			border-color: var(--lith-accent-edge);
+		}
+
+		/* The head of the line: the race on the track. */
+		&.is-on {
+			border-color: var(--lith-accent-edge);
 			background: var(--lith-accent-subtle);
+			box-shadow: 0 6px 20px -10px var(--lith-glow-color);
 		}
 	}
 
@@ -680,11 +699,28 @@
 		background: var(--lith-surface-inset);
 		color: var(--lith-text-muted);
 		font-weight: 700;
+		transition: background-color var(--lith-dur-4) var(--lith-ease-glide), color var(--lith-dur-4) var(--lith-ease-glide);
 
-		.wr-wait:first-child & {
+		/* The race on the track: a pixel arrow, lit. */
+		.is-on > & {
 			background: var(--lith-accent);
 			color: var(--lith-on-accent);
 		}
+
+		& i {
+			inline-size: 6px;
+			block-size: 9px;
+			background: currentColor;
+			clip-path: polygon(0 0, 2px 0, 2px 1px, 4px 1px, 4px 3px, 6px 3px, 6px 6px, 4px 6px, 4px 8px, 2px 8px, 2px 9px, 0 9px);
+		}
+	}
+
+	.wr-wait__now {
+		color: var(--lith-accent-text);
+		font-weight: 700;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+		font-size: 0.625rem;
 	}
 
 	.wr-wait__race {
@@ -714,10 +750,21 @@
 		container: results / inline-size;
 	}
 
+	/* Fixed columns: a row that arrives changes no other row's layout, so
+	 * the rows that glide down keep their look. */
 	.wr-table {
 		inline-size: 100%;
 		border-collapse: collapse;
+		table-layout: fixed;
 		font-size: var(--lith-text-sm);
+
+		& th:first-child {
+			inline-size: 4.5rem;
+		}
+
+		& th:nth-child(2) {
+			inline-size: 8.5rem;
+		}
 
 		& th,
 		& td {
@@ -741,10 +788,16 @@
 		& tbody th {
 			color: var(--lith-text-1);
 			font-family: var(--lith-font-ui);
+		}
 
-			& .wr-you {
-				margin-inline-start: var(--lith-space-2);
-			}
+		/* The tab's own race: the row is marked, and says so to screen
+		 * readers. */
+		& .wr-you {
+			position: absolute;
+			inline-size: 1px;
+			block-size: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
 		}
 
 		& td {
@@ -783,6 +836,7 @@
 
 		&.is-mine {
 			background: var(--lith-accent-subtle);
+			box-shadow: inset 3px 0 0 var(--lith-accent);
 		}
 
 		& .wr-table__rate {
@@ -911,17 +965,14 @@
 	}
 }
 
-/* View transitions belong to the document, outside the scope. The line and
- * the table morph inside one: the races still waiting glide forward when
- * the first leaves for the track, and the rows glide down under a new
- * one, which shows its own @starting-style arrival instead of a fade. */
-::view-transition-group(.writer-race-wait),
+/* View transitions belong to the document, outside the scope. The table
+ * of results morphs inside one: the rows glide down under a new one,
+ * which shows its own @starting-style arrival instead of a fade. */
 ::view-transition-group(.writer-race-result) {
 	animation-duration: var(--lith-dur-5);
 	animation-timing-function: var(--lith-ease-glide);
 }
 
-::view-transition-new(.writer-race-result):only-child,
-::view-transition-new(.writer-race-wait):only-child {
+::view-transition-new(.writer-race-result):only-child {
 	animation: none;
 }

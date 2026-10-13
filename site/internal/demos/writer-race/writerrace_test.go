@@ -276,7 +276,9 @@ func TestSweep(t *testing.T) {
 	if races != Kept || charted != Charted-2 || !slices.Equal(states, []string{"queued", "dropped"}) {
 		t.Errorf("after the sweep: %d races, %d with samples, the newest %v", races, charted, states)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race", "writer-race:line", "writer-race:results"}) {
+	// The dropped race leaves the line; the races deleted are the oldest,
+	// which no view shows.
+	if got := e.Touched(); !slices.Equal(got, []string{"writer-race", "writer-race:line"}) {
 		t.Errorf("the sweep touched %v", got)
 	}
 	e.Do(t, writer.Func(func(tx *writer.Tx) error { return sweep(tx, now) }))
@@ -328,7 +330,7 @@ func TestViews(t *testing.T) {
 			t.Errorf("the track lacks %q:\n%s", want, track)
 		}
 	}
-	if line := render(vs[1]); !strings.Contains(line, `id="writer-race-wait-2"`) || !strings.Contains(line, `view-transition-name: writer-race-wait-2`) || strings.Contains(line, "wait-1") {
+	if line := render(vs[1]); !strings.Contains(line, `id="writer-race-wait-1" class="wr-wait is-on"`) || !strings.Contains(line, `id="writer-race-wait-2" class="wr-wait"`) || strings.Contains(line, "useViewTransition") {
 		t.Errorf("the line:\n%s", line)
 	}
 	if results := render(vs[2]); !strings.Contains(results, "Every race that ends lands here") {

@@ -103,9 +103,11 @@ func onTrack(ctx context.Context, q sqlite.Querier) (Race, error) {
 	return list[0], nil
 }
 
-// inLine returns the races that wait, first in line first.
+// inLine returns the race on the track, if one runs, and the races that
+// wait, first in line first: the one on the track joined the line before
+// them all.
 func inLine(ctx context.Context, q sqlite.Querier) ([]Race, error) {
-	return races(ctx, q, `SELECT `+raceColumns+` FROM writer_race_races WHERE state = 'queued' ORDER BY id`)
+	return races(ctx, q, `SELECT `+raceColumns+` FROM writer_race_races WHERE state IN ('running', 'queued') ORDER BY id`)
 }
 
 // recent returns the newest n races that ended, newest first.

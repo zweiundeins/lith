@@ -187,24 +187,36 @@ templ chartFigure(c chart, class string) {
 	</figure>
 }
 
-// Line is the races that wait for the track, first in line first.
-templ Line(waiting []Race) {
+// Line is the race on the track and the races that wait for it, first in
+// line first. A race keeps its element from the line onto the track, so
+// the morph changes its look instead of replacing it.
+templ Line(list []Race) {
 	<section id="writer-race-line" class="wr-line" aria-labelledby="writer-race-line-title">
 		<h3 id="writer-race-line-title">In line</h3>
-		if len(waiting) == 0 {
+		if waiting(list) == 0 {
 			<p class="wr-line__empty">Nobody waits. A race you start now runs at once.</p>
 		}
 		<ol class="wr-line__list" role="list">
-			for i, r := range waiting {
+			for i, r := range list {
 				<li
 					id={ waitID(r.ID) }
-					class="wr-wait"
-					style={ "view-transition-name: " + waitID(r.ID) }
+					if r.State == "running" {
+						class="wr-wait is-on"
+					} else {
+						class="wr-wait"
+					}
 					data-class:is-mine={ mine(r.ID) }
 				>
-					<span class="wr-wait__place">{ strconv.Itoa(i + 1) }</span>
+					if r.State == "running" {
+						<span class="wr-wait__place" aria-hidden="true"><i></i></span>
+					} else {
+						<span class="wr-wait__place">{ strconv.Itoa(i + 1 - (len(list) - waiting(list))) }</span>
+					}
 					<span class="wr-wait__race">Race { strconv.FormatInt(r.ID, 10) }</span>
 					<span class="wr-wait__set">{ producers(r.Producers) }, { r.Sync }</span>
+					if r.State == "running" {
+						<span class="wr-wait__now">on the track</span>
+					}
 					<span class="wr-you">yours</span>
 				</li>
 			}
@@ -242,7 +254,7 @@ templ Results(list []Race, now time.Time) {
 								data-fresh
 							}
 						>
-							<th scope="row">{ strconv.FormatInt(r.ID, 10) }<span class="wr-you">yours</span></th>
+							<th scope="row">{ strconv.FormatInt(r.ID, 10) }<span class="wr-you"> (yours)</span></th>
 							<td>{ strconv.Itoa(r.Producers) }, { r.Sync }</td>
 							if r.State == "done" {
 								<td class="num wr-table__rate">{ group(int64(r.Rate())) }</td>

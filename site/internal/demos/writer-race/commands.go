@@ -224,12 +224,10 @@ func sweep(tx *writer.Tx, now time.Time) error {
 	if dropped > 0 {
 		tx.Touch(LineTopic, Topic)
 	}
-	races, err := demo.KeepNewest(tx, "writer_race_races", Kept)
-	if err != nil {
+	// The races it deletes are the oldest, never among those the page
+	// shows: no view changes.
+	if _, err := demo.KeepNewest(tx, "writer_race_races", Kept); err != nil {
 		return err
-	}
-	if races > 0 {
-		tx.Touch(ResultsTopic)
 	}
 	// The samples of the race on the track stay: it is among the newest.
 	_, err = tx.Exec(`DELETE FROM writer_race_samples WHERE race_id < (

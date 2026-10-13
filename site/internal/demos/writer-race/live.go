@@ -56,19 +56,20 @@ func trackView() live.View {
 	}
 }
 
-// lineView is the races in line. It changes a few times a race, inside a
-// view transition: the races still waiting glide up when the first one
-// leaves for the track.
+// lineView is the race on the track and the races in line. Its frames
+// morph at once: a race that joins slides in, and the first in line turns
+// into the one on the track. The table of results animates in a view
+// transition, and two of them at once would cut the first one short.
 func lineView() live.View {
 	return live.View{
 		Key:    Slug + ":line",
-		Topics: []string{LineTopic},
+		Topics: []string{LineTopic, Topic},
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			waiting, err := inLine(ctx, demo.Querier(ctx, tx))
+			list, err := inLine(ctx, demo.Querier(ctx, tx))
 			if err != nil {
 				return nil, err
 			}
-			return demo.Animated(ctx, Line(waiting), sse.Patch{})
+			return demo.Patch(ctx, Line(list))
 		},
 	}
 }

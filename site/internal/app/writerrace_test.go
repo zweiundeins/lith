@@ -50,6 +50,26 @@ func writerRaceOver(t *testing.T, a *app.App) {
 	}
 }
 
+// writerRaceNext is next with the time a race takes: its pause, its line
+// and its three seconds.
+func writerRaceNext(t *testing.T, events <-chan string, want string) string {
+	t.Helper()
+	timeout := time.After(20 * time.Second)
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatalf("the stream ended before an event with %q", want)
+			}
+			if strings.Contains(event, want) {
+				return event
+			}
+		case <-timeout:
+			t.Fatalf("no event with %q in 20s", want)
+		}
+	}
+}
+
 // TestWriterRaceStream runs races over HTTP: one tab starts a race and
 // its stream shows it join the line, run tick by tick and end; another
 // session's race waits in line meanwhile and runs after it. When both are
@@ -81,7 +101,7 @@ func TestWriterRaceStream(t *testing.T) {
 	for range 3 {
 		next(t, events, `id="writer-race-track" class="wr-track" data-state="running"`)
 	}
-	next(t, events, `id="writer-race-result-1"`)
+	writerRaceNext(t, events, `id="writer-race-result-1"`)
 	next(t, events, `"ack":"op1","mine":1,"active":false`)
 
 	// The same session again while bob's race waits or runs: refused.
@@ -90,7 +110,8 @@ func TestWriterRaceStream(t *testing.T) {
 	}
 	bobs := listen(t, bob, base+"/demos/writer-race/stream?tab=tab3")
 	next(t, bobs, "Race 2 is yours and")
-	next(t, events, `id="writer-race-result-2"`)
+	// Bob's race starts after the pause and runs its three seconds.
+	writerRaceNext(t, events, `id="writer-race-result-2"`)
 	writerRaceOver(t, a)
 
 	// Bad requests never reach the writer, each from a session of its own
@@ -176,10 +197,18 @@ func TestShotsWriterRace(t *testing.T) {
 	}
 	a, base := apptest.Start(t)
 	b := browser.Start(t)
-	p := b.NewPage(t, 1440, 1000)
-	p.Navigate(t, base+"/demos/writer-race")
-	p.Eval(t, "document.fonts.ready.then(() => true)", nil)
-	p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
+	open := func(w, h int, setup string) *browser.Page {
+		q := b.NewPage(t, w, h)
+		if setup != "" {
+			q.Navigate(t, base+"/")
+			q.Eval(t, setup, nil)
+		}
+		q.Navigate(t, base+"/demos/writer-race")
+		q.Eval(t, "document.fonts.ready.then(() => true)", nil)
+		q.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
+		return q
+	}
+	p := open(1440, 1000, "")
 	time.Sleep(500 * time.Millisecond)
 	p.Screenshot(t, filepath.Join(dir, "writer-race-empty.png"), true)
 
@@ -193,24 +222,33 @@ func TestShotsWriterRace(t *testing.T) {
 	time.Sleep(1200 * time.Millisecond)
 	p.Screenshot(t, filepath.Join(dir, "writer-race-done.png"), true)
 
-	shot := func(name, path string, w, h int, setup string) {
-		q := b.NewPage(t, w, h)
+	// Three people at once: one race on the track, two in line, in the
+	// light theme.
+	light := open(1440, 1000, "document.cookie = 'lith-theme=light; Path=/'")
+	others := []*browser.Page{open(1280, 900, ""), open(1280, 900, "")}
+	writerRaceStart(t, light, 200, "FULL")
+	light.Wait(t, `document.querySelector('#writer-race-track[data-state="running"]')`, 10*time.Second)
+	writerRaceStart(t, others[0], 50, "NORMAL")
+	writerRaceStart(t, others[1], 1, "FULL")
+	light.Wait(t, `document.querySelectorAll('.wr-wait').length === 2`, 5*time.Second)
+	time.Sleep(1200 * time.Millisecond)
+	light.Screenshot(t, filepath.Join(dir, "writer-race-light-running.png"), true)
+	others[0].ShotElement(t, ".demo-stage", filepath.Join(dir, "detail-writer-race-line.png"), 1)
+	writerRaceOver(t, a)
+	time.Sleep(1200 * time.Millisecond)
+
+	shot := func(name string, w, h int, setup string) {
+		q := open(w, h, setup)
 		defer q.Close(t)
-		if setup != "" {
-			q.Navigate(t, base+"/")
-			q.Eval(t, setup, nil)
-		}
-		q.Navigate(t, base+path)
-		q.Eval(t, "document.fonts.ready.then(() => true)", nil)
 		time.Sleep(900 * time.Millisecond)
 		q.Screenshot(t, filepath.Join(dir, name+".png"), true)
 		if errs := q.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %v", name, errs)
 		}
 	}
-	shot("writer-race-light", "/demos/writer-race", 1440, 1000, "document.cookie = 'lith-theme=light; Path=/'")
-	shot("writer-race-smooth", "/demos/writer-race", 1440, 1000, "document.cookie = 'lith-style=smooth; Path=/'")
-	shot("mobile-writer-race", "/demos/writer-race", 390, 844, "")
+	shot("writer-race-light", 1440, 1000, "document.cookie = 'lith-theme=light; Path=/'")
+	shot("writer-race-smooth", 1440, 1000, "document.cookie = 'lith-style=smooth; Path=/'")
+	shot("mobile-writer-race", 390, 844, "")
 
 	home := b.NewPage(t, 1440, 900)
 	home.Call(t, "Emulation.setEmulatedMedia", map[string]any{"features": []map[string]string{{"name": "prefers-reduced-motion", "value": "reduce"}}})
@@ -223,7 +261,7 @@ func TestShotsWriterRace(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 	home.ShotElement(t, "#linear", filepath.Join(dir, "detail-writer-race-slot-running.png"), 1.5)
 	writerRaceOver(t, a)
-	for name, q := range map[string]*browser.Page{"the race": p, "the landing page": home} {
+	for name, q := range map[string]*browser.Page{"the race": p, "the light page": light, "the landing page": home, "the second": others[0], "the third": others[1]} {
 		if errs := q.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %v", name, errs)
 		}

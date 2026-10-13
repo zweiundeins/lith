@@ -126,5 +126,16 @@ func (c chart) caption() string {
 	return ", against " + c.Bench + " a second in lith's benchmark on an Intel i5-13500."
 }
 
+// waiting counts the races in list that wait.
+func waiting(list []Race) int {
+	n := 0
+	for _, r := range list {
+		if r.State == "queued" {
+			n++
+		}
+	}
+	return n
+}
+
 func waitID(id int64) string   { return "writer-race-wait-" + strconv.FormatInt(id, 10) }
 func resultID(id int64) string { return "writer-race-result-" + strconv.FormatInt(id, 10) }

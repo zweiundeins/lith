@@ -33,10 +33,9 @@ const (
 
 // The topics. Topic is touched when a race starts or ends, LineTopic
 // when one joins or leaves the line, LiveTopic by every sample of the race
-// on the track, ResultsTopic when a race ends. The views that animate
-// their patches in a view transition listen to the topics of their own
-// changes only: a frame of theirs goes out on every render, changed or
-// not, and two transitions at once cut the first one short.
+// on the track, ResultsTopic when a race ends. The table of results
+// animates its frames in a view transition, and such a frame goes out on
+// every render, changed or not: its view listens to ResultsTopic alone.
 const (
 	Topic        = Slug
 	LineTopic    = Slug + ":line"
