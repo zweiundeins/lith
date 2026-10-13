@@ -114,3 +114,105 @@ func TestNewLimiterRefusesNonsense(t *testing.T) {
 		}()
 	}
 }
+
+func TestWindow(t *testing.T) {
+	l := NewWindow(5, time.Hour)
+	for i := range 5 {
+		if !l.Allow("ip", 1, t0.Add(time.Duration(i)*10*time.Minute)) {
+			t.Fatalf("message %d of 5 refused", i+1)
+		}
+	}
+	// A bucket of 5 an hour would have given a token back by now.
+	for _, at := range []time.Duration{40 * time.Minute, 59*time.Minute + 59*time.Second} {
+		if l.Allow("ip", 1, t0.Add(at)) {
+			t.Errorf("a sixth message at %v", at)
+		}
+	}
+	if !l.Allow("other", 5, t0) {
+		t.Error("keys share a window")
+	}
+	// The next window opens with the first use after the hour, and runs an
+	// hour from there.
+	next := t0.Add(90 * time.Minute)
+	if !l.Allow("ip", 5, next) || l.Allow("ip", 1, next.Add(59*time.Minute)) || !l.Allow("ip", 1, next.Add(time.Hour)) {
+		t.Error("the second window")
+	}
+	if l.Allow("ip", 6, next.Add(3*time.Hour)) || !l.Allow("ip", 5, next.Add(3*time.Hour)) {
+		t.Error("more than n at once was allowed, or the refusal took tokens")
+	}
+	if !l.Allow("ip", 0, next.Add(3*time.Hour)) {
+		t.Error("taking nothing is always allowed")
+	}
+}
+
+func TestWindowSurvivesAClockStep(t *testing.T) {
+	l := NewWindow(5, time.Minute)
+	l.Allow("ip", 5, t0)
+	for _, back := range []time.Duration{-time.Millisecond, -45 * time.Second, -time.Hour} {
+		if l.Allow("ip", 1, t0.Add(back)) {
+			t.Errorf("a %v clock step opened a new window", back)
+		}
+	}
+	if l.Len() != 1 {
+		t.Errorf("the step swept an open window: %d left", l.Len())
+	}
+	if !l.Allow("ip", 5, t0.Add(time.Minute)) {
+		t.Error("the window did not close once the clock passed its end")
+	}
+}
+
+func TestWindowSweep(t *testing.T) {
+	l := NewWindow(3, 2*time.Second)
+	for i := range 1000 {
+		l.Allow(strconv.Itoa(i), 1, t0)
+	}
+	l.Allow("busy", 3, t0.Add(1500*time.Millisecond))
+	if !l.Allow("new", 1, t0.Add(2500*time.Millisecond)) {
+		t.Fatal("a new key was refused")
+	}
+	if l.Len() != 2 {
+		t.Errorf("%d windows after the sweep, want busy and new", l.Len())
+	}
+	if l.Allow("busy", 1, t0.Add(2500*time.Millisecond)) {
+		t.Error("the sweep closed busy's window early")
+	}
+}
+
+func TestWindowConcurrent(t *testing.T) {
+	l := NewWindow(100, time.Hour)
+	now := time.Now()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	allowed := 0
+	for range 8 {
+		wg.Go(func() {
+			for range 50 {
+				if l.Allow("k", 1, now) {
+					mu.Lock()
+					allowed++
+					mu.Unlock()
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if allowed != 100 {
+		t.Errorf("%d of 400 allowed, want the window's 100", allowed)
+	}
+}
+
+func TestNewWindowRefusesNonsense(t *testing.T) {
+	for _, c := range []struct {
+		n   int
+		per time.Duration
+	}{{0, time.Hour}, {-1, time.Hour}, {1, 0}, {1, -time.Second}} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("NewWindow(%d, %v) did not panic", c.n, c.per)
+				}
+			}()
+			NewWindow(c.n, c.per)
+		}()
+	}
+}
