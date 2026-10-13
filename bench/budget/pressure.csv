@@ -1,0 +1,6 @@
+step,limit_mib,reserved_mib,live_heap_mib,bytes_per_frame,us_per_frame,tiers
+first frame,1024,828.1,828.3,10896,244.4,zstd 2^19: 500
+second frame,1024,828.1,828.3,87,54.3,zstd 2^19: 500
+frame after the drop,512,414.1,406.5,10925,343.5,zstd 2^18 low memory: 500
+next frame,512,414.1,406.5,76,52.8,zstd 2^18 low memory: 500
+frame after the limit is back,1024,414.1,405.8,4529,127.1,zstd 2^18 low memory: 500

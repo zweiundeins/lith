@@ -1,0 +1,7 @@
+setting,hibernate_s,tabs,heap_mib_per_tab,heap_mib_per_tab_max,awake_share,frames,bytes_per_frame,wake_frames,bytes_per_wake_frame,bytes_per_other_frame,heartbeat_bytes_per_tab_hour,us_per_wake_write,us_per_other_write
+zstd 2^17 low memory,0,200,0.640,0.641,1.000,8060,433,0,0,433,1010,0,21.0
+zstd 2^17 low memory,30,200,0.106,0.130,0.163,8060,1533,3307,1947,1244,2412,33.0,24.4
+zstd 2^17 low memory,120,200,0.308,0.348,0.478,8060,1103,1950,1967,827,1798,41.5,23.6
+zstd 2^19,0,200,1.647,1.647,1.000,8060,277,0,0,277,1010,0,16.8
+zstd 2^19,30,200,0.268,0.330,0.163,8060,1532,3307,1947,1244,2412,32.3,26.6
+zstd 2^19,120,200,0.787,0.889,0.478,8060,1093,1950,1967,814,1798,41.2,22.8

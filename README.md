@@ -28,7 +28,7 @@ HTML with templ, and each app keeps its own pages and domain model.
 | [`sqlite`](sqlite) | one write connection and a `query_only` read pool, pragmas, `user_version` migrations, read-only opens, `VACUUM INTO` backups |
 | [`writer`](writer) | the single writer: `Send`, `Do` and `DoValue`, batches with a savepoint per command, prepared statements, `Once` for retried requests, `Exclusive` for work between batches |
 | [`live`](live) | topics mark views dirty; a tick feeds render workers that read one snapshot each and render each changed view once for all its viewers |
-| [`sse`](sse) | Datastar events, formatted once and written to many streams, with zstd, brotli or gzip per stream and a deadline on every write |
+| [`sse`](sse) | Datastar events, formatted once and written to many streams, with zstd, brotli or gzip per stream and a deadline on every write; a memory budget that shrinks the streams' windows as more open |
 | [`edge`](edge) | sessions, CSRF, client IP, CSP with a nonce, compression, precompressed static files, rate limiters, health checks |
 | [`tenant`](tenant) | one open database per account, refcounted, evicted at a soft cap |
 | [`dbmetrics`](dbmetrics) | statement timing and a slow-query log through a wrapping driver |
