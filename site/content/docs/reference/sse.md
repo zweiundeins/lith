@@ -215,7 +215,8 @@ The namespaces Datastar v1 knows besides HTML.
 ```go
 type Options struct {
 	// WriteTimeout bounds each write to the client (default 10s). A
-	// client that does not take a write in time loses its stream.
+	// client that does not take a write in time loses its stream. The end
+	// frame of a stream the hub stops waits 250 ms at most.
 	WriteTimeout time.Duration
 	// Compress, if set, is a semaphore shared by streams: its capacity
 	// bounds how many compress at once. A slot is held only while
