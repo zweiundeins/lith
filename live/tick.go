@@ -256,6 +256,7 @@ type worker struct {
 	conn  *sql.Conn
 	start chan *tick
 	stmts map[string]*stmt // prepared on conn, by their SQL text
+	lru   stmtList         // the same statements, the one used last first
 }
 
 func (w *worker) run() {
