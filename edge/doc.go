@@ -10,7 +10,7 @@
 //	SecurityHeaders, CSP starbase's per-request nonce and sources, hyperlith's policy as data, kanban's and swisscyberguard's other headers
 //	Compress, Negotiate  starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap where libretto and swisscyberguard kept bypass lists
 //	Static, Precompress  starbase's precompress package, libretto's content ETags with no-cache, kanban's hashed immutable URLs
-//	Limiter              starbase's token bucket, swept as it goes, and libretto's rule that a clock step must not reset it
+//	Limiter              starbase's token bucket, swept as it goes, libretto's rule that a clock step must not reset it, and its five messages in the last hour
 //	Health, Ready        libretto's and swisscyberguard's liveness and readiness probes, with checks registered by the app
 //	Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
 //

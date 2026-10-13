@@ -55,6 +55,10 @@ pattern matches, and what the review of October 2026 found where.
 - Every non-GET route passes the CSRF middleware; exemptions are listed.
 - Every route that changes data checks authentication and membership.
   (tickit's `/api/*` routes had none.)
+- `rg -n 'edge\.NewWindow\(' --type go`: a limit promised to people, such as
+  five messages an hour, is `edge.NewSliding(5, time.Hour)`. A fixed window
+  lets up to twice as many through around the edge between two windows, and
+  a bucket (`NewLimiter`) gives tokens back as time passes.
 
 ## Streams
 
