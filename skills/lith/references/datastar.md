@@ -11,10 +11,15 @@ write-up; look there before changing the behaviour.
   [swisscyberguard CLAUDE.md, Stack]
 - HTML lowercases attribute names: `data-bind:fullFare` binds a second, empty
   signal `fullfare`. Use kebab-case keys. [pendlerpreis docs/03-findings.md]
-- There is no `load` plugin: `data-on:load` never fires, on the body or any
-  other element, with or without modifiers. Open streams with `data-init`.
-  [pendlerpreis; swisscyberguard's two streams and its credential auto-hide
-  never ran]
+- `data-on:load` listens for its element's own `load` event, which only
+  elements that load something fire (img, iframe, script, link). On a div or
+  the body it never runs: the page's load event goes to window. Open streams
+  with `data-init`. [pendlerpreis; swisscyberguard's two streams and its
+  credential auto-hide sat on divs and never ran]
+- `data-init__delay` starts a timer that is never cleared: it fires even
+  after its element is gone, and a leftover hid a later reveal early. A
+  timeout that must end with its element uses `data-on-interval__duration`,
+  which Datastar clears when the element goes. [swisscyberguard CRED-01]
 - A regex in `filterSignals` needs its slashes; without them the whole handler
   fails to compile. [pendlerpreis]
 - Signals that start with `_` stay in the browser and are not sent with
