@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,6 +59,42 @@ func TestShotsCheckboxes(t *testing.T) {
 		input.dispatchEvent(new Event('input', {bubbles: true}))
 		document.querySelector('.cb-jump button').click()
 	})()`)
+
+	// The whole page, "How it works" open.
+	full := b.NewPage(t, 1440, 900)
+	full.Call(t, "Emulation.setEmulatedMedia", map[string]any{"features": []map[string]string{{"name": "prefers-reduced-motion", "value": "reduce"}}})
+	full.Navigate(t, base+"/demos/checkboxes")
+	full.Eval(t, "document.fonts.ready.then(() => true)", nil)
+	full.Eval(t, "document.querySelector('.howto').open = true", nil)
+	time.Sleep(600 * time.Millisecond)
+	full.Screenshot(t, filepath.Join(dir, "checkboxes-full.png"), true)
+
+	// Two tabs on the same tiles, and boxes that wait for their frame:
+	// the writer is held while Ada clicks.
+	ada := b.NewPage(t, 1440, 900)
+	ada.Navigate(t, base+"/demos/checkboxes")
+	ada.Wait(t, `document.querySelector('.live-badge.is-live') && customElements.get('sb-virtual-scroll')`, 10*time.Second)
+	ada.Eval(t, scroll, nil)
+	ada.Wait(t, `document.querySelector('#checkboxes-tile-0 .cb-tile__eyes')`, 5*time.Second)
+	held, release := make(chan struct{}), make(chan struct{})
+	go a.Writer().Exclusive(context.Background(), func(context.Context, *sql.Conn) error {
+		close(held)
+		<-release
+		return nil
+	})
+	<-held
+	ada.Eval(t, `[3, 20, 37, 54, 71].forEach((i) => document.querySelector('#checkboxes-tile-0 .cb-boxes').children[i].click())`, nil)
+	ada.Wait(t, `document.querySelector('#checkboxes-tile-0 .cb-boxes').children[71].indeterminate`, 3*time.Second)
+	ada.ShotElement(t, "#checkboxes-slot-0", filepath.Join(dir, "checkboxes-detail-pending.png"), 2)
+	ada.Screenshot(t, filepath.Join(dir, "checkboxes-watching.png"), false)
+	close(release)
+	ada.Wait(t, `document.querySelector('#checkboxes-tile-0 .cb-boxes').children[71].checked`, 5*time.Second)
+	time.Sleep(700 * time.Millisecond)
+	ada.ShotElement(t, "#checkboxes-slot-0", filepath.Join(dir, "checkboxes-detail-done.png"), 2)
+	ada.ShotElement(t, ".cb-stats", filepath.Join(dir, "checkboxes-detail-stats.png"), 2)
+	if errs := ada.Errors(); len(errs) > 0 {
+		t.Errorf("ada: %v", errs)
+	}
 }
 
 // seedBoxes checks a pattern of boxes in the first tiles and around box

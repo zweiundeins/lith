@@ -36,19 +36,21 @@ $_checkboxes.cols = cols;
 $_checkboxes.item = 16 * $_checkboxes.pitch + chrome`
 
 // flip sends a click on a box as the state the box should take, the
-// opposite of what it shows. By the time the click arrives the browser
-// has toggled the box; preventDefault puts it back, so the box keeps
-// showing the server's state. A moment later it turns indeterminate: the
-// pending state, which lasts until the frame that flips it (settle).
+// opposite of what it shows, and marks the box pending until the frame
+// that flips it (settle).
 var flip = expr(`const b = evt.target;
 if (!b.matches('.cb-boxes > input')) return;
-evt.preventDefault();
-const want = b.checked, t = (b._cbt || 0) + 1;
 const n = +b.closest('[data-chunk]').dataset.chunk * CHUNK + Array.prototype.indexOf.call(b.parentNode.children, b);
-b._cbt = t;
+// The browser has toggled the box by now: preventDefault puts it back,
+// so it keeps showing what the server said.
+evt.preventDefault();
+const want = b.checked, sent = (b.cbSent || 0) + 1;
+b.cbSent = sent;
 $_checkboxes.problem = '';
-setTimeout(() => b.checked !== want && b._cbt === t && (b.indeterminate = true));
-setTimeout(() => b._cbt === t && (b.indeterminate = false), 5000);
+// Pending: indeterminate, unless the frame came first. Five seconds
+// without one (someone set it back in the same tick) end it too.
+setTimeout(() => b.checked !== want && b.cbSent === sent && (b.indeterminate = true));
+setTimeout(() => b.cbSent === sent && (b.indeterminate = false), 5000);
 @post('/cmd/checkboxes/set', {payload: {box: n, checked: want}, requestCancellation: 'disabled'})`)
 
 // settle ends a box's pending state when a frame changes it: Datastar

@@ -136,7 +136,7 @@ func TestSetBox(t *testing.T) {
 	at := time.Unix(1_800_000_000, 0)
 	e.Do(t, SetBox{Box: 0, Checked: true, At: at})
 	e.Do(t, SetBox{Box: 999_999, Checked: true, At: at})
-	if got := e.Touched(); !slices.Equal(got, []string{"checkboxes:chunk:0", "checkboxes:chunk:3906", "checkboxes:stats"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"checkboxes:chunk:0", "checkboxes:chunk:3906"}) {
 		t.Errorf("two flips touched %v", got)
 	}
 	bits := read(t, e, 0)
@@ -243,7 +243,7 @@ func TestViews(t *testing.T) {
 			"data: selector #checkboxes-slot-1\n", "data: mode inner\n",
 			`<div id="checkboxes-tile-13" class="cb-tile" role="listitem" aria-label="Boxes 3,329 to 3,584, 3 checked" data-chunk="13"`,
 			`<input type=checkbox title=3,329 checked>`, `<input type=checkbox title=3,330>`, `<input type=checkbox title=3,346 checked>`, `<input type=checkbox title=3,584 checked>`,
-			`<span>3 checked</span>`,
+			`<span class="cb-tile__on">3 checked</span>`,
 		} {
 			if !strings.Contains(f, want) {
 				t.Errorf("chunk 13's frame has no %s", want)
@@ -251,6 +251,17 @@ func TestViews(t *testing.T) {
 		}
 		if n := strings.Count(f, "<input"); n != ChunkSize {
 			t.Errorf("chunk 13's tile has %d boxes", n)
+		}
+		if strings.Contains(f, "watching") {
+			t.Error("a tile one tab watches counts its watchers")
+		}
+		h.Watch("t2", live.View{Key: ChunkTopic(13)})
+		frame, err = chunkView(h, 13).Render(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(frame.([]byte)), `<span class="cb-tile__eyes">2 watching</span>`) {
+			t.Error("a tile two tabs watch does not say so")
 		}
 		last, err := chunkView(h, Chunks-1).Render(ctx, tx)
 		if err != nil {

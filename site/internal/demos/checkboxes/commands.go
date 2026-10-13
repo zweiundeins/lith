@@ -61,7 +61,7 @@ func (c SetBox) Apply(tx *writer.Tx) error {
 		ON CONFLICT (sec) DO UPDATE SET flips = flips + 1`, c.At.Unix()); err != nil {
 		return err
 	}
-	tx.Touch(ChunkTopic(n), StatsTopic)
+	tx.Touch(ChunkTopic(n))
 	return nil
 }
 

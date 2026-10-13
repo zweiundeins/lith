@@ -45,8 +45,8 @@ const (
 	rewatchAfter = 250 * time.Millisecond
 )
 
-// StatsTopic is touched by every flip.
-const StatsTopic = Slug + ":stats"
+// StatsKey is the key of the numbers' view, which every tab watches.
+const StatsKey = Slug + ":stats"
 
 // ChunkTopic is touched by every flip in chunk n; it is also the key of
 // the chunk's view.

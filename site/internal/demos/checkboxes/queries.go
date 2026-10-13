@@ -52,6 +52,16 @@ func (s Stats) PerSecond() int {
 	return s.Rate[len(s.Rate)-1]
 }
 
+// Peak is the top of the rate's chart: its highest second, and at least
+// 10, so that a quiet minute draws a line along the bottom.
+func (s Stats) Peak() int {
+	peak := 10
+	for _, n := range s.Rate {
+		peak = max(peak, n)
+	}
+	return peak
+}
+
 // stats reads the totals and the flips of the Trend whole seconds before
 // now.
 func stats(ctx context.Context, q sqlite.Querier, now time.Time) (Stats, error) {

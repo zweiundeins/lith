@@ -178,6 +178,12 @@ func TestCheckboxesBrowser(t *testing.T) {
 		if errs := p.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %v", name, errs)
 		}
+		// Not even a warning: every frame found its slot.
+		for _, l := range p.Logs() {
+			if strings.HasPrefix(l, "console.warn") {
+				t.Errorf("%s: %s", name, l)
+			}
+		}
 	}
 }
 

@@ -187,18 +187,42 @@
 
 	.cb-tile__head {
 		display: flex;
-		justify-content: space-between;
-		gap: var(--lith-space-2);
+		align-items: start;
+		gap: var(--lith-space-3);
 		color: var(--lith-text-muted);
 		font-family: var(--lith-font-ui);
 		font-size: 0.6875rem;
 		font-variant-numeric: tabular-nums;
 		line-height: 1;
 		letter-spacing: 0.02em;
+		white-space: nowrap;
+	}
 
-		& span + span {
-			color: var(--lith-accent-text);
+	/* Other tabs watch this tile too: it lights up like the live badge,
+	 * and fades in when one arrives. */
+	.cb-tile__eyes {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4em;
+		color: var(--lith-text-2);
+		transition: opacity var(--lith-dur-3) var(--lith-ease-glide);
+
+		@starting-style {
+			opacity: 0;
 		}
+
+		&::before {
+			content: "";
+			inline-size: 5px;
+			block-size: 5px;
+			background: var(--lith-ok);
+			box-shadow: 0 0 6px var(--lith-ok);
+		}
+	}
+
+	.cb-tile__on {
+		margin-inline-start: auto;
+		color: var(--lith-accent-text);
 	}
 
 	.cb-boxes {

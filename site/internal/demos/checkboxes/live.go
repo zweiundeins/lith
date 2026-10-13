@@ -46,7 +46,7 @@ func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component
 		return nil, err
 	}
 	if d := rt.Load(); d != nil {
-		s.Here = d.hub.Count(StatsTopic) + 1 // and this page, whose stream is on its way
+		s.Here = d.hub.Count(StatsKey) + 1 // and this page, whose stream is on its way
 	}
 	return Stage(w, tiles, s), nil
 }
@@ -90,29 +90,32 @@ func boardView(v demo.Viewer) live.View {
 
 // chunkView is chunk n's tile, one view for every tab that shows it. Its
 // frame carries that tile and nothing else, into the slot every page
-// keeps for it.
+// keeps for it. The tile says how many tabs watch it, so it renders again
+// when one comes or goes (Presence).
 func chunkView(h Hub, n int) live.View {
 	key := ChunkTopic(n)
 	return live.View{
-		Key:    key,
-		Topics: []string{key},
+		Key:      key,
+		Topics:   []string{key},
+		Presence: true,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
 			bits, err := chunk(ctx, demo.Querier(ctx, tx), n)
 			if err != nil {
 				return nil, err
 			}
-			return tileFrame(n, bits), nil
+			return tileFrame(n, bits, h.Count(key)), nil
 		},
 	}
 }
 
-// statsView is the numbers above the grid, the same for everyone: renders
-// after every flip, every second for the rate, and when a tab comes or
-// goes.
+// statsView is the numbers above the grid, the same for everyone. It
+// renders once a second, like a clock, and when a tab comes or goes: the
+// rate counts whole seconds, and a flip goes to every tab on the page in
+// the numbers, so they follow the flips a second at a time and the tiles
+// tick by tick.
 func statsView(h Hub) live.View {
 	return live.View{
-		Key:      StatsTopic,
-		Topics:   []string{StatsTopic},
+		Key:      StatsKey,
 		Every:    time.Second,
 		Presence: true,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
@@ -121,7 +124,7 @@ func statsView(h Hub) live.View {
 				return nil, err
 			}
 			if h != nil {
-				s.Here = h.Count(StatsTopic)
+				s.Here = h.Count(StatsKey)
 			}
 			return demo.Patch(ctx, StatsBar(s))
 		},
@@ -129,19 +132,20 @@ func statsView(h Hub) live.View {
 }
 
 // tileFrame is the event that morphs chunk n's tile into its slot.
-func tileFrame(n int, bits []byte) []byte {
+func tileFrame(n int, bits []byte, watching int) []byte {
 	var b bytes.Buffer
 	b.Grow(9 << 10)
-	writeTile(&b, n, bits)
+	writeTile(&b, n, bits, watching)
 	return sse.PatchElements(b.Bytes(), sse.Patch{Selector: "#" + slotID(slot(n)), Mode: sse.Inner})
 }
 
 // writeTile writes chunk n's tile: the number of its first box, how many
-// of its boxes are checked, and a checkbox for each box, named by its
-// number and checked where its bit is set. The page counts a box's number
-// from the tile's data-chunk and the box's place in it, so a box carries
-// no more than that.
-func writeTile(b *bytes.Buffer, n int, bits []byte) {
+// tabs watch it when more than one does, how many of its boxes are
+// checked, and a checkbox for each box, named by its number and checked
+// where its bit is set. The page counts a box's number from the tile's
+// data-chunk and the box's place in it, so a box carries no more than
+// that.
+func writeTile(b *bytes.Buffer, n int, bits []byte, watching int) {
 	first, on := n*ChunkSize+1, 0
 	for _, c := range bits {
 		on += mbits.OnesCount8(c)
@@ -159,8 +163,13 @@ func writeTile(b *bytes.Buffer, n int, bits []byte) {
 	b.WriteString(`" data-init="$_checkboxes.moved++"><p class="cb-tile__head" aria-hidden="true"><span>#`)
 	b.Write(appendGrouped(b.AvailableBuffer(), first))
 	b.WriteString(`</span>`)
+	if watching > 1 {
+		b.WriteString(`<span class="cb-tile__eyes">`)
+		b.WriteString(strconv.Itoa(watching))
+		b.WriteString(` watching</span>`)
+	}
 	if on > 0 {
-		b.WriteString(`<span>`)
+		b.WriteString(`<span class="cb-tile__on">`)
 		b.WriteString(strconv.Itoa(on))
 		b.WriteString(` checked</span>`)
 	}
@@ -177,13 +186,22 @@ func writeTile(b *bytes.Buffer, n int, bits []byte) {
 }
 
 // tile is a tile for templ: the GET document's.
-func tile(n int, bits []byte) templ.Component {
+func tile(n int, bits []byte, watching int) templ.Component {
 	return templ.ComponentFunc(func(_ context.Context, w io.Writer) error {
 		var b bytes.Buffer
-		writeTile(&b, n, bits)
+		writeTile(&b, n, bits, watching)
 		_, err := w.Write(b.Bytes())
 		return err
 	})
 }
 
 func slotID(s int) string { return "checkboxes-slot-" + strconv.Itoa(s) }
+
+// watchers is how many tabs will watch chunk n once the page asking for
+// it does: those that do, and this one.
+func watchers(n int) int {
+	if d := rt.Load(); d != nil {
+		return d.hub.Count(ChunkTopic(n)) + 1
+	}
+	return 1
+}

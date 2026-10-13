@@ -51,7 +51,7 @@ templ StatsBar(s Stats) {
 		<div class="cb-stat cb-stat--rate">
 			<dt>toggles per second</dt>
 			<dd>{ grouped(s.PerSecond()) }</dd>
-			<sb-sparkline class="cb-stat__trend" values={ rateJSON(s.Rate) } length={ strconv.Itoa(Trend) } min="0" tone="brand" label="Toggles per second, the last 30 seconds"></sb-sparkline>
+			<sb-sparkline class="cb-stat__trend" values={ rateJSON(s.Rate) } length={ strconv.Itoa(Trend) } scale="fixed" min="0" max={ strconv.Itoa(s.Peak()) } tone="brand" label="Toggles per second, the last 30 seconds"></sb-sparkline>
 		</div>
 		<div class="cb-stat">
 			<dt>people here</dt>
@@ -85,7 +85,7 @@ templ Board(w Window, tiles [][]byte) {
 			for n := w.Start; n < w.End(); n++ {
 				<div id={ slotID(slot(n)) } class="cb-slot" data-ignore-morph>
 					if tiles != nil {
-						@tile(n, tiles[n-w.Start])
+						@tile(n, tiles[n-w.Start], watchers(n))
 					}
 				</div>
 			}
