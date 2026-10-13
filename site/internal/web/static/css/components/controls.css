@@ -150,7 +150,9 @@
 		}
 	}
 
-	/* Fields: a label over its control. */
+	/* Fields: a label over its control. The label turns with its control:
+	 * the accent while it has the focus, the danger colour once the browser
+	 * finds what was typed invalid. */
 	.field {
 		display: grid;
 		gap: var(--lith-space-1);
@@ -161,6 +163,15 @@
 			font-size: var(--lith-text-xs);
 			font-weight: 600;
 			letter-spacing: 0.02em;
+			transition: color var(--lith-dur-1) var(--lith-ease-snap);
+		}
+
+		&:has(:focus-visible) > span {
+			color: var(--lith-accent-text);
+		}
+
+		&:has(:user-invalid) > span {
+			color: var(--lith-danger);
 		}
 	}
 

@@ -45,3 +45,8 @@ tasks:
       CGO_ENABLED: '0'
     cmds:
       - go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/lith-site
+
+  vendor-starbase:
+    desc: Copy the Starbase components of internal/web/static/vendor/starbase/pins.json from its pinned snapshot, checking their integrity
+    cmds:
+      - go run ./cmd/vendor-starbase

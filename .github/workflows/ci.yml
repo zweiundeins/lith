@@ -26,3 +26,26 @@ jobs:
           for m in backup dbmetrics/prom prom; do
             (cd "$m" && go vet ./... && go test -race ./...)
           done
+
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: site/go.mod
+      - name: templ
+        run: |
+          go tool templ generate
+          git diff --exit-code
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -race ./...
