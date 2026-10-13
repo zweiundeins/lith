@@ -186,11 +186,12 @@ type watch struct {
 }
 
 type stream struct {
-	seq    uint64 // order of arrival
-	id     string
-	write  func(*sse.Stream, string, any) error
-	cancel context.CancelFunc
-	wake   chan struct{}
+	seq       uint64 // order of arrival
+	id        string
+	write     func(*sse.Stream, string, any) error
+	writeTick func(*sse.Stream, []Frame) error
+	cancel    context.CancelFunc
+	wake      chan struct{}
 
 	mu sync.Mutex
 	// The views the stream watches, in the order it started watching

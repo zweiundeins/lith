@@ -24,6 +24,20 @@ type Spec struct {
 	// only what this stream has not seen). Nil: frames are []byte events,
 	// written as they are. An error ends the stream.
 	Write func(s *sse.Stream, key string, frame any) error
+	// WriteTick, if set, takes Write's place: it gets the new frames of
+	// the stream's views at once, so that one s.Write compresses and
+	// flushes them together, where each call of Write is a write of its
+	// own. Each call has the newest frame of every view that changed
+	// since the last one, in the order the stream watches them: one
+	// tick's, or several ticks' when the stream fell behind. frames is
+	// valid during the call only. An error ends the stream.
+	WriteTick func(s *sse.Stream, frames []Frame) error
+}
+
+// Frame is a view's new frame, for Spec.WriteTick.
+type Frame struct {
+	Key   string
+	Value any
 }
 
 var (
@@ -79,7 +93,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		return err
 	}
 	defer st.Close()
-	s := &stream{seq: seq, id: spec.ID, write: spec.Write, cancel: cancel, wake: make(chan struct{}, 1)}
+	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1)}
 	h.attach(s, spec.Views)
 	defer h.detach(s)
 	err = h.pump(ctx, s, st)
@@ -155,6 +169,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	defer idle.Stop()
 	var batch []offer
 	var parts [][]byte
+	var frames []Frame
 	for {
 		s.mu.Lock()
 		for _, w := range s.watches {
@@ -168,6 +183,10 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		_, wire := st.Sent()
 		for _, o := range batch {
 			if s.unwatched(o.w) {
+				continue
+			}
+			if s.writeTick != nil {
+				frames = append(frames, Frame{Key: o.w.v.key, Value: o.f.value})
 				continue
 			}
 			if s.write != nil {
@@ -186,6 +205,16 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		clear(batch)
 		batch = batch[:0]
+		if len(frames) > 0 {
+			err := s.writeTick(st, frames)
+			n := len(frames)
+			clear(frames)
+			frames = frames[:0]
+			if err != nil {
+				return err
+			}
+			h.sent.Add(int64(n))
+		}
 		if len(parts) > 0 {
 			err := st.Write(parts...)
 			n := len(parts)

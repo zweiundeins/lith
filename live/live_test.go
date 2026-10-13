@@ -1,6 +1,7 @@
 package live
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -956,6 +957,80 @@ func TestWriteTailorsFrames(t *testing.T) {
 	}
 	b := serve(h, Spec{Views: []View{list}, Write: tailored()}, "")
 	waitFor(t, "the whole list for a new stream", func() bool { return len(b.patches()) == 3 && b.has(`<li id="r1">B</li>`) })
+}
+
+// countingClient counts the writes that reach the client.
+type countingClient struct {
+	*client
+	writes atomic.Int64
+}
+
+func (c *countingClient) Write(p []byte) (int, error) {
+	c.writes.Add(1)
+	return c.client.Write(p)
+}
+
+// WriteTick gets the frames of a tick in one call, in the order the stream
+// watches the views, so they reach the client in one compressed write,
+// where Write makes a write of each.
+func TestWriteTick(t *testing.T) {
+	h := start(t, Options{Tick: 2 * time.Millisecond})
+	var n atomic.Int64
+	n.Store(1)
+	views := numbers(&n, "b", "a")
+	event := func(key string, frame any) []byte {
+		return sse.PatchElements(fmt.Appendf(nil, `<p id="%s">%d</p>`, key, frame))
+	}
+	var mu sync.Mutex
+	var calls [][]string
+	tick := func(s *sse.Stream, frames []Frame) error {
+		var got []string
+		var events [][]byte
+		for _, f := range frames {
+			got = append(got, fmt.Sprint(f.Key, f.Value))
+			events = append(events, event(f.Key, f.Value))
+		}
+		mu.Lock()
+		calls = append(calls, got)
+		mu.Unlock()
+		return s.Write(events...)
+	}
+	each := func(s *sse.Stream, key string, frame any) error { return s.Write(event(key, frame)) }
+	open := func(spec Spec) *countingClient {
+		var cc *countingClient
+		serveThrough(h, spec, sse.Zstd, func(c *client) http.ResponseWriter {
+			cc = &countingClient{client: c}
+			return cc
+		})
+		return cc
+	}
+	byTick := open(Spec{Views: views, WriteTick: tick, Write: func(*sse.Stream, string, any) error {
+		return errors.New("Write was called beside WriteTick")
+	}})
+	byView := open(Spec{Views: views, Write: each})
+	has := func(c *countingClient, n int64) bool {
+		b := unzstd(t, c.bytes())
+		return bytes.Contains(b, fmt.Appendf(nil, `<p id="a">%d</p>`, n)) && bytes.Contains(b, fmt.Appendf(nil, `<p id="b">%d</p>`, n))
+	}
+	waitFor(t, "the first frames", func() bool { return has(byTick, 1) && has(byView, 1) })
+	tickWrites, viewWrites := byTick.writes.Load(), byView.writes.Load()
+	n.Store(2)
+	h.Changed([]string{"t"})
+	waitFor(t, "the second frames", func() bool { return has(byTick, 2) && has(byView, 2) })
+	if d := byTick.writes.Load() - tickWrites; d != 1 {
+		t.Errorf("WriteTick: %d writes for a tick of two frames", d)
+	}
+	if d := byView.writes.Load() - viewWrites; d != 2 {
+		t.Errorf("Write: %d writes for a tick of two frames", d)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := [][]string{{"b1", "a1"}, {"b2", "a2"}}; !slices.EqualFunc(calls, want, slices.Equal) {
+		t.Fatalf("WriteTick got %q, want %q", calls, want)
+	}
+	if s := h.Stats(); s.FramesSent != 8 {
+		t.Fatalf("%d frames sent, want 4 to each stream", s.FramesSent)
+	}
 }
 
 // A new stream with the ID of an open one replaces it.
