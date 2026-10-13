@@ -116,7 +116,7 @@ The site logs slog JSON on stdout, one object per line, which systemd's journal 
 - `live: render` with the view's key and the error, and `live: render overrun` for a render past `RenderTimeout`.
 - `writer: batch failed`, `writer: command panicked` with its stack, and `writer: command failed` for a `Send` without `OnSendError`.
 - dbmetrics' slow statements, at Warn, with their SQL.
-- One line per request from `edge.LogRequests`, at Error for a 5xx.
+- One line per request from `edge.LogRequests`, at Error for a 5xx, and at Debug for a request whose handler called `edge.Quiet`, such as the cursor party's moves.
 
 ## Probes
 
