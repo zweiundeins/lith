@@ -11,13 +11,16 @@ func (c transfer) Apply(tx *writer.Tx) error {
 	if balance < c.amount {
 		return errInsufficient
 	}
-	if _, err := tx.Exec(`UPDATE accounts SET balance = balance - ?, version = version + 1 WHERE id = ?`, c.amount, c.from); err != nil {
+	debit := `UPDATE accounts SET balance = balance - ?, version = version + 1 WHERE id = ?`
+	if _, err := tx.Exec(debit, c.amount, c.from); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE accounts SET balance = balance + ?, version = version + 1 WHERE id = ?`, c.amount, c.to); err != nil {
+	credit := `UPDATE accounts SET balance = balance + ?, version = version + 1 WHERE id = ?`
+	if _, err := tx.Exec(credit, c.amount, c.to); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO ledger (from_id, to_id, amount, at) VALUES (?, ?, ?, ?)`, c.from, c.to, c.amount, time.Now().Unix()); err != nil {
+	entry := `INSERT INTO ledger (from_id, to_id, amount, at) VALUES (?, ?, ?, ?)`
+	if _, err := tx.Exec(entry, c.from, c.to, c.amount, time.Now().Unix()); err != nil {
 		return err
 	}
 	tx.Touch(c.topic)
@@ -35,7 +38,8 @@ for p := range int64(s.Producers) {
 		first := p*Accounts + 1
 		topic := fmt.Sprint("producer:", p)
 		for i := int64(0); time.Now().Before(deadline) && ctx.Err() == nil; i++ {
-			c := transfer{from: first + i%Accounts, to: first + (i+1)%Accounts, amount: 1 + i%100, topic: topic}
+			from, to := first+i%Accounts, first+(i+1)%Accounts
+			c := transfer{from: from, to: to, amount: 1 + i%100, topic: topic}
 			if err := w.Do(ctx, c); err != nil {
 				if ctx.Err() == nil {
 					once.Do(func() { failed = err })
