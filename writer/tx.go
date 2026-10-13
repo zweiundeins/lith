@@ -112,8 +112,8 @@ func (t *Tx) Savepoint(fn func(*Tx) error) error {
 		return err
 	}
 	topics, after := len(t.topics), len(t.after)
-	err := t.w.call(Func(fn), t)
-	if err != nil {
+	err, keep := unkept(t.w.call(Func(fn), t))
+	if !keep {
 		t.topics, t.after = t.topics[:topics], t.after[:after]
 		if e := t.w.exec("ROLLBACK TO nested"); e != nil {
 			return errors.Join(err, e)

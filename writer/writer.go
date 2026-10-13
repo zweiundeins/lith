@@ -134,6 +134,7 @@ type Writer struct {
 	pages    int  // WAL pages written since the last checkpoint
 	dirty    bool // WAL pages written since the last TRUNCATE checkpoint
 	opsReady bool // lith_ops exists
+	resReady bool // lith_results exists
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
 	times                                            durations
@@ -479,9 +480,9 @@ func (w *Writer) one(r *request) (cmdErr, batchErr error) {
 		return nil, fmt.Errorf("writer: savepoint: %w", err)
 	}
 	tx := &Tx{w: w, ctx: r.ctx}
-	cmdErr = w.call(r.cmd, tx)
+	cmdErr, keep := unkept(w.call(r.cmd, tx))
 	tx.end()
-	if cmdErr != nil {
+	if !keep {
 		if err := w.exec("ROLLBACK TO cmd"); err != nil {
 			return cmdErr, fmt.Errorf("writer: roll back to savepoint: %w", err)
 		}
@@ -489,13 +490,29 @@ func (w *Writer) one(r *request) (cmdErr, batchErr error) {
 	if err := w.exec("RELEASE cmd"); err != nil {
 		return cmdErr, fmt.Errorf("writer: release savepoint: %w", err)
 	}
-	if cmdErr == nil {
+	if keep {
 		for _, t := range tx.topics {
 			w.topics[t] = struct{}{}
 		}
 		w.after = append(w.after, tx.after...)
 	}
 	return cmdErr, nil
+}
+
+// kept is the error of a command whose changes stay all the same:
+// OnceResult's record of a refusal.
+type kept struct{ err error }
+
+func (k *kept) Error() string { return k.err.Error() }
+func (k *kept) Unwrap() error { return k.err }
+
+// unkept returns the error a command reports and whether its changes
+// stay.
+func unkept(err error) (error, bool) {
+	if k, ok := err.(*kept); ok {
+		return k.err, true
+	}
+	return err, err == nil
 }
 
 // call runs cmd and turns a panic into its error: a broken command fails
