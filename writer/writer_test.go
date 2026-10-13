@@ -754,6 +754,84 @@ func TestNestedQueries(t *testing.T) {
 	}
 }
 
+// itemCount is query code written once for every Querier: the read pool,
+// a read transaction and a command's Tx.
+func itemCount(ctx context.Context, q sqlite.Querier, name string) (int, error) {
+	var n int
+	err := q.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE name = ?", name).Scan(&n)
+	return n, err
+}
+
+// A command's Tx serves query code that takes a sqlite.Querier: it runs on
+// the batch's transaction with its statement cache, and a cancelled ctx
+// does not stop it halfway through a batch.
+func TestTxIsAQuerier(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	add := func(name string) error {
+		return f.w.Do(ctx, Func(func(tx *Tx) error {
+			if _, err := tx.ExecContext(cancelled, "INSERT INTO items (name) VALUES (?)", name); err != nil {
+				return err
+			}
+			n, err := itemCount(cancelled, tx, name)
+			if err == nil && n != 1 {
+				err = fmt.Errorf("the command sees %d rows of its own insert", n)
+			}
+			return err
+		}))
+	}
+	if err := add("a"); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	f.w.Do(ctx, Func(func(*Tx) error { before = len(f.w.stmts); return nil }))
+	for i := range 5 {
+		if err := add(fmt.Sprint("b", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := f.w.Do(ctx, Func(func(tx *Tx) error {
+		if len(f.w.stmts) != before {
+			t.Errorf("%d statements cached after one run, %d after six", before, len(f.w.stmts))
+		}
+		rows, err := tx.QueryContext(cancelled, "SELECT name FROM items ORDER BY name")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var names []string
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				return err
+			}
+			names = append(names, n)
+		}
+		if len(names) != 6 {
+			t.Errorf("read %v", names)
+		}
+		return rows.Err()
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := itemCount(ctx, f.db.R, "a"); err != nil || n != 1 {
+		t.Fatalf("on the read pool: %d, %v", n, err)
+	}
+	err = f.db.View(ctx, func(tx *sql.Tx) error {
+		n, err := itemCount(ctx, tx, "b4")
+		if err == nil && n != 1 {
+			err = fmt.Errorf("%d rows", n)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatalf("in a read transaction: %v", err)
+	}
+}
+
 func TestTxAfterItsCommand(t *testing.T) {
 	f := start(t, sqlite.Options{}, Options{})
 	var kept *Tx

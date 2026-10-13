@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/zweiundeins/lith/sqlite"
 )
 
 // Tx is what a Command gets: the batch's transaction on the writer's
@@ -61,6 +63,28 @@ func (t *Tx) QueryRow(query string, args ...any) *sql.Row {
 	}
 	return t.w.conn.QueryRowContext(t.ctx, query, args...)
 }
+
+// ExecContext is Exec, for code that takes a sqlite.Querier. Like the
+// other methods it runs on the batch's transaction, with its statement
+// cache and the command's context: ctx is not used, so no statement is
+// cancelled halfway through a batch.
+func (t *Tx) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
+	return t.Exec(query, args...)
+}
+
+// QueryContext is Query, for code that takes a sqlite.Querier; ctx is not
+// used.
+func (t *Tx) QueryContext(_ context.Context, query string, args ...any) (*sql.Rows, error) {
+	return t.Query(query, args...)
+}
+
+// QueryRowContext is QueryRow, for code that takes a sqlite.Querier; ctx
+// is not used.
+func (t *Tx) QueryRowContext(_ context.Context, query string, args ...any) *sql.Row {
+	return t.QueryRow(query, args...)
+}
+
+var _ sqlite.Querier = (*Tx)(nil)
 
 // Touch records that the command changed what the topics name. If the
 // command succeeds, OnCommit gets them after the batch commits.

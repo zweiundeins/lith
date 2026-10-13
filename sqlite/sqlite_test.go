@@ -215,6 +215,12 @@ func TestViewSeesOneSnapshot(t *testing.T) {
 	}
 }
 
+var (
+	_ Querier = (*sql.DB)(nil)
+	_ Querier = (*sql.Tx)(nil)
+	_ Querier = (*sql.Conn)(nil)
+)
+
 // A View called with a context that carries a transaction on the same
 // database runs in it: a store called from a render sees the render's
 // snapshot, even after a commit, and leaves the transaction open.
