@@ -118,3 +118,47 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Error("the handler could not override a header")
 	}
 }
+
+func TestSecurityHeadersPolicy(t *testing.T) {
+	var nonce string
+	h := SecurityHeaders{
+		CSP: DefaultCSP(), // Policy takes its place
+		Policy: func(r *http.Request) CSP {
+			switch r.URL.Path {
+			case "/embed":
+				return CSP{"default-src": {"'self'"}, "frame-ancestors": {"https://partner.test"}}
+			case "/raw":
+				return nil
+			}
+			origin := "https://" + r.Host
+			return CSP{"script-src": {origin + "/static/", origin + "/c/", NonceSource}, "frame-ancestors": {"'none'"}}
+		},
+		Extra: map[string]string{"Permissions-Policy": "camera=()"},
+	}.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nonce = Nonce(r.Context())
+	}))
+	serve := func(host, path string) http.Header {
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Header()
+	}
+
+	for _, host := range []string{"starbase.test", "localhost:8080"} {
+		got := serve(host, "/")
+		want := "frame-ancestors 'none'; script-src https://" + host + "/static/ https://" + host + "/c/ 'nonce-" + nonce + "'"
+		if got.Get("Content-Security-Policy") != want || len(nonce) != 22 || got.Get("X-Frame-Options") != "DENY" ||
+			got.Get("X-Content-Type-Options") != "nosniff" || got.Get("Permissions-Policy") != "camera=()" {
+			t.Errorf("%s: %v", host, got)
+		}
+	}
+	got := serve("starbase.test", "/embed")
+	if got.Get("Content-Security-Policy") != "default-src 'self'; frame-ancestors https://partner.test" || got.Get("X-Frame-Options") != "" || nonce != "" {
+		t.Errorf("a policy without a nonce source: %v, nonce %q", got, nonce)
+	}
+	got = serve("starbase.test", "/raw")
+	if _, set := got["Content-Security-Policy"]; set || got.Get("X-Frame-Options") != "" || nonce != "" {
+		t.Errorf("a nil policy: %v, nonce %q", got, nonce)
+	}
+}
