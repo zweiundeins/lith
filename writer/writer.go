@@ -82,9 +82,14 @@ type Options struct {
 	// before the writer checkpoints it (default 1000). It applies only
 	// when the database was opened with sqlite.CheckpointWriter.
 	CheckpointPages int
-	// Log gets panics, failed Sends and maintenance errors (default
-	// slog.Default()).
+	// Log gets panics, failed batches, failed Sends without OnSendError
+	// and maintenance errors (default slog.Default()).
 	Log *slog.Logger
+	// OnSendError, if set, gets every command from Send that failed, with
+	// its error: its own, its panic (ErrPanic) or its batch's failure. It
+	// is called on the writer's goroutine once the batch has ended, after
+	// OnCommit, and must not block. Nil: a command's own error is logged.
+	OnSendError func(cmd Command, err error)
 }
 
 // Stats are the writer's counters since New.
@@ -209,7 +214,8 @@ func (w *Writer) shut() {
 }
 
 // Send queues cmd and returns at once: ErrQueueFull if there is no room.
-// Nobody waits for its outcome, so a failure is logged.
+// Nobody waits for its outcome, so a failure goes to OnSendError, or to
+// the log.
 func (w *Writer) Send(cmd Command) error {
 	if err := validate(cmd); err != nil {
 		return err
@@ -238,7 +244,7 @@ func (w *Writer) Do(ctx context.Context, cmd Command) error {
 
 // Flush returns once every command queued before it has been applied,
 // committed or failed: a failure goes to the command's Do, or for a Send
-// to the log. Since commands are applied in the order they arrive, a read
+// to OnSendError. Since commands are applied in the order they arrive, a read
 // after Flush sees what the commands sent before it committed. Flush
 // returns ctx's error if ctx ends first, and ErrClosed once the writer
 // has stopped taking commands.
@@ -452,9 +458,13 @@ func (w *Writer) apply(batch []*request) {
 
 	for i, r := range batch {
 		err := errs[i]
-		if r.done != nil {
+		switch {
+		case r.done != nil:
 			r.done <- err
-		} else if err != nil && err != failed && !errors.Is(err, ErrPanic) {
+		case err == nil:
+		case w.opts.OnSendError != nil:
+			w.safely("OnSendError", func() { w.opts.OnSendError(r.cmd, err) })
+		case err != failed && !errors.Is(err, ErrPanic):
 			w.opts.Log.Warn("writer: command failed", "cmd", fmt.Sprintf("%T", r.cmd), "err", err)
 		}
 	}

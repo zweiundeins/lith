@@ -367,6 +367,71 @@ func TestSendAndQueueFull(t *testing.T) {
 	}
 }
 
+type sendError struct {
+	cmd string
+	err error
+}
+
+// OnSendError gets the failed Sends, whatever failed them, and replaces
+// the log line; a failed Do goes to its caller only.
+func TestOnSendError(t *testing.T) {
+	var mu sync.Mutex
+	var got []sendError
+	f := start(t, sqlite.Options{}, Options{OnSendError: func(cmd Command, err error) {
+		mu.Lock()
+		got = append(got, sendError{fmt.Sprint(cmd.(named).name), err})
+		mu.Unlock()
+	}})
+	ctx := context.Background()
+	refused := errors.New("refused")
+	release := f.block(t)
+	f.w.Send(named{"ok", increment(1)})
+	f.w.Send(named{"refused", func(*Tx) error { return refused }})
+	f.w.Send(named{"panicked", func(*Tx) error { panic("broken") }})
+	done := make(chan error, 1)
+	go func() { done <- f.w.Do(ctx, named{"do", func(*Tx) error { return refused }}) }()
+	f.queued(t, 4)
+	release()
+	if err := <-done; err == nil {
+		t.Fatal("no error")
+	}
+	// A command that ends the transaction fails its whole batch.
+	release = f.block(t)
+	f.w.Send(named{"batch", increment(1)})
+	f.w.Send(named{"rollback", func(tx *Tx) error { _, err := tx.Exec("ROLLBACK"); return err }})
+	f.queued(t, 2)
+	release()
+	if err := f.w.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	names := make([]string, len(got))
+	for i, e := range got {
+		names[i] = e.cmd
+	}
+	if !slices.Equal(names, []string{"refused", "panicked", "batch", "rollback"}) {
+		t.Fatalf("OnSendError got %v", got)
+	}
+	if !errors.Is(got[0].err, refused) || !errors.Is(got[1].err, ErrPanic) {
+		t.Fatalf("errors %v", got)
+	}
+	if got[2].err == nil || got[2].err != got[3].err {
+		t.Fatalf("the batch's failure: %v, %v", got[2].err, got[3].err)
+	}
+	if strings.Contains(f.log.String(), "command failed") {
+		t.Fatalf("logged a failed Send that OnSendError got:\n%s", f.log.String())
+	}
+}
+
+// named is a command that carries a name for the test to recognise.
+type named struct {
+	name string
+	fn   Func
+}
+
+func (n named) Apply(tx *Tx) error { return n.fn(tx) }
+
 type who struct{}
 
 func TestDoReportsTheOutcomeAfterItsContextEnds(t *testing.T) {
