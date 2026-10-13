@@ -24,6 +24,7 @@ import (
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/prom"
 	"github.com/zweiundeins/lith/sqlite"
+	"github.com/zweiundeins/lith/sse"
 	"github.com/zweiundeins/lith/writer"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
@@ -126,7 +127,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		// An idle tab gives its zstd encoder back after a minute: most tabs
 		// on a public site sit still, and an encoder holds 1 MiB or more.
 		Hibernate: time.Minute,
-		Log:       cfg.Log,
+		// Windows down to 2^17 hold the largest run of frames a page refers
+		// back to (the checkbox grid's twelve tiles, 104 KB), and let about
+		// 136 streams compress in half of GOMEMLIMIT instead of 116 at 2^18.
+		SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{MinWindow: 17})},
+		Log: cfg.Log,
 	})
 	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed, Log: cfg.Log})
 	if err != nil {

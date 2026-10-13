@@ -9,9 +9,11 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
-// The actions' rates per session; an address gets four times as much.
+// The actions' rates per session; an address gets four times as much. A
+// stroke sends ten requests a second while it lasts: it stays out of the
+// site's limit for all actions, which it would use up.
 var (
-	drawRate   = demo.Rate{Every: 100 * time.Millisecond, Burst: 20}
+	drawRate   = demo.Rate{Every: 100 * time.Millisecond, Burst: 20, Separate: true}
 	dropRate   = demo.Rate{Every: 500 * time.Millisecond, Burst: 6}
 	resetRate  = demo.Rate{Every: ResetEvery, Burst: 2}
 	colourRate = demo.Rate{Every: time.Second, Burst: 5}

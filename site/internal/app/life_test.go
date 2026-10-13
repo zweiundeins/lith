@@ -31,12 +31,12 @@ func TestLifeStream(t *testing.T) {
 	get(t, c, base+"/demos/life")
 	ctx, closeStream := context.WithCancel(context.Background())
 	defer closeStream()
-	events := listenUntil(t, ctx, c, base+"/demos/life/stream?tab=tab1")
+	events := lifeListen(t, ctx, c, base+"/demos/life/stream?tab=tab1")
 	first := next(t, events, `id="life-board"`)
 	if n := strings.Count(first, "<p class="); n != life.Cells {
 		t.Errorf("the first frame has %d cells", n)
 	}
-	waitFor(t, "the clock to step", func() bool { return generation(t, a) >= 3 })
+	waitFor(t, "the clock to step", func() bool { return lifeGeneration(t, a) >= 3 })
 
 	if code := post(t, c, base+"/cmd/life/reset", `{"tab":"tab1","op":"op1"}`); code != http.StatusNoContent {
 		t.Fatalf("reset: %d", code)
@@ -81,9 +81,9 @@ func TestLifeStream(t *testing.T) {
 	closeStream()
 	waitFor(t, "the stream to close", func() bool { return a.Hub().Count(life.BoardKey) == 0 })
 	time.Sleep(2 * life.Idle)
-	g := generation(t, a)
+	g := lifeGeneration(t, a)
 	time.Sleep(4 * life.Idle)
-	if after := generation(t, a); after != g {
+	if after := lifeGeneration(t, a); after != g {
 		t.Errorf("with nobody watching, the board went from generation %d to %d", g, after)
 	}
 }
@@ -116,7 +116,7 @@ func TestLife(t *testing.T) {
 	const teal = `document.querySelectorAll('#life-board > .e').length`
 
 	ada.Eval(t, `document.querySelector('.life__tool:nth-child(2)').click()`, nil) // the glider
-	click(t, ada, 20, 15)
+	lifeClick(t, ada, 20, 15)
 	bob.Wait(t, teal+` === 5`, 5*time.Second)
 	ada.Wait(t, `!document.querySelector('.life__cursor--stamp').classList.contains('is-on')`, 5*time.Second)
 
@@ -130,7 +130,7 @@ func TestLife(t *testing.T) {
 	bob.Wait(t, teal+` === 10`, 5*time.Second)
 
 	ada.Eval(t, `document.querySelector('.life__tool:nth-child(1)').click()`, nil) // draw
-	drag(t, ada, 10, 40, 30, 40)
+	lifeDrag(t, ada, 10, 40, 30, 40)
 	bob.Wait(t, teal+` > 10`, 5*time.Second)
 	ada.Wait(t, `document.querySelector('.life__marks path').getAttribute('d') === ''`, 5*time.Second)
 
@@ -217,7 +217,7 @@ func TestLifePageCost(t *testing.T) {
 		p := b.NewPage(t, 1440, 900)
 		p.Navigate(t, base+"/demos/life")
 		p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
-		p.Eval(t, scrollToStage, nil)
+		p.Eval(t, lifeScrollToStage, nil)
 		if v.css != "" {
 			p.Eval(t, "(() => { const s = document.createElement('style'); s.textContent = "+fmt.Sprintf("%q", v.css)+"; document.head.append(s) })()", nil)
 		}
@@ -253,8 +253,8 @@ func TestLifePageCost(t *testing.T) {
 	}
 }
 
-// listenUntil is listen with a context that closes the stream.
-func listenUntil(t *testing.T, ctx context.Context, c *http.Client, url string) <-chan string {
+// lifeListen is listen with a context that closes the stream.
+func lifeListen(t *testing.T, ctx context.Context, c *http.Client, url string) <-chan string {
 	t.Helper()
 	ctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
@@ -302,8 +302,8 @@ func listenUntil(t *testing.T, ctx context.Context, c *http.Client, url string) 
 	return events
 }
 
-// generation reads the board's generation.
-func generation(t *testing.T, a *app.App) int64 {
+// lifeGeneration reads the board's generation.
+func lifeGeneration(t *testing.T, a *app.App) int64 {
 	t.Helper()
 	var g int64
 	if err := a.DB().R.QueryRow(`SELECT generation FROM life_board`).Scan(&g); err != nil {
@@ -312,37 +312,37 @@ func generation(t *testing.T, a *app.App) int64 {
 	return g
 }
 
-// cellPoint is where the cell at x, y of a page's board is on the screen.
-func cellPoint(t *testing.T, p *browser.Page, x, y int) (float64, float64) {
+// lifeCellPoint is where the cell at x, y of a page's board is on the screen.
+func lifeCellPoint(t *testing.T, p *browser.Page, x, y int) (float64, float64) {
 	t.Helper()
 	var r struct{ X, Y, W, H float64 }
 	p.Eval(t, `(() => { const b = document.querySelector('.life__field').getBoundingClientRect(); return {x: b.left, y: b.top, w: b.width, h: b.height} })()`, &r)
 	return r.X + (float64(x)+0.5)*r.W/life.W, r.Y + (float64(y)+0.5)*r.H/life.H
 }
 
-// click clicks the cell at x, y of the page's board.
-func click(t *testing.T, p *browser.Page, x, y int) {
+// lifeClick clicks the cell at x, y of the page's board.
+func lifeClick(t *testing.T, p *browser.Page, x, y int) {
 	t.Helper()
 	p.Eval(t, `document.querySelector('.life__field').scrollIntoView({block: 'center'})`, nil)
-	px, py := cellPoint(t, p, x, y)
+	px, py := lifeCellPoint(t, p, x, y)
 	for _, typ := range []string{"mouseMoved", "mousePressed", "mouseReleased"} {
 		p.Call(t, "Input.dispatchMouseEvent", map[string]any{"type": typ, "x": px, "y": py, "button": "left", "buttons": 1, "clickCount": 1})
 	}
 }
 
-// drag draws with the mouse from one cell of the page's board to another.
-func drag(t *testing.T, p *browser.Page, x0, y0, x1, y1 int) {
+// lifeDrag draws with the mouse from one cell of the page's board to another.
+func lifeDrag(t *testing.T, p *browser.Page, x0, y0, x1, y1 int) {
 	t.Helper()
 	p.Eval(t, `document.querySelector('.life__field').scrollIntoView({block: 'center'})`, nil)
-	px, py := cellPoint(t, p, x0, y0)
+	px, py := lifeCellPoint(t, p, x0, y0)
 	p.Call(t, "Input.dispatchMouseEvent", map[string]any{"type": "mouseMoved", "x": px, "y": py})
 	p.Call(t, "Input.dispatchMouseEvent", map[string]any{"type": "mousePressed", "x": px, "y": py, "button": "left", "buttons": 1, "clickCount": 1})
 	for i := 1; i <= 10; i++ {
-		qx, qy := cellPoint(t, p, x0+(x1-x0)*i/10, y0+(y1-y0)*i/10)
+		qx, qy := lifeCellPoint(t, p, x0+(x1-x0)*i/10, y0+(y1-y0)*i/10)
 		p.Call(t, "Input.dispatchMouseEvent", map[string]any{"type": "mouseMoved", "x": qx, "y": qy, "button": "left", "buttons": 1})
 		time.Sleep(30 * time.Millisecond)
 	}
-	qx, qy := cellPoint(t, p, x1, y1)
+	qx, qy := lifeCellPoint(t, p, x1, y1)
 	p.Call(t, "Input.dispatchMouseEvent", map[string]any{"type": "mouseReleased", "x": qx, "y": qy, "button": "left", "buttons": 0, "clickCount": 1})
 }
 
@@ -364,7 +364,7 @@ func TestShotsLife(t *testing.T) {
 	p.Navigate(t, base+"/demos/life")
 	p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
 	p.Wait(t, `Number(document.querySelector('#life-stats dd').textContent.replace(/,/g, '')) > 0`, 10*time.Second)
-	colourBoard(t, a)
+	lifeColourBoard(t, a)
 	time.Sleep(4 * time.Second)
 
 	shot := func(name string, page *browser.Page) {
@@ -375,7 +375,7 @@ func TestShotsLife(t *testing.T) {
 			t.Errorf("%s: %v", name, errs)
 		}
 	}
-	p.Eval(t, scrollToStage, nil)
+	p.Eval(t, lifeScrollToStage, nil)
 	time.Sleep(300 * time.Millisecond)
 	shot("life", p)
 	p.ShotElement(t, ".demo-stage", filepath.Join(dir, "life-stage.png"), 1)
@@ -384,7 +384,7 @@ func TestShotsLife(t *testing.T) {
 	// A glider gun under the pointer, turned a quarter.
 	p.Eval(t, `document.querySelector('.life__tool:nth-child(5)').click()`, nil)
 	p.Eval(t, `document.querySelector('.life__turn').click()`, nil)
-	hover(t, p, 30, 20)
+	lifeHover(t, p, 30, 20)
 	time.Sleep(400 * time.Millisecond)
 	p.ShotElement(t, ".life__field", filepath.Join(dir, "life-cursor.png"), 1.5)
 
@@ -395,7 +395,7 @@ func TestShotsLife(t *testing.T) {
 		q.Navigate(t, base+"/demos/life")
 		q.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
 		time.Sleep(1500 * time.Millisecond)
-		q.Eval(t, scrollToStage, nil)
+		q.Eval(t, lifeScrollToStage, nil)
 		time.Sleep(300 * time.Millisecond)
 		shot(name, q)
 		q.ShotElement(t, ".life__field", filepath.Join(dir, name+"-board.png"), 2)
@@ -406,7 +406,7 @@ func TestShotsLife(t *testing.T) {
 	m.Navigate(t, base+"/demos/life")
 	m.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
 	time.Sleep(1500 * time.Millisecond)
-	m.Eval(t, scrollToStage, nil)
+	m.Eval(t, lifeScrollToStage, nil)
 	time.Sleep(300 * time.Millisecond)
 	shot("life-mobile", m)
 
@@ -433,7 +433,7 @@ func TestShotsLife(t *testing.T) {
 	p.Eval(t, `document.querySelector('.life__reset .btn').click()`, nil)
 	p.Wait(t, `document.querySelector('#life-status').textContent.includes('The board is empty.')`, 5*time.Second)
 	p.Eval(t, `document.querySelector('.life__tool:nth-child(2)').click()`, nil)
-	click(t, p, 12, 10)
+	lifeClick(t, p, 12, 10)
 	time.Sleep(1200 * time.Millisecond)
 	p.ShotElement(t, ".demo-stage", filepath.Join(dir, "life-empty.png"), 1)
 
@@ -444,11 +444,11 @@ func TestShotsLife(t *testing.T) {
 	p.ShotElement(t, ".life__foot", filepath.Join(dir, "life-refused.png"), 1.5)
 }
 
-// scrollToStage scrolls the stage to just below the sticky header.
-const scrollToStage = `window.scrollTo(0, document.querySelector('.demo-stage').getBoundingClientRect().top + scrollY - document.querySelector('.site-header').offsetHeight - 12)`
+// lifeScrollToStage scrolls the stage to just below the sticky header.
+const lifeScrollToStage = `window.scrollTo(0, document.querySelector('.demo-stage').getBoundingClientRect().top + scrollY - document.querySelector('.site-header').offsetHeight - 12)`
 
-// colourBoard drops people's patterns on the board, in eight colours.
-func colourBoard(t *testing.T, a *app.App) {
+// lifeColourBoard drops people's patterns on the board, in eight colours.
+func lifeColourBoard(t *testing.T, a *app.App) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now()
@@ -470,8 +470,8 @@ func colourBoard(t *testing.T, a *app.App) {
 	}
 }
 
-// hover moves the mouse over the cell at x, y of the page's board.
-func hover(t *testing.T, p *browser.Page, x, y int) {
+// lifeHover moves the mouse over the cell at x, y of the page's board.
+func lifeHover(t *testing.T, p *browser.Page, x, y int) {
 	t.Helper()
 	var r struct{ X, Y, W, H float64 }
 	p.Eval(t, `(() => { const e = document.querySelector('.life__field'); e.scrollIntoView({block: 'center'}); const b = e.getBoundingClientRect(); return {x: b.left, y: b.top, w: b.width, h: b.height} })()`, &r)

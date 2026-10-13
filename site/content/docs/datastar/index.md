@@ -108,6 +108,14 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Fix.** Put the behaviour on the container and read the item from data attributes, as the board does with one click handler on `#board` ([Pages and Datastar](/docs/guides/pages#regions-rendered-whole)).
 
+### A view transition from the stream takes the page's clicks
+
+**Symptom.** While a frame's view transition plays, buttons and links on the page do nothing.
+
+**Cause.** A patch with `useViewTransition` (`sse.Patch{ViewTransition: true}`) runs a view transition of the whole document. It draws snapshots over the page, and events cannot target those, so until it ends Chromium gives every press to `<html>`. A view that animates a few times a second leaves the page dead most of the time.
+
+**Fix.** Scope the transition with `ViewTransitionSelector` to the element that holds what moves, usually the one the frame patches. Datastar then calls that element's `startViewTransition`, and the rest of the page keeps taking clicks. Inside the scope nothing takes a press until it ends: the press goes to what lies beneath the scope, so a drag that starts there finds its target by position, as this site's shared board does. A browser without scoped transitions morphs at once, without the animation.
+
 ## Requests and streams
 
 ### The default retry leaves a page stale after a deploy

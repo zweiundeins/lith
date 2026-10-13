@@ -12,8 +12,9 @@
  *                       circle that opens from the switch
  *
  * A transition without a type is a stream's patch (sse.Patch's
- * ViewTransition, Datastar's useViewTransition): the page swaps at once,
- * and only elements with a name move.
+ * ViewTransition, Datastar's useViewTransition), scoped to an element
+ * (ViewTransitionSelector): its root swaps at once, and only elements
+ * with a name move.
  *
  * Names (unique on a page): site-header, logo, docs-nav, docs-nav-marker,
  * page-title; demo-<slug>, demo-<slug>-title and demo-<slug>-art for a

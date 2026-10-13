@@ -32,6 +32,12 @@ const (
 
 // Patch says where and how patched elements go. The zero value morphs
 // each element into the page by its id. Values must be single lines.
+//
+// ViewTransition morphs inside a view transition, the whole document's
+// unless ViewTransitionSelector names an element to scope it to. Scope
+// it: while a transition of the document runs, Chromium gives every press
+// on the page to <html>, and buttons and links miss their clicks. A
+// browser without scoped transitions morphs at once.
 type Patch struct {
 	Selector               string
 	Mode                   Mode

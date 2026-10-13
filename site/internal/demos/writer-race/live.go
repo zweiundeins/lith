@@ -85,7 +85,7 @@ func resultsView() live.View {
 			if err != nil {
 				return nil, err
 			}
-			return demo.Animated(ctx, Results(list, time.Now()), sse.Patch{})
+			return demo.Animated(ctx, Results(list, time.Now()), sse.Patch{ViewTransitionSelector: "#writer-race-results"})
 		},
 	}
 }

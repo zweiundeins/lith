@@ -59,6 +59,11 @@ func NewKit(slug string, mux *http.ServeMux, deps Deps) *Kit {
 type Rate struct {
 	Every time.Duration
 	Burst int
+	// Separate keeps the command out of the site's limit for all actions
+	// of an address. Set it for requests a page sends many times a second
+	// (a pointer's moves, a brush's strokes), which would use that limit up
+	// for every other action; the command's own limits still hold.
+	Separate bool
 }
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -66,9 +71,9 @@ var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // Command mounts the action POST /cmd/<slug>/<name>. Before h runs, the
 // request has passed the edge's CSRF check, which wants Datastar's
 // Datastar-Request header on /cmd/, and the rate limits: the site's limit
-// for all actions of a client address, then rate per address and per
-// session. A request over a limit gets 429, which the page reports like any
-// failed action.
+// for all actions of a client address (unless rate.Separate), then rate per
+// address and per session. A request over a limit gets 429, which the page
+// reports like any failed action.
 func (k *Kit) Command(name string, rate Rate, h http.HandlerFunc) {
 	if !namePattern.MatchString(name) {
 		panic(fmt.Sprintf("demo %s: command name %q: lowercase letters, digits and -", k.slug, name))
@@ -82,7 +87,7 @@ func (k *Kit) Command(name string, rate Rate, h http.HandlerFunc) {
 	k.mux.HandleFunc("POST /cmd/"+k.slug+"/"+name, func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		addr := edge.ClientKey(r)
-		if !k.Commands.Allow(addr, 1, now) || !byAddr.Allow(addr, 1, now) || !bySession.Allow(edge.SessionID(r.Context()), 1, now) {
+		if (!rate.Separate && !k.Commands.Allow(addr, 1, now)) || !byAddr.Allow(addr, 1, now) || !bySession.Allow(edge.SessionID(r.Context()), 1, now) {
 			http.Error(w, "Too many requests at once. Wait a moment.", http.StatusTooManyRequests)
 			return
 		}
@@ -199,7 +204,15 @@ type Frame struct {
 
 // Animated renders c into a Frame whose later frames morph inside a view
 // transition, p's ViewTransition set; the first frame morphs at once.
+// p.ViewTransitionSelector is required: it scopes the transition to that
+// element (usually the one the frame patches), so the rest of the page
+// keeps taking clicks. A transition of the whole document gives every
+// press on the page to <html> while it runs. Browsers without scoped
+// transitions morph at once.
 func Animated(ctx context.Context, c templ.Component, p sse.Patch) (Frame, error) {
+	if p.ViewTransitionSelector == "" {
+		return Frame{}, errors.New("demo.Animated: set the patch's ViewTransitionSelector to the element that holds what moves")
+	}
 	var b strings.Builder
 	if err := c.Render(ctx, &b); err != nil {
 		return Frame{}, err

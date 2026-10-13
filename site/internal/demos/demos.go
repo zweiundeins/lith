@@ -11,6 +11,8 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/demos/board"
 	"github.com/zweiundeins/lith/site/internal/demos/canvas"
+	"github.com/zweiundeins/lith/site/internal/demos/checkboxes"
+	cursorparty "github.com/zweiundeins/lith/site/internal/demos/cursor-party"
 	"github.com/zweiundeins/lith/site/internal/demos/guestbook"
 	"github.com/zweiundeins/lith/site/internal/demos/life"
 	"github.com/zweiundeins/lith/site/internal/demos/stream"
@@ -26,6 +28,8 @@ var All = []demo.Demo{
 	stream.Demo,
 	canvas.Demo,
 	board.Demo,
+	cursorparty.Demo,
+	checkboxes.Demo,
 	life.Demo,
 }
 

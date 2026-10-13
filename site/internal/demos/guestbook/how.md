@@ -68,7 +68,7 @@ func entriesView() live.View {
 			if err != nil {
 				return nil, err
 			}
-			return demo.Animated(ctx, Entries(list, total, time.Now()), sse.Patch{})
+			return demo.Animated(ctx, Entries(list, total, time.Now()), sse.Patch{ViewTransitionSelector: "#guestbook-entries"})
 		},
 	}
 }

@@ -92,7 +92,7 @@ Health answers 200 "ok \<version>" while the process serves. It checks nothing, 
 func LogRequests(log *slog.Logger, next http.Handler) http.Handler
 ```
 
-LogRequests logs a line for each request as it ends: method, path, status, bytes, duration and client. A 5xx, or a response a panic cut off, logs at Error, the rest at Info. Mount it outside Recover, so it logs the 500.
+LogRequests logs a line for each request as it ends: method, path, status, bytes, duration and client. A 5xx, or a response a panic cut off, logs at Error, the rest at Info, or at Debug when the handler called Quiet. Mount it outside Recover, so it logs the 500.
 
 ### func Negotiate {#Negotiate}
 
@@ -117,6 +117,14 @@ func Precompress(b []byte) (br, gz []byte)
 ```
 
 Precompress returns b under brotli -11 and gzip -9, compressed once per content: callers with the same bytes wait for the one compression and later ones get it at once. The gzip is the standard library's compress/gzip, byte for byte, so a size an app measures with that package is the size served. The cache keeps every content for the life of the process, so it is for bytes served many times: static files and generated assets.
+
+### func Quiet {#Quiet}
+
+```go
+func Quiet(r *http.Request)
+```
+
+Quiet tells LogRequests that the request is one of many alike, such as the moves of a pointer that a page sends several times a second: its line goes out at Debug instead of Info, unless it fails with a 5xx or is cut off, which still log at Error. Outside LogRequests it does nothing.
 
 ### func Recover {#Recover}
 
