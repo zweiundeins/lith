@@ -21,8 +21,9 @@ about fifteen statements):
 - modernc.org/sqlite parses and plans every statement on every call. At 200
   people that was 41% of the writer's CPU until the writer prepared each SQL
   string once on its own connection (10,000 to 13,800 moves a second). lith's
-  writer does this for every `tx.Exec`; build SQL from constants so the cache
-  stays small.
+  writer does this for every `tx.Exec` and keeps the 512 statements used
+  last; build SQL from constants, and send SQL built at runtime through
+  `tx.ExecUncached` and its siblings, so the cache keeps what repeats.
 - `synchronous=FULL` costs one fsync per batch, which is the latency floor of a
   lone write. `NORMAL` in WAL mode can lose the last commits on power loss,
   not on a process crash.

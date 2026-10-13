@@ -8,8 +8,15 @@ pattern matches, and what the review of October 2026 found where.
 
 - `rg -n '\.(Exec|ExecContext)\(' --type go -g '!*_test.go'`: every hit must
   sit inside a writer command (`Apply(tx *writer.Tx)` or a `writer.Func`), in
-  migrations, or in a test. A store method that writes on its own is a second
-  writer. (libretto had 398 such sites, swisscyberguard 89.)
+  a `w.Exclusive` fn, in migrations, or in a test. A store method that writes
+  on its own is a second writer. (libretto had 398 such sites, swisscyberguard
+  89.)
+- `rg -n 'sql\.Open\(' --type go` outside lith: a second connection that
+  writes to the database file (libretto's Legacy, for the factory reset and
+  tenant imports) takes the write lock beside the writer, and a transaction
+  on it past the busy timeout fails the writer's batches with `SQLITE_BUSY`.
+  Pragma toggles, ATTACH, DETACH and VACUUM go in `w.Exclusive`, on the
+  writer's own connection.
 - `rg -n 'BeginTx\([^)]*nil\)|\.Begin\(\)' --type go`: a deferred
   transaction that reads and then writes can fail with `SQLITE_BUSY_SNAPSHOT`
   next to Litestream's connection; `busy_timeout` does not retry it.
@@ -17,6 +24,10 @@ pattern matches, and what the review of October 2026 found where.
   serialises writes but does not batch them, and reads queue behind it.
 - A command that runs several autocommits (insert, then audit row, then
   publish) is not atomic. One command, one `Apply`, one savepoint.
+- ``rg -n 'tx\.(Exec|Query|QueryRow)\((fmt\.Sprintf|"[^"]*" *\+|`[^`]*` *\+)' --type go``:
+  SQL built at runtime in a command (an IN list with a mark per value) takes
+  a place in the writer's statement cache for every text it makes. Run it
+  through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`.
 - `rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go` inside commands:
   network calls do not belong in the writer. Use `tx.AfterCommit`.
 
@@ -44,6 +55,10 @@ pattern matches, and what the review of October 2026 found where.
 - Every non-GET route passes the CSRF middleware; exemptions are listed.
 - Every route that changes data checks authentication and membership.
   (tickit's `/api/*` routes had none.)
+- `rg -n 'edge\.NewWindow\(' --type go`: a limit promised to people, such as
+  five messages an hour, is `edge.NewSliding(5, time.Hour)`. A fixed window
+  lets up to twice as many through around the edge between two windows, and
+  a bucket (`NewLimiter`) gives tokens back as time passes.
 
 ## Streams
 

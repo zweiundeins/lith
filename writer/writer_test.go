@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/zweiundeins/lith/sqlite"
+	driver "modernc.org/sqlite"
 )
 
 const schema = `
@@ -1028,5 +1029,196 @@ func TestReadsDuringWritesSeeCommittedBatches(t *testing.T) {
 	}
 	if n := f.count(t, "SELECT n FROM counters WHERE id = 1"); n != 1 {
 		t.Fatalf("after the view: %d", n)
+	}
+}
+
+// inList returns an IN list of n marks, and n arguments for it.
+func inList(n int) (string, []any) {
+	args := make([]any, n)
+	for i := range args {
+		args[i] = i + 1
+	}
+	return "(" + strings.Repeat("?, ", n-1) + "?)", args
+}
+
+// stmtBytes is the memory of the statements prepared on the writer's
+// connection. A command calls it, on the writer's goroutine.
+func stmtBytes(t *testing.T, w *Writer) int {
+	var n int
+	err := w.conn.Raw(func(dc any) error {
+		var err error
+		n, _, err = dc.(driver.DBStatus).Status(driver.DBStatusStmtUsed, false)
+		return err
+	})
+	if err != nil {
+		t.Error(err)
+	}
+	return n
+}
+
+// The statement cache keeps the statements used last: SQL built at
+// runtime pushes out, and closes, the ones used longest ago, and a
+// statement that comes later still gets a place.
+func TestStatementCacheKeepsTheLastUsed(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	const hot = "UPDATE counters SET n = n + 1 WHERE id = ?"
+	run := func(from, to int, withHot bool) (bytes int) {
+		t.Helper()
+		err := f.w.Do(ctx, Func(func(tx *Tx) error {
+			for i := from; i < to; i++ {
+				if _, err := tx.Exec(fmt.Sprintf("UPDATE counters SET n = n + %d WHERE id = ?", i), 2); err != nil {
+					return err
+				}
+				if !withHot {
+					continue
+				}
+				if _, err := tx.Exec(hot, 1); err != nil {
+					return err
+				}
+			}
+			bytes = stmtBytes(t, f.w)
+			return nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bytes
+	}
+	full := run(0, maxStmts, false)
+	more := run(maxStmts, 4*maxStmts, true)
+	if more > full*5/4 {
+		t.Errorf("statements take %d bytes after %d more SQL texts, %d before", more, 3*maxStmts, full)
+	}
+	err := f.w.Do(ctx, Func(func(*Tx) error {
+		if n := len(f.w.stmts); n != maxStmts {
+			t.Errorf("%d statements cached, want %d", n, maxStmts)
+		}
+		if f.w.stmts[hot] == nil {
+			t.Error("the statement used all along has no place")
+		}
+		if f.w.stmts["UPDATE counters SET n = n + 0 WHERE id = ?"] != nil {
+			t.Error("the statement used longest ago is still cached")
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(t, "SELECT n FROM counters WHERE id = 1"); n != 3*maxStmts {
+		t.Fatalf("counter %d, want %d", n, 3*maxStmts)
+	}
+}
+
+// A statement pushed out of the cache while its command still reads it,
+// its rows open or its row not scanned yet, stays open until the command
+// ends.
+func TestEvictionUnderAnOpenQuery(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	for _, name := range []string{"a", "b", "c"} {
+		if err := f.w.Do(ctx, insert(name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const all, one = "SELECT name FROM items ORDER BY name", "SELECT name FROM items WHERE name = ?"
+	var names []string
+	var found string
+	var pushedOut []*sql.Stmt
+	err := f.w.Do(ctx, Func(func(tx *Tx) error {
+		rows, err := tx.Query(all)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		row := tx.QueryRow(one, "c")
+		pushedOut = []*sql.Stmt{f.w.stmts[all].Value.(*stmt).s, f.w.stmts[one].Value.(*stmt).s}
+		if !rows.Next() {
+			return errors.New("no first row")
+		}
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		names = append(names, name)
+		// More SQL texts built at runtime than the cache holds.
+		for i := 1; i <= maxStmts+10; i++ {
+			list, args := inList(i%16 + 1)
+			var n int
+			if err := tx.QueryRow(fmt.Sprintf("SELECT count(*) FROM items WHERE id IN %s LIMIT %d", list, i), args...).Scan(&n); err != nil {
+				return err
+			}
+		}
+		if f.w.stmts[all] != nil || f.w.stmts[one] != nil {
+			return errors.New("the statements read from are still cached")
+		}
+		if err := row.Scan(&found); err != nil {
+			return err
+		}
+		for rows.Next() {
+			if err := rows.Scan(&name); err != nil {
+				return err
+			}
+			names = append(names, name)
+		}
+		return rows.Err()
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != "c" || !slices.Equal(names, []string{"a", "b", "c"}) {
+		t.Fatalf("read %v and %q", names, found)
+	}
+	for _, s := range pushedOut {
+		if _, err := s.ExecContext(ctx); err == nil || !strings.Contains(err.Error(), "closed") {
+			t.Fatalf("a statement pushed out is still open after its command: %v", err)
+		}
+	}
+}
+
+// ExecUncached, QueryUncached and QueryRowUncached run in the command's
+// transaction and keep no statement.
+func TestUncached(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	err := f.w.Do(ctx, Func(func(tx *Tx) error {
+		before := len(f.w.stmts)
+		for i := 1; i <= 20; i++ {
+			if _, err := tx.ExecUncached(fmt.Sprintf("INSERT INTO items (name, seq) VALUES (?, %d)", i), fmt.Sprint("n", i)); err != nil {
+				return err
+			}
+		}
+		list, args := inList(3)
+		var n int
+		if err := tx.QueryRowUncached("SELECT count(*) FROM items WHERE seq IN "+list, args...).Scan(&n); err != nil {
+			return err
+		}
+		if n != 3 {
+			t.Errorf("count %d, want 3", n)
+		}
+		rows, err := tx.QueryUncached("SELECT name FROM items WHERE seq IN (?, ?) ORDER BY seq", 4, 5)
+		if err != nil {
+			return err
+		}
+		rows.Next() // left open: closed when the command returns
+		if after := len(f.w.stmts); after != before {
+			t.Errorf("%d statements cached before, %d after", before, after)
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = f.w.Do(ctx, Func(func(tx *Tx) error {
+		if _, err := tx.ExecUncached("DELETE FROM items"); err != nil {
+			return err
+		}
+		return errors.New("refused")
+	}))
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if n := f.count(t, "SELECT count(*) FROM items"); n != 20 {
+		t.Fatalf("%d items: the refused command's delete was kept", n)
 	}
 }

@@ -103,7 +103,8 @@ func Wrap(d driver.Driver, opts Options) driver.Driver {
 }
 
 // Register registers under name the driver registered as base, wrapped. It
-// fails if name is taken or base is unknown.
+// fails if name is taken or base is unknown. sqlite.Options.Driver opens a
+// lith database through it.
 func Register(name, base string, opts Options) error {
 	if slices.Contains(sql.Drivers(), name) {
 		return fmt.Errorf("dbmetrics: driver %q is already registered", name)

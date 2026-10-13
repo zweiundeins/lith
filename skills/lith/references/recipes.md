@@ -54,6 +54,19 @@ A CLI that only reads opens the file with `sqlite.Options{ReadOnly: true}`:
 no write connection, no migrations, and a missing file is an error instead
 of a new empty database.
 
+To time every statement and log the slow ones, register dbmetrics' wrapper
+of modernc's driver once and name it in `Driver`: the write connection, the
+read pool and `Backup` then all open through it.
+
+```go
+m := prom.New("app") // github.com/zweiundeins/lith/dbmetrics/prom
+prometheus.MustRegister(m)
+if err := dbmetrics.Register("sqlite-timed", "sqlite", dbmetrics.Options{Observer: m}); err != nil {
+	return err
+}
+db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{Synchronous: "FULL", Driver: "sqlite-timed"})
+```
+
 The request edge, built from the inside out:
 
 ```go
@@ -122,7 +135,10 @@ func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
   log without one.
 - Commands run in the order they arrive. `w.Flush(ctx)` returns once every
   command queued before it is applied: a test sends, flushes, then reads.
-- Build SQL from constants: the writer prepares each SQL text once.
+- Build SQL from constants: the writer prepares each SQL text once, and
+  keeps the 512 used last. SQL built at runtime, such as an IN list with a
+  mark per value, goes through `tx.ExecUncached`, `tx.QueryUncached` or
+  `tx.QueryRowUncached`, which keep no statement.
 - Scan every `QueryRow` before the same query runs again: an unscanned row
   keeps its cached statement busy.
 - A retried request (a flaky network, a double click) runs once with
@@ -297,6 +313,49 @@ for chunk := range slices.Chunk(rows, 5000) {
 	}
 }
 ```
+
+## Work a transaction cannot hold
+
+`PRAGMA foreign_keys` does nothing inside a transaction, and ATTACH, DETACH
+and VACUUM are refused there. `w.Exclusive(ctx, fn)` runs fn on the writer's
+own connection between two batches, outside any transaction; commands queued
+meanwhile wait and run after it in order. It replaces a second write
+connection, such as libretto's Legacy (factory reset, tenant import and
+merge): a transaction on that one that runs past the busy timeout makes the
+writer's batches fail with `SQLITE_BUSY`.
+
+```go
+err := w.Exclusive(ctx, func(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, `ATTACH DATABASE ? AS src`, path); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.WithoutCancel(ctx), `DETACH DATABASE src`)
+	tx, err := conn.BeginTx(ctx, nil) // IMMEDIATE, like every transaction on the write connection
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO cars SELECT * FROM src.cars`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO trips SELECT * FROM src.trips`); err != nil {
+		return err
+	}
+	return tx.Commit()
+})
+if err == nil {
+	hub.Changed([]string{"cars"}) // Exclusive reaches no OnCommit
+}
+```
+
+- fn restores every pragma it changes, on its error paths too: a `defer`
+  with `context.WithoutCancel(ctx)` still runs when the request is gone. It
+  ends its transactions and closes its rows; a transaction it leaves open is
+  rolled back and reported.
+- fn never waits for the writer (`Do`, `Flush`, another `Exclusive`): the
+  writer is waiting for fn.
+- Every command waits while fn runs. An import that a command's transaction
+  can hold goes through commands in chunks instead, as above.
 
 ## An event-sourced command
 

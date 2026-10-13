@@ -70,11 +70,11 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 
 | Package | Holds |
 | --- | --- |
-| `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`), `Querier`, `Backup` (VACUUM INTO) |
-| `writer` | the single writer: `Send`, `Do`, `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, optimize and checkpoints |
+| `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`), `Querier`, `Backup` (VACUUM INTO), a wrapping `Driver` |
+| `writer` | the single writer: `Send`, `Do`, `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
 | `live` | views and topics, the tick, render workers with prepared read statements, shared frames, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, stats |
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, write deadlines |
-| `edge` | sessions cookie, CSRF, client IP, CSP nonce, compression, precompressed static files, rate limiter, health |
+| `edge` | sessions cookie, CSRF, client IP, CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
 | `tenant` | one database file per account: refcounted pool with LRU eviction |
 | `dbmetrics` | query timing and slow-query log |
@@ -84,8 +84,8 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 
 - `references/recipes.md`: wiring and migrations, a command, op ids that
   keep refusals, query code shared by reads and commands, a view with topics,
-  tab state and preferences, a background job, a bulk import, an
-  event-sourced command, backups, a new project.
+  tab state and preferences, a background job, a bulk import, work a
+  transaction cannot hold, an event-sourced command, backups, a new project.
 - `references/performance.md`: measured numbers, the knobs they set, how to
   measure.
 - `references/review.md`: the checklist with `rg` patterns.

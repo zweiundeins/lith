@@ -4,13 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/zweiundeins/lith/dbmetrics"
 )
 
 func open(t *testing.T, opts Options) *DB {
@@ -450,5 +455,68 @@ func TestPathIsEscaped(t *testing.T) {
 func TestMemoryDatabaseRefused(t *testing.T) {
 	if _, err := Open(context.Background(), ":memory:", Options{Synchronous: "NORMAL"}); err == nil {
 		t.Fatal("opened an in-memory database: the pools would not share it")
+	}
+}
+
+// registrations keeps driver names unique when a test runs more than once
+// in one process: sql.Register cannot be undone.
+var registrations atomic.Int32
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+// Every connection opens through Options.Driver: the write connection, the
+// read pool and Backup's. The wrapper here logs every statement as slow.
+func TestDriver(t *testing.T) {
+	ctx := context.Background()
+	var log syncBuffer
+	name := fmt.Sprintf("sqlite-timed-%d", registrations.Add(1))
+	err := dbmetrics.Register(name, "sqlite", dbmetrics.Options{
+		SlowThreshold: time.Nanosecond,
+		Logger:        slog.New(slog.NewTextHandler(&log, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := open(t, Options{Driver: name})
+	if got := d.Options().Driver; got != name {
+		t.Errorf("Options().Driver = %q", got)
+	}
+	if _, err := d.W.Exec("CREATE TABLE t (x INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := d.R.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Backup(ctx, filepath.Join(t.TempDir(), "copy.db")); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"CREATE TABLE t", "SELECT count(*) FROM t", "VACUUM INTO"} {
+		if !strings.Contains(log.String(), q) {
+			t.Errorf("%q did not go through the driver:\n%s", q, log.String())
+		}
+	}
+
+	if got := open(t, Options{}).Options().Driver; got != "sqlite" {
+		t.Errorf("the default driver is %q", got)
+	}
+	_, err = Open(ctx, filepath.Join(t.TempDir(), "x.db"), Options{Synchronous: "NORMAL", Driver: "no-such-driver"})
+	if err == nil || !strings.Contains(err.Error(), "no-such-driver") {
+		t.Errorf("an unknown driver: %v", err)
 	}
 }

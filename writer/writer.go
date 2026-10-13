@@ -17,8 +17,10 @@
 package writer
 
 import (
+	"container/list"
 	"context"
 	"database/sql"
+	sqldriver "database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,7 +42,7 @@ var (
 	ErrQueueFull = errors.New("writer: queue full")
 	// ErrInvalid wraps the error of a command that failed Validate.
 	ErrInvalid = errors.New("writer: invalid command")
-	// ErrPanic wraps the value a command panicked with.
+	// ErrPanic wraps the value a command, or an Exclusive's fn, panicked with.
 	ErrPanic = errors.New("writer: command panicked")
 )
 
@@ -105,9 +107,17 @@ type Stats struct {
 }
 
 type request struct {
-	cmd  Command // nil for Flush
+	cmd  Command    // nil for Flush and Exclusive
+	ex   *exclusive // Exclusive's
 	ctx  context.Context
 	done chan error // nil for Send
+}
+
+// exclusive is an Exclusive's fn. Whoever takes it first decides: the
+// writer to run it, or the caller to give up waiting.
+type exclusive struct {
+	fn    func(context.Context, *sql.Conn) error
+	taken atomic.Bool
 }
 
 // Writer owns the database's write connection: it is the only one that
@@ -126,7 +136,9 @@ type Writer struct {
 	err     error // set before done is closed
 
 	// The writer's goroutine alone uses these.
-	stmts    map[string]*stmt
+	stmts    map[string]*list.Element // of *stmt in lru, by SQL text
+	lru      list.List                // the statements, the one used last first
+	retired  []*sql.Stmt              // see closeRetired
 	batch    []*request
 	errs     []error
 	topics   map[string]struct{}
@@ -175,7 +187,7 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 		busy:   "PRAGMA busy_timeout = " + strconv.FormatInt(dbo.BusyTimeout.Milliseconds(), 10),
 		queue:  make(chan *request, opts.QueueSize),
 		done:   make(chan struct{}),
-		stmts:  map[string]*stmt{},
+		stmts:  map[string]*list.Element{},
 		topics: map[string]struct{}{},
 	}, nil
 }
@@ -265,6 +277,54 @@ func (w *Writer) Flush(ctx context.Context) error {
 	}
 }
 
+// Exclusive runs fn on the writer's connection between two batches,
+// outside any transaction, and returns fn's error. Commands queued
+// meanwhile wait, and run after it in the order they arrived. It is for
+// work a command's transaction cannot hold, or that must not race the
+// writer: a PRAGMA foreign_keys toggle, ATTACH and DETACH, VACUUM, a long
+// import.
+//
+// fn must restore every pragma it changes, also when it fails, and end
+// what it begins: a transaction it leaves open is rolled back, and
+// Exclusive reports it. It must not close conn or keep it, nor wait for
+// the writer (Do, Flush, Exclusive). fn may change the schema: the writer
+// prepares its statements again after it. Its changes reach no OnCommit,
+// so tell the views once Exclusive returns.
+//
+//	err := w.Exclusive(ctx, func(ctx context.Context, conn *sql.Conn) error {
+//		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+//			return err
+//		}
+//		defer conn.ExecContext(context.WithoutCancel(ctx), "PRAGMA foreign_keys = ON")
+//		_, err := conn.ExecContext(ctx, "DELETE FROM accounts")
+//		return err
+//	})
+//
+// fn gets ctx. If ctx ends before fn's turn, fn does not run and
+// Exclusive returns ctx's error; once fn has begun, Exclusive waits for
+// it. A panic in fn is returned as ErrPanic.
+func (w *Writer) Exclusive(ctx context.Context, fn func(ctx context.Context, conn *sql.Conn) error) error {
+	if fn == nil {
+		return fmt.Errorf("%w: nil", ErrInvalid)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r := &request{ex: &exclusive{fn: fn}, ctx: ctx, done: make(chan error, 1)}
+	if err := w.enqueue(ctx, r); err != nil {
+		return err
+	}
+	select {
+	case err := <-r.done:
+		return err
+	case <-ctx.Done():
+		if r.ex.taken.CompareAndSwap(false, true) {
+			return ctx.Err()
+		}
+		return <-r.done
+	}
+}
+
 func validate(cmd Command) error {
 	if cmd == nil {
 		return fmt.Errorf("%w: nil", ErrInvalid)
@@ -334,20 +394,28 @@ func (w *Writer) loop(ctx context.Context) {
 				w.err = w.finish()
 				return
 			}
+			// r is the last request taken. An Exclusive ends the batch,
+			// and runs once the commands before it have committed.
 			w.batch = append(w.batch[:0], r)
 		fill:
-			for len(w.batch) < w.opts.MaxBatch {
+			for len(w.batch) < w.opts.MaxBatch && r.ex == nil {
 				select {
-				case r, ok := <-w.queue:
+				case next, ok := <-w.queue:
 					if !ok {
 						break fill
 					}
-					w.batch = append(w.batch, r)
+					w.batch = append(w.batch, next)
+					r = next
 				default:
 					break fill
 				}
 			}
-			w.apply(w.batch)
+			if r.ex != nil {
+				w.apply(w.batch[:len(w.batch)-1])
+				w.lend(r)
+			} else {
+				w.apply(w.batch)
+			}
 			clear(w.batch)
 			if w.mode == sqlite.CheckpointWriter {
 				w.checkpoint()
@@ -527,6 +595,46 @@ func (w *Writer) call(cmd Command, tx *Tx) (err error) {
 	return cmd.Apply(tx)
 }
 
+// lend runs an Exclusive's fn on the connection, unless its caller gave
+// up waiting, and answers it.
+func (w *Writer) lend(r *request) {
+	if !r.ex.taken.CompareAndSwap(false, true) {
+		return
+	}
+	if err := r.ctx.Err(); err != nil {
+		r.done <- err
+		return
+	}
+	r.done <- w.runExclusive(r.ctx, r.ex.fn)
+}
+
+func (w *Writer) runExclusive(ctx context.Context, fn func(context.Context, *sql.Conn) error) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			w.opts.Log.Error("writer: Exclusive panicked", "panic", p, "stack", string(debug.Stack()))
+			err = fmt.Errorf("%w: %v", ErrPanic, p)
+		}
+		// Without a transaction open, ROLLBACK fails and changes nothing.
+		if _, e := w.conn.ExecContext(context.Background(), "ROLLBACK"); e == nil {
+			err = errors.Join(err, errors.New("writer: Exclusive left a transaction open, rolled back"))
+		}
+		w.forget()
+	}()
+	return fn(ctx, w.conn)
+}
+
+// forget closes the prepared statements and drops what the writer knows
+// of the schema, which an Exclusive may have changed.
+func (w *Writer) forget() {
+	for _, e := range w.stmts {
+		e.Value.(*stmt).s.Close()
+	}
+	clear(w.stmts)
+	w.lru.Init()
+	w.closeRetired()
+	w.opsReady, w.resReady = false, false
+}
+
 func (w *Writer) safely(what string, fn func()) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -559,15 +667,21 @@ func (w *Writer) checkpoint() {
 }
 
 // walPages returns the pages the connection wrote to the WAL since the
-// last call.
+// last call. A wrapping driver (sqlite.Options.Driver) hands out its own
+// connection, which must Unwrap to modernc's.
 func (w *Writer) walPages() (n int, err error) {
 	err = w.conn.Raw(func(dc any) error {
-		s, ok := dc.(driver.DBStatus)
-		if !ok {
-			return fmt.Errorf("%T has no DBStatus", dc)
+		for {
+			if s, ok := dc.(driver.DBStatus); ok {
+				n, _, err = s.Status(driver.DBStatusCacheWrite, true)
+				return err
+			}
+			u, ok := dc.(interface{ Unwrap() sqldriver.Conn })
+			if !ok {
+				return fmt.Errorf("%T has no DBStatus", dc)
+			}
+			dc = u.Unwrap()
 		}
-		n, _, err = s.Status(driver.DBStatusCacheWrite, true)
-		return err
 	})
 	return n, err
 }
@@ -604,10 +718,7 @@ func (w *Writer) finish() error {
 	if err := w.exec("PRAGMA optimize"); err != nil {
 		errs = append(errs, fmt.Errorf("writer: optimize: %w", err))
 	}
-	for _, s := range w.stmts {
-		s.s.Close()
-	}
-	clear(w.stmts)
+	w.forget()
 	if err := w.conn.Close(); err != nil {
 		errs = append(errs, err)
 	}
