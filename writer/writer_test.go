@@ -499,6 +499,19 @@ func TestOneWriterPerDatabase(t *testing.T) {
 	}
 }
 
+func TestNewRefusesReadOnly(t *testing.T) {
+	db := openDB(t, sqlite.Options{})
+	db.Close()
+	ro, err := sqlite.Open(context.Background(), db.Path, sqlite.Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	if _, err := New(ro, Options{}); err == nil || !strings.Contains(err.Error(), "ReadOnly") {
+		t.Fatalf("a writer on a read-only database: %v", err)
+	}
+}
+
 func TestOnCommitTopics(t *testing.T) {
 	var mu sync.Mutex
 	var got [][]string

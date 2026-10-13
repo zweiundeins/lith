@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,8 +39,13 @@ const (
 type Options struct {
 	// Synchronous is "FULL" or "NORMAL". FULL syncs the WAL on every
 	// commit; NORMAL can lose the last commits on power loss, never on a
-	// crash of the process.
+	// crash of the process. ReadOnly needs none.
 	Synchronous string
+	// ReadOnly opens an existing database for reading only, for a CLI or
+	// a check of a backup. Open then never creates the file or its
+	// directory, opens no write connection (W is nil) and applies no
+	// migrations: setting Migrations or Migrate is an error.
+	ReadOnly bool
 	// Migrations holds NNN_name.sql files at its root (fs.Sub an embed.FS
 	// to its directory). Open applies those numbered above the database's
 	// PRAGMA user_version in order, each in a transaction of its own, and
@@ -70,9 +76,14 @@ func (o Options) withDefaults() (Options, error) {
 	case "FULL", "NORMAL":
 		o.Synchronous = s
 	case "":
-		return o, errors.New("sqlite: Options.Synchronous is required: FULL or NORMAL")
+		if !o.ReadOnly {
+			return o, errors.New("sqlite: Options.Synchronous is required: FULL or NORMAL")
+		}
 	default:
 		return o, fmt.Errorf("sqlite: Options.Synchronous is %q, want FULL or NORMAL", o.Synchronous)
+	}
+	if o.ReadOnly && (o.Migrations != nil || o.Migrate != nil) {
+		return o, errors.New("sqlite: a ReadOnly database cannot be migrated")
 	}
 	switch o.Checkpoint {
 	case CheckpointAuto, CheckpointWriter, CheckpointExternal:
@@ -99,7 +110,8 @@ func (o Options) withDefaults() (Options, error) {
 
 // DB is one database file. W holds a single connection that takes the
 // write lock when a transaction begins (BEGIN IMMEDIATE); only migrations
-// and the writer use it. R is the pool of query_only connections.
+// and the writer use it, and it is nil with Options.ReadOnly. R is the
+// pool of query_only connections.
 type DB struct {
 	W    *sql.DB
 	R    *sql.DB
@@ -108,7 +120,8 @@ type DB struct {
 }
 
 // Open opens (and creates) the database at path, applies the migrations
-// and opens the read pool.
+// and opens the read pool. With Options.ReadOnly it opens the read pool
+// of an existing database only.
 func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	opts, err := opts.withDefaults()
 	if err != nil {
@@ -117,19 +130,57 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	if path == "" {
 		return nil, errors.New("sqlite: no path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
 	common := []string{
 		fmt.Sprintf("busy_timeout(%d)", opts.BusyTimeout.Milliseconds()),
-		"journal_mode(WAL)",
-		"synchronous(" + opts.Synchronous + ")",
 		"foreign_keys(1)",
 		"temp_store(MEMORY)",
 		fmt.Sprintf("cache_size(%d)", -opts.CacheKiB),
 	}
+	var w *sql.DB
+	var ro url.Values
+	if opts.ReadOnly {
+		if _, err := os.Stat(path); err != nil {
+			return nil, fmt.Errorf("sqlite: open read-only: %w", err)
+		}
+		ro = url.Values{"mode": {"ro"}}
+	} else {
+		common = append(common, "journal_mode(WAL)", "synchronous("+opts.Synchronous+")")
+		if w, err = openWriter(ctx, path, opts, common); err != nil {
+			return nil, err
+		}
+	}
 
-	wp := append([]string(nil), common...)
+	rp := append(slices.Clone(common), "query_only(1)")
+	if opts.MmapBytes > 0 {
+		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
+	}
+	r, err := sql.Open("sqlite", dsn(path, rp, ro))
+	if err == nil {
+		r.SetMaxOpenConns(opts.Readers)
+		r.SetMaxIdleConns(opts.Readers)
+		r.SetConnMaxLifetime(0)
+		r.SetConnMaxIdleTime(0)
+		if err = r.PingContext(ctx); err != nil {
+			r.Close()
+			err = fmt.Errorf("sqlite: open %s: %w", path, err)
+		}
+	}
+	if err != nil {
+		if w != nil {
+			w.Close()
+		}
+		return nil, err
+	}
+	return &DB{W: w, R: r, Path: path, opts: opts}, nil
+}
+
+// openWriter opens the write connection, checks that the database is in
+// WAL mode and migrates it.
+func openWriter(ctx context.Context, path string, opts Options, pragmas []string) (*sql.DB, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	wp := slices.Clone(pragmas)
 	if opts.Checkpoint != CheckpointAuto {
 		wp = append(wp, "wal_autocheckpoint(0)")
 	}
@@ -162,27 +213,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 			return nil, fmt.Errorf("sqlite: migrate %s: %w", path, err)
 		}
 	}
-
-	rp := append([]string(nil), common...)
-	rp = append(rp, "query_only(1)")
-	if opts.MmapBytes > 0 {
-		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
-	}
-	r, err := sql.Open("sqlite", dsn(path, rp, nil))
-	if err != nil {
-		w.Close()
-		return nil, err
-	}
-	r.SetMaxOpenConns(opts.Readers)
-	r.SetMaxIdleConns(opts.Readers)
-	r.SetConnMaxLifetime(0)
-	r.SetConnMaxIdleTime(0)
-	if err := r.PingContext(ctx); err != nil {
-		r.Close()
-		w.Close()
-		return nil, fmt.Errorf("sqlite: open %s: %w", path, err)
-	}
-	return &DB{W: w, R: r, Path: path, opts: opts}, nil
+	return w, nil
 }
 
 // Options returns the options Open used, defaults filled in.
@@ -236,7 +267,11 @@ func (d *DB) backup(ctx context.Context, dst string) error {
 
 // Close closes both pools. Close the writer first.
 func (d *DB) Close() error {
-	return errors.Join(d.R.Close(), d.W.Close())
+	err := d.R.Close()
+	if d.W != nil {
+		err = errors.Join(err, d.W.Close())
+	}
+	return err
 }
 
 // uriPath escapes what SQLite's URI parser would read as the end of the

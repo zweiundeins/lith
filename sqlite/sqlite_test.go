@@ -221,6 +221,76 @@ func TestBackup(t *testing.T) {
 	}
 }
 
+// ReadOnly reads an existing database, here while another program writes
+// to it and its last commits are still in the WAL, and a backup of it.
+func TestReadOnly(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "rw.db")
+	rw, err := Open(ctx, path, Options{Synchronous: "NORMAL", Checkpoint: CheckpointExternal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rw.Close()
+	if _, err := rw.W.Exec("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1), (2)"); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := Open(ctx, path, Options{ReadOnly: true, Readers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.W != nil {
+		t.Fatal("a read-only database has a write connection")
+	}
+	count := func(d *DB) (n int) {
+		t.Helper()
+		err := d.View(ctx, func(tx *sql.Tx) error { return tx.QueryRow("SELECT count(*) FROM t").Scan(&n) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(d); n != 2 {
+		t.Fatalf("%d rows", n)
+	}
+	if _, err := d.R.Exec("INSERT INTO t VALUES (3)"); err == nil {
+		t.Fatal("wrote through a read-only database")
+	}
+	dst := filepath.Join(t.TempDir(), "copy.db")
+	if err := d.Backup(ctx, dst); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Open(ctx, dst, Options{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if n := count(c); n != 2 {
+		t.Fatalf("the backup has %d rows", n)
+	}
+}
+
+func TestReadOnlyCreatesNothing(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "missing")
+	path := filepath.Join(dir, "x.db")
+	if _, err := Open(ctx, path, Options{ReadOnly: true}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a missing database: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Open created the directory: %v", err)
+	}
+	d := open(t, Options{})
+	d.Close()
+	_, err := Open(ctx, d.Path, Options{ReadOnly: true, Migrations: files(nil)})
+	if err == nil || !strings.Contains(err.Error(), "ReadOnly") {
+		t.Fatalf("ReadOnly with migrations: %v", err)
+	}
+}
+
 func TestPathIsEscaped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "a?b#c%41.db")
 	d, err := Open(context.Background(), path, Options{Synchronous: "NORMAL"})

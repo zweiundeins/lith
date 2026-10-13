@@ -150,6 +150,9 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
+	if db.W == nil {
+		return nil, errors.New("writer: the database has no write connection (sqlite.Options.ReadOnly)")
+	}
 	dbo := db.Options()
 	ctx, cancel := context.WithTimeout(context.Background(), dbo.BusyTimeout)
 	defer cancel()
