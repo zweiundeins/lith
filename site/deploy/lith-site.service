@@ -1,0 +1,85 @@
+# /etc/systemd/system/lith-site.service
+[Unit]
+Description=lith-site (lith.zweiundeins.gmbh: lith's website, docs and demos)
+Documentation=https://github.com/zweiundeins/lith/tree/main/site/deploy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lith-site
+Group=lith-site
+# /var/lib/lith-site holds the database, the only state.
+StateDirectory=lith-site
+WorkingDirectory=/var/lib/lith-site
+# Optional: LITH_SITE_* settings the command line leaves out.
+EnvironmentFile=-/etc/lith-site/lith-site.env
+# The site on 127.0.0.1:8097 for Caddy, /metrics on 127.0.0.1:8197 (port +
+# 100) for Prometheus only. Logs go to stdout as JSON, one object per line,
+# for journald and Alloy.
+ExecStart=/opt/lith-site/lith-site serve \
+	-addr 127.0.0.1:8097 \
+	-db /var/lib/lith-site/site.db \
+	-base https://lith.zweiundeins.gmbh \
+	-secure \
+	-streams 300
+Restart=always
+RestartSec=1
+# SIGTERM: the streams end with sse.Reconnect (pages reconnect to the next
+# process), actions finish, the writer commits what is queued.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+LimitNOFILE=4096
+
+# Memory. The live hub gives the streams' encoders half of GOMEMLIMIT, 96
+# MiB: about 55 streams at zstd 2^19, about 136 once the budget moves them
+# down to 2^17 with low memory, then uncompressed (a guestbook frame is a
+# few KB). An idle stream gives its encoder back after a minute (Hibernate).
+# The rest is the process: Go, the page caches of the SQLite connections at
+# 4 MiB at most and their prepared statements at 0.5 MiB at most, the
+# static files. -streams caps the open tabs. Change these together.
+Environment=GOMEMLIMIT=192MiB
+MemoryHigh=224M
+MemoryMax=256M
+TasksMax=128
+
+# CPU: half the weight of the host's other units, so that a crowd on the
+# demos cannot slow the apps beside it down when the cores are busy.
+CPUWeight=50
+
+# Network: loopback only, both ways. Caddy and Prometheus connect from
+# 127.0.0.1; the site itself connects nowhere, not even to DNS. It may bind
+# its two ports and no other.
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SocketBindAllow=tcp:8097
+SocketBindAllow=tcp:8197
+SocketBindDeny=any
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1033,6 +1033,54 @@ func TestStats(t *testing.T) {
 	}
 }
 
+// TestBatchSizes checks Stats.Sizes, the batches counted by the commands
+// they took in powers of two: batches of 1, 2, 3, 5 and 64 commands, a
+// failed command counted like any other.
+func TestBatchSizes(t *testing.T) {
+	for n, want := range map[int64]int{1: 0, 2: 1, 3: 1, 4: 2, 7: 2, 8: 3, 64: 6, 511: 8, 512: 9, 1023: 9, 1024: 10, 1 << 20: 10} {
+		if got := sizeBucket(n); got != want {
+			t.Errorf("a batch of %d in bucket %d, want %d", n, got, want)
+		}
+	}
+
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	f.w.Do(ctx, increment(1))
+	batch := func(n int, cmd func(i int) Command) {
+		t.Helper()
+		release := f.block(t)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Go(func() { f.w.Do(ctx, cmd(i)) })
+			f.queued(t, i+1)
+		}
+		release()
+		wg.Wait()
+	}
+	batch(3, func(int) Command { return increment(2) })
+	batch(5, func(int) Command { return increment(2) })
+	batch(64, func(int) Command { return increment(1) })
+	batch(2, func(i int) Command {
+		if i == 1 {
+			return Func(func(*Tx) error { return errors.New("no") })
+		}
+		return increment(1)
+	})
+	s := f.w.Stats()
+	// The blocking commands make four more batches of one.
+	want := [SizeBuckets]int64{0: 5, 1: 2, 2: 1, 6: 1}
+	if s.Sizes != want {
+		t.Fatalf("sizes %v, want %v", s.Sizes, want)
+	}
+	var sum int64
+	for _, n := range s.Sizes {
+		sum += n
+	}
+	if sum != s.Batches {
+		t.Fatalf("sizes add up to %d, batches %d", sum, s.Batches)
+	}
+}
+
 func TestReadsDuringWritesSeeCommittedBatches(t *testing.T) {
 	f := start(t, sqlite.Options{}, Options{})
 	ctx := context.Background()

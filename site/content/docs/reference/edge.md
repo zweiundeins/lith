@@ -1,0 +1,448 @@
+---
+title: edge
+summary: What the apps do at the request edge, before a handler runs and after it has written.
+order: 5
+---
+
+Import path `github.com/zweiundeins/lith/edge`. Generated from the doc comments in [edge/](https://github.com/zweiundeins/lith/tree/main/edge).
+
+It never touches the database: a session here is a cookie, and what a session holds is the app's to store through its writer.
+
+Where each piece comes from:
+
+```text
+ClientIP, ClientKey  starbase and swisscyberguard: proxy headers count only from loopback or a Unix socket, X-Forwarded-For before X-Real-IP
+Sessions             starbase's cookie-only session, hyperlith's __Host-sid, swisscyberguard's 256-bit tokens
+CSRF                 Go's CrossOriginProtection rules, strict on missing headers like hyperlith and starbase, kanban's Datastar-Request check
+SecurityHeaders, CSP starbase's per-request nonce and sources, hyperlith's policy as data, kanban's and swisscyberguard's other headers
+Compress, Negotiate  starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap where libretto and swisscyberguard kept bypass lists
+Static, Precompress  starbase's precompress package, libretto's content ETags with no-cache, kanban's hashed immutable URLs
+Limiter              starbase's token bucket, swept as it goes, libretto's rule that a clock step must not reset it, and its five messages in the last hour
+Health, Ready        libretto's and swisscyberguard's liveness and readiness probes, with checks registered by the app
+Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
+```
+
+A chain, built from the inside out:
+
+```go
+h := http.Handler(mux)
+h = sessions.Handler(h)      // inside CSRF: a refused request gets no cookie
+h = csrf.Handler(h)
+h = security.Handler(h)
+h = edge.Compress(h)
+h = edge.Recover(log, h)     // around Compress: a panic drops the held body
+h = edge.LogRequests(log, h) // around Recover: it logs the 500
+```
+
+## Constants
+
+```go
+const NonceSource = "'nonce'"
+```
+
+NonceSource stands for the request's 'nonce-...' source among a directive's sources.
+
+## Functions
+
+### func BrotliLen {#BrotliLen}
+
+```go
+func BrotliLen(b []byte) int
+```
+
+BrotliLen is the length of b under brotli -11, as Precompress compresses it, measured without keeping the bytes: for bytes that are only measured, never served.
+
+### func ClientIP {#ClientIP}
+
+```go
+func ClientIP(r *http.Request) netip.Addr
+```
+
+ClientIP returns the address of the client that sent r. A peer on loopback or a Unix socket is the local reverse proxy, which names the client as the last address of X-Forwarded-For. The proxy must set that header: Caddy's reverse\_proxy does by default, nginx with proxy\_set\_header X-Forwarded-For $proxy\_add\_x\_forwarded\_for. X-Real-IP counts only when there is no X-Forwarded-For: a proxy may pass on an X-Real-IP the client sent, as Caddy does unless the site block sets it. From any other peer both headers are ignored: a client can send them itself, to dodge its rate limit or to spend someone else's. When the proxy names no address that parses, the address is the peer's, invalid for a Unix socket.
+
+### func ClientKey {#ClientKey}
+
+```go
+func ClientKey(r *http.Request) string
+```
+
+ClientKey is ClientIP as a rate-limit key. An IPv6 client counts by its /64, since one subscriber holds a whole /64 and could rotate through it; an unknown address is "local".
+
+### func Compress {#Compress}
+
+```go
+func Compress(next http.Handler) http.Handler
+```
+
+Compress compresses the responses to GET and HEAD with brotli, zstd or gzip, whichever the request accepts best (in that order when it accepts them equally). It leaves alone a response that sets its own Content-Encoding (precompressed files, streams that compress themselves), event streams, partial content, types that don't compress, and bodies under 512 bytes. Other methods pass untouched: Datastar's POST streams compress themselves, across frames.
+
+A Flush sends everything written so far to the client. The writer unwraps for http.ResponseController, so a stream can still set its deadlines.
+
+### func Health {#Health}
+
+```go
+func Health(version string) http.Handler
+```
+
+Health answers 200 "ok \<version>" while the process serves. It checks nothing, so a busy database never fails it. Mount it at /healthz.
+
+### func LogRequests {#LogRequests}
+
+```go
+func LogRequests(log *slog.Logger, next http.Handler) http.Handler
+```
+
+LogRequests logs a line for each request as it ends: method, path, status, bytes, duration and client. A 5xx, or a response a panic cut off, logs at Error, the rest at Info, or at Debug when the handler called Quiet. Mount it outside Recover, so it logs the 500.
+
+### func Negotiate {#Negotiate}
+
+```go
+func Negotiate(acceptEncoding string, codings ...string) string
+```
+
+Negotiate returns the one of codings that an Accept-Encoding header rates highest, earlier ones winning ties, or "" when it accepts none of them. Without codings it chooses among br, zstd and gzip, as Compress does. A handler with prerendered variants names the ones it has, such as br and gzip from Precompress.
+
+### func Nonce {#Nonce}
+
+```go
+func Nonce(ctx context.Context) string
+```
+
+Nonce returns the CSP nonce SecurityHeaders put in ctx, or "" when its policy has none. An inline script carries it as \<script nonce="...">.
+
+### func Precompress {#Precompress}
+
+```go
+func Precompress(b []byte) (br, gz []byte)
+```
+
+Precompress returns b under brotli -11 and gzip -9, compressed once per content: callers with the same bytes wait for the one compression and later ones get it at once. The gzip is the standard library's compress/gzip, byte for byte, so a size an app measures with that package is the size served. The cache keeps every content for the life of the process, so it is for bytes served many times: static files and generated assets.
+
+### func Quiet {#Quiet}
+
+```go
+func Quiet(r *http.Request)
+```
+
+Quiet tells LogRequests that the request is one of many alike, such as the moves of a pointer that a page sends several times a second: its line goes out at Debug instead of Info, unless it fails with a 5xx or is cut off, which still log at Error. Outside LogRequests it does nothing.
+
+### func Recover {#Recover}
+
+```go
+func Recover(log *slog.Logger, next http.Handler) http.Handler
+```
+
+Recover turns a panic in next into a 500, logged with its stack. When the response has already begun, it aborts the connection instead, so the client can tell the response is incomplete.
+
+### func ServePrecompressed {#ServePrecompressed}
+
+```go
+func ServePrecompressed(w http.ResponseWriter, r *http.Request, body []byte)
+```
+
+ServePrecompressed answers with body in the best of Precompress's codings the request accepts. Bodies under 512 bytes, types that don't compress and requests that accept neither coding get it as it is. It sets an ETag of the content and leaves conditional and range requests to http.ServeContent, so an If-None-Match that names the ETag gets a 304. Set Content-Type and Cache-Control before; a Content-Encoding it sets keeps Compress out of the way.
+
+Like Precompress, it hashes and compresses each content once and keeps the result, the body included, for the life of the process: it is for bytes served many times, such as prerendered pages.
+
+### func SessionID {#SessionID}
+
+```go
+func SessionID(ctx context.Context) string
+```
+
+SessionID returns the session id Sessions.Handler put in ctx, or "".
+
+## Types
+
+### type CSP {#CSP}
+
+```go
+type CSP map[string][]string
+```
+
+CSP is a Content-Security-Policy: each directive with its sources.
+
+#### func DefaultCSP {#DefaultCSP}
+
+```go
+func DefaultCSP() CSP
+```
+
+DefaultCSP is a policy for a Datastar app. Everything comes from its own origin; scripts also by nonce, for an import map or an inline script. 'unsafe-eval' is required: Datastar compiles its expressions with Function. Inline styles are allowed for components that render \<style> into their shadow roots; a nonce in style-src would turn 'unsafe-inline' off. Nothing may frame the site.
+
+#### func (CSP) Header {#CSP.Header}
+
+```go
+func (c CSP) Header(nonce string) string
+```
+
+Header returns the policy as a header value, with nonce in place of NonceSource.
+
+### type CSRF {#CSRF}
+
+```go
+type CSRF struct {
+	// Origins are other origins trusted to send such requests, each as
+	// "scheme://host[:port]".
+	Origins []string
+	// Exempt are ServeMux patterns, such as "POST /hooks/{name}", whose
+	// requests skip the check.
+	Exempt []string
+	// Datastar are ServeMux patterns of action routes, such as "POST /cmd/",
+	// whose requests must carry Datastar-Request: true as well. A form cannot
+	// send that header, and a cross-site fetch only after a preflight.
+	Datastar []string
+}
+```
+
+CSRF refuses cross-site requests with unsafe methods (all but GET, HEAD and OPTIONS) with 403. Such a request passes when the browser's Sec-Fetch-Site says same-origin, or none (the user started it). Without that header, as from browsers older than 2023, its Origin must name this host. A request with neither header is refused: other clients must send an Origin. A same-site or cross-site request passes only from one of Origins, since a sibling subdomain is not this site.
+
+#### func (CSRF) Handler {#CSRF.Handler}
+
+```go
+func (c CSRF) Handler(next http.Handler) http.Handler
+```
+
+Handler returns next behind the check. Like ServeMux, it panics on a pattern that is not valid, and on an origin that is not one.
+
+### type Limiter {#Limiter}
+
+```go
+type Limiter struct {
+	// contains filtered or unexported fields
+}
+```
+
+Limiter limits what each key may take, as a token bucket (NewLimiter), a fixed window (NewWindow) or a sliding one (NewSliding). A bucket that has filled up again, or a window that has closed, is the same as a new one, so Allow sweeps those out as it goes: memory holds the keys that were limited within about the last burst/rate seconds, or the last window.
+
+Keys a client chooses, such as session ids, cost it nothing to change: check a per-IP limiter (ClientKey) first, so only requests it lets through make buckets in the other.
+
+#### func NewLimiter {#NewLimiter}
+
+```go
+func NewLimiter(rate float64, burst int) *Limiter
+```
+
+NewLimiter returns a limiter that allows burst tokens at once and rate tokens a second after that. It panics unless rate > 0 and burst >= 1.
+
+#### func NewSliding {#NewSliding}
+
+```go
+func NewSliding(n int, per time.Duration) *Limiter
+```
+
+NewSliding returns a limiter that allows n tokens in any span of length per: a token counts until per has passed since it was taken. Where NewWindow lets up to 2n through around the edge between two windows, a sliding window keeps a promise such as "five messages in the last hour" at every moment. A key keeps the uses of the last span, at most n of them; for n over 64 it counts the uses within each 64th of per together, from the end of that 64th, which bounds a key to 65 uses and gives tokens back up to per/64 late. It panics unless n >= 1 and per > 0.
+
+#### func NewWindow {#NewWindow}
+
+```go
+func NewWindow(n int, per time.Duration) *Limiter
+```
+
+NewWindow returns a limiter that allows n tokens per window of length per. A key's window opens with its first use, and the first use once per has passed opens the next one, with n tokens again. Where a bucket gives tokens back as time passes, a window keeps a promise such as "five messages an hour": never more than n in one window. Around the edge between two windows, though, up to 2n go through within less than per; NewSliding keeps n in every span of per. It panics unless n >= 1 and per > 0.
+
+#### func (*Limiter) Allow {#Limiter.Allow}
+
+```go
+func (l *Limiter) Allow(key string, n int, now time.Time) bool
+```
+
+Allow takes n tokens from key's bucket or window at now, and reports whether it had them. Pass time.Now(): its monotonic reading keeps a step of the wall clock from refilling or resetting a bucket. A time without one that steps back pauses the refill until the clock is past the bucket's last use again, keeps a window open until the clock passes its end, and counts a sliding window's uses until the clock is per past them, so the limiter turns stricter, never looser.
+
+#### func (*Limiter) Len {#Limiter.Len}
+
+```go
+func (l *Limiter) Len() int
+```
+
+Len is the number of buckets held.
+
+### type Ready {#Ready}
+
+```go
+type Ready struct {
+	// Timeout bounds all checks together, 2 seconds when zero.
+	Timeout time.Duration
+	// Log gets each failure with its error, slog.Default() when nil.
+	Log *slog.Logger
+
+}
+```
+
+Ready answers 200 when every check passes within Timeout, and 503 naming those that did not, so the proxy takes the instance out of rotation. The checks run in parallel, with a context that ends at the timeout, and the probe answers by then even if a check ignores it.
+
+A check must not queue behind the writer: a command waits for every batch ahead of it, which turns a busy writer into a failed probe. Read from the read pool (SELECT 1), or look at state in memory.
+
+#### func (*Ready) Add {#Ready.Add}
+
+```go
+func (rd *Ready) Add(name string, check func(context.Context) error)
+```
+
+Add registers a check under a name for the 503 and the log.
+
+#### func (*Ready) ServeHTTP {#Ready.ServeHTTP}
+
+```go
+func (rd *Ready) ServeHTTP(w http.ResponseWriter, r *http.Request)
+```
+
+### type SecurityHeaders {#SecurityHeaders}
+
+```go
+type SecurityHeaders struct {
+	// CSP is the Content-Security-Policy, none when nil. Its frame-ancestors
+	// also sets X-Frame-Options, for browsers that predate it.
+	CSP CSP
+	// Policy, when set, gives each request its policy in place of CSP, for
+	// sources that depend on the request: starbase's script-src names the
+	// request's own origin's /static/ and /c/, where 'self' would allow every
+	// path of it. It runs on every request, and a nil policy sends none.
+	// What it reads from the request, such as the Host header, is the
+	// client's to choose: check it before it goes into the policy.
+	Policy func(r *http.Request) CSP
+	// HSTS sends Strict-Transport-Security for two years, subdomains
+	// included. Set it when the site is served over HTTPS.
+	HSTS bool
+	// HSTSNoSubdomains leaves the subdomains out of HSTS, for a domain whose
+	// subdomains are not all served over HTTPS, such as a mail host on plain
+	// HTTP.
+	HSTSNoSubdomains bool
+	// Referrer is the Referrer-Policy, strict-origin-when-cross-origin when
+	// empty.
+	Referrer string
+	// Extra headers to set on every response after the others, such as
+	// Permissions-Policy. An empty value removes the header.
+	Extra map[string]string
+}
+```
+
+SecurityHeaders sets the security headers on every response, and puts a fresh nonce for its CSP in each request's context (see Nonce). A handler can still change any of them for its own response.
+
+#### func (SecurityHeaders) Handler {#SecurityHeaders.Handler}
+
+```go
+func (s SecurityHeaders) Handler(next http.Handler) http.Handler
+```
+
+Handler returns next behind the headers.
+
+### type Sessions {#Sessions}
+
+```go
+type Sessions struct {
+	// Name of the cookie, "sid" when empty. Over HTTPS it gets the __Host-
+	// prefix, which binds the cookie to this host and Path=/.
+	Name string
+	// Secure is for a site served over HTTPS: the cookie is __Host- prefixed
+	// and Secure. Without it, in development over plain http, the cookie has
+	// its plain name.
+	Secure bool
+	// MaxAge is the cookie's lifetime, 400 days when zero (the longest
+	// browsers keep one).
+	MaxAge time.Duration
+	// Accept, when set, lets a cookie carry an id that Sessions would not
+	// make, such as one in an app's older format, so that a move to Sessions
+	// signs no one out. It must check the format: the value is the client's.
+	// New ids are 256-bit all the same.
+	Accept func(id string) bool
+}
+```
+
+Sessions hands every browser an opaque session id in a cookie: 256 random bits in base64url. It stores nothing, so a crawler's GET costs a Set-Cookie header and no row. What a session holds is the app's to store, through its writer, once the browser does something worth keeping.
+
+#### func (Sessions) Clear {#Sessions.Clear}
+
+```go
+func (s Sessions) Clear(w http.ResponseWriter)
+```
+
+Clear deletes the cookie, for a logout.
+
+#### func (Sessions) Ensure {#Sessions.Ensure}
+
+```go
+func (s Sessions) Ensure(w http.ResponseWriter, r *http.Request) string
+```
+
+Ensure returns the request's session id: the one Handler put in its context, else its cookie's, else a new one, which it sets as the cookie.
+
+#### func (Sessions) Get {#Sessions.Get}
+
+```go
+func (s Sessions) Get(r *http.Request) (string, bool)
+```
+
+Get returns the session id the request's cookie carries, if it is one.
+
+#### func (Sessions) Handler {#Sessions.Handler}
+
+```go
+func (s Sessions) Handler(next http.Handler) http.Handler
+```
+
+Handler puts the request's session id in its context, for SessionID, setting the cookie when the request had none.
+
+#### func (Sessions) Renew {#Sessions.Renew}
+
+```go
+func (s Sessions) Renew(w http.ResponseWriter) string
+```
+
+Renew sets a new session id and returns it. Call it on login, so that an id planted before cannot carry over. The request's context keeps the old one.
+
+### type Static {#Static}
+
+```go
+type Static struct {
+	// contains filtered or unexported fields
+}
+```
+
+Static serves the files of an fs.FS, and those Add gives it, under a URL prefix. URL names a file by its content, as in /static/site.3f2a9c1b2d4e.css, and that answer is immutable: browsers keep it for a year without asking again. A file asked for by its plain name, or by a hash that is no longer its content (a page from before a deploy, or a name with another number of hex digits, from 8 to 64), comes with no-cache and its ETag, so browsers ask each time and mostly get a 304. Text files go out precompressed (see Precompress), compressed in the background from the start; other files go out as they are, with ranges.
+
+#### func NewStatic {#NewStatic}
+
+```go
+func NewStatic(fsys fs.FS, prefix string, opts ...StaticOption) (*Static, error)
+```
+
+NewStatic reads every file of fsys, to serve them under prefix, such as "/static/". Mount it there, without http.StripPrefix. fsys may be nil, for a Static that serves only what Add gives it.
+
+#### func (*Static) Add {#Static.Add}
+
+```go
+func (s *Static) Add(name string, data []byte)
+```
+
+Add serves data as the file name, in place of a file of that name. URL names the new content at once, and the URL of the content it replaces gets the new one with no-cache, like a hash from before a deploy. Add may run while s serves; s keeps data, which must not change after. It panics on a name that fs.ValidPath refuses.
+
+#### func (*Static) ServeHTTP {#Static.ServeHTTP}
+
+```go
+func (s *Static) ServeHTTP(w http.ResponseWriter, r *http.Request)
+```
+
+#### func (*Static) URL {#Static.URL}
+
+```go
+func (s *Static) URL(name string) string
+```
+
+URL returns the hashed, immutable URL of the named file, or its plain URL when there is no such file.
+
+### type StaticOption {#StaticOption}
+
+```go
+type StaticOption func(*Static)
+```
+
+A StaticOption changes how NewStatic names files.
+
+#### func StaticHashLen {#StaticHashLen}
+
+```go
+func StaticHashLen(n int) StaticOption
+```
+
+StaticHashLen puts n hex digits of a file's SHA-256 in the names URL makes, instead of 12. Names an app made the same way before, with that many digits, then stay current. It panics unless 8 \<= n \<= 64.

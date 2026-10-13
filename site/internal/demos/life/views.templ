@@ -1,0 +1,184 @@
+package life
+
+import (
+	"strconv"
+	"time"
+)
+
+// Stage is the demo on its page: the counters, the board with the
+// pointer's outline over it, the colours' shares, the tools, the colours,
+// and the reset.
+templ Stage(b Board, here, colour int, now time.Time) {
+	<div class="life" data-signals={ signals(colour) } data-attr:style={ me } data-effect={ settle } data-on:datastar-fetch={ failed }>
+		@Stats(b, here)
+		<div
+			class="life__field"
+			tabindex="0"
+			role="application"
+			aria-label="The board, 80 by 50 cells. Arrow keys move the cursor, Enter draws or drops, R turns the pattern."
+			data-class:is-drawing="$_life.tool === 'draw'"
+			data-on:pointerdown={ begin }
+			data-on:pointermove={ move }
+			data-on:pointerup={ end }
+			data-on:pointercancel={ end }
+			data-on:lostpointercapture={ end }
+			data-on:pointerleave={ leave }
+			data-on:click={ click }
+			data-on:keydown={ key }
+			data-on:blur="$_life.drawing || ($_life.x = -1)"
+		>
+			@boardCells(b.Cells)
+			<svg class="life__marks" viewBox="0 0 80 50" preserveAspectRatio="none" aria-hidden="true" data-class:is-clearing="!$_life.alive">
+				<path data-attr:d="$_life.pend + $_life.draft"></path>
+			</svg>
+			@outline("life__cursor", "$_life.x >= 0", "$_life.tool", cursor)
+			@outline("life__cursor life__cursor--stamp", "$_life.ptool !== ''", "$_life.ptool", stamp)
+		</div>
+		@Share(b.Cells)
+		<div class="life__controls">
+			<div class="life__tools" role="group" aria-label="Tool">
+				for _, t := range tools {
+					<button
+						type="button"
+						class="btn btn--sm life__tool"
+						title={ t.About }
+						data-attr:aria-pressed={ toolPressed(t.Name) }
+						data-on:click={ useTool(t.Name) }
+					>
+						@toolIcon(t)
+						<span>{ t.Title }</span>
+					</button>
+				}
+				<button
+					type="button"
+					class="btn btn--sm life__turn"
+					title="Turn the pattern a quarter clockwise (R)"
+					data-attr:disabled="$_life.tool === 'draw'"
+					data-on:click={ turn }
+				>
+					<svg class="life__icon" viewBox="0 0 8 8" style="--w: 8; --h: 8" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path d="M2 0h4v1h1v1h1v3H7v1H6V2H2v1H1V1h1zM0 3h3v1H2v1H1v1H0zM6 6v1H5v1H2V7H1V6h1v1h3V6z"></path></svg>
+					<span>Turn</span>
+				</button>
+			</div>
+			<div class="life__colours" role="group" aria-labelledby="life-colour-label">
+				<span id="life-colour-label" class="life__label">Your colour</span>
+				for c := 1; c <= Colours; c++ {
+					<button
+						type="button"
+						class={ "life__swatch", letter(c) }
+						aria-label={ colourNames[c] }
+						title={ colourNames[c] }
+						aria-pressed={ strconv.FormatBool(c == colour) }
+						data-attr:aria-pressed={ picked(c) }
+						data-attr:aria-busy={ picking(c) }
+						data-on:click={ pick(c) }
+					></button>
+				}
+			</div>
+		</div>
+		<div class="life__foot">
+			@Status(b, now)
+			<div class="life__reset">
+				@Outcome(TabState{})
+				<button type="button" class="btn btn--sm" data-on:click={ reset } data-attr:aria-busy={ resetting }>Reset</button>
+			</div>
+		</div>
+		<p class="outcome is-refused life__problem" role="alert" data-show="$_life.problem" data-text="$_life.problem"></p>
+	</div>
+}
+
+// outline is a pattern's outline over the board, at the cell and with the
+// turn its style says: one for every tool, of which CSS shows the one
+// named by the tool signal. Each comes as it lies, and on its side for the
+// board on its side.
+templ outline(class, show, name, style string) {
+	<div class={ class } aria-hidden="true" data-class:is-on={ show } data-attr:data-tool={ name } data-attr:style={ style }>
+		for _, t := range tools {
+			<svg class="life__shape" data-shape={ t.Name } viewBox={ box(t.Shape, false) } preserveAspectRatio="none" style={ shapeStyle(t.Shape) }>
+				<rect width={ strconv.Itoa(t.Shape.W) } height={ strconv.Itoa(t.Shape.H) }></rect>
+				<path d={ path(t.Shape, false) }></path>
+			</svg>
+			<svg class="life__shape life__shape--side" data-shape={ t.Name } viewBox={ box(t.Shape, true) } preserveAspectRatio="none" style={ shapeStyle(t.Shape) }>
+				<rect width={ strconv.Itoa(t.Shape.H) } height={ strconv.Itoa(t.Shape.W) }></rect>
+				<path d={ path(t.Shape, true) }></path>
+			</svg>
+		}
+	</div>
+}
+
+// Frame is the shared view: the board and everything that changes with
+// it, the same for every tab. The board comes first: whatever the counters
+// do, it then starts at the same byte in every frame.
+templ Frame(b Board, here int, now time.Time) {
+	@boardCells(b.Cells)
+	@Stats(b, here)
+	@Share(b.Cells)
+	@Status(b, now)
+}
+
+// Stats are the live counters, and the population's last minute. here is
+// how many streams watch the board.
+templ Stats(b Board, here int) {
+	<div id="life-stats" class="life__stats">
+		<dl>
+			<div class="life__stat">
+				<dt>Generation</dt>
+				<dd>{ number(b.Generation) }</dd>
+			</div>
+			<div class="life__stat">
+				<dt>Population</dt>
+				<dd>{ number(int64(Population(b.Cells))) }</dd>
+			</div>
+			<div class="life__stat">
+				<dt>Per second</dt>
+				<dd>{ tenths(b.Rate) }</dd>
+			</div>
+			<div class="life__stat">
+				<dt>Here now</dt>
+				<dd>{ strconv.Itoa(here) }</dd>
+			</div>
+		</dl>
+		<sb-sparkline id="life-history" class="life__history" values={ b.History } length="60" tone="accent" label="Population, once a second"></sb-sparkline>
+	</div>
+}
+
+// Share is each colour's part of the live cells: a bar of segments in a
+// fixed order, so that each grows and shrinks in place.
+templ Share(cells []byte) {
+	<div id="life-share" class="life__share" aria-hidden="true">
+		for c, n := range Counts(cells) {
+			if c > 0 {
+				<i class={ letter(c) } style={ share(n) }></i>
+			}
+		}
+	</div>
+}
+
+// Status says what the board does, and when a quiet one gets a new soup.
+templ Status(b Board, now time.Time) {
+	<p
+		id="life-status"
+		if b.Quiet != 0 {
+			class="life__status is-quiet"
+		} else {
+			class="life__status"
+		}
+	>{ status(b, now) }</p>
+}
+
+// Outcome is the tab's own region: why the board refused its last action.
+templ Outcome(s TabState) {
+	<p
+		id="life-outcome"
+		role="status"
+		if s.Refusal != "" {
+			class="outcome is-refused"
+		} else {
+			class="outcome"
+		}
+	>
+		if s.Refusal != "" {
+			<span class="life__refusal">{ s.Refusal }</span>
+		}
+	</p>
+}

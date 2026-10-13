@@ -1,0 +1,58 @@
+package cursorparty
+
+import "strconv"
+
+// Stage is the party on its page: the floor that the cursors cross, the
+// counter, and how to see your own cursor arrive.
+templ Stage(self string, layer []byte, here int, history []int) {
+	<div class="cp" data-signals={ signals }>
+		@selfHidden(self)
+		<div class="cp__floor" { floor()... }>
+			<div class="cp__hint" aria-hidden="true">
+				<span class="cp__arrow"></span>
+				<p>Move your pointer here</p>
+			</div>
+			@templ.Raw(string(layer))
+		</div>
+		<div class="cp__bar">
+			@Count(here, history)
+			<p class="cp__note">
+				Every other tab on this page sees your pointer, and so does the <a href="/">landing page</a>, behind its title.
+				Your own cursor is never drawn: open a second window to watch it arrive.
+			</p>
+		</div>
+	</div>
+}
+
+// Hero is the party behind the landing page's title: the floor fills the
+// hero, and a badge in its corner links to the demo.
+templ Hero(self string, layer []byte, here int, history []int) {
+	<div class="cp cp--hero" data-signals={ signals }>
+		@selfHidden(self)
+		<div class="cp__floor" { floor()... }>
+			@templ.Raw(string(layer))
+		</div>
+		<a class="cp-badge" href="/demos/cursor-party" data-class:is-live="$_live">
+			<span class="cp-badge__dot" aria-hidden="true"></span>
+			<span class="cp-badge__title">Cursor party</span>
+			@Count(here, history)
+		</a>
+	</div>
+}
+
+// Count is the counter: the tabs at the party, the moves of the last
+// second, and Starbase's sb-sparkline with the moves of the last History
+// seconds, which the server replaces once a second. The numbers are drawn
+// by CSS from the custom properties, so they roll from one value to the
+// next; the text after them is for screen readers.
+templ Count(here int, history []int) {
+	<span id="cursor-party-count" class="cp-count" style={ countStyle(here, rate(history)) }>
+		<span class="cp-count__shown" aria-hidden="true"><b data-n="here"></b> here <i></i> <b data-n="rate"></b> moves/s</span>
+		<sb-sparkline values={ spark(history) } length={ strconv.Itoa(History) } scale="fixed" min="0" max={ sparkTop(history) } aria-hidden="true"></sb-sparkline>
+		<span class="visually-hidden">{ countText(here, rate(history)) }</span>
+	</span>
+}
+
+templ selfHidden(self string) {
+	@templ.Raw("<style>" + self + "</style>")
+}

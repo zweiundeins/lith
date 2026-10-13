@@ -1,0 +1,71 @@
+/* The page's frame: the header, main and footer, the width of content, and
+ * the grids of the docs and the demo pages. Layouts answer to the width
+ * they get (container queries), not to the viewport. */
+@layer layout {
+	.site {
+		display: grid;
+		grid-template-rows: auto 1fr auto;
+		min-block-size: 100dvh;
+	}
+
+	.site-main {
+		container: page / inline-size;
+		display: flex;
+		flex-direction: column;
+		min-inline-size: 0;
+	}
+
+	.wrap {
+		--_gutter: clamp(var(--lith-space-4), 4vw, var(--lith-space-8));
+		inline-size: min(100% - 2 * var(--_gutter), var(--lith-content-max));
+		margin-inline: auto;
+	}
+
+	.stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--gap, var(--lith-space-4));
+	}
+
+	.cluster {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--gap, var(--lith-space-3));
+	}
+
+	/* Docs: navigation | article | on this page. */
+	.docs {
+		container: docs / inline-size;
+		display: grid;
+		grid-template-columns: 15rem minmax(0, 1fr) 13rem;
+		grid-template-areas: "nav article toc";
+		gap: var(--lith-space-10);
+		align-items: start;
+		padding-block: var(--lith-space-8) var(--lith-space-16);
+
+		@container page (width < 72rem) {
+			grid-template-columns: 14rem minmax(0, 1fr);
+			grid-template-areas: "nav article";
+			gap: var(--lith-space-8);
+		}
+
+		@container page (width < 52rem) {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-areas: "article";
+		}
+	}
+
+	/* A demo: the stage beside what the server does, then how it works. */
+	.demo-body {
+		container: demo-body / inline-size;
+		display: grid;
+		grid-template-columns: minmax(0, 1.55fr) minmax(16rem, 1fr);
+		gap: var(--lith-space-6);
+		align-items: start;
+
+		@container page (width < 60rem) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+}

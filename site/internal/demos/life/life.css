@@ -1,0 +1,491 @@
+/* The Game of Life. Its rules apply inside its own elements only. */
+@scope ([data-demo="life"]) {
+	.life {
+		/* The people's colours and the soup's, each with its light and its
+		 * dark value; --me is the one this tab draws in. */
+		--life-a: light-dark(oklch(55% 0.2 27), oklch(70% 0.19 27));
+		--life-b: light-dark(oklch(62% 0.17 52), oklch(76% 0.165 60));
+		--life-c: light-dark(oklch(66% 0.14 92), oklch(87% 0.15 98));
+		--life-d: light-dark(oklch(57% 0.15 148), oklch(79% 0.18 148));
+		--life-e: light-dark(oklch(58% 0.1 200), oklch(81% 0.12 196));
+		--life-f: light-dark(oklch(53% 0.18 258), oklch(72% 0.15 252));
+		--life-g: light-dark(oklch(52% 0.2 302), oklch(73% 0.17 302));
+		--life-h: light-dark(oklch(58% 0.2 352), oklch(76% 0.16 352));
+		--life-w: light-dark(var(--lith-stone-8), var(--lith-stone-3));
+		/* The board, with a dot where a cell is dead. */
+		--life-board: light-dark(var(--lith-paper-raised), var(--lith-stone-13));
+		--life-dot: light-dark(var(--lith-stone-3), var(--lith-stone-8));
+		--me: var(--life-b);
+
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-4);
+	}
+
+	/* ── Counters ───────────────────────────────────────────────────── */
+	.life__stats {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: end;
+		gap: var(--lith-space-3) var(--lith-space-6);
+		/* Below the stage's "live" badge. */
+		padding-block-start: var(--lith-space-3);
+
+		& dl {
+			display: grid;
+			grid-template-columns: repeat(4, auto);
+			justify-content: start;
+			gap: var(--lith-space-2) var(--lith-space-8);
+			margin: 0;
+		}
+
+		@container stage (width < 34rem) {
+			grid-template-columns: minmax(0, 1fr);
+
+			& dl {
+				grid-template-columns: repeat(4, minmax(0, 1fr));
+				gap: var(--lith-space-2);
+			}
+		}
+	}
+
+	.life__stat {
+		display: grid;
+		gap: 2px;
+		min-inline-size: 0;
+
+		& dt {
+			overflow: hidden;
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			letter-spacing: var(--lith-tracking-caps);
+			text-overflow: ellipsis;
+			text-transform: uppercase;
+			white-space: nowrap;
+		}
+
+		& dd {
+			margin: 0;
+			color: var(--lith-text-1);
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-xl);
+			font-weight: 700;
+			line-height: 1.1;
+			font-variant-numeric: tabular-nums;
+		}
+
+		&:first-child dd {
+			color: var(--lith-accent-text);
+		}
+
+		/* On a phone the four counters share one row: smaller, and the
+		 * labels in lower case, which fits "Generation" in a quarter. */
+		@container stage (width < 34rem) {
+			& dt {
+				font-size: 0.6875rem;
+				letter-spacing: 0;
+				text-transform: none;
+			}
+
+			& dd {
+				font-size: var(--lith-text-lg);
+			}
+		}
+	}
+
+	.life__history {
+		--sb-sparkline-width: 10rem;
+		--sb-sparkline-height: 2.25rem;
+
+		@container stage (width < 34rem) {
+			display: none;
+		}
+	}
+
+	/* ── The board ──────────────────────────────────────────────────── */
+	/* The field takes the pointer and the keyboard; the board inside it is
+	 * what the stream morphs, ten times a second. */
+	.life__field {
+		--_n: calc(4px * var(--lith-notch));
+		position: relative;
+		aspect-ratio: 80 / 50;
+		background: var(--life-board);
+		box-shadow: inset 0 0 0 1px var(--lith-border);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, 0 calc(100% - var(--_n)), 0 var(--_n));
+		cursor: crosshair;
+		touch-action: manipulation;
+		/* Scrolled out of view, the board is morphed but not drawn. */
+		content-visibility: auto;
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-tap-highlight-color: transparent;
+
+		/* Drawing follows the finger: the page does not scroll under it. */
+		&.is-drawing {
+			touch-action: none;
+		}
+
+		/* The clip-path cuts an outline off: the focus ring sits inside. */
+		&:focus-visible {
+			outline: none;
+			box-shadow: inset 0 0 0 2px var(--lith-focus);
+		}
+	}
+
+	.life__board {
+		position: absolute;
+		inset: 1px;
+		display: grid;
+		grid-template-columns: repeat(80, minmax(0, 1fr));
+		grid-template-rows: repeat(50, minmax(0, 1fr));
+
+		/* A cell is a square of its colour painted in the middle of its
+		 * box, a circle in the smooth style: no transform, which would
+		 * give each of the 4,000 cells a layer of its own to paint. A dead
+		 * cell is a small dot. A cell that dies shrinks and cools into its
+		 * dot in three steps, one a generation, so what moves leaves a
+		 * short trail; a cell born grows in two. Stepped transitions
+		 * repaint a cell only when it changes, which keeps the page's
+		 * work low at ten frames a second. */
+		& > p {
+			color: var(--life-dot);
+			background: radial-gradient(circle closest-side, currentColor calc(92% + 60% * var(--lith-notch)), transparent calc(100% + 60% * var(--lith-notch))) 50% 50% / 24% 24% no-repeat;
+			transition:
+				color 300ms steps(3, start),
+				background-size 300ms steps(3, start);
+		}
+
+		& > p:not(._) {
+			color: var(--c);
+			background-size: 86% 86%;
+			transition-duration: 100ms;
+			transition-timing-function: steps(2, start);
+		}
+	}
+
+	.life__board > .a,
+	.life__share > .a,
+	.life__swatch.a {
+		--c: var(--life-a);
+	}
+
+	.life__board > .b,
+	.life__share > .b,
+	.life__swatch.b {
+		--c: var(--life-b);
+	}
+
+	.life__board > .c,
+	.life__share > .c,
+	.life__swatch.c {
+		--c: var(--life-c);
+	}
+
+	.life__board > .d,
+	.life__share > .d,
+	.life__swatch.d {
+		--c: var(--life-d);
+	}
+
+	.life__board > .e,
+	.life__share > .e,
+	.life__swatch.e {
+		--c: var(--life-e);
+	}
+
+	.life__board > .f,
+	.life__share > .f,
+	.life__swatch.f {
+		--c: var(--life-f);
+	}
+
+	.life__board > .g,
+	.life__share > .g,
+	.life__swatch.g {
+		--c: var(--life-g);
+	}
+
+	.life__board > .h,
+	.life__share > .h,
+	.life__swatch.h {
+		--c: var(--life-h);
+	}
+
+	.life__board > .w,
+	.life__share > .w {
+		--c: var(--life-w);
+	}
+
+	/* What this tab drew and the server has not confirmed yet. */
+	.life__marks {
+		position: absolute;
+		inset: 1px;
+		inline-size: calc(100% - 2px);
+		block-size: calc(100% - 2px);
+		pointer-events: none;
+
+		& path {
+			fill: var(--me);
+			opacity: 0.6;
+		}
+
+		&.is-clearing path {
+			fill: var(--lith-text-muted);
+			opacity: 0.4;
+		}
+	}
+
+	/* The outline of what a tap would drop, under the pointer or the
+	 * keyboard's cursor; the stamp is the one dropped, until the stream
+	 * confirms it. */
+	.life__cursor {
+		position: absolute;
+		inset: 1px;
+		display: none;
+		pointer-events: none;
+
+		&.is-on {
+			display: block;
+		}
+	}
+
+	.life__shape {
+		position: absolute;
+		inset-inline-start: calc((var(--x) - var(--ax)) * 100% / 80);
+		inset-block-start: calc((var(--y) - var(--ay)) * 100% / 50);
+		inline-size: calc(var(--w) * 100% / 80);
+		block-size: calc(var(--h) * 100% / 50);
+		display: none;
+		overflow: visible;
+		rotate: calc(var(--turn) * 90deg);
+		transform-origin: calc((var(--ax) + 0.5) / var(--w) * 100%) calc((var(--ay) + 0.5) / var(--h) * 100%);
+		transition: rotate var(--lith-dur-2) var(--lith-ease-snap);
+
+		& rect {
+			fill: color-mix(in oklch, var(--me) 12%, transparent);
+			stroke: color-mix(in oklch, var(--me) 75%, transparent);
+			stroke-width: 1px;
+			vector-effect: non-scaling-stroke;
+		}
+
+		& path {
+			fill: var(--me);
+			opacity: 0.65;
+		}
+	}
+
+	/* On its side: the same shape for the board on its side, below. */
+	.life__shape--side {
+		visibility: hidden;
+		inset-inline-start: calc((var(--y) - var(--ay)) * 100% / 50);
+		inset-block-start: calc((var(--x) - var(--ax)) * 100% / 80);
+		inline-size: calc(var(--h) * 100% / 50);
+		block-size: calc(var(--w) * 100% / 80);
+		rotate: calc(var(--turn) * -90deg);
+		transform-origin: calc((var(--ay) + 0.5) / var(--h) * 100%) calc((var(--ax) + 0.5) / var(--w) * 100%);
+	}
+
+	.life__cursor[data-tool="draw"] > [data-shape="draw"],
+	.life__cursor[data-tool="glider"] > [data-shape="glider"],
+	.life__cursor[data-tool="spaceship"] > [data-shape="spaceship"],
+	.life__cursor[data-tool="pulsar"] > [data-shape="pulsar"],
+	.life__cursor[data-tool="gun"] > [data-shape="gun"] {
+		display: block;
+	}
+
+	/* The stamp waits for its frame, and says so. */
+	.life__cursor--stamp .life__shape {
+		animation: life-pending 0.8s steps(2, jump-none) infinite;
+
+		& path {
+			opacity: 0.9;
+		}
+	}
+
+	/* A narrow stage stands the board on its side: the same 80 × 50 cells,
+	 * the same frames, laid out in 50 columns of 80, so that a phone shows
+	 * them half again as large. The pointer's maths swap the axes too. */
+	@container stage (width < 30rem) {
+		.life__field {
+			aspect-ratio: 50 / 80;
+		}
+
+		.life__board {
+			grid-template-columns: repeat(50, minmax(0, 1fr));
+			grid-template-rows: repeat(80, minmax(0, 1fr));
+			grid-auto-flow: column;
+		}
+
+		.life__marks path {
+			transform: matrix(0, 0.625, 1.6, 0, 0, 0);
+		}
+
+		.life__shape {
+			visibility: hidden;
+		}
+
+		.life__shape--side {
+			visibility: visible;
+		}
+	}
+
+	/* ── The colours' shares ─────────────────────────────────────────── */
+	.life__share {
+		display: flex;
+		block-size: 4px;
+		gap: 1px;
+		margin-block-start: calc(-1 * var(--lith-space-2));
+		overflow: hidden;
+		border-radius: calc(2px * (1 - var(--lith-notch)));
+
+		& > i {
+			flex: 0 1 0;
+			min-inline-size: 0;
+			background: var(--c);
+			transition: flex-grow var(--lith-dur-3) var(--lith-ease-glide);
+		}
+	}
+
+	/* ── Tools and colours ───────────────────────────────────────────── */
+	.life__controls {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--lith-space-3) var(--lith-space-6);
+	}
+
+	.life__tools {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-2);
+	}
+
+	.life__tool[aria-pressed="true"] {
+		--_bg: var(--lith-accent-subtle);
+		--_edge: var(--lith-accent-edge);
+		--_fg: var(--lith-accent-text);
+	}
+
+	.life__turn:disabled {
+		cursor: default;
+		opacity: 0.45;
+		translate: none;
+	}
+
+	.life__icon {
+		inline-size: auto;
+		block-size: 0.875rem;
+		aspect-ratio: var(--w) / var(--h);
+	}
+
+	.life__colours {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--lith-space-2);
+	}
+
+	.life__label {
+		margin-inline-end: var(--lith-space-1);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+
+		@container stage (width < 30rem) {
+			flex-basis: 100%;
+		}
+	}
+
+	.life__swatch {
+		inline-size: 1.5rem;
+		block-size: 1.5rem;
+		padding: 0;
+		border: 0;
+		border-radius: calc(50% * (1 - var(--lith-notch)));
+		background: var(--c);
+		cursor: pointer;
+		transition:
+			scale var(--lith-dur-1) var(--lith-ease-snap),
+			outline-offset var(--lith-dur-1) var(--lith-ease-snap);
+
+		&:hover {
+			scale: 1.12;
+		}
+
+		/* Ours: a ring around it, in its colour. */
+		&[aria-pressed="true"] {
+			outline: 2px solid var(--c);
+			outline-offset: 3px;
+		}
+
+		&[aria-busy="true"] {
+			animation: life-pending 0.8s steps(2, jump-none) infinite;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--lith-focus);
+			outline-offset: 3px;
+		}
+	}
+
+	/* ── Status and reset ────────────────────────────────────────────── */
+	.life__foot {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--lith-space-3) var(--lith-space-6);
+		padding-block-start: var(--lith-space-3);
+		border-block-start: 1px solid var(--lith-border-subtle);
+	}
+
+	.life__status {
+		flex: 1 1 18rem;
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+
+		&.is-quiet {
+			color: var(--lith-text-2);
+		}
+	}
+
+	.life__reset {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: end;
+		gap: var(--lith-space-3);
+		margin-inline-start: auto;
+	}
+
+	/* Why the board refused this tab's last action, and why an action did
+	 * not go through: each rises into place when it appears. */
+	.life__refusal,
+	.life__problem {
+		display: inline-block;
+		transition:
+			opacity var(--lith-dur-3) var(--lith-ease-glide),
+			translate var(--lith-dur-3) var(--lith-ease-glide),
+			display var(--lith-dur-3) allow-discrete;
+
+		@starting-style {
+			opacity: 0;
+			translate: 0 0.375rem;
+		}
+	}
+
+	.life__problem:empty {
+		display: none;
+	}
+}
+
+@keyframes life-pending {
+	50% {
+		opacity: 0.35;
+	}
+}

@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/bits"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -104,6 +105,18 @@ type Stats struct {
 	LastCommit time.Duration // the last batch, from BEGIN to the end of COMMIT
 	P99Commit  time.Duration // 99th percentile of the last 1024 batches
 	Busy       time.Duration // time spent in batches
+	// Sizes counts the batches by the commands they took, in powers of
+	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
+	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.
+	Sizes [SizeBuckets]int64
+}
+
+// SizeBuckets is the number of buckets in Stats.Sizes.
+const SizeBuckets = 11
+
+// sizeBucket is the bucket of Stats.Sizes for a batch of n commands.
+func sizeBucket(n int64) int {
+	return min(bits.Len64(uint64(n))-1, SizeBuckets-1)
 }
 
 type request struct {
@@ -149,6 +162,7 @@ type Writer struct {
 	resReady bool // lith_results exists
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
+	sizes                                            [SizeBuckets]atomic.Int64
 	times                                            durations
 }
 
@@ -386,7 +400,7 @@ func (w *Writer) enqueue(ctx context.Context, r *request) error {
 // Stats reads the counters.
 func (w *Writer) Stats() Stats {
 	last, p99 := w.times.get()
-	return Stats{
+	s := Stats{
 		Batches:    w.batches.Load(),
 		Commands:   w.commands.Load(),
 		Failures:   w.failures.Load(),
@@ -396,6 +410,10 @@ func (w *Writer) Stats() Stats {
 		P99Commit:  p99,
 		Busy:       time.Duration(w.busyNanos.Load()),
 	}
+	for i := range s.Sizes {
+		s.Sizes[i] = w.sizes[i].Load()
+	}
+	return s
 }
 
 func (w *Writer) loop(ctx context.Context) {
@@ -506,6 +524,7 @@ func (w *Writer) apply(batch []*request) {
 
 	elapsed := time.Since(start)
 	w.batches.Add(1)
+	w.sizes[sizeBucket(n)].Add(1)
 	w.commands.Add(n)
 	w.busyNanos.Add(int64(elapsed))
 	if n > w.maxBatch.Load() {

@@ -1,0 +1,30 @@
+@layer utilities {
+	.visually-hidden {
+		position: absolute !important;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+
+	/* A notched 8-bit frame, drawn outside the box: --lith-frame-step
+	 * thick, in --frame (the border colour by default). */
+	.pixel-frame {
+		--_s: var(--lith-frame-step);
+		--_c: var(--frame, var(--lith-border-strong));
+		box-shadow:
+			0 calc(-1 * var(--_s)) 0 0 var(--_c),
+			0 var(--_s) 0 0 var(--_c),
+			calc(-1 * var(--_s)) 0 0 0 var(--_c),
+			var(--_s) 0 0 0 var(--_c);
+	}
+
+	.muted {
+		color: var(--lith-text-muted);
+	}
+
+	.display {
+		font-family: var(--lith-font-display);
+	}
+}

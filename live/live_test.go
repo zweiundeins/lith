@@ -957,6 +957,32 @@ func TestRenderTimeout(t *testing.T) {
 	}
 }
 
+// Render's ctx comes from Run's, so it carries its values.
+func TestRenderContextCarriesRunValues(t *testing.T) {
+	type key struct{}
+	h := New(Options{Log: slog.New(slog.DiscardHandler)})
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), key{}, "run"))
+	done := make(chan error, 1)
+	go func() { done <- h.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	got := make(chan any, 1)
+	serve(h, Spec{Views: []View{{Key: "v", Render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		select {
+		case got <- ctx.Value(key{}):
+		default:
+		}
+		return nil, nil
+	}}}}, "")
+	if v := <-got; v != "run" {
+		t.Fatalf("Render's ctx has %v", v)
+	}
+}
+
 // A view whose first render failed renders again for the next stream
 // that watches it.
 func TestJoinRetriesViewWithoutFrame(t *testing.T) {
@@ -1512,6 +1538,28 @@ func TestOnTick(t *testing.T) {
 		if d < 3*time.Millisecond {
 			t.Fatalf("a tick that rendered for 3ms took %v", d)
 		}
+	}
+}
+
+// Done stays open while the hub runs, and closes when Run's ctx ends.
+func TestDone(t *testing.T) {
+	h := New(Options{Log: slog.New(slog.DiscardHandler)})
+	ctx, cancel := context.WithCancel(context.Background())
+	ran := make(chan error, 1)
+	go func() { ran <- h.Run(ctx) }()
+	select {
+	case <-h.Done():
+		t.Fatal("Done closed while the hub runs")
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-h.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("Done stayed open after the hub stopped")
+	}
+	if err := <-ran; err != nil {
+		t.Fatal(err)
 	}
 }
 

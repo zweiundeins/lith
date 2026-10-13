@@ -1,0 +1,491 @@
+/* The cursor party: a floor that every tab's pointer crosses, drawn from
+ * one layer that the server renders for everyone. */
+
+/* The counter's numbers as animatable integers: when a frame changes one,
+ * it rolls to the new value. Registered properties are global, so they
+ * carry the demo's prefix. */
+@property --cursor-party-here {
+	syntax: "<integer>";
+	inherits: true;
+	initial-value: 0;
+}
+
+@property --cursor-party-rate {
+	syntax: "<integer>";
+	inherits: true;
+	initial-value: 0;
+}
+
+@scope ([data-demo="cursor-party"]) {
+	:scope {
+		/* The party's colours, its own semantic tokens: six of the site's
+		 * palette, each a light-dark() pair as in theme.css. In the light
+		 * theme they are dark enough to stand out on paper and to carry
+		 * light text, in the dark theme light enough for dark text
+		 * (contrast_test.go). A cursor's data-h picks one. */
+		--_h0: light-dark(var(--lith-ember-8), var(--lith-ember-4));
+		--_h1: light-dark(var(--lith-gold-dark), var(--lith-gold-light));
+		--_h2: light-dark(var(--lith-sage-dark), var(--lith-sage-light));
+		--_h3: light-dark(var(--lith-green-dark), var(--lith-green-light));
+		--_h4: light-dark(var(--lith-red-dark), var(--lith-red-light));
+		--_h5: light-dark(var(--lith-stone-7), var(--lith-stone-3));
+		--_on-hue: light-dark(var(--lith-paper-raised), var(--lith-stone-12));
+		--_halo: light-dark(var(--lith-paper-raised), var(--lith-stone-13));
+
+		/* The pointer: an 8-bit arrow on a grid of 2px, its outline and its
+		 * fill, as masks over the cursor's colours. With 60 cursors moving,
+		 * masks cost Chromium's main thread less than clip-paths. */
+		--_arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26' shape-rendering='crispEdges'%3E%3Cpath d='M0 0H2V2H4V4H6V6H8V8H10V10H12V12H14V14H16V18H8V20H6V22H4V24H2V26H0Z'/%3E%3C/svg%3E");
+		--_arrow-fill: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26' shape-rendering='crispEdges'%3E%3Cpath d='M2 4H4V6H6V8H8V10H10V12H12V14H14V16H8V18H6V20H4V22H2Z'/%3E%3C/svg%3E");
+	}
+
+	/* Without the 8-bit details the arrow has straight edges. */
+	:root[data-lith-style="smooth"] :scope {
+		--_arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26'%3E%3Cpath d='M0 0L16 15.5L7.3 16.5L0 24.5Z'/%3E%3C/svg%3E");
+		--_arrow-fill: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26'%3E%3Cpath d='M2 4.7L11.6 14L6.3 14.6L2 19.3Z'/%3E%3C/svg%3E");
+	}
+
+	/* ── The demo's page ─────────────────────────────────────────────── */
+	.cp {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-4);
+		padding-block-start: var(--lith-space-5);
+	}
+
+	/* The floor is the party: a size container named party, so that a
+	 * cursor's place is a share of its width (cqi) and height (cqb), the
+	 * same on any screen. A drag on it moves the cursor, not the page. */
+	.cp__floor {
+		--_dot: color-mix(in oklch, var(--lith-border-strong) 60%, transparent);
+		--_n: calc(4px * var(--lith-notch));
+		container: party / size;
+		position: relative;
+		aspect-ratio: 16 / 9;
+		overflow: clip;
+		touch-action: none;
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background:
+			radial-gradient(ellipse 60% 70% at 50% 45%, var(--lith-accent-subtle), transparent 70%),
+			radial-gradient(circle, var(--_dot) 1px, transparent 1.5px) 0 0 / 24px 24px,
+			var(--lith-surface-inset);
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, 0 calc(100% - var(--_n)), 0 var(--_n));
+
+		@container stage (width < 34rem) {
+			aspect-ratio: 4 / 3;
+		}
+	}
+
+	/* What to do, under the cursors, in the middle of the floor. */
+	.cp__hint {
+		position: absolute;
+		inset: 0;
+		display: grid;
+		place-content: center;
+		justify-items: center;
+		gap: var(--lith-space-3);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-display);
+		font-size: clamp(var(--lith-text-md), 4cqi, var(--lith-text-2xl));
+		text-align: center;
+		pointer-events: none;
+		user-select: none;
+	}
+
+	/* The hint's arrow: the cursor's, twice its size. */
+	.cp__arrow {
+		inline-size: 16px;
+		block-size: 26px;
+		background: var(--lith-border-strong);
+		mask: var(--_arrow) 0 0 / 100% 100% no-repeat;
+		scale: 2;
+		margin-block-end: 26px;
+		transform-origin: 50% 0;
+	}
+
+	.cp__bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--lith-space-2) var(--lith-space-6);
+	}
+
+	.cp__note {
+		max-inline-size: 38rem;
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+	}
+
+	/* ── Behind the landing page's title ─────────────────────────────── */
+	.cp--hero {
+		position: absolute;
+		inset: 0;
+		display: block;
+		padding: 0;
+
+		/* The title and the lede stay ahead of the crowd that passes
+		 * under them. */
+		& .cp-layer {
+			opacity: 0.85;
+		}
+
+		/* The floor fills the hero. The page still scrolls with a finger:
+		 * only a sideways drag moves the cursor. */
+		& .cp__floor {
+			position: absolute;
+			inset: 0;
+			aspect-ratio: auto;
+			border: 0;
+			border-radius: 0;
+			background: none;
+			clip-path: none;
+			touch-action: pan-y pinch-zoom;
+		}
+	}
+
+	/* The badge in the hero's corner, level with the content's edge. */
+	.cp-badge {
+		--_n: calc(3px * var(--lith-notch));
+		position: absolute;
+		inset-block-end: var(--lith-space-5);
+		inset-inline-end: max(clamp(var(--lith-space-4), 4vw, var(--lith-space-8)), (100cqi - var(--lith-content-max)) / 2);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		padding: var(--lith-space-1) var(--lith-space-3);
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background: var(--lith-surface-overlay);
+		backdrop-filter: blur(8px);
+		color: var(--lith-text-1);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		line-height: 1.6;
+		text-decoration: none;
+		white-space: nowrap;
+		transition: border-color var(--lith-dur-1) var(--lith-ease-snap), translate var(--lith-dur-1) var(--lith-ease-snap);
+
+		&:hover {
+			border-color: var(--lith-text-muted);
+			translate: 0 -1px;
+		}
+
+		&:focus-visible {
+			outline-offset: -4px;
+		}
+
+		@container party (width < 30rem) {
+			inset-block-end: var(--lith-space-3);
+		}
+	}
+
+	.cp-badge__title {
+		font-weight: 600;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	/* The stream's light: lit while the page's stream is open ($_live). */
+	.cp-badge__dot {
+		inline-size: 6px;
+		block-size: 6px;
+		background: var(--lith-text-muted);
+		border-radius: calc(50% * (1 - var(--lith-notch)));
+
+		.is-live > & {
+			background: var(--lith-ok);
+			box-shadow: 0 0 8px var(--lith-ok);
+		}
+	}
+
+	/* ── The counter ─────────────────────────────────────────────────── */
+	.cp-count {
+		display: inline-flex;
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		white-space: nowrap;
+		transition:
+			--cursor-party-here var(--lith-dur-3) var(--lith-ease-glide),
+			--cursor-party-rate var(--lith-dur-5) var(--lith-ease-glide);
+
+		/* The numbers are counters, set from the properties a frame
+		 * brings: they roll while the properties ease. */
+		& b {
+			color: var(--lith-text-1);
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+		}
+
+		& b[data-n="here"]::before {
+			counter-reset: here var(--cursor-party-here);
+			content: counter(here);
+		}
+
+		& b[data-n="rate"]::before {
+			counter-reset: rate var(--cursor-party-rate);
+			content: counter(rate);
+		}
+
+		& i::before {
+			content: "·";
+			padding-inline: 0.4em;
+			font-style: normal;
+		}
+
+		/* Starbase's sb-sparkline: the moves of the last 30 seconds. It
+		 * holds its place before its script defines it. */
+		& sb-sparkline {
+			--sb-sparkline-width: 4.5rem;
+			--sb-sparkline-height: 1rem;
+			margin-inline-start: var(--lith-space-3);
+		}
+
+		& sb-sparkline:not(:defined) {
+			display: inline-block;
+			inline-size: var(--sb-sparkline-width);
+			block-size: var(--sb-sparkline-height);
+		}
+
+		.cp-badge & {
+			align-items: center;
+			padding-inline-start: var(--lith-space-2);
+			border-inline-start: 1px solid var(--lith-border);
+
+			/* On a phone the badge keeps its numbers and leaves the line out. */
+			@container party (width < 34rem) {
+				& sb-sparkline {
+					display: none;
+				}
+			}
+		}
+
+		/* On the demo's page the numbers stand out. */
+		.cp__bar & {
+			align-items: baseline;
+			font-size: var(--lith-text-sm);
+
+			& b {
+				color: var(--lith-accent-text);
+				font-size: var(--lith-text-xl);
+				line-height: 1;
+			}
+
+			& sb-sparkline {
+				--sb-sparkline-width: 9rem;
+				--sb-sparkline-height: 1.75rem;
+				align-self: center;
+				margin-inline-start: var(--lith-space-4);
+			}
+		}
+	}
+
+	/* ── The cursors ─────────────────────────────────────────────────── */
+	.cp-layer {
+		position: absolute;
+		inset: 0;
+		isolation: isolate;
+		pointer-events: none;
+	}
+
+	/* A cursor. Its place is --x and --y, in percent of the floor. The <i>
+	 * stays in the floor's corner: its name tag (<b>), which carries the
+	 * arrow, and the two sparks of its trail (::before, ::after) each ease
+	 * there on their own, the sparks more slowly. */
+	.cp-layer > i {
+		--_c: var(--_h0);
+		--_x: calc(var(--x) * 1cqi);
+		--_y: calc(var(--y) * 1cqb);
+		position: absolute;
+		inset: 0 auto auto 0;
+		font-style: normal;
+		transition: opacity var(--lith-dur-2) var(--lith-ease-glide);
+
+		/* A cursor that arrives fades in where it is. */
+		@starting-style {
+			opacity: 0;
+		}
+
+		&[data-h="1"] {
+			--_c: var(--_h1);
+		}
+
+		&[data-h="2"] {
+			--_c: var(--_h2);
+		}
+
+		&[data-h="3"] {
+			--_c: var(--_h3);
+		}
+
+		&[data-h="4"] {
+			--_c: var(--_h4);
+		}
+
+		&[data-h="5"] {
+			--_c: var(--_h5);
+		}
+
+		/* The trail: sparks of the cursor's colour. At rest they hide under
+		 * the arrow; in motion they fall behind it along its path. */
+		&::before,
+		&::after {
+			content: "";
+			position: absolute;
+			inset: 0 auto auto 0;
+			z-index: 0;
+			inline-size: 6px;
+			block-size: 6px;
+			border-radius: calc(50% * (1 - var(--lith-notch)));
+			background: var(--_c);
+			box-shadow: 0 0 10px 1px color-mix(in oklch, var(--_c) 60%, transparent);
+			opacity: 0.6;
+			translate: calc(var(--_x) + 3px) calc(var(--_y) + 9px);
+			transition: translate 180ms linear;
+		}
+
+		&::after {
+			inline-size: 4px;
+			block-size: 4px;
+			opacity: 0.35;
+			translate: calc(var(--_x) + 4px) calc(var(--_y) + 10px);
+			transition-duration: 260ms;
+		}
+	}
+
+	/* A crowd of 24 or more leaves the sparks out: every spark is one more
+	 * transition that each frame starts again, and in a crowd the trails
+	 * are clutter more than motion. */
+	.cp-layer:has(> i:nth-child(24)) > i::before,
+	.cp-layer:has(> i:nth-child(24)) > i::after {
+		display: none;
+	}
+
+	/* A cursor that has not moved for a few seconds fades away, slowly at
+	 * first; it comes back at once with its next move. */
+	.cp-layer > i[data-idle] {
+		opacity: 0;
+		transition: opacity 1.6s var(--lith-ease-exit);
+	}
+
+	/* The name tag, under the arrow and to its right; near the floor's
+	 * right or bottom edge it moves to the other side (--_fx, --_fy). Its
+	 * 8-bit corners are four shadows of its colour, a pixel short at each
+	 * corner. The arrow hangs on it, its tip on the cursor's place. */
+	.cp-layer b {
+		--_fx: 0;
+		--_fy: 0;
+		--_n: calc(2px * var(--lith-notch));
+		--_tip-x: calc(-17px + var(--_fx) * (100% + 22px));
+		--_tip-y: calc(-25px + var(--_fy) * (100% + 31px));
+		position: absolute;
+		inset: 0 auto auto 0;
+		z-index: 1;
+		padding: 0 4px;
+		border-radius: calc(4px * (1 - var(--lith-notch)));
+		background: var(--_c);
+		box-shadow:
+			var(--_n) 0 0 0 var(--_c),
+			calc(-1 * var(--_n)) 0 0 0 var(--_c),
+			0 var(--_n) 0 0 var(--_c),
+			0 calc(-1 * var(--_n)) 0 0 var(--_c);
+		color: var(--_on-hue);
+		font-family: var(--lith-font-ui);
+		font-size: 11px;
+		font-weight: 600;
+		line-height: 15px;
+		white-space: nowrap;
+		translate:
+			calc(var(--_x) + 17px - var(--_fx) * (100% + 22px))
+			calc(var(--_y) + 25px - var(--_fy) * (100% + 31px));
+		transform-origin: var(--_tip-x) var(--_tip-y);
+		transition:
+			translate 120ms linear,
+			scale var(--lith-dur-3) var(--lith-ease-snap),
+			opacity var(--lith-dur-3) var(--lith-ease-glide);
+
+		/* It arrives out of its arrow's tip. */
+		@starting-style {
+			scale: 0.2;
+			opacity: 0;
+		}
+
+		/* The arrow: its outline, and its fill on top. */
+		&::before,
+		&::after {
+			content: "";
+			position: absolute;
+			inset-inline-start: var(--_tip-x);
+			inset-block-start: var(--_tip-y);
+			inline-size: 16px;
+			block-size: 26px;
+			background: var(--_halo);
+			mask: var(--_arrow) 0 0 / 100% 100% no-repeat;
+		}
+
+		&::after {
+			background: var(--_c);
+			mask-image: var(--_arrow-fill);
+		}
+	}
+
+	/* A tag flips where it would leave the floor: past --_edge-x percent
+	 * of the floor's width, the share a tag leaves free, which is smaller
+	 * on a narrow floor, and past --_edge-y of its height. */
+	@supports (inline-size: round(down, 1px, 1px)) {
+		.cp-layer b {
+			--_edge-x: 90;
+			--_edge-y: 92;
+			--_fx: min(1, round(down, var(--x) / var(--_edge-x), 1));
+			--_fy: min(1, round(down, var(--y) / var(--_edge-y), 1));
+
+			@container party (width < 60rem) {
+				--_edge-x: 82;
+			}
+
+			@container party (width < 30rem) {
+				--_edge-x: 66;
+			}
+
+			@container party (height < 22rem) {
+				--_edge-y: 84;
+			}
+		}
+	}
+
+	/* Reduced motion: no trail, and every frame puts each cursor where it
+	 * is, without easing. */
+	@media (prefers-reduced-motion: reduce) {
+		.cp-layer > i::before,
+		.cp-layer > i::after {
+			display: none;
+		}
+
+		.cp-layer > i,
+		.cp-layer > i[data-idle],
+		.cp-layer b,
+		.cp-count {
+			transition: none;
+		}
+	}
+
+	/* Forced colours: the arrows and tags in the system's colours. */
+	@media (forced-colors: active) {
+		.cp-layer b {
+			border: 1px solid CanvasText;
+
+			&::before {
+				background: CanvasText;
+				forced-color-adjust: none;
+			}
+
+			&::after {
+				background: Canvas;
+				forced-color-adjust: none;
+			}
+		}
+	}
+}

@@ -1,0 +1,237 @@
+/* Buttons and fields. Corners notch by --lith-notch pixels of 3px (the
+ * clip-path also cuts the border's corners, the 8-bit look); with the
+ * smooth style they round instead. A clip-path cuts an outer outline off,
+ * so focus rings on notched controls sit inside. */
+@layer components {
+	.notched {
+		--_n: calc(3px * var(--lith-notch));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+	}
+
+	.btn {
+		--_bg: var(--lith-surface-2);
+		--_fg: var(--lith-text-1);
+		--_edge: var(--lith-border-strong);
+		--_n: calc(3px * var(--lith-notch));
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--lith-space-2);
+		min-block-size: var(--lith-control-height);
+		padding: 0 var(--lith-space-5);
+		border: 1px solid var(--_edge);
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background: var(--_bg);
+		color: var(--_fg);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-sm);
+		font-weight: 600;
+		line-height: 1.2;
+		text-decoration: none;
+		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			background-color var(--lith-dur-1) var(--lith-ease-snap),
+			border-color var(--lith-dur-1) var(--lith-ease-snap),
+			translate var(--lith-dur-1) var(--lith-ease-snap);
+
+		& svg {
+			inline-size: 1.1em;
+			block-size: 1.1em;
+			flex: none;
+		}
+
+		&:hover {
+			--_bg: var(--lith-surface-hover);
+			--_edge: var(--lith-text-muted);
+			translate: 0 -1px;
+		}
+
+		&:active {
+			translate: 0 1px;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--lith-focus);
+			outline-offset: -5px;
+		}
+	}
+
+	/* The accent button. On hover a band of light sweeps across it. */
+	.btn--primary {
+		--_bg: var(--lith-accent);
+		--_fg: var(--lith-on-accent);
+		--_edge: var(--lith-accent-edge);
+		background-image: linear-gradient(105deg, transparent calc(var(--lith-sweep) - 18%), oklch(100% 0 0 / 0.38) var(--lith-sweep), transparent calc(var(--lith-sweep) + 18%));
+
+		&:hover {
+			--_bg: var(--lith-accent-strong);
+			--_edge: var(--lith-accent-edge);
+			animation: sweep 900ms var(--lith-ease-glide);
+		}
+
+		&:focus-visible {
+			outline-color: var(--lith-on-accent);
+		}
+	}
+
+	@keyframes sweep {
+		from {
+			--lith-sweep: -20%;
+		}
+		to {
+			--lith-sweep: 120%;
+		}
+	}
+
+	.btn--ghost {
+		--_bg: transparent;
+		--_edge: transparent;
+	}
+
+	.btn--sm {
+		min-block-size: 2rem;
+		padding-inline: var(--lith-space-3);
+		font-size: var(--lith-text-xs);
+	}
+
+	/* Waiting for the stream: a pixel that walks around the label. */
+	.btn[aria-busy="true"] {
+		cursor: progress;
+		opacity: 0.75;
+
+		&::after {
+			content: "";
+			inline-size: 6px;
+			block-size: 6px;
+			background: currentColor;
+			animation: busy 0.8s steps(4, end) infinite;
+		}
+	}
+
+	@keyframes busy {
+		0% {
+			translate: 0 -3px;
+		}
+		25% {
+			translate: 3px 0;
+		}
+		50% {
+			translate: 0 3px;
+		}
+		75% {
+			translate: -3px 0;
+		}
+	}
+
+	.icon-btn {
+		display: inline-grid;
+		place-items: center;
+		inline-size: 2.25rem;
+		block-size: 2.25rem;
+		padding: 0;
+		border: 0;
+		border-radius: var(--lith-radius-sm);
+		background: transparent;
+		color: var(--lith-text-2);
+		cursor: pointer;
+		transition: color var(--lith-dur-1) var(--lith-ease-snap), background-color var(--lith-dur-1) var(--lith-ease-snap);
+
+		& svg {
+			inline-size: 1.25rem;
+			block-size: 1.25rem;
+		}
+
+		&:hover {
+			color: var(--lith-text-1);
+			background: var(--lith-surface-hover);
+		}
+	}
+
+	/* Fields: a label over its control. The label turns with its control:
+	 * the accent while it has the focus, the danger colour once the browser
+	 * finds what was typed invalid. */
+	.field {
+		display: grid;
+		gap: var(--lith-space-1);
+
+		& > span {
+			color: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			font-weight: 600;
+			letter-spacing: 0.02em;
+			transition: color var(--lith-dur-1) var(--lith-ease-snap);
+		}
+
+		&:has(:focus-visible) > span {
+			color: var(--lith-accent-text);
+		}
+
+		&:has(:user-invalid) > span {
+			color: var(--lith-danger);
+		}
+	}
+
+	.input {
+		--_n: calc(3px * var(--lith-notch));
+		inline-size: 100%;
+		min-block-size: var(--lith-control-height);
+		padding: var(--lith-space-2) var(--lith-space-3);
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background: var(--lith-surface-inset);
+		color: var(--lith-text-1);
+		transition: border-color var(--lith-dur-1) var(--lith-ease-snap), background-color var(--lith-dur-1) var(--lith-ease-snap);
+
+		&::placeholder {
+			color: var(--lith-text-muted);
+		}
+
+		&:hover {
+			border-color: var(--lith-border-strong);
+		}
+
+		&:focus-visible {
+			border-color: var(--lith-accent-edge);
+			outline: 2px solid var(--lith-focus);
+			outline-offset: -4px;
+		}
+
+		/* Sent and waiting for its outcome: the user's own input stays,
+		 * marked as pending. */
+		&[readonly] {
+			color: var(--lith-text-2);
+			border-style: dashed;
+		}
+
+		&:user-invalid {
+			border-color: var(--lith-danger);
+		}
+	}
+
+	textarea.input {
+		resize: vertical;
+		min-block-size: 5.5rem;
+		line-height: 1.5;
+	}
+
+	/* A short line under a form: what became of the action. */
+	.outcome {
+		min-block-size: 1.5em;
+		color: var(--lith-text-2);
+		font-size: var(--lith-text-sm);
+
+		&.is-refused,
+		&.is-problem {
+			color: var(--lith-danger);
+		}
+
+		&:empty {
+			display: none;
+		}
+	}
+}

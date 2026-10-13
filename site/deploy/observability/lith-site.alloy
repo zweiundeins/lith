@@ -1,0 +1,37 @@
+// lith-site's journal, for the host's Alloy config: the shape of its libretto
+// source, `job` pinned by relabeling and `level` a label. The access log is a
+// path target of the host's caddy_logs, with "site" = "lith".
+// Unverified on the box: check `journalctl -u lith-site -o json | head`.
+
+loki.relabel "lith_site_job" {
+	forward_to = []
+
+	// The job from relabeling, so that it survives relabel_rules (see the
+	// libretto source's note on why `labels` alone is replaced).
+	rule {
+		target_label = "job"
+		replacement  = "lith-site"
+	}
+}
+
+loki.source.journal "lith_site" {
+	forward_to     = [loki.process.lith_site_logs.receiver]
+	relabel_rules  = loki.relabel.lith_site_job.rules
+	labels         = {job = "lith-site"}
+	matches        = "SYSLOG_IDENTIFIER=lith-site"
+	format_as_json = false
+}
+
+loki.process "lith_site_logs" {
+	forward_to = [loki.write.default.receiver]
+
+	// slog's level as a label, so an error rule is a label match:
+	// {job="lith-site", level="ERROR"}.
+	stage.json {
+		expressions = {level = "level"}
+	}
+
+	stage.labels {
+		values = {level = "level"}
+	}
+}

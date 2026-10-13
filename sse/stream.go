@@ -216,6 +216,33 @@ func (s *Stream) Encoding() string { return s.encoding }
 // that went out for them, compressed.
 func (s *Stream) Sent() (events, wire int64) { return s.in, s.out }
 
+// Tier names what the stream's encoder holds now, as BudgetStats.Streams
+// counts it: "zstd 2^19", "zstd 2^18 low memory", "br q4 2^18" or "gzip";
+// "zstd asleep" while a zstd stream has no encoder (it hibernates, or its
+// budget has no room for it); "identity" when it goes out uncompressed.
+// heap is what the stream's budget reserves for the encoder: 0 without a
+// budget, and for a stream asleep or uncompressed.
+func (s *Stream) Tier() (name string, heap int64) {
+	if s.opt.Budget != nil {
+		return label(s.tier, s.encoding), s.tier.heap
+	}
+	t := tier{coding: s.encoding}
+	switch s.encoding {
+	case Zstd:
+		t.window, t.lowMem = s.zstd.window, s.zstd.lowMem
+		if s.asleep {
+			t = tier{}
+		}
+	case Brotli:
+		t.window, t.quality = s.opt.BrotliWindow, s.opt.BrotliQuality
+	}
+	return label(t, s.encoding), 0
+}
+
+// Budget is the budget the stream shares with other streams
+// (Options.Budget), nil for none.
+func (s *Stream) Budget() *Budget { return s.opt.Budget }
+
 // Write sends events: it compresses them together, flushes the encoder
 // and writes the result to the client within the write timeout. A write
 // the client does not take in time fails with an error that wraps

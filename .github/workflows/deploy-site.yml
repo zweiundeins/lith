@@ -1,0 +1,64 @@
+# Deploys the site to lith.zweiundeins.gmbh after CI passes on main, or by hand
+# ("Run workflow"). Off until SITE_DEPLOY_HOST is set: see site/deploy/README.md.
+name: deploy-site
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false # never cut a deploy short; a newer pending run replaces older pending ones
+
+jobs:
+  deploy:
+    if: >-
+      vars.SITE_DEPLOY_HOST != '' && (
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://lith.zweiundeins.gmbh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0 # tags, for the version
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: site/go.mod
+      - name: Build
+        id: build
+        working-directory: site
+        run: |
+          go tool task build
+          echo "version=$(./lith-site --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Deploy
+        env:
+          KEY: ${{ secrets.SITE_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.SITE_DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ vars.SITE_DEPLOY_HOST }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/key"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+          ssh -i "$RUNNER_TEMP/key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o ConnectTimeout=20 \
+            "lith-site-deploy@$HOST" < site/lith-site
+          rm -f "$RUNNER_TEMP/key"
+      - name: Check the public site
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          got=$(curl -fsS --retry 5 --retry-delay 3 https://lith.zweiundeins.gmbh/healthz)
+          echo "$got"
+          [ "$got" = "ok $VERSION" ]

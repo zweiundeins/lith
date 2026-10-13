@@ -1,0 +1,447 @@
+/* The landing page: the hero, the four ideas, the numbers, the quick start,
+ * the demos and the credits. */
+@layer components {
+	/* ── Hero ────────────────────────────────────────────────────────── */
+	.hero {
+		container: hero / inline-size;
+		position: relative;
+		isolation: isolate;
+		overflow: clip;
+		padding-block: var(--lith-space-12) var(--lith-space-16);
+		border-block-end: 1px solid var(--lith-border-subtle);
+	}
+
+	/* The full-width layer behind the hero, for a demo in the hero slot
+	 * (the cursor party). It is a size container named party, so what it
+	 * holds can place itself with cqi and cqb. Pointers pass through it
+	 * unless its content takes them. */
+	.hero__party {
+		container: party / size;
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+
+		& > * {
+			pointer-events: auto;
+		}
+	}
+
+	.hero__inner {
+		position: relative;
+		z-index: 1;
+		display: grid;
+		grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+		align-items: center;
+		gap: var(--lith-space-10);
+		pointer-events: none;
+
+		& :is(a, button, input, [tabindex]) {
+			pointer-events: auto;
+		}
+
+		@container hero (width < 46rem) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	.eyebrow {
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	/* L inear writes, I mmediate mode, T icks, H ypermedia: the initials
+	 * spell the name down the left edge. */
+	.acrostic {
+		display: grid;
+		gap: 0.1em;
+		margin-block: var(--lith-space-4) var(--lith-space-6);
+		font-family: var(--lith-font-display);
+		font-size: clamp(2.2rem, 1.2rem + 4.2cqi, 4.4rem);
+		font-weight: 600;
+		line-height: 1;
+		letter-spacing: 0.01em;
+
+		& > span {
+			display: grid;
+			grid-template-columns: 0.78em auto;
+			align-items: baseline;
+			opacity: 1;
+		}
+
+		& b {
+			color: var(--lith-accent);
+			text-shadow: 0 0 0.45em var(--lith-glow-color);
+		}
+
+		& i {
+			font-style: normal;
+			color: var(--lith-text-1);
+			font-size: 0.62em;
+		}
+	}
+
+	.hero__lede {
+		max-inline-size: 36rem;
+		color: var(--lith-text-2);
+		font-size: var(--lith-text-lg);
+		line-height: 1.55;
+	}
+
+	.hero__actions {
+		margin-block-start: var(--lith-space-8);
+		--gap: var(--lith-space-3);
+	}
+
+	.hero__art {
+		position: relative;
+		display: grid;
+		justify-items: center;
+
+		@container hero (width < 46rem) {
+			display: none;
+		}
+
+		& svg {
+			inline-size: auto;
+			block-size: clamp(18rem, 34cqi, 30rem);
+			filter: drop-shadow(0 0 calc(var(--lith-seam-glow) * 36px) var(--lith-glow-color));
+			animation: breathe 6s ease-in-out infinite alternate;
+		}
+	}
+
+	/* Embers drifting up from the monolith's foot. */
+	.embers {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+
+		& i {
+			position: absolute;
+			inset-block-end: 12%;
+			inset-inline-start: calc(50% + var(--x));
+			inline-size: 4px;
+			block-size: 4px;
+			background: var(--lith-accent);
+			box-shadow: 0 0 8px var(--lith-glow-color);
+			opacity: 0;
+			animation: ember var(--d, 7s) steps(28, end) var(--delay, 0s) infinite;
+		}
+	}
+
+	@keyframes ember {
+		0% {
+			opacity: 0;
+			translate: 0 0;
+		}
+		15% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+			translate: var(--drift, 12px) -22rem;
+		}
+	}
+
+	/* On the first paint the initials come up one after another. */
+	@media (prefers-reduced-motion: no-preference) {
+		.acrostic > span {
+			animation: rise var(--lith-dur-5) var(--lith-ease-glide) both;
+			animation-delay: calc(var(--i) * 90ms + 80ms);
+		}
+
+		.hero__lede,
+		.hero__actions {
+			animation: rise var(--lith-dur-5) var(--lith-ease-glide) 480ms both;
+		}
+	}
+
+	@keyframes rise {
+		from {
+			opacity: 0;
+			translate: 0 0.6rem;
+			filter: blur(3px);
+		}
+	}
+
+	/* ── Sections ────────────────────────────────────────────────────── */
+	.section {
+		padding-block: var(--lith-space-16) 0;
+	}
+
+	.section__head {
+		display: grid;
+		gap: var(--lith-space-2);
+		max-inline-size: 46rem;
+		margin-block-end: var(--lith-space-8);
+
+		& h2 {
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-3xl);
+			font-weight: 600;
+			line-height: var(--lith-leading-tight);
+			letter-spacing: 0.01em;
+		}
+
+		& p {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-lg);
+		}
+	}
+
+	/* ── The four ideas ──────────────────────────────────────────────── */
+	.ideas {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-6);
+	}
+
+	.idea {
+		container: idea / inline-size;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+		gap: var(--lith-space-8);
+		align-items: center;
+		padding: var(--lith-space-8);
+		border: 1px solid var(--lith-border-subtle);
+		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
+		background: color-mix(in oklch, var(--lith-surface-1) 70%, transparent);
+
+		@container page (width < 56rem) {
+			grid-template-columns: minmax(0, 1fr);
+			padding: var(--lith-space-6);
+		}
+	}
+
+	.idea__text {
+		display: grid;
+		gap: var(--lith-space-3);
+		align-content: start;
+
+		& h3 {
+			display: flex;
+			align-items: baseline;
+			gap: var(--lith-space-3);
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-2xl);
+			font-weight: 600;
+		}
+
+		& p {
+			color: var(--lith-text-2);
+		}
+
+		& a {
+			justify-self: start;
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-sm);
+			font-weight: 600;
+		}
+	}
+
+	.idea__letter {
+		display: inline-grid;
+		place-items: center;
+		inline-size: 2.4rem;
+		block-size: 2.4rem;
+		background: var(--lith-accent-subtle);
+		color: var(--lith-accent-text);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--lith-accent) 45%, transparent);
+	}
+
+	/* The slot beside an idea: a demo's embed, or else a listing. */
+	.idea__slot {
+		container: slot / inline-size;
+		min-inline-size: 0;
+
+		& .code {
+			margin: 0;
+		}
+	}
+
+	/* ── Numbers: a raised band. Cards inside read the band's tone with a
+	 * style query, so the same card sits on either surface. ─────────── */
+	.band {
+		--band: raised;
+		margin-block-start: var(--lith-space-16);
+		padding-block: var(--lith-space-12);
+		border-block: 1px solid var(--lith-border-subtle);
+		background: var(--lith-surface-1);
+
+		& .section {
+			padding-block-start: 0;
+		}
+	}
+
+	.stats {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--lith-space-4);
+
+		@container page (width < 60rem) {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		@container page (width < 36rem) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	.stat {
+		display: grid;
+		gap: var(--lith-space-2);
+		align-content: start;
+		padding: var(--lith-space-5);
+		border: 1px solid var(--lith-border-subtle);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+
+		/* Numbers in the code face: every digit unmistakable. */
+		& dd {
+			order: -1;
+			margin: 0;
+			color: var(--lith-accent-text);
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-2xl);
+			font-weight: 700;
+			line-height: 1.1;
+			letter-spacing: -0.02em;
+			font-variant-numeric: tabular-nums;
+		}
+
+		& dt {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-sm);
+		}
+
+		& small {
+			display: block;
+			margin-block-start: var(--lith-space-1);
+			color: var(--lith-text-muted);
+			font-size: var(--lith-text-xs);
+		}
+	}
+
+	@container style(--band: raised) {
+		.stat {
+			background: var(--lith-surface-2);
+			border-color: var(--lith-border);
+		}
+	}
+
+	.note {
+		margin-block-start: var(--lith-space-6);
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+	}
+
+	/* ── Quick start ─────────────────────────────────────────────────── */
+	.quickstart {
+		display: grid;
+		grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+		gap: var(--lith-space-8);
+		align-items: start;
+
+		@container page (width < 56rem) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		& ol {
+			display: grid;
+			gap: var(--lith-space-3);
+			padding-inline-start: var(--lith-space-5);
+			color: var(--lith-text-2);
+
+			& li::marker {
+				color: var(--lith-accent-text);
+				font-family: var(--lith-font-ui);
+				font-weight: 600;
+			}
+		}
+	}
+
+	/* ── Credits ─────────────────────────────────────────────────────── */
+	.credits {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+		gap: var(--lith-space-4);
+
+		& article {
+			display: grid;
+			gap: var(--lith-space-2);
+			padding: var(--lith-space-5);
+			border-inline-start: 3px solid var(--lith-accent);
+			background: var(--lith-surface-1);
+		}
+
+		& h3 {
+			font-size: var(--lith-text-lg);
+		}
+
+		& p {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-sm);
+		}
+	}
+
+	/* ── Scroll-driven reveals: sections rise into place as they enter
+	 * the viewport, driven by the scroll position (no script). Without
+	 * support they are simply there. ──────────────────────────────── */
+	@media (prefers-reduced-motion: no-preference) {
+		@supports (animation-timeline: view()) {
+			.reveal {
+				animation: reveal linear both;
+				animation-timeline: view();
+				animation-range: entry 0% cover 28%;
+			}
+
+			.hero__art svg {
+				animation: breathe 6s ease-in-out infinite alternate, sink linear both;
+				animation-timeline: auto, scroll(root block);
+				animation-range: normal, 0 60vh;
+			}
+		}
+	}
+
+	@keyframes reveal {
+		from {
+			opacity: 0;
+			translate: 0 2.5rem;
+			scale: 0.985;
+		}
+	}
+
+	@keyframes sink {
+		to {
+			translate: 0 4rem;
+			opacity: 0.55;
+		}
+	}
+}
+
+@layer components {
+	/* The quick start's tabs: Starbase's sb-tabs, panels in the light DOM. */
+	.starts {
+		display: block;
+		min-inline-size: 0;
+
+		&::part(tablist) {
+			margin-block-end: var(--lith-space-3);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-sm);
+		}
+	}
+
+	.starts__panel {
+		display: grid;
+		gap: var(--lith-space-3);
+
+		& > p {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-sm);
+		}
+	}
+}

@@ -1,0 +1,57 @@
+version: '3'
+
+vars:
+  BIN: lith-site
+
+tasks:
+  generate:
+    desc: Compile the templ views
+    cmds:
+      - go tool templ generate
+
+  docs:
+    desc: Write the docs' generated parts, the package reference and the charts of lith's benchmarks (TestUpToDate fails until they are current)
+    cmds:
+      - go generate ./content
+
+  dev:
+    desc: Serve on http://127.0.0.1:8097 (metrics on :8197) and rebuild on every change (air)
+    cmds:
+      - go tool air
+
+  run:
+    desc: Serve once, in development mode, without rebuilding
+    deps: [generate]
+    cmds:
+      - go run ./cmd/lith-site -dev -log text
+
+  test:
+    desc: Vet, check the formatting, run the tests with the race detector (Chromium tests need LITH_CHROME_NO_SANDBOX=1 where there is no sandbox)
+    deps: [generate]
+    cmds:
+      - go vet ./...
+      # Go 1.27's own gofmt: lith uses generic methods, which an older one rejects.
+      - test -z "$($(go env GOROOT)/bin/gofmt -l .)" || { $(go env GOROOT)/bin/gofmt -l .; exit 1; }
+      - go test -race ./...
+
+  shots:
+    desc: Screenshots of the pages and of their transitions, in ./tmp/shots
+    cmds:
+      - mkdir -p tmp/shots
+      - LITH_SITE_SHOTS=$PWD/tmp/shots go test ./internal/app -run 'TestShots|TestTransitionShots' -count=1
+
+  build:
+    desc: Build the static binary, everything embedded
+    deps: [generate]
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+    env:
+      CGO_ENABLED: '0'
+    cmds:
+      - go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/lith-site
+
+  vendor-starbase:
+    desc: Copy the Starbase components of internal/web/static/vendor/starbase/pins.json from its pinned snapshot, checking their integrity
+    cmds:
+      - go run ./cmd/vendor-starbase

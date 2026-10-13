@@ -1,0 +1,490 @@
+/* The canvas. Its rules apply inside its own elements only. */
+@scope ([data-demo="canvas"]) {
+	/* The palette: sixteen of the site's colours. The neutrals turn over
+	 * with the theme, like ink on paper and chalk on slate, so a drawing
+	 * keeps its contrast; the hues keep their colour, but the palest three
+	 * (glow, flame, gold) take a darker step on paper. The page reads them
+	 * into the hex colours sb-pixel-board paints with (expr.go). */
+	:scope {
+		--canvas-c0: var(--lith-surface-inset);
+		--canvas-c1: light-dark(var(--lith-stone-12), var(--lith-stone-1));
+		--canvas-c2: light-dark(var(--lith-stone-9), var(--lith-stone-3));
+		--canvas-c3: light-dark(var(--lith-stone-7), var(--lith-stone-5));
+		--canvas-c4: light-dark(var(--lith-stone-5), var(--lith-stone-7));
+		--canvas-c5: light-dark(var(--lith-stone-3), var(--lith-stone-9));
+		--canvas-c6: light-dark(var(--lith-ember-3), var(--lith-art-seam-core));
+		--canvas-c7: var(--lith-art-seam);
+		--canvas-c8: var(--lith-art-seam-edge);
+		--canvas-c9: var(--lith-ember-9);
+		--canvas-c10: light-dark(var(--lith-ember-6), var(--lith-ember-4));
+		--canvas-c11: var(--lith-code-number);
+		--canvas-c12: var(--lith-sage-light);
+		--canvas-c13: var(--lith-green-dark);
+		--canvas-c14: var(--lith-red-light);
+		--canvas-c15: var(--lith-red-dark);
+	}
+
+	[data-c="0"] { --_c: var(--canvas-c0); }
+	[data-c="1"] { --_c: var(--canvas-c1); }
+	[data-c="2"] { --_c: var(--canvas-c2); }
+	[data-c="3"] { --_c: var(--canvas-c3); }
+	[data-c="4"] { --_c: var(--canvas-c4); }
+	[data-c="5"] { --_c: var(--canvas-c5); }
+	[data-c="6"] { --_c: var(--canvas-c6); }
+	[data-c="7"] { --_c: var(--canvas-c7); }
+	[data-c="8"] { --_c: var(--canvas-c8); }
+	[data-c="9"] { --_c: var(--canvas-c9); }
+	[data-c="10"] { --_c: var(--canvas-c10); }
+	[data-c="11"] { --_c: var(--canvas-c11); }
+	[data-c="12"] { --_c: var(--canvas-c12); }
+	[data-c="13"] { --_c: var(--canvas-c13); }
+	[data-c="14"] { --_c: var(--canvas-c14); }
+	[data-c="15"] { --_c: var(--canvas-c15); }
+
+	/* The brush: the colour of the checked swatch, for the frame and the
+	 * palette's legend. */
+	.cv:has([data-c="0"] > :checked) { --_brush: var(--canvas-c0); }
+	.cv:has([data-c="1"] > :checked) { --_brush: var(--canvas-c1); }
+	.cv:has([data-c="2"] > :checked) { --_brush: var(--canvas-c2); }
+	.cv:has([data-c="3"] > :checked) { --_brush: var(--canvas-c3); }
+	.cv:has([data-c="4"] > :checked) { --_brush: var(--canvas-c4); }
+	.cv:has([data-c="5"] > :checked) { --_brush: var(--canvas-c5); }
+	.cv:has([data-c="6"] > :checked) { --_brush: var(--canvas-c6); }
+	.cv:has([data-c="7"] > :checked) { --_brush: var(--canvas-c7); }
+	.cv:has([data-c="8"] > :checked) { --_brush: var(--canvas-c8); }
+	.cv:has([data-c="9"] > :checked) { --_brush: var(--canvas-c9); }
+	.cv:has([data-c="10"] > :checked) { --_brush: var(--canvas-c10); }
+	.cv:has([data-c="11"] > :checked) { --_brush: var(--canvas-c11); }
+	.cv:has([data-c="12"] > :checked) { --_brush: var(--canvas-c12); }
+	.cv:has([data-c="13"] > :checked) { --_brush: var(--canvas-c13); }
+	.cv:has([data-c="14"] > :checked) { --_brush: var(--canvas-c14); }
+	.cv:has([data-c="15"] > :checked) { --_brush: var(--canvas-c15); }
+
+	/* The stage: the canvas, and beside it (below it on narrow stages)
+	 * the brush, the painters and the pulse. */
+	.cv {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-areas: "canvas" "side" "notes";
+		gap: var(--lith-space-5) var(--lith-space-6);
+
+		@container stage (width >= 42rem) {
+			grid-template-columns: minmax(0, 1fr) 13rem;
+			grid-template-areas: "canvas side" "notes side";
+			align-items: start;
+		}
+	}
+
+	/* The probe the page resolves the palette's tokens with. It never
+	 * transitions: the reduced-motion reset gives every element a short
+	 * one, and a read in the middle would return the colour before. */
+	.cv__probe {
+		position: absolute;
+		inline-size: 0;
+		block-size: 0;
+		overflow: hidden;
+		transition-property: none;
+	}
+
+	.cv__canvas {
+		grid-area: canvas;
+		display: grid;
+		gap: var(--lith-space-3);
+	}
+
+	/* The caption shares its line with the stage's live badge. */
+	.cv__caption {
+		padding-inline-end: 5.5rem;
+	}
+
+	/* The board sits in a frame of its own: notched in the 8-bit style,
+	 * rounded in the smooth one. */
+	.cv__frame {
+		--_n: calc(6px * var(--lith-notch));
+		padding: var(--lith-space-2);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background-color: var(--lith-border-subtle);
+		box-shadow: inset 0 0 0 1px var(--lith-border);
+		transition: background-color var(--lith-dur-4) var(--lith-ease-glide);
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+	}
+
+	/* While you paint, the frame takes your brush's colour. */
+	.cv__frame:has(sb-pixel-board:active) {
+		background-color: color-mix(in oklch, var(--_brush, var(--lith-accent)) 55%, var(--lith-border-subtle));
+		transition-duration: var(--lith-dur-1);
+	}
+
+	/* Until the page has read its palette from the tokens, the board
+	 * would paint in Starbase's colours: it waits, and then comes into
+	 * focus. Its square is kept from the first paint, so nothing moves. */
+	sb-pixel-board {
+		--sb-pixel-board-size: 100%;
+		--sb-border: transparent;
+		display: block;
+		aspect-ratio: 1;
+		transition:
+			opacity var(--lith-dur-4) var(--lith-ease-glide),
+			filter var(--lith-dur-5) var(--lith-ease-glide),
+			scale var(--lith-dur-5) var(--lith-ease-glide);
+
+		&:not([palette]) {
+			opacity: 0;
+			filter: blur(10px);
+			scale: 0.97;
+		}
+
+		/* The page's own palette replaces the component's. */
+		&::part(palette) {
+			display: none;
+		}
+
+		&::part(canvas) {
+			border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		}
+	}
+
+	.cv__problem {
+		max-inline-size: 40rem;
+	}
+
+	.cv__side {
+		grid-area: side;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-6);
+
+		@container stage (30rem <= width < 42rem) {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+
+			& .cv__palette {
+				grid-column: 1 / -1;
+			}
+		}
+	}
+
+	/* Headings: small capitals, like the panels'. The canvas's caption
+	 * shares its line with the stage's live badge. */
+	.cv__caption,
+	.cv__palette legend,
+	.cv__here h3,
+	.cv__pulse h3 {
+		margin-block-end: var(--lith-space-3);
+		padding: 0;
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		font-weight: 600;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	/* ── The brush: sixteen swatches, eight to a row ─────────────────── */
+	.cv__palette {
+		min-inline-size: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+
+		/* The brush's colour beside its name. */
+		& legend::after {
+			content: "";
+			display: inline-block;
+			inline-size: 0.625rem;
+			block-size: 0.625rem;
+			margin-inline-start: var(--lith-space-2);
+			vertical-align: -0.0625rem;
+			background: var(--_brush, transparent);
+			box-shadow: 0 0 0 1px color-mix(in oklch, var(--lith-text-1) 25%, transparent);
+			transition: background-color var(--lith-dur-3) var(--lith-ease-glide);
+		}
+	}
+
+	.cv__swatches {
+		display: grid;
+		grid-template-columns: repeat(8, minmax(0, 1fr));
+		gap: var(--lith-space-1);
+
+		@container stage (width < 42rem) {
+			gap: var(--lith-space-2);
+		}
+	}
+
+	.cv__swatch {
+		position: relative;
+		display: grid;
+		cursor: pointer;
+		transition:
+			translate var(--lith-dur-1) var(--lith-ease-snap),
+			filter var(--lith-dur-2) var(--lith-ease-snap);
+
+		& input {
+			--_n: calc(2px * var(--lith-notch));
+			appearance: none;
+			display: block;
+			inline-size: 100%;
+			aspect-ratio: 1;
+			margin: 0;
+			border: 1px solid color-mix(in oklch, var(--lith-text-1) 18%, transparent);
+			border-radius: calc(4px * (1 - var(--lith-notch)));
+			background: var(--_c);
+			clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+			cursor: inherit;
+		}
+
+		/* The background swatch paints the canvas back: an eraser's
+		 * slash across it. */
+		&[data-c="0"] input {
+			background:
+				linear-gradient(to top right, transparent calc(50% - 1px), var(--lith-text-muted) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+				var(--_c);
+		}
+
+		&:hover {
+			translate: 0 -1px;
+		}
+
+		/* The brush: lifted, on a base of the accent that follows the
+		 * swatch's notches. */
+		&:has(:checked) {
+			translate: 0 -3px;
+			filter: drop-shadow(0 3px 0 var(--lith-accent-text));
+		}
+
+		&:has(:focus-visible) {
+			outline: 2px solid var(--lith-focus);
+			outline-offset: 3px;
+		}
+
+		/* .tip shows the name above the swatch on hover; the focus shows
+		 * it too. */
+		&.tip {
+			text-decoration: none;
+			cursor: pointer;
+		}
+
+		&:has(:focus-visible) .tip__bubble {
+			opacity: 1;
+			translate: 0 0;
+		}
+	}
+
+	/* ── The painters here ─────────────────────────────────────────── */
+	.cv__painters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-3) var(--lith-space-2);
+		margin: 0;
+		padding-block-end: var(--lith-space-2);
+	}
+
+	/* A painter: a face of 5 by 5 pixels in the colour of their brush.
+	 * One that arrives grows in from a pixel; a new colour flows in. */
+	.cv__painter {
+		--_size: 2.25rem;
+		position: relative;
+		display: grid;
+		place-items: center;
+		inline-size: var(--_size);
+		block-size: var(--_size);
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+		box-shadow: inset 0 0 0 1px var(--lith-border-subtle), inset 0 0 0 2px var(--_ring, transparent);
+		color: var(--_c, var(--lith-text-muted));
+		transition:
+			opacity var(--lith-dur-3) var(--lith-ease-glide),
+			scale var(--lith-dur-3) var(--lith-ease-steps),
+			color var(--lith-dur-4) var(--lith-ease-glide);
+
+		@starting-style {
+			opacity: 0;
+			scale: 0.2;
+		}
+
+		& svg {
+			inline-size: 1.25rem;
+			block-size: 1.25rem;
+			shape-rendering: crispEdges;
+		}
+
+		& path {
+			fill: currentColor;
+		}
+
+		/* No colour yet, or the background's: the face as an outline. */
+		&:is([data-c="-1"], [data-c="0"]) {
+			color: var(--lith-text-muted);
+
+			& path {
+				fill: none;
+				stroke: currentColor;
+				stroke-width: 0.3;
+			}
+		}
+
+		/* Painting now: a ring in their colour that blinks, like the live
+		 * dot, until their strokes stop. */
+		&[data-active] {
+			outline: 2px solid currentColor;
+			outline-offset: 2px;
+			animation: canvas-painting 1.2s steps(2, jump-none) infinite;
+		}
+	}
+
+	/* The pixels a painter painted in the last minute, on their face's
+	 * corner. */
+	.cv__painted {
+		position: absolute;
+		inset-block-end: 1px;
+		inset-inline-end: 2px;
+		color: var(--lith-text-2);
+		font-family: var(--lith-font-ui);
+		font-size: 0.5625rem;
+		font-variant-numeric: tabular-nums;
+		line-height: 1;
+	}
+
+	/* The tab's own face: the style the document renders for its tag
+	 * rings it in the accent and labels it. */
+	.cv__painter::after {
+		content: var(--_you, none);
+		position: absolute;
+		inset-block-end: -0.5rem;
+		inset-inline: 0;
+		inline-size: fit-content;
+		margin-inline: auto;
+		padding: 1px 3px;
+		border-radius: calc(3px * (1 - var(--lith-notch)));
+		background: var(--lith-accent);
+		color: var(--lith-on-accent);
+		font-family: var(--lith-font-ui);
+		font-size: 0.5625rem;
+		font-weight: 700;
+		letter-spacing: var(--lith-tracking-caps);
+		line-height: 1.2;
+		text-transform: uppercase;
+	}
+
+	.cv__more {
+		margin-block-start: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-xs);
+	}
+
+	/* ── The pulse: the last minute, second by second ──────────────── */
+	.cv__minute {
+		display: flex;
+		align-items: baseline;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-2);
+		font-size: var(--lith-text-sm);
+	}
+
+	/* The count rolls to its new value: --canvas-n is an integer the browser
+	 * can animate, and the counter shows it. The number itself is in
+	 * the element for screen readers. */
+	.cv__n {
+		color: var(--lith-text-1);
+		font-family: var(--lith-font-display);
+		font-size: var(--lith-text-2xl);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		line-height: 1;
+		counter-reset: canvas-n var(--canvas-n);
+		transition: --canvas-n var(--lith-dur-4) var(--lith-ease-glide);
+
+		&::before {
+			content: counter(canvas-n) / "";
+		}
+	}
+
+	.cv__bars {
+		display: flex;
+		align-items: end;
+		gap: 1px;
+		block-size: 2.5rem;
+		margin-block: var(--lith-space-3);
+		border-block-end: 1px solid var(--lith-border);
+
+		& i {
+			flex: 1;
+			block-size: round(up, calc(var(--h) * 100%), 2px);
+			background: var(--lith-accent);
+		}
+
+		/* The second under way: the brightest bar. */
+		& i:last-child {
+			background: var(--lith-accent-strong);
+			box-shadow: 0 0 6px var(--lith-glow-color);
+		}
+	}
+
+	.cv__facts {
+		display: grid;
+		gap: var(--lith-space-1);
+		margin: 0;
+		font-size: var(--lith-text-xs);
+
+		& div {
+			display: flex;
+			justify-content: space-between;
+			gap: var(--lith-space-3);
+			padding-block: var(--lith-space-1);
+			border-block-end: 1px dashed var(--lith-border-subtle);
+		}
+
+		& dt {
+			color: var(--lith-text-muted);
+		}
+
+		& dd {
+			margin: 0;
+			color: var(--lith-text-1);
+			font-family: var(--lith-font-ui);
+			font-variant-numeric: tabular-nums;
+		}
+	}
+
+	/* ── The rule of the day, and how to paint ─────────────────────── */
+	.cv__notes {
+		grid-area: notes;
+		display: grid;
+		gap: var(--lith-space-2);
+		max-inline-size: 40rem;
+		color: var(--lith-text-2);
+		font-size: var(--lith-text-sm);
+
+		& strong {
+			color: var(--lith-text-1);
+		}
+
+		& p + p {
+			color: var(--lith-text-muted);
+		}
+	}
+
+	@media (forced-colors: active) {
+		.cv__swatch input {
+			forced-color-adjust: none;
+		}
+
+		.cv__swatch:has(:checked) {
+			outline: 2px solid Highlight;
+			outline-offset: 2px;
+		}
+	}
+}
+
+/* Outside the scope: keyframes and properties are the document's. */
+@keyframes canvas-painting {
+	50% {
+		outline-color: transparent;
+	}
+}
+
+/* The count's number, animatable. */
+@property --canvas-n {
+	syntax: "<integer>";
+	inherits: false;
+	initial-value: 0;
+}

@@ -1,0 +1,171 @@
+package views
+
+// Document is a whole page: the head, the header, the page's own content
+// and the footer.
+templ Document(s Shell, body templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en" data-lith-theme={ s.Theme } data-lith-style={ s.Style }>
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ s.DocumentTitle() }</title>
+			<meta name="description" content={ s.Description }/>
+			<meta name="color-scheme" content={ colorScheme(s.Theme) }/>
+			<meta name="theme-color" content="#100E0C"/>
+			<link rel="canonical" href={ s.Base + s.Path }/>
+			<link rel="icon" type="image/svg+xml" href={ s.Assets.Icon }/>
+			<link rel="icon" type="image/png" sizes="32x32" href="/favicon.ico"/>
+			<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+			<meta property="og:type" content="website"/>
+			<meta property="og:site_name" content="lith"/>
+			<meta property="og:title" content={ s.DocumentTitle() }/>
+			<meta property="og:description" content={ s.Description }/>
+			<meta property="og:url" content={ s.Base + s.Path }/>
+			<meta property="og:image" content={ s.Base + "/og.png" }/>
+			<meta property="og:image:width" content="1200"/>
+			<meta property="og:image:height" content="630"/>
+			<meta property="og:image:alt" content="A pixel-art stone monolith with a glowing seam, beside the word LITH"/>
+			<meta name="twitter:card" content="summary_large_image"/>
+			<link rel="preload" href={ s.Assets.Font } as="font" type="font/woff2" crossorigin/>
+			<link rel="stylesheet" href={ s.Assets.CSS }/>
+			// The view transitions' script runs before the first frame, and that
+			// frame waits until the page is parsed (#page-end), so pagereveal
+			// finds the elements it names.
+			<link rel="expect" href="#page-end" blocking="render"/>
+			<script src={ s.Assets.Transitions }></script>
+			// The import map comes before every module: the Starbase bundles
+			// import 'datastar', which it maps to the build loaded here.
+			@importMap(s)
+			<script type="module" src={ s.Assets.Datastar.URL } integrity={ s.Assets.Datastar.Integrity }></script>
+			for _, c := range s.Components {
+				<script type="module" src={ c.URL } integrity={ c.Integrity }></script>
+			}
+		</head>
+		<body
+			if s.Stream != "" {
+				data-signals={ pageSignals(s.Tab) }
+			}
+		>
+			<a class="skip-link" href="#main">Skip to the content</a>
+			if s.Stream != "" {
+				<div id={ StreamID } hidden data-indicator:_live data-init={ openStream(s.Stream) }></div>
+			}
+			<div class="site">
+				@Header(s)
+				<main id="main" class="site-main">
+					@body
+				</main>
+				@Footer(s)
+			</div>
+			@Menu(s)
+			<span id="page-end" hidden></span>
+		</body>
+	</html>
+}
+
+templ Header(s Shell) {
+	<header class="site-header">
+		<div class="wrap site-header__inner">
+			<a class="brand" href="/" aria-label="lith, home">
+				@Art(logoSVG, "brand__logo")
+				<span class="brand__word">lith</span>
+			</a>
+			<button class="icon-btn menu-button" type="button" aria-label="Menu" data-on:click="$_menu.show()">
+				@Icon("menu")
+			</button>
+			<nav class="site-nav" aria-label="Main">
+				<a
+					href="/docs"
+					if s.Nav == "docs" {
+						aria-current="page"
+					}
+				>Docs</a>
+				<a
+					href="/demos"
+					if s.Nav == "demos" {
+						aria-current="page"
+					}
+				>Demos</a>
+				<a class="site-nav__github" href={ safe(s.Repo) }>GitHub</a>
+			</nav>
+			@Prefs(s)
+		</div>
+	</header>
+}
+
+// Prefs is the display menu: the theme and the 8-bit details, a popover
+// anchored to its button. transitions.js applies a choice and keeps it in
+// a cookie (lith-theme, lith-style) that the server reads.
+templ Prefs(s Shell) {
+	<button class="icon-btn prefs-button" type="button" popovertarget="prefs" aria-label="Display settings">
+		@Icon("display")
+	</button>
+	<div id="prefs" class="menu" popover>
+		<div class="menu__group" role="group" aria-labelledby="prefs-theme">
+			<p id="prefs-theme" class="menu__label">Theme</p>
+			<div class="choice">
+				@prefButton("theme", "dark", "Dark", "moon", s.Theme)
+				@prefButton("theme", "light", "Light", "sun", s.Theme)
+				@prefButton("theme", "system", "System", "system", s.Theme)
+			</div>
+		</div>
+		<div class="menu__group" role="group" aria-labelledby="prefs-style">
+			<p id="prefs-style" class="menu__label">Corners</p>
+			<div class="choice">
+				@prefButton("style", "pixel", "8-bit", "pixel", s.Style)
+				@prefButton("style", "smooth", "Smooth", "smooth", s.Style)
+			</div>
+		</div>
+	</div>
+}
+
+templ prefButton(key, value, label, icon, current string) {
+	<button type="button" data-pref={ key } data-value={ value } aria-pressed={ pressed(current == value) }>
+		@Icon(icon)
+		{ label }
+	</button>
+}
+
+// Menu is the menu of narrow screens: Starbase's sb-drawer, from the start
+// edge, with the main links and, in the docs, the docs' navigation. It
+// traps the focus while open, and Escape or the backdrop closes it.
+templ Menu(s Shell) {
+	<sb-drawer class="menu-drawer" data-ref:_menu side="start" heading="lith">
+		<nav class="menu-drawer__nav" aria-label="Main">
+			<a
+				href="/docs"
+				if s.Nav == "docs" {
+					aria-current="page"
+				}
+			>Docs</a>
+			<a
+				href="/demos"
+				if s.Nav == "demos" {
+					aria-current="page"
+				}
+			>Demos</a>
+			<a href={ safe(s.Repo) }>GitHub</a>
+		</nav>
+		if s.Docs != nil {
+			@s.Docs
+		}
+	</sb-drawer>
+}
+
+templ Footer(s Shell) {
+	<footer class="site-footer">
+		<div class="wrap">
+			<p class="site-footer__about">
+				@Art(logoSVG, "")
+				<span>lith is the runtime under the Go, SQLite and Datastar apps of <a href="https://zweiundeins.gmbh">zwei und eins</a>.</span>
+			</p>
+			<nav aria-label="Footer">
+				<a href="/docs">Docs</a>
+				<a href="/demos">Demos</a>
+				<a href="/docs/credits">Credits</a>
+				<a href={ safe(s.Repo) }>Source</a>
+				<span>{ s.Version }</span>
+			</nav>
+		</div>
+	</footer>
+}

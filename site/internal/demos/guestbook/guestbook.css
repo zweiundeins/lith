@@ -1,0 +1,154 @@
+/* The guestbook. Its rules apply inside its own elements only. */
+@scope ([data-demo="guestbook"]) {
+	.gb {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-8);
+	}
+
+	.gb__form {
+		display: grid;
+		gap: var(--lith-space-4);
+		max-inline-size: 34rem;
+	}
+
+	.gb__actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--lith-space-4);
+	}
+
+	.gb__entries {
+		display: grid;
+		gap: var(--lith-space-3);
+
+		& h3 {
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			font-weight: 600;
+			letter-spacing: var(--lith-tracking-caps);
+			text-transform: uppercase;
+		}
+
+		& ol {
+			display: grid;
+			gap: var(--lith-space-2);
+			margin: 0;
+		}
+	}
+
+	.gb__entry {
+		view-transition-class: guestbook-entry;
+		padding: var(--lith-space-3) var(--lith-space-4);
+		border-inline-start: 3px solid var(--lith-border);
+		background: var(--lith-surface-1);
+		transition:
+			opacity var(--lith-dur-5) var(--lith-ease-glide),
+			translate var(--lith-dur-5) var(--lith-ease-glide),
+			filter var(--lith-dur-5) var(--lith-ease-glide),
+			border-color 2.4s var(--lith-ease-glide),
+			box-shadow 2.4s var(--lith-ease-glide);
+	}
+
+	/* An entry that just arrived materialises: out of a blur, with a glow
+	 * on its edge that cools down. @starting-style is the state it starts
+	 * from when the stream's morph inserts it. */
+	.gb__entry[data-fresh] {
+		border-inline-start-color: var(--lith-accent);
+
+		@starting-style {
+			opacity: 0;
+			translate: 0 -0.75rem;
+			filter: blur(6px);
+			border-inline-start-color: var(--lith-ember-1);
+			box-shadow: 0 0 28px var(--lith-glow-color), inset 0 0 0 1px var(--lith-accent);
+		}
+	}
+
+	.gb__message {
+		color: var(--lith-text-1);
+		overflow-wrap: anywhere;
+		white-space: pre-line;
+	}
+
+	.gb__by {
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-xs);
+
+		& span {
+			color: var(--lith-text-2);
+			font-weight: 600;
+		}
+
+		& time {
+			margin-inline-start: var(--lith-space-2);
+		}
+	}
+
+	/* The landing page's slot. */
+	.gb-embed {
+		display: grid;
+		gap: var(--lith-space-3);
+		padding: var(--lith-space-5);
+		border: 1px solid var(--lith-border);
+		background: var(--lith-surface-inset);
+
+		& ol {
+			display: grid;
+			gap: var(--lith-space-2);
+			margin: 0;
+		}
+
+		& .btn {
+			justify-self: start;
+		}
+	}
+
+	.gb-embed__head {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	.gb-embed__dot {
+		inline-size: 6px;
+		block-size: 6px;
+		background: var(--lith-text-muted);
+
+		.is-live > & {
+			background: var(--lith-ok);
+			box-shadow: 0 0 8px var(--lith-ok);
+		}
+	}
+
+	.gb-embed__list {
+		display: grid;
+		gap: var(--lith-space-2);
+	}
+
+	.gb-embed__empty,
+	.gb-embed__total {
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+	}
+}
+
+/* View transitions belong to the document, outside the scope. The stream
+ * morphs the entries in a view transition (sse.Patch's ViewTransition):
+ * the entries already there glide down on the glide curve, and a new one
+ * shows its own @starting-style arrival instead of a cross-fade. */
+::view-transition-group(.guestbook-entry) {
+	animation-duration: var(--lith-dur-5);
+	animation-timing-function: var(--lith-ease-glide);
+}
+
+::view-transition-new(.guestbook-entry):only-child {
+	animation: none;
+}

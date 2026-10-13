@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -509,6 +510,83 @@ func TestBudgetWithoutLimitKeepsTheStreamsOptions(t *testing.T) {
 		}
 		if got := b.Stats().Streams; got[c.want] != 1 || len(got) != 1 {
 			t.Errorf("%s %+v: streams %v", c.enc, c.o, got)
+		}
+		s.Close()
+	}
+}
+
+// Tier names what a stream holds as its budget counts it, and the heap the
+// budget reserved for it; without a budget, the stream's own settings.
+// Budget is the budget the stream shares.
+func TestStreamTier(t *testing.T) {
+	b := NewBudget(BudgetOptions{Limit: 8 << 20, MinWindow: 18, MaxWindow: 19})
+	var open []*Stream
+	for _, c := range []string{Zstd, Zstd, Zstd, Brotli, Gzip, ""} {
+		s, _ := openWith(t, c, Options{Budget: b})
+		open = append(open, s)
+	}
+	agree := func(when string) {
+		t.Helper()
+		names := map[string]int{}
+		var heap int64
+		for _, s := range open {
+			n, h := s.Tier()
+			names[n]++
+			heap += h
+			if s.Budget() != b {
+				t.Fatalf("%s: a stream's Budget is not its budget", when)
+			}
+		}
+		st := b.Stats()
+		if !maps.Equal(names, st.Streams) || heap != st.Reserved {
+			t.Fatalf("%s: the streams name %v and hold %d bytes, the budget counts %v and %d", when, names, heap, st.Streams, st.Reserved)
+		}
+	}
+	agree("open")
+	if n, h := open[3].Tier(); n != "br q4 2^18" || h != 2192*kib {
+		t.Errorf("brotli: %s, %d bytes", n, h)
+	}
+	if n, _ := open[5].Tier(); n != "identity" {
+		t.Errorf("a stream without a coding: %s", n)
+	}
+	if err := open[0].Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := open[0].Hibernate(); err != nil {
+		t.Fatal(err)
+	}
+	if n, h := open[0].Tier(); n != "zstd asleep" || h != 0 {
+		t.Errorf("hibernating: %s, %d bytes", n, h)
+	}
+	agree("one asleep")
+	for _, s := range open {
+		s.Close()
+	}
+
+	for _, c := range []struct {
+		enc  string
+		o    Options
+		want string
+	}{
+		{Zstd, Options{}, "zstd 2^19"},
+		{Zstd, Options{ZstdWindow: 17, ZstdLowMemory: true}, "zstd 2^17 low memory"},
+		{Brotli, Options{}, "br q4 2^18"},
+		{Brotli, Options{BrotliQuality: 3, BrotliWindow: 16}, "br q3 2^16"},
+		{Gzip, Options{}, "gzip"},
+		{"", Options{}, "identity"},
+		{Zstd, Options{NoCompression: true}, "identity"},
+	} {
+		s, _ := openWith(t, c.enc, c.o)
+		if n, h := s.Tier(); n != c.want || h != 0 || s.Budget() != nil {
+			t.Errorf("%s %+v without a budget: %s, %d bytes", c.enc, c.o, n, h)
+		}
+		if c.want == "zstd 2^19" {
+			if err := s.Hibernate(); err != nil {
+				t.Fatal(err)
+			}
+			if n, _ := s.Tier(); n != "zstd asleep" {
+				t.Errorf("hibernating without a budget: %s", n)
+			}
 		}
 		s.Close()
 	}

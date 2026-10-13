@@ -1,0 +1,26 @@
+# --- lith (github.com/zweiundeins/lith): the website of lith, the runtime
+# of the Go, SQLite and Datastar apps, with its docs and live demos.
+# Separate systemd unit (lith-site), loopback :8097; its /metrics listen on
+# :8197 for Prometheus only. The app compresses its pages, files and
+# streams itself, so no `encode`. ---
+lith.zweiundeins.gmbh {
+	log {
+		output file /var/log/caddy/lith-access.log {
+			mode 0640
+			roll_size 100mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format json
+	}
+
+	reverse_proxy 127.0.0.1:8097 {
+		# The client's address for the rate limits. lith-site takes it
+		# only from loopback, the last X-Forwarded-For address before
+		# X-Real-IP, and a client cannot set either: these replace them.
+		header_up X-Forwarded-For {http.request.remote.host}
+		header_up X-Real-IP {http.request.remote.host}
+		# Server-sent events: pass every write through at once.
+		flush_interval -1
+	}
+}
