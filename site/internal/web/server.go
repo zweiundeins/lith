@@ -282,10 +282,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, v demo.Viewer, v
 
 // frameWriter writes a tick's frames to a stream in one write: a []byte
 // as it is, and a demo.Frame's First the first time the stream sends its
-// view, its Next after that.
+// view, its Next after that. A demo.Probe stays with the stream and adds
+// its report to the writes from then on (demo.Probes).
 func frameWriter() func(*sse.Stream, []live.Frame) error {
 	seen := map[string]bool{}
 	var events [][]byte
+	var probes demo.Probes
 	return func(st *sse.Stream, frames []live.Frame) error {
 		events = events[:0]
 		for _, f := range frames {
@@ -299,12 +301,11 @@ func frameWriter() func(*sse.Stream, []live.Frame) error {
 					seen[f.Key] = true
 					events = append(events, v.First)
 				}
+			case demo.Probe:
+				probes.Keep(f.Key, v)
 			}
 		}
-		if len(events) == 0 {
-			return nil
-		}
-		return st.Write(events...)
+		return probes.Write(st, events)
 	}
 }
 
