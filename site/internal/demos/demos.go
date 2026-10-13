@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
+	"github.com/zweiundeins/lith/site/internal/demos/board"
 	"github.com/zweiundeins/lith/site/internal/demos/canvas"
 	"github.com/zweiundeins/lith/site/internal/demos/guestbook"
 	"github.com/zweiundeins/lith/site/internal/demos/stream"
@@ -23,6 +24,7 @@ var All = []demo.Demo{
 	writerrace.Demo,
 	stream.Demo,
 	canvas.Demo,
+	board.Demo,
 }
 
 // Check validates every demo, and that no two share a slug or a slot of
