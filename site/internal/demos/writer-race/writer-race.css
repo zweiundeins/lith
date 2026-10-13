@@ -1,0 +1,927 @@
+/* The writer race. Its rules apply inside its own elements only. */
+@scope ([data-demo="writer-race"]) {
+	.wr {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-6);
+	}
+
+	/* Labels in the UI face, small and spaced: legends, tile heads. */
+	.wr-choice legend,
+	.wr-tile h4,
+	.wr-line h3,
+	.wr-results h3,
+	.wr-result dt,
+	.wr-track__empty h3 {
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		font-weight: 600;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	/* ── Controls ──────────────────────────────────────────────────── */
+	.wr-controls {
+		display: grid;
+		grid-template-columns: auto auto minmax(0, 1fr);
+		grid-template-areas:
+			"producers sync go"
+			"hint hint hint"
+			"said said said";
+		align-items: end;
+		gap: var(--lith-space-4) var(--lith-space-6);
+
+		@container stage (width < 30rem) {
+			grid-template-columns: auto minmax(0, 1fr);
+			grid-template-areas:
+				"producers producers"
+				"sync go"
+				"hint hint"
+				"said said";
+		}
+	}
+
+	.wr-choice--producers {
+		grid-area: producers;
+	}
+
+	.wr-choice--sync {
+		grid-area: sync;
+	}
+
+	.wr-controls__go {
+		grid-area: go;
+		justify-self: start;
+	}
+
+	.wr-controls__hint {
+		grid-area: hint;
+		max-inline-size: 38rem;
+		margin-block-start: calc(-1 * var(--lith-space-1));
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-xs);
+		line-height: 1.5;
+
+		& b {
+			color: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-weight: 600;
+		}
+	}
+
+	.wr-controls__said {
+		grid-area: said;
+		display: grid;
+		gap: var(--lith-space-1);
+
+		&:not(:has(.outcome:not(:empty))) {
+			display: none;
+		}
+	}
+
+	/* A choice is a row of segments: radio buttons, the checked one lit. */
+	.wr-choice {
+		display: grid;
+		gap: var(--lith-space-2);
+		margin: 0;
+		padding: 0;
+		border: 0;
+		min-inline-size: 0;
+
+		& legend {
+			padding: 0;
+			margin-block-end: var(--lith-space-2);
+			float: inline-start;
+		}
+	}
+
+	.wr-choice__options {
+		--_n: calc(3px * var(--lith-notch));
+		display: inline-flex;
+		justify-self: start;
+		gap: 3px;
+		padding: 3px;
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background: var(--lith-surface-inset);
+
+		& label {
+			position: relative;
+			display: grid;
+			cursor: pointer;
+		}
+
+		/* The radio stays in the page for the keyboard and screen readers;
+		 * its segment shows it. */
+		& input {
+			position: absolute;
+			inset: 0;
+			margin: 0;
+			opacity: 0;
+			cursor: pointer;
+		}
+
+		& span {
+			display: grid;
+			place-items: center;
+			min-inline-size: 3rem;
+			min-block-size: 2rem;
+			padding-inline: var(--lith-space-3);
+			border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)) - 2px);
+			color: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-sm);
+			font-weight: 600;
+			font-variant-numeric: tabular-nums;
+			transition:
+				background-color var(--lith-dur-1) var(--lith-ease-snap),
+				color var(--lith-dur-1) var(--lith-ease-snap),
+				box-shadow var(--lith-dur-1) var(--lith-ease-snap);
+		}
+
+		& label:hover span {
+			background: var(--lith-surface-hover);
+			color: var(--lith-text-1);
+		}
+
+		& label:has(:checked) span {
+			background: var(--lith-accent);
+			color: var(--lith-on-accent);
+			box-shadow: inset 0 -2px 0 color-mix(in oklch, var(--lith-accent), black 22%);
+		}
+
+		& label:has(:focus-visible) span {
+			outline: 2px solid var(--lith-focus);
+			outline-offset: -2px;
+		}
+
+		& label:has(:checked):has(:focus-visible) span {
+			outline-color: var(--lith-on-accent);
+			outline-offset: -4px;
+		}
+	}
+
+	.wr-controls__go[disabled] {
+		cursor: not-allowed;
+		opacity: 0.6;
+		translate: none;
+		animation: none;
+	}
+
+	/* ── The track ─────────────────────────────────────────────────── */
+	.wr-track {
+		container: track / inline-size;
+		position: relative;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-4);
+		padding: var(--lith-space-5);
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+		box-shadow: var(--lith-shadow-2);
+		transition:
+			border-color var(--lith-dur-4) var(--lith-ease-glide),
+			box-shadow var(--lith-dur-4) var(--lith-ease-glide);
+
+		@container stage (width < 34rem) {
+			padding: var(--lith-space-4);
+		}
+
+		/* While a race runs, the track glows like the seam. */
+		&[data-state="running"] {
+			border-color: var(--lith-accent-edge);
+			box-shadow:
+				0 0 0 1px var(--lith-accent-subtle),
+				0 18px 48px -20px var(--lith-glow-color);
+		}
+	}
+
+	.wr-track__empty {
+		display: grid;
+		gap: var(--lith-space-3);
+		max-inline-size: 36rem;
+
+		& p {
+			color: var(--lith-text-2);
+		}
+	}
+
+	.wr-track__ref {
+		font-size: var(--lith-text-sm);
+
+		& b {
+			color: var(--lith-accent-text);
+			font-family: var(--lith-font-code);
+			font-variant-numeric: tabular-nums;
+		}
+	}
+
+	.wr-track__head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--lith-space-2) var(--lith-space-4);
+
+		& h3 {
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-xl);
+			font-weight: 600;
+			line-height: 1.1;
+		}
+	}
+
+	.wr-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-2);
+
+		& span {
+			padding: 2px var(--lith-space-2);
+			border: 1px solid var(--lith-border-subtle);
+			background: var(--lith-surface-inset);
+			color: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+		}
+	}
+
+	.wr-track__status {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		margin-inline-start: auto;
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		font-variant-numeric: tabular-nums;
+		letter-spacing: 0.02em;
+
+		[data-state="running"] & {
+			color: var(--lith-accent-text);
+		}
+	}
+
+	.wr-track__dot {
+		inline-size: 6px;
+		block-size: 6px;
+		background: var(--lith-text-muted);
+
+		[data-state="running"] & {
+			background: var(--lith-accent);
+			box-shadow: 0 0 8px var(--lith-glow-color);
+			animation: wr-blink 0.8s steps(2, jump-none) infinite;
+		}
+
+		[data-state="done"] & {
+			background: var(--lith-ok);
+		}
+
+		:is([data-state="failed"], [data-state="interrupted"]) & {
+			background: var(--lith-danger);
+		}
+	}
+
+	@keyframes wr-blink {
+		50% {
+			opacity: 0.25;
+		}
+	}
+
+	/* The race's three seconds, in pixel blocks that light up. */
+	.wr-progress {
+		block-size: 8px;
+		padding: 2px;
+		background: var(--lith-surface-inset);
+		box-shadow: inset 0 0 0 1px var(--lith-border-subtle);
+
+		& i {
+			display: block;
+			block-size: 100%;
+			background: repeating-linear-gradient(90deg, var(--lith-accent) 0 6px, transparent 6px 8px);
+			scale: var(--p) 1;
+			transform-origin: left;
+			transition: scale 120ms linear;
+
+			&:dir(rtl) {
+				transform-origin: right;
+			}
+		}
+
+		[data-state="done"] & i {
+			background: repeating-linear-gradient(90deg, color-mix(in oklch, var(--lith-accent) 55%, var(--lith-border)) 0 6px, transparent 6px 8px);
+		}
+	}
+
+	/* ── The result of a race that is over ─────────────────────────── */
+	.wr-result {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: var(--lith-space-3);
+		margin: 0;
+
+		@container track (width < 36rem) {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		& > div {
+			display: grid;
+			gap: var(--lith-space-1);
+			padding: var(--lith-space-3) var(--lith-space-4);
+			border-inline-start: 3px solid var(--lith-accent);
+			background: var(--lith-accent-subtle);
+			transition:
+				opacity var(--lith-dur-5) var(--lith-ease-glide),
+				translate var(--lith-dur-5) var(--lith-ease-glide),
+				filter var(--lith-dur-5) var(--lith-ease-glide);
+		}
+
+		& dd {
+			margin: 0;
+			color: var(--lith-text-1);
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-xl);
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+			letter-spacing: -0.02em;
+		}
+	}
+
+	/* A result that just came in settles into place, one card after the
+	 * other. */
+	.wr-result[data-fresh] > div {
+		@starting-style {
+			opacity: 0;
+			translate: 0 0.5rem;
+			filter: blur(4px);
+		}
+
+		&:nth-child(2) {
+			transition-delay: 60ms;
+		}
+
+		&:nth-child(3) {
+			transition-delay: 120ms;
+		}
+
+		&:nth-child(4) {
+			transition-delay: 180ms;
+		}
+	}
+
+	/* ── Commands a second ─────────────────────────────────────────── */
+	.wr-rate {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--lith-space-1) var(--lith-space-3);
+	}
+
+	.wr-rate__now {
+		color: var(--lith-text-2);
+
+		& b {
+			color: var(--lith-accent-text);
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-3xl);
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+			letter-spacing: -0.03em;
+			line-height: 1;
+		}
+	}
+
+	.wr-rate__note {
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-xs);
+	}
+
+	/* The chart: a stepped line over the race's seconds, with the
+	 * benchmark's number for the same settings as a dashed line. The SVG
+	 * stretches to its box; its strokes keep their width. */
+	.wr-chart {
+		display: grid;
+		gap: var(--lith-space-1);
+		margin: 0;
+	}
+
+	.wr-chart__box {
+		position: relative;
+		block-size: clamp(7rem, 26cqi, 11rem);
+		border-block-end: 1px solid var(--lith-border);
+
+		& svg {
+			display: block;
+			inline-size: 100%;
+			block-size: 100%;
+			overflow: visible;
+		}
+
+		& path {
+			vector-effect: non-scaling-stroke;
+		}
+	}
+
+	.wr-chart__grid {
+		fill: none;
+		stroke: var(--lith-border-subtle);
+		stroke-width: 1px;
+		stroke-dasharray: 1px 4px;
+	}
+
+	.wr-chart__bench {
+		fill: none;
+		stroke: var(--lith-text-muted);
+		stroke-width: 1px;
+		stroke-dasharray: 6px 4px;
+	}
+
+	.wr-chart__area {
+		fill: var(--lith-accent);
+		opacity: 0.14;
+	}
+
+	.wr-chart__line {
+		fill: none;
+		stroke: var(--lith-accent);
+		stroke-width: 2px;
+		stroke-linejoin: miter;
+	}
+
+	/* The newest point: a pixel that glows, and blinks while the race
+	 * runs. */
+	.wr-chart__head {
+		position: absolute;
+		inline-size: 7px;
+		block-size: 7px;
+		translate: -50% -50%;
+		background: var(--lith-accent);
+		box-shadow: 0 0 10px var(--lith-glow-color);
+
+		[data-state="running"] & {
+			background: var(--lith-ember-1);
+			animation: wr-blink 0.8s steps(2, jump-none) infinite;
+		}
+	}
+
+	.wr-chart__top,
+	.wr-chart__ref,
+	.wr-chart__axis {
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: 0.6875rem;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+
+	.wr-chart__ref {
+		position: absolute;
+		inset-inline-end: 0;
+		padding-inline: var(--lith-space-1);
+		background: var(--lith-surface-1);
+		translate: 0 calc(-100% - 3px);
+	}
+
+	.wr-chart__axis {
+		position: relative;
+		block-size: 1.3em;
+
+		& span {
+			position: absolute;
+			translate: -50% 0;
+
+			&:first-child {
+				translate: 0 0;
+			}
+
+			&:last-child {
+				translate: -100% 0;
+			}
+		}
+	}
+
+	.wr-chart--mini .wr-chart__box {
+		block-size: clamp(5rem, 18cqi, 7rem);
+	}
+
+	/* ── The tiles: per transaction, sizes, queue, p99 ─────────────── */
+	.wr-tiles {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: var(--lith-space-3);
+
+		@container track (width < 46rem) {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		@container track (width < 22rem) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	.wr-tile {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-2);
+		padding: var(--lith-space-3) var(--lith-space-4) var(--lith-space-4);
+		border: 1px solid var(--lith-border-subtle);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-inset);
+	}
+
+	.wr-tile__big {
+		color: var(--lith-text-1);
+		font-family: var(--lith-font-code);
+		font-size: var(--lith-text-2xl);
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		letter-spacing: -0.02em;
+		line-height: 1.1;
+	}
+
+	.wr-tile__note {
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-xs);
+		line-height: 1.4;
+	}
+
+	.wr-tile--gauge {
+		justify-items: center;
+		text-align: center;
+
+		& sb-gauge {
+			--sb-gauge-size: min(100%, 9.5rem);
+			--sb-ok: var(--lith-accent);
+		}
+	}
+
+	.wr-tile--queue sb-meter {
+		--sb-meter-height: 18px;
+		--sb-meter-width: 100%;
+		--sb-ok: var(--lith-accent);
+
+		&::part(label) {
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			font-weight: 600;
+			letter-spacing: var(--lith-tracking-caps);
+			text-transform: uppercase;
+		}
+
+		&::part(value) {
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-xl);
+			line-height: 1;
+		}
+	}
+
+	/* Transactions by size: a bar for each power of two. */
+	.wr-bars {
+		display: grid;
+		grid-template-columns: repeat(8, minmax(0, 1fr));
+		align-items: end;
+		gap: 3px;
+		block-size: 5.5rem;
+		margin: 0;
+		padding: 0;
+
+		& li {
+			display: grid;
+			grid-template-rows: minmax(0, 1fr) auto;
+			gap: var(--lith-space-1);
+			block-size: 100%;
+		}
+	}
+
+	.wr-bars__bar {
+		align-self: end;
+		block-size: max(2px, calc(var(--h) * 100%));
+		background: var(--lith-accent);
+		box-shadow: inset 0 -3px 0 color-mix(in oklch, var(--lith-accent), black 25%);
+		transition: block-size 160ms var(--lith-ease-glide);
+
+		li[style*="--h: 0.000"] > & {
+			background: var(--lith-border);
+			box-shadow: none;
+		}
+	}
+
+	.wr-bars__k {
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: 0.625rem;
+		text-align: center;
+	}
+
+	/* ── The line and the last races ───────────────────────────────── */
+	.wr-below {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-6);
+	}
+
+	.wr-line,
+	.wr-results {
+		display: grid;
+		gap: var(--lith-space-3);
+	}
+
+	.wr-line__empty,
+	.wr-results__empty {
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+	}
+
+	.wr-line__list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-2);
+		margin: 0;
+		padding: 0;
+
+		&:empty {
+			display: none;
+		}
+	}
+
+	.wr-wait {
+		view-transition-class: writer-race-wait;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		padding: var(--lith-space-1) var(--lith-space-3) var(--lith-space-1) var(--lith-space-1);
+		border: 1px solid var(--lith-border);
+		background: var(--lith-surface-1);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		transition:
+			opacity var(--lith-dur-4) var(--lith-ease-glide),
+			translate var(--lith-dur-4) var(--lith-ease-glide);
+
+		@starting-style {
+			opacity: 0;
+			translate: 0.5rem 0;
+		}
+
+		&.is-mine {
+			border-color: var(--lith-accent-edge);
+			background: var(--lith-accent-subtle);
+		}
+	}
+
+	.wr-wait__place {
+		display: grid;
+		place-items: center;
+		min-inline-size: 1.5rem;
+		block-size: 1.5rem;
+		background: var(--lith-surface-inset);
+		color: var(--lith-text-muted);
+		font-weight: 700;
+
+		.wr-wait:first-child & {
+			background: var(--lith-accent);
+			color: var(--lith-on-accent);
+		}
+	}
+
+	.wr-wait__race {
+		color: var(--lith-text-1);
+		font-weight: 600;
+	}
+
+	.wr-wait__set {
+		color: var(--lith-text-2);
+	}
+
+	.wr-you {
+		display: none;
+		color: var(--lith-accent-text);
+		font-family: var(--lith-font-ui);
+		font-size: 0.625rem;
+		font-weight: 700;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+
+		.is-mine & {
+			display: inline;
+		}
+	}
+
+	.wr-results {
+		container: results / inline-size;
+	}
+
+	.wr-table {
+		inline-size: 100%;
+		border-collapse: collapse;
+		font-size: var(--lith-text-sm);
+
+		& th,
+		& td {
+			padding: var(--lith-space-2) var(--lith-space-3);
+			border-block-end: 1px solid var(--lith-border-subtle);
+			text-align: start;
+			white-space: nowrap;
+		}
+
+		& thead th {
+			padding-block-start: 0;
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: 0.6875rem;
+			font-weight: 600;
+			letter-spacing: 0.04em;
+			white-space: normal;
+			vertical-align: bottom;
+		}
+
+		& tbody th {
+			color: var(--lith-text-1);
+			font-family: var(--lith-font-ui);
+
+			& .wr-you {
+				margin-inline-start: var(--lith-space-2);
+			}
+		}
+
+		& td {
+			color: var(--lith-text-2);
+		}
+
+		& .num {
+			font-family: var(--lith-font-code);
+			font-variant-numeric: tabular-nums;
+			text-align: end;
+		}
+
+		@container results (width < 40rem) {
+			& .wr-table__more {
+				display: none;
+			}
+		}
+
+		@container results (width < 26rem) {
+			& .wr-table__p99 {
+				display: none;
+			}
+
+			& th,
+			& td {
+				padding-inline: var(--lith-space-2);
+			}
+		}
+	}
+
+	.wr-row {
+		view-transition-class: writer-race-result;
+		transition:
+			opacity var(--lith-dur-5) var(--lith-ease-glide),
+			background-color 2.4s var(--lith-ease-glide);
+
+		&.is-mine {
+			background: var(--lith-accent-subtle);
+		}
+
+		& .wr-table__rate {
+			color: var(--lith-accent-text);
+			font-weight: 700;
+		}
+
+		& .wr-table__stopped {
+			color: var(--lith-danger);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+		}
+	}
+
+	/* A row that just came in arrives with a glow that cools down. */
+	.wr-row[data-fresh] {
+		@starting-style {
+			opacity: 0;
+			background-color: var(--lith-glow-color);
+		}
+	}
+
+	/* ── The landing page's slot ───────────────────────────────────── */
+	.wr-embed {
+		display: grid;
+		gap: var(--lith-space-3);
+		padding: var(--lith-space-5);
+		border: 1px solid var(--lith-border);
+		background: var(--lith-surface-inset);
+		transition: border-color var(--lith-dur-4) var(--lith-ease-glide), box-shadow var(--lith-dur-4) var(--lith-ease-glide);
+
+		&:has([data-state="running"]) {
+			border-color: var(--lith-accent-edge);
+			box-shadow: 0 12px 36px -18px var(--lith-glow-color);
+		}
+	}
+
+	.wr-embed__go {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--lith-space-2) var(--lith-space-3);
+
+		& .btn[disabled] {
+			cursor: not-allowed;
+			opacity: 0.6;
+			translate: none;
+			animation: none;
+		}
+	}
+
+	.wr-embed__head {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	.wr-embed__dot {
+		inline-size: 6px;
+		block-size: 6px;
+		background: var(--lith-text-muted);
+
+		.is-live > & {
+			background: var(--lith-ok);
+			box-shadow: 0 0 8px var(--lith-ok);
+		}
+	}
+
+	.wr-embed__live {
+		display: grid;
+		gap: var(--lith-space-2);
+	}
+
+	.wr-embed__big {
+		color: var(--lith-text-2);
+
+		& b {
+			color: var(--lith-accent-text);
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-2xl);
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+			letter-spacing: -0.02em;
+		}
+	}
+
+	.wr-embed__meta {
+		color: var(--lith-text-2);
+		font-size: var(--lith-text-sm);
+	}
+
+	.wr-embed__running {
+		color: var(--lith-accent-text);
+		font-weight: 600;
+	}
+
+	.wr-chart--mini .wr-chart__ref {
+		background: var(--lith-surface-inset);
+	}
+
+	/* Forced colours: the lines, bars and blocks in the text colour. */
+	@media (forced-colors: active) {
+		.wr-chart__line,
+		.wr-chart__bench {
+			stroke: CanvasText;
+		}
+
+		.wr-chart__area {
+			fill: CanvasText;
+		}
+
+		.wr-bars__bar,
+		.wr-progress i {
+			forced-color-adjust: none;
+			background: CanvasText;
+		}
+
+		.wr-choice__options label:has(:checked) span {
+			outline: 2px solid CanvasText;
+		}
+	}
+}
+
+/* View transitions belong to the document, outside the scope. The line and
+ * the table morph inside one: the races still waiting glide forward when
+ * the first leaves for the track, and the rows glide down under a new
+ * one, which shows its own @starting-style arrival instead of a fade. */
+::view-transition-group(.writer-race-wait),
+::view-transition-group(.writer-race-result) {
+	animation-duration: var(--lith-dur-5);
+	animation-timing-function: var(--lith-ease-glide);
+}
+
+::view-transition-new(.writer-race-result):only-child,
+::view-transition-new(.writer-race-wait):only-child {
+	animation: none;
+}

@@ -1,0 +1,331 @@
+package writerrace
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/zweiundeins/lith/site/internal/views"
+)
+
+// Stage is the demo on its page: the controls and the tab's outcome, the
+// track, the line and the last races.
+templ Stage(t track, waiting []Race, list []Race, now time.Time) {
+	<div class="wr" data-signals={ signals }>
+		<form class="wr-controls" data-on:submit__prevent={ start } data-on:datastar-fetch={ failed } data-effect={ settle }>
+			<fieldset class="wr-choice wr-choice--producers">
+				<legend>Producers</legend>
+				<div class="wr-choice__options">
+					for _, p := range Producers {
+						<label>
+							<input type="radio" name="writer-race-producers" value={ strconv.Itoa(p) } data-bind="_writerRace.producers" checked?={ p == 200 }/>
+							<span>{ strconv.Itoa(p) }</span>
+						</label>
+					}
+				</div>
+			</fieldset>
+			<fieldset class="wr-choice wr-choice--sync">
+				<legend>synchronous</legend>
+				<div class="wr-choice__options">
+					for _, s := range Syncs {
+						<label>
+							<input type="radio" name="writer-race-sync" value={ s } data-bind="_writerRace.sync" checked?={ s == "NORMAL" }/>
+							<span>{ s }</span>
+						</label>
+					}
+				</div>
+			</fieldset>
+			<p class="wr-controls__hint">
+				Each producer sends a transfer and waits for its commit before it sends the next, for three seconds.
+				<b>NORMAL</b> syncs SQLite's log to the disk at checkpoints, <b>FULL</b> at every commit.
+			</p>
+			<button class="btn btn--primary wr-controls__go" type="submit" data-attr:aria-busy={ busy } data-attr:disabled="$_writerRace.active">
+				Start a race
+			</button>
+			<div class="wr-controls__said">
+				@Outcome(outcome{})
+				<p class="outcome is-problem" role="alert" data-show="$_writerRace.problem" data-text="$_writerRace.problem"></p>
+			</div>
+		</form>
+		@Track(t)
+		<div class="wr-below">
+			@Line(waiting)
+			@Results(list, now)
+		</div>
+	</div>
+}
+
+// Outcome is the tab's own region: what became of its last start, and
+// where its race is now.
+templ Outcome(o outcome) {
+	<p
+		id="writer-race-outcome"
+		role="status"
+		if o.State.Refusal != "" {
+			class="outcome is-refused"
+		} else {
+			class="outcome"
+		}
+	>
+		if o.State.Refusal != "" {
+			{ o.State.Refusal }
+		} else if o.Race.ID != 0 {
+			{ said(o) }
+		}
+	</p>
+}
+
+// Track is the race on the track, live while it runs; once it is over,
+// its result.
+templ Track(t track) {
+	<section id="writer-race-track" class="wr-track" data-state={ t.state() } aria-labelledby="writer-race-track-title">
+		if t.Race.ID == 0 {
+			<div class="wr-track__empty">
+				<h3 id="writer-race-track-title">The track</h3>
+				<p>No race yet. Pick the producers and the durability, and start one: it runs here, for everyone on this page.</p>
+				<p class="wr-track__ref">
+					lith's writer benchmark, 200 producers on an Intel i5-13500:
+					<b>{ group(int64(bench[Settings{200, "NORMAL"}])) }</b> commands a second with NORMAL,
+					<b>{ group(int64(bench[Settings{200, "FULL"}])) }</b> with FULL.
+				</p>
+			</div>
+		} else {
+			<header class="wr-track__head">
+				<h3 id="writer-race-track-title">Race { strconv.FormatInt(t.Race.ID, 10) }</h3>
+				<p class="wr-tags">
+					<span>{ producers(t.Race.Producers) }</span>
+					<span>synchronous={ t.Race.Sync }</span>
+				</p>
+				<p class="wr-track__status"><span class="wr-track__dot" aria-hidden="true"></span>{ t.status() }</p>
+			</header>
+			<div class="wr-progress" style={ "--p: " + strconv.FormatFloat(t.Progress, 'f', 3, 64) } aria-hidden="true"><i></i></div>
+			if t.Race.Over() {
+				@result(t)
+			}
+			<div class="wr-rate">
+				<p class="wr-rate__now"><b>{ group(int64(t.Rate)) }</b> commands a second</p>
+				<p class="wr-rate__note">{ t.rateNote() }</p>
+			</div>
+			@chartFigure(t.Chart, "wr-chart")
+			<div class="wr-tiles">
+				<div class="wr-tile wr-tile--gauge">
+					<sb-gauge value={ strconv.FormatFloat(t.PerTx, 'f', 1, 64) } max="200" warn="1000" danger="1000" label="per transaction"></sb-gauge>
+					<p class="wr-tile__note">commands that share one commit</p>
+				</div>
+				<div class="wr-tile wr-tile--sizes">
+					<h4>Transactions by size</h4>
+					<ol class="wr-bars" role="list">
+						for _, b := range t.Bars {
+							<li style={ "--h: " + b.Height } title={ b.title() }>
+								<span class="wr-bars__bar" aria-hidden="true"></span>
+								<span class="wr-bars__k" aria-hidden="true">{ b.Label }</span>
+								<span class="visually-hidden">{ b.title() }</span>
+							</li>
+						}
+					</ol>
+					<p class="wr-tile__note">commands per transaction, in powers of two</p>
+				</div>
+				<div class="wr-tile wr-tile--queue">
+					<sb-meter label="Queue" value={ strconv.Itoa(t.Race.Last.Queue) } max={ strconv.Itoa(t.Race.Producers) } warn={ strconv.Itoa(t.Race.Producers + 1) } danger={ strconv.Itoa(t.Race.Producers + 1) } segments="20"></sb-meter>
+					<p class="wr-tile__note">commands waiting for the writer, of { producers(t.Race.Producers) }</p>
+				</div>
+				<div class="wr-tile wr-tile--p99">
+					<h4>Commit p99</h4>
+					<p class="wr-tile__big">{ ms(t.Race.Last.P99) }</p>
+					<p class="wr-tile__note">of the last 1,024 transactions, BEGIN to COMMIT</p>
+				</div>
+			</div>
+		}
+	</section>
+}
+
+// result is the card of a race that is over.
+templ result(t track) {
+	<dl
+		class="wr-result"
+		if t.Fresh {
+			data-fresh
+		}
+	>
+		<div><dt>Commands</dt><dd>{ group(t.Race.Last.Commands) }</dd></div>
+		<div><dt>Transactions</dt><dd>{ group(t.Race.Last.Batches) }</dd></div>
+		<div><dt>Average batch</dt><dd>{ strconv.FormatFloat(t.Race.PerTx(), 'f', 1, 64) }</dd></div>
+		<div><dt>Commit p99</dt><dd>{ ms(t.Race.Last.P99) }</dd></div>
+	</dl>
+}
+
+// chartFigure draws a race's commands a second over time, with the
+// benchmark's number for its settings as a dashed line.
+templ chartFigure(c chart, class string) {
+	<figure class={ class }>
+		<span class="wr-chart__top" aria-hidden="true">{ c.Top } a second</span>
+		<div class="wr-chart__box">
+			<svg viewBox={ "0 0 " + strconv.Itoa(chartW) + " " + strconv.Itoa(chartH) } preserveAspectRatio="none" aria-hidden="true" focusable="false">
+				<path class="wr-chart__grid" d={ gridPath() }></path>
+				if c.Line != "" {
+					<path class="wr-chart__area" d={ c.Area }></path>
+				}
+				if c.Bench != "" {
+					<path class="wr-chart__bench" d={ "M0 " + strconv.Itoa(c.BenchY) + "H" + strconv.Itoa(chartW) }></path>
+				}
+				if c.Line != "" {
+					<path class="wr-chart__line" d={ c.Line }></path>
+				}
+			</svg>
+			if c.Line != "" {
+				<i class="wr-chart__head" style={ c.Head } aria-hidden="true"></i>
+			}
+			if c.Bench != "" {
+				<span class="wr-chart__ref" style={ "inset-block-start: " + c.BenchAt } aria-hidden="true">bench, i5-13500: { c.Bench }</span>
+			}
+		</div>
+		<div class="wr-chart__axis" aria-hidden="true">
+			for _, tk := range c.Ticks {
+				<span style={ "inset-inline-start: " + tk.Left }>{ tk.Label }</span>
+			}
+		</div>
+		<figcaption class="visually-hidden">Commands a second over the race{ c.caption() }</figcaption>
+	</figure>
+}
+
+// Line is the races that wait for the track, first in line first.
+templ Line(waiting []Race) {
+	<section id="writer-race-line" class="wr-line" aria-labelledby="writer-race-line-title">
+		<h3 id="writer-race-line-title">In line</h3>
+		if len(waiting) == 0 {
+			<p class="wr-line__empty">Nobody waits. A race you start now runs at once.</p>
+		}
+		<ol class="wr-line__list" role="list">
+			for i, r := range waiting {
+				<li
+					id={ waitID(r.ID) }
+					class="wr-wait"
+					style={ "view-transition-name: " + waitID(r.ID) }
+					data-class:is-mine={ mine(r.ID) }
+				>
+					<span class="wr-wait__place">{ strconv.Itoa(i + 1) }</span>
+					<span class="wr-wait__race">Race { strconv.FormatInt(r.ID, 10) }</span>
+					<span class="wr-wait__set">{ producers(r.Producers) }, { r.Sync }</span>
+					<span class="wr-you">yours</span>
+				</li>
+			}
+		</ol>
+	</section>
+}
+
+// Results is the table of the last races, newest first.
+templ Results(list []Race, now time.Time) {
+	<section id="writer-race-results" class="wr-results" aria-labelledby="writer-race-results-title">
+		<h3 id="writer-race-results-title">Last races</h3>
+		if len(list) == 0 {
+			<p class="wr-results__empty">Every race that ends lands here, with its numbers.</p>
+		} else {
+			<table class="wr-table">
+				<thead>
+					<tr>
+						<th scope="col">Race</th>
+						<th scope="col">Producers, sync</th>
+						<th scope="col" class="num">Commands a second</th>
+						<th scope="col" class="num">Per transaction</th>
+						<th scope="col" class="num wr-table__p99">p99</th>
+						<th scope="col" class="num wr-table__more">Commands</th>
+						<th scope="col" class="num wr-table__more">Transactions</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, r := range list {
+						<tr
+							id={ resultID(r.ID) }
+							class="wr-row"
+							style={ "view-transition-name: " + resultID(r.ID) }
+							data-class:is-mine={ mine(r.ID) }
+							if now.Sub(r.EndedAt) < fresh {
+								data-fresh
+							}
+						>
+							<th scope="row">{ strconv.FormatInt(r.ID, 10) }<span class="wr-you">yours</span></th>
+							<td>{ strconv.Itoa(r.Producers) }, { r.Sync }</td>
+							if r.State == "done" {
+								<td class="num wr-table__rate">{ group(int64(r.Rate())) }</td>
+							} else {
+								<td class="num wr-table__stopped">{ stopped(r) }</td>
+							}
+							<td class="num">{ strconv.FormatFloat(r.PerTx(), 'f', 1, 64) }</td>
+							<td class="num wr-table__p99">{ ms(r.Last.P99) }</td>
+							<td class="num wr-table__more">{ group(r.Last.Commands) }</td>
+							<td class="num wr-table__more">{ group(r.Last.Batches) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	</section>
+}
+
+// Embed is the writer race in the landing page's slot: the race on the
+// track, or the last one, kept current by the landing page's stream, and
+// a button that starts a race of 200 producers with NORMAL.
+templ Embed(t track) {
+	<div class="wr-embed" data-signals={ signals }>
+		<p class="wr-embed__head" data-class:is-live="$_live"><span class="wr-embed__dot" aria-hidden="true"></span>The writer race, live</p>
+		@embedLive(t)
+		<div class="wr-embed__go">
+			<button
+				class="btn btn--primary btn--sm"
+				type="button"
+				data-on:click={ start }
+				data-on:datastar-fetch={ failed }
+				data-effect={ settle }
+				data-attr:aria-busy={ busy }
+				data-attr:disabled="$_writerRace.active"
+			>
+				Race 200 producers
+			</button>
+			<a class="btn btn--sm btn--ghost" href="/demos/writer-race">
+				All the numbers
+				@views.Icon("arrow-right")
+			</a>
+		</div>
+		@EmbedOutcome(outcome{})
+		<p class="outcome is-problem" role="alert" data-show="$_writerRace.problem" data-text="$_writerRace.problem"></p>
+	</div>
+}
+
+templ embedLive(t track) {
+	<div id="writer-race-embed" class="wr-embed__live" data-state={ t.state() }>
+		if t.Race.ID == 0 {
+			<p class="wr-embed__big"><b>{ group(int64(bench[Settings{200, "NORMAL"}])) }</b> commands a second</p>
+			<p class="wr-embed__meta">lith's writer benchmark, 200 producers on an Intel i5-13500. No race on this server yet: start the first.</p>
+		} else {
+			<p class="wr-embed__big"><b>{ group(int64(t.Rate)) }</b> commands a second</p>
+			<p class="wr-embed__meta">
+				if t.Running {
+					<span class="wr-embed__running">Race { strconv.FormatInt(t.Race.ID, 10) }, on the track now:</span>
+				} else {
+					Race { strconv.FormatInt(t.Race.ID, 10) } on this server:
+				}
+				{ producers(t.Race.Producers) }, synchronous={ t.Race.Sync }, { strconv.FormatFloat(t.PerTx, 'f', 0, 64) } commands to a transaction.
+			</p>
+			@chartFigure(t.Chart, "wr-chart wr-chart--mini")
+		}
+	</div>
+}
+
+// EmbedOutcome is the landing page tab's own line: what became of the race
+// it started.
+templ EmbedOutcome(o outcome) {
+	<p
+		id="writer-race-embed-outcome"
+		role="status"
+		if o.State.Refusal != "" {
+			class="outcome is-refused"
+		} else {
+			class="outcome"
+		}
+	>
+		if o.State.Refusal != "" {
+			{ o.State.Refusal }
+		} else if o.Race.ID != 0 {
+			{ said(o) }
+		}
+	</p>
+}
