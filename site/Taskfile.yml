@@ -9,6 +9,11 @@ tasks:
     cmds:
       - go tool templ generate
 
+  docs:
+    desc: Write the docs' generated parts, the package reference and the charts of lith's benchmarks (TestUpToDate fails until they are current)
+    cmds:
+      - go generate ./content
+
   dev:
     desc: Serve on http://127.0.0.1:8097 (metrics on :8197) and rebuild on every change (air)
     cmds:
