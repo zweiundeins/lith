@@ -59,9 +59,8 @@ instead.
 
 ```go
 db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{
-	Synchronous: "FULL",
-	Migrations:  migrations,
-	Checkpoint:  sqlite.CheckpointWriter,
+	Migrations: migrations,
+	Checkpoint: sqlite.CheckpointWriter,
 })
 hub := live.New(live.Options{Read: db.R})
 w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
@@ -70,15 +69,22 @@ go w.Run(appCtx)
 go hub.Run(hubCtx)
 ```
 
+`synchronous` defaults to NORMAL. Beware: a power loss or kernel crash can then
+undo up to about 35 seconds of acknowledged commits, those since the last
+checkpoint, with Linux's default writeback. Set `Synchronous: "FULL"` where
+that matters, at one fsync per batch.
+
 A command reads and writes in one `Apply` and touches the topics it changes; a
 handler sends it and answers 204; the page learns the outcome from its stream.
 The recipes, the rules and a review checklist are in the skill.
 
 ## Measured
 
-- **Writer:** 34,893 commands a second at 200 producers with
-  `synchronous=FULL`, 122 to a transaction; 66,688 with NORMAL
-  ([bench/RESULTS.md](bench/RESULTS.md)).
+- **Writer:** 66,688 commands a second at 200 producers with the default
+  `synchronous=NORMAL`, 109 to a transaction; 34,893 with FULL, whose commits
+  survive a power loss ([bench/RESULTS.md](bench/RESULTS.md)). Beside 200
+  streams at 800 commands a second, a command commits in 0.3 to 0.5 ms at p50
+  with NORMAL and in 3 to 11 ms with FULL.
 - **Streams:** 1.0 to 1.7 MiB of heap per open stream with zstd at a 2^19
   window (low-memory or full history), against 9.9 MiB for brotli at its
   default window, at the same compression.

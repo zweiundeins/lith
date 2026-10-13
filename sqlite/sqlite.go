@@ -36,11 +36,13 @@ const (
 	CheckpointExternal
 )
 
-// Options configure Open. Only Synchronous has no default.
+// Options configure Open; zero fields take the defaults.
 type Options struct {
-	// Synchronous is "FULL" or "NORMAL". FULL syncs the WAL on every
-	// commit; NORMAL can lose the last commits on power loss, never on a
-	// crash of the process. ReadOnly needs none.
+	// Synchronous is "NORMAL" (the default) or "FULL". NORMAL syncs the WAL
+	// only at checkpoints: a power loss or kernel crash can undo the commits
+	// since, up to about 35 s of them with Linux's default writeback; a
+	// crash of the process loses none. FULL syncs every commit, one fsync
+	// per batch. ReadOnly needs neither.
 	Synchronous string
 	// ReadOnly opens an existing database for reading only, for a CLI or
 	// a check of a backup. Open then never creates the file or its
@@ -89,7 +91,7 @@ func (o Options) withDefaults() (Options, error) {
 		o.Synchronous = s
 	case "":
 		if !o.ReadOnly {
-			return o, errors.New("sqlite: Options.Synchronous is required: FULL or NORMAL")
+			o.Synchronous = "NORMAL"
 		}
 	default:
 		return o, fmt.Errorf("sqlite: Options.Synchronous is %q, want FULL or NORMAL", o.Synchronous)

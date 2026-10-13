@@ -22,9 +22,10 @@ it points at a local path.
 
 ```go
 db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{
-	Synchronous: "FULL",                  // or "NORMAL": a durability choice, see performance.md
-	Migrations:  migrations,              // fs.Sub(embedded, "migrations"): NNN_name.sql files
-	Checkpoint:  sqlite.CheckpointWriter, // CheckpointExternal when Litestream is attached
+	Migrations: migrations,              // fs.Sub(embedded, "migrations"): NNN_name.sql files
+	Checkpoint: sqlite.CheckpointWriter, // CheckpointExternal when Litestream is attached
+	// Synchronous defaults to NORMAL: a power loss can undo up to about 35 s
+	// of commits. "FULL" where it must not (see performance.md).
 })
 hub := live.New(live.Options{Read: db.R})
 w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
@@ -64,7 +65,7 @@ prometheus.MustRegister(m)
 if err := dbmetrics.Register("sqlite-timed", "sqlite", dbmetrics.Options{Observer: m}); err != nil {
 	return err
 }
-db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{Synchronous: "FULL", Driver: "sqlite-timed"})
+db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{Driver: "sqlite-timed"})
 ```
 
 The request edge, built from the inside out:

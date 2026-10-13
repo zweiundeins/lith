@@ -56,8 +56,8 @@ type Config struct {
 	// who closes it after Run. Nil: Run opens a new one in a temporary
 	// directory and removes it afterwards.
 	DB *sqlite.DB
-	// SQLite opens the temporary database. Synchronous defaults to FULL,
-	// Readers to one for each render worker and four more.
+	// SQLite opens the temporary database. Readers defaults to one for
+	// each render worker and four more.
 	SQLite sqlite.Options
 	// Seed, if set, runs once before the streams open, to fill the
 	// tables.
@@ -111,9 +111,6 @@ func Run(ctx context.Context, c Config) (rep Report, err error) {
 		}
 		defer os.RemoveAll(dir)
 		o := c.SQLite
-		if o.Synchronous == "" {
-			o.Synchronous = "FULL"
-		}
 		if o.Readers <= 0 {
 			o.Readers = workers(c.Hub) + 4
 		}

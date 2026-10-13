@@ -24,9 +24,14 @@ about fifteen statements):
   writer does this for every `tx.Exec` and keeps the 512 statements used
   last; build SQL from constants, and send SQL built at runtime through
   `tx.ExecUncached` and its siblings, so the cache keeps what repeats.
-- `synchronous=FULL` costs one fsync per batch, which is the latency floor of a
-  lone write. `NORMAL` in WAL mode can lose the last commits on power loss,
-  not on a process crash.
+- `synchronous=NORMAL` is lith's default. Beware: it syncs the WAL only at
+  checkpoints (with CheckpointWriter after a second without commands, and
+  every 1000 pages), so a power loss or kernel crash can undo the commits
+  since, up to about 35 s of them with Linux's default writeback
+  (`vm.dirty_expire_centisecs` 3000, flushed every 5 s). A crash of the
+  process loses none. `FULL` costs one fsync per batch, the latency floor of a
+  lone write (1.9 ms on the bench host); set it where an acknowledged commit
+  must survive a power loss.
 - Anders Murphy's numbers (a MacBook, two updates per transaction): 44,096
   transactions a second unbatched, 121,922 batched with a savepoint each,
   102,545 with concurrent reads. His workload is smaller than a real command;

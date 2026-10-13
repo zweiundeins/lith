@@ -68,7 +68,7 @@ func serve(args []string) error {
 	f := flags("serve")
 	addr := f.String("addr", "127.0.0.1:8080", "listen on host:port, or on a Unix socket as unix:/path")
 	dbPath := f.String("db", "data/app.db", "the SQLite database")
-	synchronous := f.String("synchronous", "FULL", "FULL, or NORMAL: faster commits that a power loss can undo")
+	synchronous := f.String("synchronous", "NORMAL", "NORMAL (a power loss can undo up to about 35 s of commits), or FULL (one fsync per batch, loses none)")
 	streams := f.Int("streams", 200, "how many streams may be open at once; more get 503")
 	secure := f.Bool("secure", false, "served over HTTPS: a __Host- cookie and HSTS")
 	debugLog := f.Bool("debug", false, "log at debug level")
@@ -210,7 +210,7 @@ func backup(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	db, err := sqlite.Open(ctx, *dbPath, sqlite.Options{Synchronous: "FULL", Readers: 1})
+	db, err := sqlite.Open(ctx, *dbPath, sqlite.Options{Readers: 1})
 	if err != nil {
 		return err
 	}

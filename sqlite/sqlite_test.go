@@ -42,9 +42,9 @@ func pragma(t *testing.T, c interface {
 	return v
 }
 
-func TestSynchronousIsRequired(t *testing.T) {
+func TestSynchronous(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "x.db")
-	for _, s := range []string{"", "OFF", "EXTRA"} {
+	for _, s := range []string{"OFF", "EXTRA"} {
 		if _, err := Open(context.Background(), path, Options{Synchronous: s}); err == nil || !strings.Contains(err.Error(), "Synchronous") {
 			t.Errorf("Synchronous %q: %v", s, err)
 		}
@@ -52,9 +52,15 @@ func TestSynchronousIsRequired(t *testing.T) {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a refused Open created the file: %v", err)
 	}
-	d := open(t, Options{Synchronous: "normal"})
-	if got := pragma(t, d.W, "synchronous"); got != "1" {
-		t.Errorf("synchronous %s, want 1 (NORMAL)", got)
+	for s, want := range map[string]string{"": "1", "normal": "1", "FULL": "2"} {
+		d, err := Open(context.Background(), filepath.Join(t.TempDir(), "s.db"), Options{Synchronous: s})
+		if err != nil {
+			t.Fatalf("Synchronous %q: %v", s, err)
+		}
+		if got := pragma(t, d.W, "synchronous"); got != want {
+			t.Errorf("Synchronous %q: synchronous is %s, want %s", s, got, want)
+		}
+		d.Close()
 	}
 }
 

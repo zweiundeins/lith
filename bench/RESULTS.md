@@ -72,6 +72,30 @@ The writer kept up with 800 commands a second in every run, about two to a trans
 
 Other agents compiled and ran test suites on the machine during both sets: the 1-minute load average was 4.7 before the first set and 9.7 after it, 10.3 before the second and 9.1 after it, on 20 threads.
 
+### synchronous FULL against NORMAL
+
+Measured on 2026-10-13 between 12:58 and 13:03 UTC on the same machine, with Go 1.27.2, modernc.org/sqlite v1.60.1 and klauspost/compress v1.20.3, on lith's main at 8db2b69 plus the change that makes NORMAL the default. `BenchmarkSharedBoard` now runs each encoding with `synchronous=FULL`, then NORMAL. Two sets of three runs:
+
+    taskset -c 0-11 go test ./loadtest -run '^$' -bench SharedBoard -count 3
+
+Medians of the six runs, the range in brackets:
+
+| | FULL, zstd | NORMAL, zstd | FULL, brotli | NORMAL, brotli |
+|---|---|---|---|---|
+| CPU, cores busy | 0.98 (0.66 to 1.82) | 1.04 (0.77 to 1.62) | 2.53 (1.89 to 3.28) | 2.80 (2.51 to 3.07) |
+| ticks a second | 19.6 (9.4 to 19.8) | 19.4 (17.3 to 19.7) | 15.8 (13.1 to 19.2) | 19.8 (18.8 to 19.8) |
+| tick p95 | 4.0 ms (1.19 to 4.72) | 4.2 ms (1.16 to 4.58) | 1.4 ms (1.14 to 2.92) | 2.0 ms (1.14 to 2.76) |
+| frames dropped | 0 | 0 | 0 | 0 |
+| commands per transaction | 1.78 (1.29 to 7.32) | 1.07 (1.04 to 1.19) | 3.63 (1.81 to 4.37) | 1.03 (1.03 to 1.09) |
+| command from due to commit, p50 | 3.4 ms (2.7 to 323) | 0.54 ms (0.52 to 0.61) | 11.0 ms (3.1 to 11.8) | 0.30 ms (0.28 to 0.32) |
+| command from due to commit, p99 | 154 ms (21 to 2,715) | 172 ms (62 to 808) | 777 ms (146 to 1,945) | 34 ms (23 to 448) |
+
+With NORMAL a command commits in about half a millisecond at p50; with FULL it waits for its batch's fsync, 3 to 11 ms, and the writer takes two to four commands into a transaction instead of one. The render loop does the same work in both modes: one render a tick, no dropped frames, and the CPU goes to the encoders. With FULL and brotli the slower commits leave some ticks with nothing new, 15.8 ticks a second against 19.8.
+
+The p99s compare poorly: they are the shared SSD pool's. A run with a disk stall waits for seconds in either mode (FULL with zstd once 2.7 s, at 9.4 ticks a second). The 1-minute load average was 1.5 before the first set and 5.7 after the second, the benchmark's own work included.
+
+What NORMAL saves is latency, and what it costs is durability: a power loss or kernel crash can undo up to about 35 s of acknowledged commits, those since the writer's last checkpoint, with Linux's default writeback. A crash of the process loses none.
+
 ### zstd levels
 
 Measured on 2026-10-13 between 05:02 and 05:04 UTC on the same machine and toolchain, with klauspost/compress v1.20.1, on lith's api-core branch, which adds `sse.Options.ZstdLevel`:
