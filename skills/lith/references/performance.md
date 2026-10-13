@@ -53,7 +53,12 @@ i5-13500 core, 2026-10-12:
   window hold about 9.7 GiB, at zstd 2^19 about 1.0 GiB with `ZstdLowMemory`
   and 1.6 GiB with lith's default, which keeps twice the window as history.
 - The window must be larger than one frame, or a frame cannot refer back to
-  the previous one. Measure the largest frame of each page.
+  the previous one. Measure the largest frame of each page, and size the
+  window to it rather than keep the default: libretto's frames (2 to 37 KB)
+  need 2^17 with `ZstdLowMemory`, 0.65 MiB per stream for 9% more bytes than
+  2^19; at 2^16 a 37 KB render and a modal no longer fit and bytes rose 19%.
+  kanban's 139 KB board needs 2^19. (datastar-go's brotli q3 held 8.5 MiB per
+  libretto tab after the first render.)
 - Once renders are shared, compression is the main CPU cost: in kanban's
   200-tab run most of 4.9 cores went into brotli. Safari decodes zstd from 26.3
   (on OS 26.3 and later); older browsers get brotli.
