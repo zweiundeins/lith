@@ -2,7 +2,7 @@
 
 lith's website (lith.zweiundeins.gmbh) is one binary and one SQLite file, behind Caddy, on the same host as the other apps. The files here:
 
-- `lith-site.service`: the systemd unit. It runs as the `lith-site` user, keeps the database in `/var/lib/lith-site`, serves the site on `127.0.0.1:8097` and its metrics on `127.0.0.1:8197`, connects nowhere and may bind no other port. Memory: `MemoryHigh=224M`, `MemoryMax=256M`, `GOMEMLIMIT=192MiB`, at most 300 open streams.
+- `lith-site.service`: the systemd unit. It runs as the `lith-site` user, keeps the database in `/var/lib/lith-site`, serves the site on `127.0.0.1:8097` and its metrics on `127.0.0.1:8197`, connects nowhere and may bind no other port. Memory: `MemoryHigh=224M`, `MemoryMax=256M`, `GOMEMLIMIT=192MiB`, at most 300 open streams. `CPUWeight=50` lets the host's other apps go first when the cores are busy.
 - `lith-site.env.example`: optional settings, installed as `/etc/lith-site/lith-site.env`.
 - `lith-site.caddy`: the site block. TLS, `reverse_proxy` to the loopback port with the client's address in X-Forwarded-For and X-Real-IP, the access log in JSON at `/var/log/caddy/lith-access.log`, no `encode`, and `flush_interval -1` for the streams.
 - `lith-site-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
@@ -59,11 +59,12 @@ The deploy workflow logs in as `lith-site-deploy`, a user whose key runs `sudo -
 3. Give GitHub the key and the host. The job's `if` runs before the environment's variables load, so the host and its host key are repository variables. The private key is a secret of the `production` environment, which only `main` may use:
 
    ```sh
+   HOST=<the server's address>
    gh api -X PUT repos/zweiundeins/lith/environments/production --input - <<<'{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
    gh api -X POST repos/zweiundeins/lith/environments/production/deployment-branch-policies -f name=main -f type=branch
    gh secret set SITE_DEPLOY_SSH_KEY --env production -R zweiundeins/lith < lith-site-deploy-key
-   ssh-keyscan -t ed25519 179.237.86.212 2>/dev/null | gh variable set SITE_DEPLOY_KNOWN_HOSTS -R zweiundeins/lith
-   gh variable set SITE_DEPLOY_HOST -R zweiundeins/lith --body 179.237.86.212
+   ssh-keyscan -t ed25519 "$HOST" 2>/dev/null | gh variable set SITE_DEPLOY_KNOWN_HOSTS -R zweiundeins/lith
+   gh variable set SITE_DEPLOY_HOST -R zweiundeins/lith --body "$HOST"
    rm lith-site-deploy-key lith-site-deploy-key.pub
    ```
 
