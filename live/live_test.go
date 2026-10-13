@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/sqlite"
 	"github.com/zweiundeins/lith/sse"
 )
 
@@ -151,6 +153,62 @@ func TestOneReadTransactionPerWorkerPerTick(t *testing.T) {
 		if err := tx.QueryRow(`select 1`).Scan(new(int)); !errors.Is(err, sql.ErrTxDone) {
 			t.Fatalf("a read transaction outlived its tick: %v", err)
 		}
+	}
+}
+
+// A Render's ctx carries its transaction, so a store that reads through
+// sqlite.DB.View with that ctx sees the render's snapshot, even when a
+// commit lands while the view renders.
+func TestStoreInRenderJoinsItsSnapshot(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "test.db"), sqlite.Options{Synchronous: "NORMAL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.W.Exec(`create table counter (name text primary key, n integer not null); insert into counter values ('a', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	store := func(ctx context.Context) (n int, err error) {
+		err = db.View(ctx, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(ctx, `select n from counter where name = 'a'`).Scan(&n)
+		})
+		return n, err
+	}
+	type seen struct {
+		carried     bool
+		render, got int
+	}
+	results := make(chan seen, 1)
+	h := start(t, Options{Read: db.R, Workers: 2})
+	v := text("v", nil, func(ctx context.Context, tx *sql.Tx) (string, error) {
+		var s seen
+		got, ok := sqlite.TxFrom(ctx)
+		s.carried = ok && got == tx
+		var err error
+		if s.render, err = count(ctx, tx); err != nil {
+			return "", err
+		}
+		if _, err := db.W.Exec(`update counter set n = n + 1 where name = 'a'`); err != nil {
+			return "", err
+		}
+		if s.got, err = store(ctx); err != nil {
+			return "", err
+		}
+		results <- s
+		return "v", nil
+	})
+	serve(h, Spec{Views: []View{v}}, "")
+	select {
+	case s := <-results:
+		if !s.carried {
+			t.Error("the Render's ctx does not carry its transaction")
+		}
+		if s.got != s.render {
+			t.Errorf("the store read %d, the render %d: it did not join the render's snapshot", s.got, s.render)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the view did not render")
 	}
 }
 

@@ -81,11 +81,13 @@ type View struct {
 	// Topics mark the view dirty when a commit touches one of them.
 	Topics []string
 	// Render renders the view in the worker's read transaction, with a
-	// ctx that ends after Options.RenderTimeout. Its frame goes to every
-	// stream that watches the view and must not change afterwards. When
-	// Render fails, the error is logged and the previous frame stays; a
-	// nil frame also keeps the previous one, and so does a []byte frame
-	// equal to it.
+	// ctx that ends after Options.RenderTimeout and carries the
+	// transaction (sqlite.TxFrom): a sqlite.DB.View called with ctx runs
+	// in it, so code that takes a ctx reads the render's snapshot. Its
+	// frame goes to every stream that watches the view and must not
+	// change afterwards. When Render fails, the error is logged and the
+	// previous frame stays; a nil frame also keeps the previous one, and
+	// so does a []byte frame equal to it.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).

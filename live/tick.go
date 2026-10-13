@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/zweiundeins/lith/internal/txctx"
 )
 
 // Run renders views until ctx ends. Then it ends every stream: a write
@@ -257,6 +259,7 @@ func (w *worker) render(t *tick) {
 	if int(t.next.Load()) >= len(t.views) {
 		return
 	}
+	ctx := t.ctx
 	var tx *sql.Tx
 	if w.conn != nil {
 		var err error
@@ -266,13 +269,14 @@ func (w *worker) render(t *tick) {
 			}
 			return
 		}
+		ctx = txctx.With(ctx, &txctx.Value{Tx: tx, Pool: w.h.read})
 	}
 	for {
 		i := int(t.next.Add(1)) - 1
 		if i >= len(t.views) {
 			break
 		}
-		t.frames[i], t.errs[i] = w.h.render(t.ctx, t.views[i], tx)
+		t.frames[i], t.errs[i] = w.h.render(ctx, t.views[i], tx)
 		w.h.renders.Add(1)
 	}
 	if tx != nil {

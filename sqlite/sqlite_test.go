@@ -215,6 +215,92 @@ func TestViewSeesOneSnapshot(t *testing.T) {
 	}
 }
 
+// A View called with a context that carries a transaction on the same
+// database runs in it: a store called from a render sees the render's
+// snapshot, even after a commit, and leaves the transaction open.
+func TestViewJoinsTheTransactionInCtx(t *testing.T) {
+	ctx := context.Background()
+	d := open(t, Options{})
+	if _, err := d.W.Exec("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := TxFrom(ctx); ok {
+		t.Fatal("a plain context carries a transaction")
+	}
+	count := func(ctx context.Context) (n int) {
+		t.Helper()
+		err := d.View(ctx, func(tx *sql.Tx) error { return tx.QueryRow("SELECT count(*) FROM t").Scan(&n) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	err := d.View(ctx, func(tx *sql.Tx) error {
+		ctx := WithTx(ctx, tx)
+		if got, ok := TxFrom(ctx); !ok || got != tx {
+			t.Fatal("TxFrom lost the transaction")
+		}
+		before := count(ctx)
+		if _, err := d.W.Exec("INSERT INTO t VALUES (2)"); err != nil {
+			return err
+		}
+		if after := count(ctx); after != before {
+			t.Errorf("a View with the caller's transaction saw %d rows, the caller %d", after, before)
+		}
+		if err := d.View(ctx, func(*sql.Tx) error { return errors.New("refused") }); err == nil {
+			t.Error("the inner View lost its error")
+		}
+		var n int
+		return tx.QueryRow("SELECT count(*) FROM t").Scan(&n)
+	})
+	if err != nil {
+		t.Fatalf("the caller's transaction after the inner Views: %v", err)
+	}
+	if n := count(ctx); n != 2 {
+		t.Fatalf("%d rows after the View", n)
+	}
+}
+
+// A transaction on another database is not joined: each View reads its
+// own database.
+func TestViewKeepsToItsDatabase(t *testing.T) {
+	ctx := context.Background()
+	a, b := open(t, Options{}), open(t, Options{})
+	if _, err := b.W.Exec("CREATE TABLE only_b (x INTEGER); INSERT INTO only_b VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	err := a.View(ctx, func(tx *sql.Tx) error {
+		return b.View(WithTx(ctx, tx), func(tx *sql.Tx) error {
+			var n int
+			return tx.QueryRow("SELECT count(*) FROM only_b").Scan(&n)
+		})
+	})
+	if err != nil {
+		t.Fatalf("b's View ran in a's transaction: %v", err)
+	}
+
+	// The same file, opened twice, is the same database.
+	c, err := Open(ctx, a.Path, Options{Synchronous: "NORMAL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := a.W.Exec("CREATE TABLE t (x INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	err = a.View(ctx, func(outer *sql.Tx) error {
+		return c.View(WithTx(ctx, outer), func(tx *sql.Tx) error {
+			if tx != outer {
+				t.Error("a second DB on the same file did not join the transaction")
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBackup(t *testing.T) {
 	ctx := context.Background()
 	d := open(t, Options{})

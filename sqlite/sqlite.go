@@ -121,6 +121,7 @@ type DB struct {
 	R    *sql.DB
 	Path string
 	opts Options
+	file string // as SQLite names it, to recognise a transaction on it
 }
 
 // Open opens (and creates) the database at path, applies the migrations
@@ -158,13 +159,14 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	if opts.MmapBytes > 0 {
 		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
 	}
+	var file string
 	r, err := sql.Open("sqlite", dsn(path, rp, ro))
 	if err == nil {
 		r.SetMaxOpenConns(opts.Readers)
 		r.SetMaxIdleConns(opts.Readers)
 		r.SetConnMaxLifetime(0)
 		r.SetConnMaxIdleTime(0)
-		if err = r.PingContext(ctx); err != nil {
+		if file, err = mainFile(ctx, r); err != nil {
 			r.Close()
 			err = fmt.Errorf("sqlite: open %s: %w", path, err)
 		}
@@ -175,7 +177,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		}
 		return nil, err
 	}
-	return &DB{W: w, R: r, Path: path, opts: opts}, nil
+	return &DB{W: w, R: r, Path: path, opts: opts, file: file}, nil
 }
 
 // openWriter opens the write connection, checks that the database is in
@@ -224,8 +226,13 @@ func openWriter(ctx context.Context, path string, opts Options, pragmas []string
 func (d *DB) Options() Options { return d.opts }
 
 // View runs fn in one read transaction on R: every query in fn sees the
-// same snapshot of the database.
+// same snapshot of the database. When ctx carries a transaction on the
+// same database file (WithTx, or a live Render's ctx), fn runs in that
+// one instead, and sees the caller's snapshot; its owner ends it.
 func (d *DB) View(ctx context.Context, fn func(*sql.Tx) error) error {
+	if tx := d.joined(ctx); tx != nil {
+		return fn(tx)
+	}
 	tx, err := d.R.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return err
