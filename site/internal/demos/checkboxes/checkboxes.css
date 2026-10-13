@@ -283,30 +283,46 @@
 
 	/* ── A box ──────────────────────────────────────────────────────────
 	 * A socket when clear, a lit lamp when checked: filled against hollow
-	 * tells them apart without the colour. The key under the grid draws
-	 * the same three states. */
+	 * tells them apart without the colour. The lamp follows the checked
+	 * attribute, which is what the server sent: :checked would follow the
+	 * browser's own toggling, and no browser matches it on an
+	 * indeterminate box. --cb-lit, a registered number, is how far the lamp
+	 * is lit; the fill, the edge and the glow follow it, so one transition
+	 * moves them together. The key under the grid draws the same states. */
 	.cb-boxes > input,
 	.cb-key {
+		--cb-lit: 0;
+		--_on: calc(var(--cb-lit) * 100%);
 		appearance: none;
 		margin: 0;
-		border: 1px solid var(--lith-border);
+		border: 1px solid color-mix(in oklch, var(--lith-accent-edge) var(--_on), var(--lith-border));
 		border-radius: calc(var(--lith-radius-sm) * 0.5 * (1 - var(--lith-notch)));
-		background: var(--lith-surface-1);
+		background: color-mix(in oklch, var(--lith-accent) var(--_on), var(--lith-surface-1));
+		box-shadow:
+			inset 2px 2px 0 -1px color-mix(in oklch, var(--lith-art-seam-core) var(--_on), transparent),
+			0 0 calc(var(--cb-lit) * 6px) color-mix(in oklch, var(--lith-glow-color) var(--_on), transparent);
+	}
+
+	.cb-boxes > input[checked],
+	.cb-key.is-on {
+		--cb-lit: 1;
 	}
 
 	.cb-boxes > input {
 		inline-size: 100%;
 		block-size: 100%;
 		cursor: pointer;
-		/* A lamp that lights flares and settles: the curve overshoots. */
-		transition:
-			background-color var(--lith-dur-1) var(--lith-ease-snap),
-			border-color var(--lith-dur-1) var(--lith-ease-snap),
-			box-shadow var(--lith-dur-4) cubic-bezier(0.2, 2.4, 0.4, 1);
+		/* A lamp that lights flares past full and settles: the curve
+		 * overshoots, and the glow grows with it. */
+		transition: --cb-lit var(--lith-dur-4) cubic-bezier(0.2, 2.2, 0.4, 1);
 
-		&:hover {
+		&:not([checked]):hover {
 			border-color: var(--lith-text-muted);
 			background: var(--lith-surface-hover);
+		}
+
+		&[checked]:hover {
+			--cb-lit: 1.25;
 		}
 
 		&:focus-visible {
@@ -317,23 +333,16 @@
 		}
 	}
 
-	.cb-boxes > input:checked,
-	.cb-key.is-on {
-		border-color: var(--lith-accent-edge);
-		background: var(--lith-accent);
-		box-shadow: inset 2px 2px 0 -1px var(--lith-art-seam-core), 0 0 6px var(--lith-glow-color);
-	}
-
-	.cb-boxes > input:checked:hover {
-		background: var(--lith-accent-strong);
-	}
-
-	/* Sent, waiting for the frame that flips it: the edge blinks (in the
-	 * key it holds still). */
+	/* Sent, waiting for the frame that flips it: a dashed edge, and the
+	 * lamp blinks toward its new state (in the key it holds still). */
 	.cb-boxes > input:indeterminate,
 	.cb-key.is-sent {
 		border-style: dashed;
 		border-color: var(--lith-accent-edge);
+	}
+
+	.cb-key.is-sent {
+		--cb-lit: 0.35;
 	}
 
 	.cb-boxes > input:indeterminate {
@@ -398,7 +407,7 @@
 			background: Canvas;
 		}
 
-		.cb-boxes > input:checked,
+		.cb-boxes > input[checked],
 		.cb-key.is-on {
 			border-color: Highlight;
 			background: Highlight;
@@ -411,11 +420,17 @@
 	}
 }
 
-/* Keyframes are global: they stay outside the scope. */
+/* Global at-rules stay outside the scope. */
+@property --cb-lit {
+	syntax: "<number>";
+	inherits: false;
+	initial-value: 0;
+}
+
+/* A lamp that waits blinks half lit, between its state and the other. */
 @keyframes cb-sent {
 	50% {
-		border-color: transparent;
-		background: var(--lith-accent-subtle);
+		--cb-lit: 0.45;
 	}
 }
 
