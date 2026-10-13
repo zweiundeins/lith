@@ -48,13 +48,13 @@ func TestCheckboxes(t *testing.T) {
 	if code := post(t, c, base+"/cmd/checkboxes/window", `{"tab":"tab1","offset":2000,"count":6,"cols":2}`); code != http.StatusNoContent {
 		t.Fatalf("window: %d", code)
 	}
-	seen(t, events, `id="checkboxes-tile-2000"`, `offset="1998"`)
+	cbSeen(t, events, `id="checkboxes-tile-2000"`, `offset="1998"`)
 	waitFor(t, "the stream on the new window", func() bool {
 		return a.Hub().Count("checkboxes:chunk:0") == 0 && a.Hub().Count("checkboxes:chunk:2009") == 1
 	})
 	post(t, c, base+"/cmd/checkboxes/set", `{"box":6,"checked":true}`)
 	post(t, c, base+"/cmd/checkboxes/set", `{"box":512000,"checked":true}`)
-	for _, e := range seen(t, events, "title=512,001 checked") {
+	for _, e := range cbSeen(t, events, "title=512,001 checked") {
 		if strings.Contains(e, `id="checkboxes-tile-0"`) {
 			t.Error("a chunk the tab scrolled away from still reaches it")
 		}
@@ -165,18 +165,18 @@ func TestCheckboxesBrowser(t *testing.T) {
 	waitFor(t, "both on the new window", func() bool { return a.Hub().Count("checkboxes:chunk:1953") == 2 })
 
 	// Bob ticks it with the keyboard; Ada sees it.
-	pressSpace(t, bob)
+	cbPressSpace(t, bob)
 	bob.Wait(t, far+`.checked`, 5*time.Second)
 	ada.Wait(t, far+`.checked`, 5*time.Second)
 
 	// The arrows walk the boxes: right from the end of a row to the next
 	// row's start, down a row of 16, and on into the next tile.
 	for _, step := range []struct{ key, title string }{{"ArrowRight", "500,001"}, {"ArrowDown", "500,017"}, {"ArrowLeft", "500,016"}, {"ArrowUp", "500,000"}} {
-		pressKey(t, bob, step.key)
+		cbPressKey(t, bob, step.key)
 		bob.Wait(t, `document.activeElement.title === '`+step.title+`'`, 2*time.Second)
 	}
 	bob.Eval(t, `document.querySelector('#checkboxes-tile-1953 .cb-boxes').children[255].focus()`, nil)
-	pressKey(t, bob, "ArrowDown")
+	cbPressKey(t, bob, "ArrowDown")
 	bob.Wait(t, `document.activeElement.title === '500,240'`, 2*time.Second)
 	var label string
 	ada.Eval(t, `document.querySelector('#checkboxes-tile-1953').getAttribute('aria-label')`, &label)
@@ -197,9 +197,9 @@ func TestCheckboxesBrowser(t *testing.T) {
 	}
 }
 
-// seen reads events until each of wants has been in one, in any order, and
+// cbSeen reads events until each of wants has been in one, in any order, and
 // returns the events it read.
-func seen(t *testing.T, events <-chan string, wants ...string) []string {
+func cbSeen(t *testing.T, events <-chan string, wants ...string) []string {
 	t.Helper()
 	var read []string
 	missing := map[string]bool{}
@@ -226,16 +226,16 @@ func seen(t *testing.T, events <-chan string, wants ...string) []string {
 	return read
 }
 
-// pressSpace presses the space bar on the focused element.
-func pressSpace(t *testing.T, p *browser.Page) {
+// cbPressSpace presses the space bar on the focused element.
+func cbPressSpace(t *testing.T, p *browser.Page) {
 	t.Helper()
 	for _, typ := range []string{"keyDown", "keyUp"} {
 		p.Call(t, "Input.dispatchKeyEvent", map[string]any{"type": typ, "key": " ", "code": "Space", "windowsVirtualKeyCode": 32, "text": " "})
 	}
 }
 
-// pressKey presses a key that types nothing, such as an arrow.
-func pressKey(t *testing.T, p *browser.Page, key string) {
+// cbPressKey presses a key that types nothing, such as an arrow.
+func cbPressKey(t *testing.T, p *browser.Page, key string) {
 	t.Helper()
 	codes := map[string]int{"ArrowLeft": 37, "ArrowUp": 38, "ArrowRight": 39, "ArrowDown": 40}
 	for _, typ := range []string{"rawKeyDown", "keyUp"} {

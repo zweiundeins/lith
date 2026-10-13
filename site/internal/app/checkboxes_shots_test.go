@@ -26,7 +26,7 @@ func TestShotsCheckboxes(t *testing.T) {
 	}
 	a, base := apptest.Start(t)
 	b := browser.Start(t)
-	seedBoxes(t, a)
+	cbSeedBoxes(t, a)
 
 	shot := func(name string, w, h int, setup, then string) {
 		p := b.NewPage(t, w, h)
@@ -98,9 +98,9 @@ func TestShotsCheckboxes(t *testing.T) {
 	}
 }
 
-// seedBoxes checks a pattern of boxes in the first tiles and around box
+// cbSeedBoxes checks a pattern of boxes in the first tiles and around box
 // 500,000, as if people had been there.
-func seedBoxes(t *testing.T, a *app.App) {
+func cbSeedBoxes(t *testing.T, a *app.App) {
 	t.Helper()
 	at := time.Now()
 	for _, from := range []int{0, 499_712} {
