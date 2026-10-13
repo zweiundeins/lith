@@ -99,12 +99,13 @@ The site's `TestDashboard` fails when the dashboard or the alert rules read a me
 
 | Alert | Fires when |
 | --- | --- |
-| site down | the blackbox probe of the site's pages fails for 5 minutes |
 | 5xx ratio | more than 2% of requests, and at least 5 in 5 minutes, answer a 5xx |
 | ticks overrun | more than one tick in ten takes longer than the tick, for 10 minutes |
 | frames dropped | more than 5% of frames are dropped, for 10 minutes |
 | writer failures | more than 3 commands fail in 10 minutes |
 | streams refused | the budget turned streams away in the last 10 minutes |
+
+A site that stops answering trips the host's rule on every blackbox probe, so the file has no rule for that.
 
 A refusal returned from `Apply` counts as a failure, so an app that refuses often either records its refusals in a row, as the board's `Act` does, or raises that alert's threshold. The thresholds are starting points. The rules were written to the host's format without a running instance: import them, check that they evaluate against real data, and export them over the file before relying on them.
 
