@@ -87,7 +87,12 @@ type Options struct {
 	// and must not block.
 	OnTick func(time.Duration)
 	// SSE configures the streams. Its Compress semaphore defaults to half
-	// the CPUs, so a burst of frames leaves cores for everything else.
+	// the CPUs, so a burst of frames leaves cores for everything else. Its
+	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
+	// process's memory limit for the encoders, windows from 2^19 down to
+	// 2^18, uncompressed streams when even 2^18 does not fit; without a
+	// memory limit it only counts. Pass a Budget of your own for another
+	// limit or Refuse, or one with Limit -1 to turn it off.
 	SSE sse.Options
 }
 
@@ -241,6 +246,9 @@ func New(o Options) *Hub {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
+	if o.SSE.Budget == nil {
+		o.SSE.Budget = sse.NewBudget(sse.BudgetOptions{})
+	}
 	if o.SSE.Compress == nil {
 		o.SSE.Compress = make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/2))
 	}
@@ -381,6 +389,11 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 	}
 	return true
 }
+
+// Budget is the budget the hub's streams share: Options.SSE.Budget, or the
+// one New made. Its Stats tell what the encoders hold, and SetLimit moves
+// its limit while the hub runs.
+func (h *Hub) Budget() *sse.Budget { return h.sse.Budget }
 
 // Stats reads the counters.
 func (h *Hub) Stats() Stats {

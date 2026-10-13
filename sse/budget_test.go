@@ -133,19 +133,21 @@ func TestBudgetTiers(t *testing.T) {
 		t.Fatalf("reserved %d", r)
 	}
 
-	// The clamps hold for brotli and without a limit too.
+	// The clamps hold for brotli and without a limit too; the stream's own
+	// BrotliWindow is the largest it gets.
 	for _, c := range []struct {
 		o    BudgetOptions
 		opt  Options
 		want string
 	}{
-		{BudgetOptions{Limit: -1}, Options{}, "br q4 2^19"},
+		{BudgetOptions{Limit: -1}, Options{}, "br q4 2^18"},
+		{BudgetOptions{Limit: -1}, Options{BrotliWindow: 19}, "br q4 2^19"},
 		{BudgetOptions{Limit: -1, MaxWindow: 18}, Options{}, "br q4 2^18"},
 		{BudgetOptions{Limit: -1, MaxWindow: 18}, Options{BrotliQuality: 3}, "br q3 2^18"},
 		{BudgetOptions{Limit: 1 << 30, MinWindow: 16, MaxWindow: 16}, Options{}, "br q4 2^16"},
 		{BudgetOptions{Limit: 1 << 30, MaxWindow: 16}, Options{}, "br q4 2^18"},
 	} {
-		s, _ := openWith(t, Brotli, Options{Budget: NewBudget(c.o), BrotliQuality: c.opt.BrotliQuality})
+		s, _ := openWith(t, Brotli, Options{Budget: NewBudget(c.o), BrotliQuality: c.opt.BrotliQuality, BrotliWindow: c.opt.BrotliWindow})
 		if got := label(s.tier, s.encoding); got != c.want {
 			t.Errorf("%+v: got %s, want %s", c.o, got, c.want)
 		}
@@ -484,5 +486,30 @@ func TestMemoryLimit(t *testing.T) {
 	}
 	if got := NewBudget(BudgetOptions{}).Stats().Limit; got != 512<<20 {
 		t.Fatalf("the default budget: %d", got)
+	}
+}
+
+// A budget without a limit gives each stream what its own options ask
+// for, so the budget a live hub makes by default changes nothing where the
+// process has no memory limit.
+func TestBudgetWithoutLimitKeepsTheStreamsOptions(t *testing.T) {
+	b := NewBudget(BudgetOptions{Limit: -1})
+	for _, c := range []struct {
+		enc  string
+		o    Options
+		want string
+	}{
+		{Zstd, Options{Budget: b}, zstdTiers[1].String()},
+		{Brotli, Options{Budget: b}, brotliTiers[4][2].String()},
+		{Zstd, Options{Budget: b, ZstdWindow: 17, ZstdLowMemory: true}, zstdTiers[5].String()},
+	} {
+		s, err := Open(newRecorder(), request(t.Context(), c.enc), c.o)
+		if err != nil {
+			t.Fatalf("%s: %v", c.want, err)
+		}
+		if got := b.Stats().Streams; got[c.want] != 1 || len(got) != 1 {
+			t.Errorf("%s %+v: streams %v", c.enc, c.o, got)
+		}
+		s.Close()
 	}
 }

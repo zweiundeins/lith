@@ -211,9 +211,16 @@ func (b *Budget) menu(coding string, o Options) []tier {
 	case Gzip:
 		return []tier{gzipTier}
 	}
+	// The stream's own window is the largest it may get, and lowers the
+	// floor with it, so that a budget without a limit changes nothing.
+	ceil := o.ZstdWindow
+	if coding == Brotli {
+		ceil = o.BrotliWindow
+	}
+	lo, hi := min(b.minWindow, ceil), min(b.maxWindow, ceil)
 	var m []tier
 	for _, t := range all {
-		if t.window >= b.minWindow && t.window <= b.maxWindow && (t.lowMem || !o.ZstdLowMemory) {
+		if t.window >= lo && t.window <= hi && (t.lowMem || !o.ZstdLowMemory) {
 			m = append(m, t)
 		}
 	}

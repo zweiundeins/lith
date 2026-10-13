@@ -89,3 +89,16 @@ func TestHibernateInHub(t *testing.T) {
 		t.Fatalf("after the stream left: %+v", st)
 	}
 }
+
+// A hub without a budget of its own makes one, which a process without a
+// memory limit leaves without one.
+func TestHubMakesABudget(t *testing.T) {
+	h := New(Options{})
+	if h.Budget() == nil {
+		t.Fatal("no budget")
+	}
+	b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})
+	if h := New(Options{SSE: sse.Options{Budget: b}}); h.Budget() != b {
+		t.Fatal("the hub replaced the budget it was given")
+	}
+}

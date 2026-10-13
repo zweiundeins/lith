@@ -62,6 +62,19 @@ i5-13500 core, 2026-10-12:
 - Once renders are shared, compression is the main CPU cost: in kanban's
   200-tab run most of 4.9 cores went into brotli. Safari decodes zstd from 26.3
   (on OS 26.3 and later); older browsers get brotli.
+- A live hub shares a memory budget among its streams' encoders by default:
+  half the process's memory limit (GOMEMLIMIT, else the cgroup's), windows
+  from 2^19 down to 2^18, and streams go out uncompressed when even 2^18 does
+  not fit; without a memory limit nothing changes. Configure it with
+  `live.Options{SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{...})}}`:
+  `Limit` in bytes (-1: none), `MinWindow` at the window that holds the
+  largest frame, `MaxWindow`, and `Refuse` to answer 503 instead of sending
+  uncompressed, for pages with large frames (kanban's board). A stream's own
+  ZstdWindow and BrotliWindow cap what it gets. `hub.Budget().Stats()` tells
+  what the encoders hold; `SetLimit` moves the limit at runtime. Streams
+  outside a hub share one by passing the same budget in `sse.Options`.
+  Giving an idle stream's encoder back is opt-in: `live.Options.Hibernate`
+  (zero, the default, never does). bench/RESULTS.md has the numbers.
 - Never hold a lock or a slot while writing to the network; give every write a
   deadline.
 

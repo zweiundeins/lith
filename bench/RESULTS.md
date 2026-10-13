@@ -224,3 +224,7 @@ Every run held about 19.8 ticks a second. The streams the budget has no room for
 ### Lowering the limit
 
 `TestPressure` (`pressure.csv`): 500 board streams hold zstd 2^19 in a budget of 1 GiB, 828 MiB. After `SetLimit(512 << 20)` each moves to 2^18 with low memory at its next frame: 414 MiB reserved, and 407 MiB of live heap after a collection, from 828. That frame starts without history and takes 10,925 bytes.
+
+### What lith adopted
+
+Since 2026-10-13 a live hub makes a budget when it is given none: half the process's memory limit, windows from 2^19 down to 2^18, uncompressed streams when even 2^18 does not fit, and no change at all without a memory limit (a stream's own ZstdWindow and BrotliWindow cap what it gets). Pages with large frames pass a budget with `Refuse`. Hibernation is opt-in: `live.Options.Hibernate` is zero unless an app sets it.

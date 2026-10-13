@@ -71,8 +71,9 @@ type Options struct {
 	// per stream) costs more than it saves.
 	NoCompression bool
 	// Budget, if set, is shared by streams: it picks each stream's window
-	// within a memory limit, in place of ZstdWindow, ZstdLowMemory and
-	// BrotliWindow.
+	// within a memory limit. ZstdWindow and BrotliWindow are then the
+	// largest a stream gets, ZstdLowMemory keeps it to low-memory windows,
+	// and BrotliQuality picks the brotli tiers.
 	Budget *Budget
 }
 
