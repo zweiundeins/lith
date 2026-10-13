@@ -51,29 +51,29 @@ func set(t *testing.T, e *demotest.Env, cells []byte) {
 	e.Touched()
 }
 
-// The first step seeds the empty board; the next ones advance it, count
-// the rate and record who watches.
+// The first step seeds the empty board; the next ones advance it and
+// count the rate.
 func TestStep(t *testing.T) {
 	e := demotest.Open(t, Demo)
-	e.Do(t, Step{At: t0, Watching: 2})
+	e.Do(t, Step{At: t0})
 	b := board(t, e)
-	if b.Generation != 0 || Population(b.Cells) < Cells/4 || b.Quiet != 0 || b.Watching != 2 {
-		t.Fatalf("the first step: generation %d, %d cells, quiet %d, watching %d", b.Generation, Population(b.Cells), b.Quiet, b.Watching)
+	if b.Generation != 0 || Population(b.Cells) < Cells/4 || b.Quiet != 0 {
+		t.Fatalf("the first step: generation %d, %d cells, quiet %d", b.Generation, Population(b.Cells), b.Quiet)
 	}
 	if got := e.Touched(); !slices.Equal(got, []string{"life"}) {
 		t.Errorf("a step touched %v", got)
 	}
 	for i := 1; i <= 25; i++ {
-		e.Do(t, Step{At: t0.Add(time.Duration(i) * 100 * time.Millisecond), Watching: 2})
+		e.Do(t, Step{At: t0.Add(time.Duration(i) * 100 * time.Millisecond)})
 	}
 	b = board(t, e)
 	if b.Generation != 25 || b.Rate != 100 || b.History == "[]" {
 		t.Errorf("25 steps in 2.5 s: generation %d, rate %s, history %s", b.Generation, tenths(b.Rate), b.History)
 	}
 	// After a pause, the rate counts again from the next step.
-	e.Do(t, Step{At: t0.Add(time.Minute), Watching: 1})
-	if b = board(t, e); b.Generation != 26 || b.RateSince != t0.Add(time.Minute).UnixMilli() || b.Watching != 1 {
-		t.Errorf("after a pause: generation %d, rate since %d, watching %d", b.Generation, b.RateSince, b.Watching)
+	e.Do(t, Step{At: t0.Add(time.Minute)})
+	if b = board(t, e); b.Generation != 26 || b.RateSince != t0.Add(time.Minute).UnixMilli() {
+		t.Errorf("after a pause: generation %d, rate since %d", b.Generation, b.RateSince)
 	}
 }
 
@@ -249,12 +249,12 @@ func TestSweep(t *testing.T) {
 // is its outcome and the signals that end its pending state.
 func TestViews(t *testing.T) {
 	e := demotest.Open(t, Demo)
-	e.Do(t, Step{At: t0, Watching: 3})
+	e.Do(t, Step{At: t0})
 	e.Do(t, Pick{Viewer: ada, Colour: 5, At: t0})
 	e.Do(t, Draw{Viewer: ada, Op: "op1", Cells: []int{0}, Alive: true, At: t0})
 	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
 		vs := pageViews(ada)
-		if len(vs) != 2 || vs[0].Key != BoardKey || vs[1].Key != "life:tab:t-ada" || !slices.Contains(vs[1].Topics, "life:sid:s-ada") {
+		if len(vs) != 2 || vs[0].Key != BoardKey || !vs[0].Presence || vs[1].Key != "life:tab:t-ada" || !slices.Contains(vs[1].Topics, "life:sid:s-ada") {
 			t.Fatalf("views: %+v", vs)
 		}
 		out, err := vs[0].Render(ctx, tx)
@@ -266,7 +266,7 @@ func TestViews(t *testing.T) {
 		if lines != 1 || strings.Count(frame, "<p class=") != Cells || !strings.Contains(frame, `<p class=e><p class=_>`) {
 			t.Errorf("the frame has %d lines and %d cells", lines, strings.Count(frame, "<p class="))
 		}
-		for _, want := range []string{`<div id="life-board"`, `id="life-stats"`, `id="life-share"`, `id="life-status"`, `<dd>3</dd>`, `values="[]"`} {
+		for _, want := range []string{`<div id="life-board"`, `id="life-stats"`, `id="life-share"`, `id="life-status"`, `<dt>Here now</dt><dd>0</dd>`, `values="[]"`} {
 			if !strings.Contains(frame, want) {
 				t.Errorf("the frame has no %s", want)
 			}

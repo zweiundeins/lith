@@ -8,9 +8,9 @@ import (
 // Stage is the demo on its page: the counters, the board with the
 // pointer's outline over it, the colours' shares, the tools, the colours,
 // and the reset.
-templ Stage(b Board, colour int, now time.Time) {
+templ Stage(b Board, here, colour int, now time.Time) {
 	<div class="life" data-signals={ signals(colour) } data-attr:style={ me } data-effect={ settle } data-on:datastar-fetch={ failed }>
-		@Stats(b)
+		@Stats(b, here)
 		<div
 			class="life__field"
 			tabindex="0"
@@ -107,15 +107,16 @@ templ outline(class, show, name, style string) {
 // Frame is the shared view: the board and everything that changes with
 // it, the same for every tab. The board comes first: whatever the counters
 // do, it then starts at the same byte in every frame.
-templ Frame(b Board, now time.Time) {
+templ Frame(b Board, here int, now time.Time) {
 	@boardCells(b.Cells)
-	@Stats(b)
+	@Stats(b, here)
 	@Share(b.Cells)
 	@Status(b, now)
 }
 
-// Stats are the live counters, and the population's last minute.
-templ Stats(b Board) {
+// Stats are the live counters, and the population's last minute. here is
+// how many streams watch the board.
+templ Stats(b Board, here int) {
 	<div id="life-stats" class="life__stats">
 		<dl>
 			<div class="life__stat">
@@ -132,7 +133,7 @@ templ Stats(b Board) {
 			</div>
 			<div class="life__stat">
 				<dt>Here now</dt>
-				<dd>{ strconv.Itoa(b.Watching) }</dd>
+				<dd>{ strconv.Itoa(here) }</dd>
 			</div>
 		</dl>
 		<sb-sparkline id="life-history" class="life__history" values={ b.History } length="60" tone="accent" label="Population, once a second"></sb-sparkline>

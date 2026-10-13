@@ -20,23 +20,22 @@ import (
 type Board struct {
 	Cells      []byte
 	Generation int64
-	Stepped    int64 // unix ms of the newest generation
-	Rate       int   // generations a second, in tenths
-	RateSince  int64 // unix ms: the start of the second the rate counts
-	RateFrom   int64 // the generation then
-	Watching   int
+	Stepped    int64  // unix ms of the newest generation
+	Rate       int    // generations a second, in tenths
+	RateSince  int64  // unix ms: the start of the second the rate counts
+	RateFrom   int64  // the generation then
 	Quiet      int64  // unix ms since the board is empty or repeats itself; 0 while it lives
 	Recent     []byte // hashes of the last four generations
 	History    string // the population once a second: a JSON array
 	Reset      int64  // unix ms of the last reset
 }
 
-const selectBoard = `SELECT cells, generation, stepped, rate, rate_since, rate_from, watching, quiet, recent, history, reset FROM life_board WHERE id = 1`
+const selectBoard = `SELECT cells, generation, stepped, rate, rate_since, rate_from, quiet, recent, history, reset FROM life_board WHERE id = 1`
 
 // load reads the board, in a command, a view or a GET.
 func load(ctx context.Context, q sqlite.Querier) (Board, error) {
 	var b Board
-	err := q.QueryRowContext(ctx, selectBoard).Scan(&b.Cells, &b.Generation, &b.Stepped, &b.Rate, &b.RateSince, &b.RateFrom, &b.Watching, &b.Quiet, &b.Recent, &b.History, &b.Reset)
+	err := q.QueryRowContext(ctx, selectBoard).Scan(&b.Cells, &b.Generation, &b.Stepped, &b.Rate, &b.RateSince, &b.RateFrom, &b.Quiet, &b.Recent, &b.History, &b.Reset)
 	if err == nil && len(b.Cells) != Cells {
 		err = errors.New("life: the board has the wrong size")
 	}
@@ -48,8 +47,8 @@ func (b *Board) save(tx *writer.Tx) error {
 	if b.Recent == nil {
 		b.Recent = []byte{} // nil would be NULL
 	}
-	_, err := tx.Exec(`UPDATE life_board SET cells = ?, generation = ?, stepped = ?, rate = ?, rate_since = ?, rate_from = ?, watching = ?, quiet = ?, recent = ?, history = ?, reset = ? WHERE id = 1`,
-		b.Cells, b.Generation, b.Stepped, b.Rate, b.RateSince, b.RateFrom, b.Watching, b.Quiet, b.Recent, b.History, b.Reset)
+	_, err := tx.Exec(`UPDATE life_board SET cells = ?, generation = ?, stepped = ?, rate = ?, rate_since = ?, rate_from = ?, quiet = ?, recent = ?, history = ?, reset = ? WHERE id = 1`,
+		b.Cells, b.Generation, b.Stepped, b.Rate, b.RateSince, b.RateFrom, b.Quiet, b.Recent, b.History, b.Reset)
 	if err != nil {
 		return err
 	}

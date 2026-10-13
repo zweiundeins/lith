@@ -39,19 +39,21 @@ func TestLifeStream(t *testing.T) {
 		t.Fatalf("reset: %d", code)
 	}
 	next(t, events, "The board is empty.")
-	next(t, events, `"ack":"op1"`)
-	// Two colours: the first may be the one the session has already.
-	for _, colour := range []string{"4", "6"} {
-		if code := post(t, c, base+"/cmd/life/colour", `{"tab":"tab1","colour":`+colour+`}`); code != http.StatusNoContent {
-			t.Fatalf("colour: %d", code)
-		}
+	ack := next(t, events, `"ack":"op1"`)
+	// The next colour after the one the session has.
+	var mine int
+	fmt.Sscanf(ack[strings.Index(ack, `"colour":`)+len(`"colour":`):], "%d", &mine)
+	colour := strconv.Itoa(mine%life.Colours + 1)
+	if code := post(t, c, base+"/cmd/life/colour", `{"tab":"tab1","colour":`+colour+`}`); code != http.StatusNoContent {
+		t.Fatalf("colour: %d", code)
 	}
-	next(t, events, `"colour":6`)
+	next(t, events, `"colour":`+colour+`}`)
 	if code := post(t, c, base+"/cmd/life/drop", `{"tab":"tab1","op":"op2","pattern":"glider","cell":1000,"turn":0}`); code != http.StatusNoContent {
 		t.Fatalf("drop: %d", code)
 	}
-	glider := next(t, events, "<p class=f>")
-	if n := strings.Count(glider, "<p class=f>"); n != 5 {
+	cell := "<p class=" + "_abcdefgh"[mine%life.Colours+1:mine%life.Colours+2] + ">"
+	glider := next(t, events, cell)
+	if n := strings.Count(glider, cell); n != 5 {
 		t.Errorf("a glider of %d cells", n)
 	}
 	next(t, events, `"ack":"op2"`)
@@ -78,10 +80,8 @@ func TestLifeStream(t *testing.T) {
 	time.Sleep(2 * life.Idle)
 	g := generation(t, a)
 	time.Sleep(4 * life.Idle)
-	var watching int
-	a.DB().R.QueryRow(`SELECT watching FROM life_board`).Scan(&watching)
-	if after := generation(t, a); after != g || watching != 0 {
-		t.Errorf("with nobody watching, the board went from generation %d to %d, and %d watch", g, after, watching)
+	if after := generation(t, a); after != g {
+		t.Errorf("with nobody watching, the board went from generation %d to %d", g, after)
 	}
 }
 

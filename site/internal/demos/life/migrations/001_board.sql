@@ -10,7 +10,6 @@ CREATE TABLE life_board (
     rate       INTEGER NOT NULL, -- generations a second over the last second, in tenths
     rate_since INTEGER NOT NULL, -- unix ms: where that second began
     rate_from  INTEGER NOT NULL, -- the generation then
-    watching   INTEGER NOT NULL, -- streams on the board when the clock last counted
     quiet      INTEGER NOT NULL, -- unix ms since the board is empty or repeats itself; 0 while it lives
     recent     BLOB    NOT NULL, -- the hashes of the last four generations, 8 bytes each
     history    TEXT    NOT NULL, -- the population once a second, the last 60: a JSON array
@@ -18,7 +17,7 @@ CREATE TABLE life_board (
 );
 
 -- An empty board, quiet since long ago: the first step seeds it.
-INSERT INTO life_board VALUES (1, zeroblob(4000), 0, 0, 0, 0, 0, 0, 1, x'', '[]', 0);
+INSERT INTO life_board VALUES (1, zeroblob(4000), 0, 0, 0, 0, 0, 1, x'', '[]', 0);
 
 -- The colour a session picked. A session without a row draws in a colour
 -- its id picks. The sweep deletes rows unseen for 30 days, and keeps the

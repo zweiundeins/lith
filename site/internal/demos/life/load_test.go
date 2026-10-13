@@ -223,7 +223,7 @@ func BenchmarkStep(b *testing.B) {
 	b.ResetTimer()
 	for i := range b.N {
 		at = at.Add(100 * time.Millisecond)
-		if err := e.W.Do(context.Background(), Step{At: at, Watching: 1}); err != nil {
+		if err := e.W.Do(context.Background(), Step{At: at}); err != nil {
 			b.Fatal(err)
 		}
 		if i%500 == 499 { // keep it a soup
@@ -256,7 +256,7 @@ func BenchmarkFrame(b *testing.B) {
 
 func frameEvent(ctx context.Context, b Board, now time.Time) ([]byte, error) {
 	var h strings.Builder
-	if err := Frame(b, now).Render(ctx, &h); err != nil {
+	if err := Frame(b, 1, now).Render(ctx, &h); err != nil {
 		return nil, err
 	}
 	return sse.PatchElements([]byte(h.String())), nil

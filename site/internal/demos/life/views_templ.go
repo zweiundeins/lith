@@ -16,7 +16,7 @@ import (
 // Stage is the demo on its page: the counters, the board with the
 // pointer's outline over it, the colours' shares, the tools, the colours,
 // and the reset.
-func Stage(b Board, colour int, now time.Time) templ.Component {
+func Stage(b Board, here, colour int, now time.Time) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -93,7 +93,7 @@ func Stage(b Board, colour int, now time.Time) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Stats(b).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Stats(b, here).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -714,7 +714,7 @@ func outline(class, show, name, style string) templ.Component {
 // Frame is the shared view: the board and everything that changes with
 // it, the same for every tab. The board comes first: whatever the counters
 // do, it then starts at the same byte in every frame.
-func Frame(b Board, now time.Time) templ.Component {
+func Frame(b Board, here int, now time.Time) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -739,7 +739,7 @@ func Frame(b Board, now time.Time) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = Stats(b).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = Stats(b, here).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -755,8 +755,9 @@ func Frame(b Board, now time.Time) templ.Component {
 	})
 }
 
-// Stats are the live counters, and the population's last minute.
-func Stats(b Board) templ.Component {
+// Stats are the live counters, and the population's last minute. here is
+// how many streams watch the board.
+func Stats(b Board, here int) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -784,7 +785,7 @@ func Stats(b Board) templ.Component {
 		var templ_7745c5c3_Var48 string
 		templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(number(b.Generation))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 123, Col: 30}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 124, Col: 30}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 		if templ_7745c5c3_Err != nil {
@@ -797,7 +798,7 @@ func Stats(b Board) templ.Component {
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(number(int64(Population(b.Cells))))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 127, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 128, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 		if templ_7745c5c3_Err != nil {
@@ -810,7 +811,7 @@ func Stats(b Board) templ.Component {
 		var templ_7745c5c3_Var50 string
 		templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(tenths(b.Rate))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 131, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 132, Col: 24}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 		if templ_7745c5c3_Err != nil {
@@ -821,9 +822,9 @@ func Stats(b Board) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var51 string
-		templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(b.Watching))
+		templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(here))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 135, Col: 34}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 136, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 		if templ_7745c5c3_Err != nil {
@@ -836,7 +837,7 @@ func Stats(b Board) templ.Component {
 		var templ_7745c5c3_Var52 string
 		templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(b.History)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 138, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 139, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 		if templ_7745c5c3_Err != nil {
@@ -904,7 +905,7 @@ func Share(cells []byte) templ.Component {
 				var templ_7745c5c3_Var56 string
 				templ_7745c5c3_Var56, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(share(n))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 148, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 149, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 				if templ_7745c5c3_Err != nil {
@@ -968,7 +969,7 @@ func Status(b Board, now time.Time) templ.Component {
 		var templ_7745c5c3_Var58 string
 		templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(status(b, now))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 163, Col: 18}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 164, Col: 18}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 		if templ_7745c5c3_Err != nil {
@@ -1026,7 +1027,7 @@ func Outcome(s TabState) templ.Component {
 		var templ_7745c5c3_Var60 string
 		templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(s.Refusal)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 176, Col: 13}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/life/views.templ`, Line: 177, Col: 13}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 		if templ_7745c5c3_Err != nil {

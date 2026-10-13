@@ -44,7 +44,16 @@
 
 			& dl {
 				grid-template-columns: repeat(4, minmax(0, 1fr));
-				gap: var(--lith-space-2) var(--lith-space-3);
+				gap: var(--lith-space-2);
+			}
+
+			& dt {
+				font-size: 0.6875rem;
+				letter-spacing: 0.04em;
+			}
+
+			& dd {
+				font-size: var(--lith-text-lg);
 			}
 		}
 	}
@@ -102,6 +111,8 @@
 		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, 0 calc(100% - var(--_n)), 0 var(--_n));
 		cursor: crosshair;
 		touch-action: manipulation;
+		/* Scrolled out of view, the board is morphed but not drawn. */
+		content-visibility: auto;
 		-webkit-user-select: none;
 		user-select: none;
 		-webkit-tap-highlight-color: transparent;

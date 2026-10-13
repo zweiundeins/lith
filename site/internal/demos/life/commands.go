@@ -12,10 +12,9 @@ import (
 
 // Step is the clock's command, ten times a second while anyone watches:
 // the board's next generation, or a new soup once the board has been quiet
-// long enough. It also records how many watch.
+// long enough.
 type Step struct {
-	At       time.Time
-	Watching int
+	At time.Time
 }
 
 func (c Step) Apply(tx *writer.Tx) error {
@@ -24,8 +23,7 @@ func (c Step) Apply(tx *writer.Tx) error {
 		return err
 	}
 	now := c.At.UnixMilli()
-	dirty := b.Watching != c.Watching
-	b.Watching = c.Watching
+	dirty := false
 	switch {
 	case b.Quiet != 0 && now-b.Quiet >= b.quietFor().Milliseconds():
 		b.reseed(now)

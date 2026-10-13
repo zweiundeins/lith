@@ -11,8 +11,8 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
-// renderPage draws the demo into the GET document: the board as it is, and
-// the colour the session draws in.
+// renderPage draws the demo into the GET document: the board as it is, who
+// watches it, and the colour the session draws in.
 func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component, error) {
 	q := demo.Querier(ctx, tx)
 	b, err := load(ctx, q)
@@ -23,7 +23,7 @@ func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component
 	if err != nil {
 		return nil, err
 	}
-	return Stage(b, colour, time.Now()), nil
+	return Stage(b, demo.Watching(ctx, BoardKey), colour, time.Now()), nil
 }
 
 // pageViews are what a tab of the demo watches: the board, the same for
@@ -34,19 +34,21 @@ func pageViews(v demo.Viewer) []live.View {
 
 // boardView is the shared view: rendered once per generation for every
 // tab, without a view transition (at ten frames a second one would cut the
-// last one short), and again every second while the board is quiet, for
-// its countdown. Its watchers are the ones the clock counts.
+// last one short), when someone comes or goes (Presence), and every second
+// while the board is quiet, for its countdown. Its watchers are the ones
+// the clock counts.
 func boardView() live.View {
 	return live.View{
-		Key:    BoardKey,
-		Topics: []string{Topic},
-		Every:  time.Second,
+		Key:      BoardKey,
+		Topics:   []string{Topic},
+		Every:    time.Second,
+		Presence: true,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
 			b, err := load(ctx, demo.Querier(ctx, tx))
 			if err != nil {
 				return nil, err
 			}
-			return demo.Patch(ctx, Frame(b, time.Now()))
+			return demo.Patch(ctx, Frame(b, demo.Watching(ctx, BoardKey), time.Now()))
 		},
 	}
 }
