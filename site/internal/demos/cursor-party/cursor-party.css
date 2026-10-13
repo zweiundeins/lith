@@ -32,16 +32,17 @@
 		--_on-hue: light-dark(var(--lith-paper-raised), var(--lith-stone-12));
 		--_halo: light-dark(var(--lith-paper-raised), var(--lith-stone-13));
 
-		/* The pointer: an 8-bit arrow on a grid of 2px, its outline and
-		 * its fill. */
-		--_arrow: polygon(0 0, 2px 0, 2px 2px, 4px 2px, 4px 4px, 6px 4px, 6px 6px, 8px 6px, 8px 8px, 10px 8px, 10px 10px, 12px 10px, 12px 12px, 14px 12px, 14px 14px, 16px 14px, 16px 18px, 8px 18px, 8px 20px, 6px 20px, 6px 22px, 4px 22px, 4px 24px, 2px 24px, 2px 26px, 0 26px);
-		--_arrow-fill: polygon(2px 4px, 4px 4px, 4px 6px, 6px 6px, 6px 8px, 8px 8px, 8px 10px, 10px 10px, 10px 12px, 12px 12px, 12px 14px, 14px 14px, 14px 16px, 8px 16px, 8px 18px, 6px 18px, 6px 20px, 4px 20px, 4px 22px, 2px 22px);
+		/* The pointer: an 8-bit arrow on a grid of 2px, its outline and its
+		 * fill, as masks over the cursor's colours. With 60 cursors moving,
+		 * masks cost Chromium's main thread less than clip-paths. */
+		--_arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26' shape-rendering='crispEdges'%3E%3Cpath d='M0 0H2V2H4V4H6V6H8V8H10V10H12V12H14V14H16V18H8V20H6V22H4V24H2V26H0Z'/%3E%3C/svg%3E");
+		--_arrow-fill: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26' shape-rendering='crispEdges'%3E%3Cpath d='M2 4H4V6H6V8H8V10H10V12H12V14H14V16H8V18H6V20H4V22H2Z'/%3E%3C/svg%3E");
 	}
 
 	/* Without the 8-bit details the arrow has straight edges. */
 	:root[data-lith-style="smooth"] :scope {
-		--_arrow: polygon(0 0, 16px 15.5px, 7.3px 16.5px, 0 24.5px);
-		--_arrow-fill: polygon(2px 4.7px, 11.6px 14px, 6.3px 14.6px, 2px 19.3px);
+		--_arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26'%3E%3Cpath d='M0 0L16 15.5L7.3 16.5L0 24.5Z'/%3E%3C/svg%3E");
+		--_arrow-fill: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 26'%3E%3Cpath d='M2 4.7L11.6 14L6.3 14.6L2 19.3Z'/%3E%3C/svg%3E");
 	}
 
 	/* ── The demo's page ─────────────────────────────────────────────── */
@@ -97,7 +98,7 @@
 		inline-size: 16px;
 		block-size: 26px;
 		background: var(--lith-border-strong);
-		clip-path: var(--_arrow);
+		mask: var(--_arrow) 0 0 / 100% 100% no-repeat;
 		scale: 2;
 		margin-block-end: 26px;
 		transform-origin: 50% 0;
@@ -348,6 +349,14 @@
 		}
 	}
 
+	/* A crowd of 24 or more leaves the sparks out: every spark is one more
+	 * transition that each frame starts again, and in a crowd the trails
+	 * are clutter more than motion. */
+	.cp-layer:has(> i:nth-child(24)) > i::before,
+	.cp-layer:has(> i:nth-child(24)) > i::after {
+		display: none;
+	}
+
 	/* A cursor that has not moved for a few seconds fades away, slowly at
 	 * first; it comes back at once with its next move. */
 	.cp-layer > i[data-idle] {
@@ -397,7 +406,7 @@
 			opacity: 0;
 		}
 
-		/* The arrow: its outline, clipped to the arrow, and its fill. */
+		/* The arrow: its outline, and its fill on top. */
 		&::before,
 		&::after {
 			content: "";
@@ -407,12 +416,12 @@
 			inline-size: 16px;
 			block-size: 26px;
 			background: var(--_halo);
-			clip-path: var(--_arrow);
+			mask: var(--_arrow) 0 0 / 100% 100% no-repeat;
 		}
 
 		&::after {
 			background: var(--_c);
-			clip-path: var(--_arrow-fill);
+			mask-image: var(--_arrow-fill);
 		}
 	}
 

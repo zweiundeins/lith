@@ -164,9 +164,9 @@ func TestCursorParty(t *testing.T) {
 	}
 	still.Eval(t, `(() => {
 		const c = `+deeSel+`, b = c.querySelector('b'), d = getComputedStyle(b).transitionDuration.split(',').map(parseFloat)
-		return {trail: getComputedStyle(c, '::before').display, arrow: getComputedStyle(b, '::before').clipPath, ease: Math.max(...d)}
+		return {trail: getComputedStyle(c, '::before').display, arrow: getComputedStyle(b, '::before').maskImage, ease: Math.max(...d)}
 	})()`, &motion)
-	if motion.Trail != "none" || motion.Ease > 0.001 || !strings.HasPrefix(motion.Arrow, "polygon(0px 0px, 16px 15.5px") {
+	if motion.Trail != "none" || motion.Ease > 0.001 || !strings.Contains(motion.Arrow, "M0 0L16 15.5") {
 		t.Errorf("with reduced motion, smooth: %+v", motion)
 	}
 
