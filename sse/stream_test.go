@@ -547,6 +547,31 @@ func TestCloseWithDuringShutdown(t *testing.T) {
 	}
 }
 
+// When the hub stops, the end frame waits for a client that takes nothing
+// for endTimeout, not for WriteTimeout: it would hold up the shutdown.
+func TestShutdownBoundsEndFrame(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, Zstd), Options{WriteTimeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	cancel(shutdown.Cause)
+	s.abort()
+	w.stall(true)
+	start := time.Now()
+	err = s.CloseWith(Comment("last"))
+	if d := time.Since(start); d < endTimeout || d > endTimeout+time.Second {
+		t.Fatalf("the end frame took %v", d)
+	}
+	if !errors.Is(err, os.ErrDeadlineExceeded) || !strings.Contains(err.Error(), endTimeout.String()) {
+		t.Fatalf("CloseWith returned %v", err)
+	}
+}
+
 // When the hub stops, a write under way fails at once, as when the client
 // leaves, and Close sends nothing after it.
 func TestShutdownCutsWriteUnderWay(t *testing.T) {

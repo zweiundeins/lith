@@ -45,7 +45,8 @@ import (
 // Options tune a stream. The zero value is ready to use.
 type Options struct {
 	// WriteTimeout bounds each write to the client (default 10s). A
-	// client that does not take a write in time loses its stream.
+	// client that does not take a write in time loses its stream. The end
+	// frame of a stream the hub stops waits 250 ms at most.
 	WriteTimeout time.Duration
 	// Compress, if set, is a semaphore shared by streams: its capacity
 	// bounds how many compress at once. A slot is held only while
@@ -378,11 +379,20 @@ func (s *Stream) CloseWith(events ...[]byte) error {
 	return err
 }
 
+// endTimeout bounds the end frame of a stream the hub stops. A client that
+// still reads takes it at once; one that has stopped would hold up the
+// shutdown, and loses its stream instead, which retry 'error' reopens.
+const endTimeout = 250 * time.Millisecond
+
 // send writes chunks to the client and flushes them under a write
 // deadline, which it clears afterwards: HTTP/2 resets a stream when its
 // deadline passes, even while nothing is being written.
 func (s *Stream) send(chunks ...[]byte) error {
-	due := time.Now().Add(s.opt.WriteTimeout)
+	timeout := s.opt.WriteTimeout
+	if s.closing && s.shuttingDown() {
+		timeout = min(timeout, endTimeout)
+	}
+	due := time.Now().Add(timeout)
 	if err := s.start(due); err != nil {
 		return s.fail(err)
 	}
@@ -390,11 +400,11 @@ func (s *Stream) send(chunks ...[]byte) error {
 		n, err := s.w.Write(c)
 		s.out += int64(n)
 		if err != nil {
-			return s.fail(s.finish(s.why(err, due)))
+			return s.fail(s.finish(s.why(err, due, timeout)))
 		}
 	}
 	if err := s.rc.Flush(); err != nil {
-		return s.fail(s.finish(s.why(err, due)))
+		return s.fail(s.finish(s.why(err, due, timeout)))
 	}
 	if err := s.finish(nil); err != nil {
 		return s.fail(err)
@@ -437,9 +447,9 @@ func (s *Stream) finish(err error) error {
 // why names the cause of a failed write: the client took no bytes until
 // the deadline, or the stream ended (HTTP/2 shows both as a closed
 // stream), or else err itself.
-func (s *Stream) why(err error, due time.Time) error {
+func (s *Stream) why(err error, due time.Time, timeout time.Duration) error {
 	if !time.Now().Before(due) {
-		return fmt.Errorf("sse: the client took no bytes for %v: %w", s.opt.WriteTimeout, os.ErrDeadlineExceeded)
+		return fmt.Errorf("sse: the client took no bytes for %v: %w", timeout, os.ErrDeadlineExceeded)
 	}
 	// net/http ends the context before a write to a client that left
 	// fails, while abort may not have run yet.

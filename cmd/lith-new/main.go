@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -38,15 +39,12 @@ deploy files and CI. The app is named after the module path's last element, or
 -name: its binary in cmd/<name>, the systemd units in deploy/, the <NAME>_
 environment variables.
 
-lith is not published yet, so a project needs a replace directive for it. Name
-a lith checkout with -lith, or with LITH_DIR in the environment, and the new
-go.mod gets
+The new go.mod requires the lith that lith-new was run from: with
+go run github.com/zweiundeins/lith/cmd/lith-new@latest, the latest release.
+To work against a lith checkout instead, name it with -lith, or with LITH_DIR
+in the environment, and the new go.mod gets
 
 	replace github.com/zweiundeins/lith => <the checkout's absolute path>
-
-Without one, add the replace in the new project before building:
-
-	go mod edit -replace github.com/zweiundeins/lith=<checkout>
 
 Flags:
 `
@@ -70,6 +68,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	p.version = version()
 	if err := p.write(template.FS); err != nil {
 		log.Fatal(err)
 	}
@@ -80,6 +79,21 @@ func main() {
 type project struct {
 	dir, module, name string
 	lith              string // absolute path of a lith checkout, or ""
+	version           string // the lith version go.mod requires without lith, or ""
+}
+
+// zeroVersion is the template's placeholder for lith's version.
+const zeroVersion = "v0.0.0-00010101000000-000000000000"
+
+// version is the lith version this binary was built from, as go run
+// github.com/zweiundeins/lith/cmd/lith-new@<version> resolved it, or "" for
+// a build in a checkout.
+func version() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok || bi.Main.Path != lithModule || bi.Main.Version == "(devel)" {
+		return ""
+	}
+	return bi.Main.Version
 }
 
 func newProject(dir, module, name, lith string) (*project, error) {
@@ -168,8 +182,11 @@ func (p *project) write(tmpl fs.FS) error {
 		path = rewrite(path)
 		if path == "go.mod.tmpl" {
 			path = "go.mod"
-			if p.lith != "" {
+			switch {
+			case p.lith != "":
 				b = fmt.Appendf(b, "\nreplace %s => %s\n", lithModule, modPath(p.lith))
+			case p.version != "":
+				b = bytes.Replace(b, []byte(lithModule+" "+zeroVersion), []byte(lithModule+" "+p.version), 1)
 			}
 		}
 		mode := fs.FileMode(0o644)
@@ -234,11 +251,14 @@ func modPath(dir string) string {
 func (p *project) next(w io.Writer) {
 	fmt.Fprintf(w, "Created %s: module %s, app %s.\n", p.dir, p.module, p.name)
 	replace := ""
-	if p.lith == "" {
-		replace = fmt.Sprintf("\tgo mod edit -replace %s=<lith checkout>   # until lith is published\n", lithModule)
-	} else {
+	switch {
+	case p.lith != "":
 		fmt.Fprintf(w, "lith comes from %s, through a replace in go.mod.\n", p.lith)
-		fmt.Fprintln(w, "CI cannot reach that path: its workflow fails until lith is published and the replace is gone.")
+		fmt.Fprintln(w, "CI cannot reach that path: drop the replace before you push.")
+	case p.version != "":
+		fmt.Fprintf(w, "go.mod requires lith %s.\n", p.version)
+	default:
+		replace = fmt.Sprintf("\tgo get %s@latest\n", lithModule)
 	}
 	fmt.Fprintf(w, `
 Next:

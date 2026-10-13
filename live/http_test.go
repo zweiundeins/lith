@@ -38,10 +38,13 @@ func bigView(n *atomic.Int64) View {
 	}}
 }
 
-// realServer serves the hub over TLS, with HTTP/2 if h2. Serve's result
+// realServer serves the hub with HTTP/2 over TLS if h2, else with
+// HTTP/1.1 in the clear, as behind Caddy: closing a TLS connection whose
+// client stopped reading waits 5 s to send close_notify. Serve's result
 // for each path goes to results. Its connections have small send
 // buffers: this machine's TCP buffers grow to 16 MB, which no test fills
-// quickly.
+// quickly. 64 KB, not less: at 32 KB, about loopback's segment size,
+// plain TCP stalls for 200 ms at a time.
 func realServer(t *testing.T, h *Hub, h2 bool, spec Spec) (*httptest.Server, map[string]chan error) {
 	results := map[string]chan error{}
 	for _, p := range []string{"/a", "/b", "/c", "/stalled"} {
@@ -51,8 +54,12 @@ func realServer(t *testing.T, h *Hub, h2 bool, spec Spec) (*httptest.Server, map
 		results[r.URL.Path] <- h.Serve(w, r, spec)
 	}))
 	srv.Listener = smallBuffers{srv.Listener}
-	srv.EnableHTTP2 = h2
-	srv.StartTLS()
+	if h2 {
+		srv.EnableHTTP2 = true
+		srv.StartTLS()
+	} else {
+		srv.Start()
+	}
 	t.Cleanup(srv.Close)
 	return srv, results
 }
@@ -62,7 +69,7 @@ type smallBuffers struct{ net.Listener }
 func (l smallBuffers) Accept() (net.Conn, error) {
 	c, err := l.Listener.Accept()
 	if tc, ok := c.(*net.TCPConn); ok {
-		tc.SetWriteBuffer(32 << 10)
+		tc.SetWriteBuffer(64 << 10)
 	}
 	return c, err
 }

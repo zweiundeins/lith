@@ -149,6 +149,61 @@ func TestExclusiveVacuum(t *testing.T) {
 	}
 }
 
+// A read connection keeps its statement for a query across an Exclusive
+// that changes the schema: SQLite prepares it again, with the new column.
+func TestExclusiveSchemaChangeAndTheReadPool(t *testing.T) {
+	f := start(t, sqlite.Options{Readers: 1}, Options{})
+	ctx := context.Background()
+	if err := f.w.Do(ctx, insert("a")); err != nil {
+		t.Fatal(err)
+	}
+	read := func() (cols []string, row []any) {
+		t.Helper()
+		err := f.db.View(ctx, func(tx *sql.Tx) error {
+			rows, err := tx.QueryContext(ctx, "SELECT * FROM items ORDER BY id")
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			if cols, err = rows.Columns(); err != nil {
+				return err
+			}
+			row = make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range row {
+				ptrs[i] = &row[i]
+			}
+			if !rows.Next() {
+				return errors.New("no row")
+			}
+			return rows.Scan(ptrs...)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cols, row
+	}
+	if cols, _ := read(); !slices.Equal(cols, []string{"id", "name", "seq"}) {
+		t.Fatalf("columns %v", cols)
+	}
+	err := f.w.Exclusive(ctx, func(ctx context.Context, conn *sql.Conn) error {
+		_, err := conn.ExecContext(ctx, "ALTER TABLE items ADD COLUMN note TEXT NOT NULL DEFAULT 'n'")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cols, row := read(); !slices.Equal(cols, []string{"id", "name", "seq", "note"}) || row[3] != "n" {
+		t.Fatalf("after the ALTER: %v %v", cols, row)
+	}
+	if err := f.w.Do(ctx, insert("b")); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(t, "SELECT count(*) FROM items WHERE note = 'n'"); n != 2 {
+		t.Fatalf("%d items with the new column's default", n)
+	}
+}
+
 // fn runs after the commands queued before it and before those queued
 // after it; while it runs, commands wait.
 func TestExclusiveOrder(t *testing.T) {

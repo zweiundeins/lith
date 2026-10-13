@@ -165,3 +165,34 @@ func read(t *testing.T, dir, name string) string {
 	}
 	return string(b)
 }
+
+// Without a checkout, go.mod requires the lith version lith-new ran from,
+// so that go mod tidy finds it; with one, the placeholder stays and a
+// replace points at the checkout.
+func TestWriteVersion(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "visitors")
+	p, err := newProject(dir, "example.com/acme/visitor-log", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.version = "v0.4.2"
+	if err := p.write(template.FS); err != nil {
+		t.Fatal(err)
+	}
+	gomod := read(t, dir, "go.mod")
+	if !strings.Contains(gomod, "\tgithub.com/zweiundeins/lith v0.4.2\n") || strings.Contains(gomod, zeroVersion) || strings.Contains(gomod, "replace") {
+		t.Errorf("go.mod:\n%s", gomod)
+	}
+	var out bytes.Buffer
+	p.next(&out)
+	if !strings.Contains(out.String(), "requires lith v0.4.2") || strings.Contains(out.String(), "go get") {
+		t.Errorf("next steps:\n%s", out.String())
+	}
+
+	p.version = ""
+	out.Reset()
+	p.next(&out)
+	if !strings.Contains(out.String(), "go get github.com/zweiundeins/lith@latest") {
+		t.Errorf("next steps without a version:\n%s", out.String())
+	}
+}
