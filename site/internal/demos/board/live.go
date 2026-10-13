@@ -3,7 +3,6 @@ package board
 import (
 	"context"
 	"database/sql"
-	"sync/atomic"
 	"time"
 
 	"github.com/a-h/templ"
@@ -13,22 +12,11 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
-// hub is the site's live hub, which Mount hands over. The presence view
-// and the sweep ask it whose stream is open, and the board's view how
-// many streams watch it. Nil until Mount (in a test of the views alone).
-var hub atomic.Pointer[live.Hub]
-
-// watching is how many streams watch the view with the key.
-func watching(key string) int {
-	if h := hub.Load(); h != nil {
-		return h.Count(key)
-	}
-	return 0
+// streamOpen reports whether a tab's stream is open: every tab of the page
+// watches its own view, keyed by its tab.
+func streamOpen(ctx context.Context) func(tab string) bool {
+	return func(tab string) bool { return demo.Watching(ctx, demo.TabTopic(Slug, tab)) > 0 }
 }
-
-// streamOpen reports whether the tab's stream is open: every tab of the
-// page watches its own view, keyed by its tab.
-func streamOpen(tab string) bool { return watching(demo.TabTopic(Slug, tab)) > 0 }
 
 // renderPage draws the demo into the GET document. The stream's first
 // frames bring the same.
@@ -38,11 +26,11 @@ func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component
 	if err != nil {
 		return nil, err
 	}
-	people, err := present(ctx, q, streamOpen)
+	people, err := present(ctx, q, streamOpen(ctx))
 	if err != nil {
 		return nil, err
 	}
-	n := track.numbers(time.Now(), watching(boardKey))
+	n := track.numbers(time.Now(), demo.Watching(ctx, boardKey))
 	return Stage(b, n, people, WhoOf(v.Session), time.Now()), nil
 }
 
@@ -76,7 +64,7 @@ func boardView() live.View {
 				return nil, err
 			}
 			f.First, f.Next = append(f.First, v...), append(f.Next, v...)
-			track.rendered(time.Now(), b.Version, watching(boardKey))
+			track.rendered(time.Now(), b.Version, demo.Watching(ctx, boardKey))
 			return f, nil
 		},
 	}
@@ -100,7 +88,7 @@ func statsView() live.View {
 		Every:    time.Second,
 		Presence: true,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			return demo.Patch(ctx, Stats(track.numbers(time.Now(), watching(boardKey))))
+			return demo.Patch(ctx, Stats(track.numbers(time.Now(), demo.Watching(ctx, boardKey))))
 		},
 	}
 }
@@ -113,7 +101,7 @@ func hereView() live.View {
 		Topics:   []string{HereTopic},
 		Presence: true,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			people, err := present(ctx, demo.Querier(ctx, tx), streamOpen)
+			people, err := present(ctx, demo.Querier(ctx, tx), streamOpen(ctx))
 			if err != nil {
 				return nil, err
 			}
@@ -167,11 +155,11 @@ func renderEmbed(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Componen
 	if err != nil {
 		return nil, err
 	}
-	people, err := present(ctx, q, streamOpen)
+	people, err := present(ctx, q, streamOpen(ctx))
 	if err != nil {
 		return nil, err
 	}
-	return Embed(b, track.numbers(time.Now(), watching(boardKey)), people, time.Now()), nil
+	return Embed(b, track.numbers(time.Now(), demo.Watching(ctx, boardKey)), people, time.Now()), nil
 }
 
 // embedViews are what the landing page's stream watches for the slot. The

@@ -39,7 +39,7 @@ func boardView() live.View {
 				return nil, err
 			}
 			f.First, f.Next = append(f.First, v...), append(f.Next, v...)
-			track.rendered(time.Now(), b.Version, watching(boardKey))
+			track.rendered(time.Now(), b.Version, demo.Watching(ctx, boardKey))
 			return f, nil
 		},
 	}
@@ -95,7 +95,9 @@ The moved card's group gets `z-index: 1`, so it flies over the other lanes, and 
 A tab says hello when its stream opens, and the hello stores the tab with a hash of its session in `board_here`. The hub knows which of those tabs are still open: every tab watches a view of its own, keyed by its tab, and the hub counts the streams that watch a view.
 
 ```go title=live.go
-func streamOpen(tab string) bool { return watching(demo.TabTopic(Slug, tab)) > 0 }
+func streamOpen(ctx context.Context) func(tab string) bool {
+	return func(tab string) bool { return demo.Watching(ctx, demo.TabTopic(Slug, tab)) > 0 }
+}
 ```
 
 The row of avatars is a view with `Presence: true`, which the hub renders again whenever a stream starts or stops watching it, so an avatar leaves with its last tab.

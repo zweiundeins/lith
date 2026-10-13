@@ -131,12 +131,7 @@ func hereView() live.View {
 		Presence: true,
 		Every:    2 * time.Second,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			q := demo.Querier(ctx, tx)
-			in, err := instanceIn(ctx, q)
-			if err != nil {
-				return nil, err
-			}
-			list, err := painters(ctx, q, in.watchers(hereKey), time.Now())
+			list, err := painters(ctx, demo.Querier(ctx, tx), demo.Watchers(ctx, hereKey), time.Now())
 			if err != nil {
 				return nil, err
 			}

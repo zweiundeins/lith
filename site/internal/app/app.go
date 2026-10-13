@@ -215,7 +215,8 @@ func (a *App) Start() {
 	a.hubUp.Store(true)
 	go func() {
 		defer close(a.hubDone)
-		if err := a.hub.Run(a.hubCtx); err != nil {
+		// Every view's Render gets the hub in its ctx, for demo.Watching.
+		if err := a.hub.Run(demo.WithHub(a.hubCtx, a.hub)); err != nil {
 			a.log.Error("render loop", "err", err)
 		}
 		a.hubUp.Store(false)
@@ -281,6 +282,7 @@ func (a *App) SweepNow(ctx context.Context, now time.Time) error {
 			}))
 		}
 	}
+	ctx = demo.WithHub(ctx, a.hub) // a sweep's tx.Context() has it
 	var errs []error
 	for _, c := range cmds {
 		if err := a.w.Do(ctx, c); err != nil {

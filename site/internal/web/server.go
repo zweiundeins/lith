@@ -370,7 +370,7 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 
 // page renders a document in one read transaction, and writes nothing.
 func (s *Server) page(w http.ResponseWriter, r *http.Request, sh views.Shell, body func(context.Context, *sql.Tx) (templ.Component, error)) {
-	ctx := r.Context()
+	ctx := demo.WithHub(r.Context(), s.hub) // for demo.Watching in a Part's Render
 	var buf bytes.Buffer
 	err := s.db.View(ctx, func(tx *sql.Tx) error {
 		c, err := body(ctx, tx)

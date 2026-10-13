@@ -10,7 +10,6 @@ import (
 )
 
 func mount(k *demo.Kit) {
-	hub.Store(k.Hub)
 	k.Command("move", demo.Rate{Every: moveEvery, Burst: moveBurst}, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab, Op     string

@@ -9,7 +9,6 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/zweiundeins/lith/live"
-	"github.com/zweiundeins/lith/sqlite"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
 )
@@ -28,12 +27,12 @@ const (
 // session used last.
 func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component, error) {
 	q := demo.Querier(ctx, tx)
-	cells, in, err := cellsOf(ctx, q)
+	cells, _, err := cellsOf(ctx, q)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	tabs := in.watchers(hereKey)
+	tabs := demo.Watchers(ctx, hereKey)
 	if !slices.Contains(tabs, v.Tab) {
 		tabs = append(tabs, v.Tab)
 	}
@@ -94,12 +93,7 @@ func hereView() live.View {
 		Presence: true,
 		Every:    2 * time.Second,
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			q := demo.Querier(ctx, tx)
-			in, err := instanceIn(ctx, q)
-			if err != nil {
-				return nil, err
-			}
-			list, err := painters(ctx, q, in.watchers(hereKey), time.Now())
+			list, err := painters(ctx, demo.Querier(ctx, tx), demo.Watchers(ctx, hereKey), time.Now())
 			if err != nil {
 				return nil, err
 			}
@@ -123,16 +117,6 @@ func pulseView() live.View {
 			return demo.Patch(ctx, Activity(p))
 		},
 	}
-}
-
-// instanceIn finds the process's state of the canvas the transaction
-// reads.
-func instanceIn(ctx context.Context, q sqlite.Querier) (*instance, error) {
-	var epoch int64
-	if err := q.QueryRowContext(ctx, `SELECT epoch FROM canvas_board WHERE id = 1`).Scan(&epoch); err != nil {
-		return nil, err
-	}
-	return instanceOf(epoch), nil
 }
 
 // you marks the tab's own face in the list of painters. It is the tab's,

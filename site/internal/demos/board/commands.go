@@ -170,7 +170,7 @@ func sweep(tx *writer.Tx, now time.Time) error {
 	if err := resetIfQuiet(tx, now); err != nil {
 		return err
 	}
-	return forgetGone(tx, now, streamOpen)
+	return forgetGone(tx, now, streamOpen(tx.Context()))
 }
 
 // resetIfQuiet restores the starting layout when the last move is Quiet

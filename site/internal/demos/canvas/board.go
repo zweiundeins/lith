@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sqlite"
 )
 
@@ -52,12 +51,10 @@ func cellList(cells []int) string {
 	return string(append(b, ']'))
 }
 
-// instance is what the process keeps of one database's canvas: the hub
-// that serves its pages, and the board encoded as the cells attribute,
-// for one version. The site serves one canvas; its tests run several,
-// which the board's epoch tells apart.
+// instance is what the process keeps of one database's canvas: the board
+// encoded as the cells attribute, for one version. The site serves one
+// canvas; its tests run several, which the board's epoch tells apart.
 type instance struct {
-	hub     atomic.Pointer[live.Hub]
 	encoded atomic.Pointer[encoded]
 }
 
@@ -74,15 +71,6 @@ func instanceOf(epoch int64) *instance {
 	}
 	in, _ := instances.LoadOrStore(epoch, &instance{})
 	return in.(*instance)
-}
-
-// watchers are the tab ids of the streams on the view: nil where no hub
-// serves the canvas, as in a test of the views.
-func (in *instance) watchers(key string) []string {
-	if h := in.hub.Load(); h != nil {
-		return h.Watchers(key)
-	}
-	return nil
 }
 
 // cellsOf reads the board as its cells attribute, one hex digit per cell:

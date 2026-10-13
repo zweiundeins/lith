@@ -51,6 +51,7 @@ A command reads and writes in its `Apply(tx *writer.Tx)`, touches the topics it 
 
 - A shared view's key carries nothing of the viewer (`guestbook:entries`); a tab's own view is keyed by `demo.TabTopic(slug, tab)` and renders from `demo.LoadTab`.
 - `demo.Patch(ctx, component)` renders an event that morphs elements by their ids, `demo.Signals(v)` one that patches signals, `demo.Querier(ctx, tx)` runs queries on the render worker's prepared statements.
+- Who is here: `demo.Watching(ctx, key)` counts the streams on a view and `demo.Watchers(ctx, key)` lists their tab ids, with the ctx of a `Part`'s Render, a view's Render or a sweep (`tx.Context()`); a view that shows them sets `Presence: true`. Never keep the hub in a package variable: tests run several sites in one process.
 - The page's signals live under one local object, `$_<slug>` (`data-signals="{_guestbook: {...}}"`), and actions send `$_tab`, the page's tab id. A button that acts makes an op id, stays pending (`aria-busy`, read-only inputs) until the tab's view patches the same op id back, and shows a failed request (`datastar-fetch` with `error`) next to the form: the guestbook's `expr.go` has each expression.
 - Inputs in a region the stream morphs need `data-ignore-morph` and their value in a signal; keep forms out of morphed regions, as the guestbook does.
 
