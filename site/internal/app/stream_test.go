@@ -198,6 +198,11 @@ func TestShotsStream(t *testing.T) {
 		p.Navigate(t, base+"/")
 		p.Eval(t, "document.fonts.ready.then(() => true)", nil)
 		p.Wait(t, `/[0-9]/.test(document.querySelector('.sx-embed__nums div:last-child dd').textContent)`, 10*time.Second)
+		if cookie == "" {
+			// Nothing else on the page sends frames yet: its first frame only.
+			p.Eval(t, `document.querySelector('.site-header').style.visibility = 'hidden'`, nil)
+			p.ShotElement(t, "#hypermedia", filepath.Join(dir, name+"-quiet.png"), 1)
+		}
 		for i := range 4 {
 			post(t, c, base+"/cmd/guestbook/sign", `{"tab":"shots","op":"`+name+string(rune('a'+i))+`","name":"Ada","message":"Frame `+name+string(rune('a'+i))+`"}`)
 			time.Sleep(1200 * time.Millisecond)
