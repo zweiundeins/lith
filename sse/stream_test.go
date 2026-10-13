@@ -16,6 +16,8 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
+
+	"github.com/zweiundeins/lith/internal/shutdown"
 )
 
 // recorder is a ResponseWriter with write deadlines. A stalled recorder
@@ -79,10 +81,54 @@ func (r *recorder) stall(on bool) {
 	r.stalled = on
 }
 
+func (r *recorder) writeDeadline() time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.deadline
+}
+
 func (r *recorder) bytes() []byte {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return bytes.Clone(r.body.Bytes())
+}
+
+// endedContext is a request context that can end, as Done and Err tell,
+// without running the functions given to context.AfterFunc: the moment
+// after net/http ends a request, before the stream's abort has run.
+type endedContext struct {
+	context.Context
+	done chan struct{}
+
+	mu  sync.Mutex
+	err error
+}
+
+func newEndedContext() *endedContext {
+	return &endedContext{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *endedContext) Done() <-chan struct{} { return c.done }
+
+func (c *endedContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+func (c *endedContext) AfterFunc(func()) func() bool {
+	var once sync.Once
+	return func() (stopped bool) {
+		once.Do(func() { stopped = true })
+		return stopped
+	}
+}
+
+func (c *endedContext) end() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.err = context.Canceled
+	close(c.done)
 }
 
 func request(ctx context.Context, acceptEncoding string) *http.Request {
@@ -300,6 +346,146 @@ func TestContextEndAbortsWrite(t *testing.T) {
 	}
 	if err := s.Write(Comment("")); err == nil {
 		t.Fatal("wrote after the stream ended")
+	}
+}
+
+// leaving is a client that goes away during a write once leave is set:
+// like net/http, it ends the request's context before the write fails.
+type leaving struct {
+	*recorder
+	leave func()
+}
+
+func (l *leaving) Write(p []byte) (int, error) {
+	if l.leave != nil {
+		l.leave()
+		return 0, errors.New("write: broken pipe")
+	}
+	return l.recorder.Write(p)
+}
+
+// A write that fails because the client left reports the end of the
+// stream, not the I/O error, even when the stream's abort has not run.
+func TestClientLeavingMidWrite(t *testing.T) {
+	for _, enc := range []string{Zstd, ""} {
+		ctx := newEndedContext()
+		w := &leaving{recorder: newRecorder()}
+		s, err := Open(w, request(ctx, enc), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.leave = ctx.end
+		if err := s.Write(Comment("x")); !errors.Is(err, context.Canceled) {
+			t.Fatalf("encoding %q: the write failed with %v", enc, err)
+		}
+		s.Close()
+	}
+}
+
+// Close sends no end frame once the request is over, even when the
+// stream's abort has not run yet.
+func TestCloseAfterContextEnd(t *testing.T) {
+	ctx := newEndedContext()
+	w := newRecorder()
+	s, err := Open(w, request(ctx, "zstd"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	sent := len(w.bytes())
+	ctx.end()
+	s.Close()
+	if n := len(w.bytes()) - sent; n > 0 {
+		t.Fatalf("Close wrote %d bytes after the request ended", n)
+	}
+}
+
+// When the request's context ends during Close's end frame, that write
+// fails at once like any other.
+func TestContextEndAbortsClose(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, "zstd"), Options{WriteTimeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	w.stall(true)
+	done := make(chan error, 1)
+	go func() { done <- s.Close() }()
+	<-w.blocked
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Close returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close outlived its stream")
+	}
+}
+
+// When the hub stops (shutdown.Cause) while the stream is idle, the
+// response stays whole: no write deadline is left behind, later events
+// are refused, and Close still ends the compressed stream.
+func TestShutdownEndsStreamCleanly(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, Zstd), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	cancel(shutdown.Cause)
+	s.abort()
+	if err := s.Write(Comment("y")); !errors.Is(err, shutdown.Cause) {
+		t.Fatalf("a write after the shutdown: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if d := w.writeDeadline(); !d.IsZero() {
+		t.Fatalf("left a write deadline of %v", d)
+	}
+	got, err := io.ReadAll(decoder(t, Zstd, w.bytes()))
+	if err != nil || string(got) != ": x\n\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+// When the hub stops, a write under way fails at once, as when the client
+// leaves, and Close sends nothing after it.
+func TestShutdownCutsWriteUnderWay(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, Zstd), Options{WriteTimeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.stall(true)
+	done := make(chan error, 1)
+	go func() { done <- s.Write(Comment("x")) }()
+	<-w.blocked
+	cancel(shutdown.Cause)
+	select {
+	case err := <-done:
+		if !errors.Is(err, shutdown.Cause) {
+			t.Fatalf("the write failed with %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the write outlived the shutdown")
+	}
+	sent := len(w.bytes())
+	w.stall(false)
+	s.Close()
+	if n := len(w.bytes()) - sent; n > 0 {
+		t.Fatalf("Close wrote %d bytes after a cut write", n)
 	}
 }
 

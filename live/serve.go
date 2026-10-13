@@ -7,13 +7,15 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/zweiundeins/lith/internal/shutdown"
 	"github.com/zweiundeins/lith/sse"
 )
 
 // Spec describes a stream.
 type Spec struct {
 	// ID names the stream for Watch and Unwatch, usually the tab id. A
-	// stream with the ID of one still open replaces it. Empty: none.
+	// stream with the ID of one still open replaces it if its request
+	// came later, and else ends at once. Empty: none.
 	ID string
 	// Views are the views the stream watches from the start. Views that
 	// change in the same tick are sent in this order.
@@ -42,6 +44,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	for _, v := range spec.Views {
 		check(v)
 	}
+	seq := h.seq.Add(1)
 	h.mu.Lock()
 	switch {
 	case h.done.Err() != nil:
@@ -56,9 +59,10 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	h.streams++
 	h.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancelCause := context.WithCancelCause(r.Context())
+	cancel := func() { cancelCause(nil) }
 	defer cancel()
-	defer context.AfterFunc(h.done, cancel)()
+	defer context.AfterFunc(h.done, func() { cancelCause(shutdown.Cause) })()
 	st, err := sse.Open(w, r.WithContext(ctx), h.sse)
 	if err != nil {
 		h.mu.Lock()
@@ -68,13 +72,14 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		case r.Context().Err() != nil:
 			return nil
 		case h.done.Err() != nil:
+			w.Header().Del("Content-Encoding")
 			http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
 			return ErrStopped
 		}
 		return err
 	}
 	defer st.Close()
-	s := &stream{seq: h.seq.Add(1), id: spec.ID, write: spec.Write, cancel: cancel, wake: make(chan struct{}, 1)}
+	s := &stream{seq: seq, id: spec.ID, write: spec.Write, cancel: cancel, wake: make(chan struct{}, 1)}
 	h.attach(s, spec.Views)
 	defer h.detach(s)
 	err = h.pump(ctx, s, st)
@@ -87,7 +92,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 func (h *Hub) attach(s *stream, views []View) {
 	h.mu.Lock()
 	if s.id != "" {
-		if old := h.byID[s.id]; old != nil {
+		old := h.byID[s.id]
+		if old != nil && old.seq > s.seq {
+			h.mu.Unlock()
+			s.cancel()
+			return
+		}
+		if old != nil {
 			old.cancel()
 		}
 		h.byID[s.id] = s
@@ -121,55 +132,61 @@ func (h *Hub) detach(s *stream) {
 	}
 }
 
+// unwatched reports whether the stream stopped watching w's view.
+func (s *stream) unwatched(w *watch) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return w.gone
+}
+
 // pump sends the stream's new frames as they come, and a heartbeat when
 // it has been silent for h.heartbeat.
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
-	var batch []*watch
+	var batch []offer
 	var parts [][]byte
 	for {
 		s.mu.Lock()
-		batch = batch[:0]
 		for _, w := range s.watches {
-			if w.pending {
-				w.pending = false
-				batch = append(batch, w)
+			if w.next != nil {
+				batch = append(batch, offer{w, w.next})
+				w.next = nil
 			}
 		}
 		s.mu.Unlock()
 
 		_, wire := st.Sent()
-		n := 0
-		for _, w := range batch {
-			f := w.v.frame.Load()
-			if f == nil || f.seq == w.sent {
+		for _, o := range batch {
+			if s.unwatched(o.w) {
 				continue
 			}
-			w.sent = f.seq
-			n++
 			if s.write != nil {
-				if err := s.write(st, w.v.key, f.value); err != nil {
+				if err := s.write(st, o.w.v.key, o.f.value); err != nil {
 					return err
 				}
+				h.sent.Add(1)
 				continue
 			}
-			b, ok := f.value.([]byte)
+			b, ok := o.f.value.([]byte)
 			if !ok {
-				h.log.Error("live: a frame is not []byte and the stream has no Write", "view", w.v.key, "type", fmt.Sprintf("%T", f.value))
+				h.log.Error("live: a frame is not []byte and the stream has no Write", "view", o.w.v.key, "type", fmt.Sprintf("%T", o.f.value))
 				continue
 			}
 			parts = append(parts, b)
 		}
+		clear(batch)
+		batch = batch[:0]
 		if len(parts) > 0 {
 			err := st.Write(parts...)
+			n := len(parts)
 			clear(parts)
 			parts = parts[:0]
 			if err != nil {
 				return err
 			}
+			h.sent.Add(int64(n))
 		}
-		h.sent.Add(int64(n))
 		if _, now := st.Sent(); now != wire {
 			idle.Reset(h.heartbeat)
 		}

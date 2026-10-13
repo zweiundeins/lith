@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,6 +48,70 @@ func testDB(t *testing.T, pool int) (write, read *sql.DB) {
 	})
 	return write, read
 }
+
+// fakeDB is a read pool for views that do not query. A transaction
+// begins unless the pool is down or its connection is the broken one,
+// and a connection opens unless the pool is down or has opened maxOpen.
+type fakeDB struct {
+	*sql.DB
+	broken  int64 // which connection, counted in the order they open; 0: none
+	maxOpen int64 // 0: no limit
+	down    atomic.Bool
+	opened  atomic.Int64
+}
+
+func newFakeDB(t *testing.T, pool int, broken, maxOpen int64) *fakeDB {
+	d := &fakeDB{broken: broken, maxOpen: maxOpen}
+	d.DB = sql.OpenDB(fakeConnector{d})
+	d.SetMaxOpenConns(pool)
+	t.Cleanup(func() { d.Close() })
+	return d
+}
+
+type fakeConnector struct{ d *fakeDB }
+
+func (c fakeConnector) Connect(context.Context) (driver.Conn, error) {
+	if c.d.down.Load() || c.d.maxOpen > 0 && c.d.opened.Load() >= c.d.maxOpen {
+		return nil, errors.New("fake: cannot connect")
+	}
+	n := c.d.opened.Add(1)
+	return &fakeConn{d: c.d, broken: n == c.d.broken}, nil
+}
+
+func (c fakeConnector) Driver() driver.Driver { return fakeDriver{} }
+
+type fakeDriver struct{}
+
+func (fakeDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("fake: open with the connector")
+}
+
+type fakeConn struct {
+	d      *fakeDB
+	broken bool
+}
+
+func (c *fakeConn) Close() error { return nil }
+
+func (c *fakeConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("fake: no statements")
+}
+
+func (c *fakeConn) Begin() (driver.Tx, error) {
+	return c.BeginTx(context.Background(), driver.TxOptions{})
+}
+
+func (c *fakeConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	if c.broken || c.d.down.Load() {
+		return nil, errors.New("fake: cannot begin")
+	}
+	return fakeTx{}, nil
+}
+
+type fakeTx struct{}
+
+func (fakeTx) Commit() error   { return nil }
+func (fakeTx) Rollback() error { return nil }
 
 func increment(t *testing.T, db *sql.DB) {
 	t.Helper()
@@ -163,14 +229,36 @@ func (c *client) bytes() []byte {
 // serve opens a stream for spec, uncompressed unless acceptEncoding says
 // otherwise.
 func serve(h *Hub, spec Spec, acceptEncoding string) *client {
+	return serveThrough(h, spec, acceptEncoding, nil)
+}
+
+// serveThrough is serve with Serve writing to what wrap makes of the
+// client.
+func serveThrough(h *Hub, spec Spec, acceptEncoding string, wrap func(*client) http.ResponseWriter) *client {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &client{header: http.Header{}, cancel: cancel, done: make(chan error, 1), blocked: make(chan struct{})}
 	r := httptest.NewRequestWithContext(ctx, "GET", "/live", nil)
 	if acceptEncoding != "" {
 		r.Header.Set("Accept-Encoding", acceptEncoding)
 	}
-	go func() { c.done <- h.Serve(c, r, spec) }()
+	var w http.ResponseWriter = c
+	if wrap != nil {
+		w = wrap(c)
+	}
+	go func() { c.done <- h.Serve(w, r, spec) }()
 	return c
+}
+
+// returned waits for Serve's result.
+func (c *client) returned(t *testing.T) error {
+	t.Helper()
+	select {
+	case err := <-c.done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return")
+		return nil
+	}
 }
 
 // leave ends the stream as a client does that goes away, and waits for

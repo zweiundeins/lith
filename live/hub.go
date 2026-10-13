@@ -52,6 +52,12 @@ type Options struct {
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
+	// RenderTimeout is how long a Render may take (default 2s): its ctx
+	// ends then, and a Render still running is logged. Nothing stops a
+	// Render that ignores its ctx. It holds up only its worker while the
+	// others render the rest of the tick, but the tick, and with it every
+	// frame, waits until it returns.
+	RenderTimeout time.Duration
 	// Log receives render errors and overrun reports (default
 	// slog.Default()).
 	Log *slog.Logger
@@ -67,11 +73,12 @@ type View struct {
 	Key string
 	// Topics mark the view dirty when a commit touches one of them.
 	Topics []string
-	// Render renders the view in the worker's read transaction. Its frame
-	// goes to every stream that watches the view and must not change
-	// afterwards. When Render fails, the error is logged and the previous
-	// frame stays; a nil frame also keeps the previous one, and so does a
-	// []byte frame equal to it.
+	// Render renders the view in the worker's read transaction, with a
+	// ctx that ends after Options.RenderTimeout. Its frame goes to every
+	// stream that watches the view and must not change afterwards. When
+	// Render fails, the error is logged and the previous frame stays; a
+	// nil frame also keeps the previous one, and so does a []byte frame
+	// equal to it.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
@@ -95,14 +102,15 @@ type Stats struct {
 // Hub renders views and streams them. Create it with New and start it
 // with Run.
 type Hub struct {
-	read       *sql.DB
-	tick       time.Duration
-	workers    int
-	maxStreams int
-	heartbeat  time.Duration
-	log        *slog.Logger
-	sse        sse.Options
-	sampleFor  time.Duration // how long tick durations are sampled after an overrun
+	read          *sql.DB
+	tick          time.Duration
+	workers       int
+	maxStreams    int
+	heartbeat     time.Duration
+	renderTimeout time.Duration
+	log           *slog.Logger
+	sse           sse.Options
+	sampleFor     time.Duration // how long tick durations are sampled after an overrun
 
 	done    context.Context // ends when the hub stops
 	stop    context.CancelFunc
@@ -122,6 +130,7 @@ type Hub struct {
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
+	report    *time.Timer
 }
 
 type view struct {
@@ -138,21 +147,19 @@ type view struct {
 	dirty   bool
 	dead    bool      // no longer watched
 	due     time.Time // when Every renders it again
-	seq     uint64
 }
 
 type frame struct {
-	seq   uint64
 	value any
 }
 
 // watch is one stream watching one view.
 type watch struct {
-	s       *stream
-	v       *view
-	i       int    // index in v.watches, guarded by Hub.mu
-	pending bool   // a frame not sent yet; guarded by s.mu
-	sent    uint64 // seq of the frame last sent; only the stream's goroutine
+	s    *stream
+	v    *view
+	i    int    // index in v.watches, guarded by Hub.mu
+	next *frame // the newest frame not sent yet, guarded by s.mu
+	gone bool   // unwatched, guarded by s.mu
 }
 
 type stream struct {
@@ -182,6 +189,9 @@ func New(o Options) *Hub {
 	if o.Heartbeat <= 0 {
 		o.Heartbeat = 20 * time.Second
 	}
+	if o.RenderTimeout <= 0 {
+		o.RenderTimeout = 2 * time.Second
+	}
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
@@ -190,21 +200,22 @@ func New(o Options) *Hub {
 	}
 	done, stop := context.WithCancel(context.Background())
 	return &Hub{
-		read:       o.Read,
-		tick:       o.Tick,
-		workers:    o.Workers,
-		maxStreams: o.MaxStreams,
-		heartbeat:  o.Heartbeat,
-		log:        o.Log,
-		sse:        o.SSE,
-		sampleFor:  20 * time.Second,
-		done:       done,
-		stop:       stop,
-		wake:       make(chan struct{}, 1),
-		views:      map[string]*view{},
-		topics:     map[string]map[*view]struct{}{},
-		every:      map[*view]struct{}{},
-		byID:       map[string]*stream{},
+		read:          o.Read,
+		tick:          o.Tick,
+		workers:       o.Workers,
+		maxStreams:    o.MaxStreams,
+		heartbeat:     o.Heartbeat,
+		renderTimeout: o.RenderTimeout,
+		log:           o.Log,
+		sse:           o.SSE,
+		sampleFor:     20 * time.Second,
+		done:          done,
+		stop:          stop,
+		wake:          make(chan struct{}, 1),
+		views:         map[string]*view{},
+		topics:        map[string]map[*view]struct{}{},
+		every:         map[*view]struct{}{},
+		byID:          map[string]*stream{},
 	}
 }
 
@@ -267,8 +278,9 @@ func (h *Hub) Watch(streamID string, v View) bool {
 	return true
 }
 
-// Unwatch stops the stream with this ID from watching the view. It
-// reports whether the stream watched it.
+// Unwatch stops the stream with this ID from watching the view: after it
+// returns, the stream sends no frame of the view, unless it is writing
+// one already. It reports whether the stream watched the view.
 func (h *Hub) Unwatch(streamID, key string) bool {
 	h.mu.Lock()
 	s := h.byID[streamID]
@@ -281,8 +293,10 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 		h.mu.Unlock()
 		return false
 	}
-	marked := h.drop(s.watches[i])
+	w := s.watches[i]
+	marked := h.drop(w)
 	s.mu.Lock()
+	w.gone, w.next = true, nil
 	s.watches = slices.Delete(s.watches, i, i+1)
 	s.mu.Unlock()
 	h.mu.Unlock()
@@ -368,11 +382,12 @@ func (h *Hub) watch(s *stream, def View) bool {
 	}
 	w := &watch{s: s, v: v, i: len(v.watches)}
 	v.watches = append(v.watches, w)
+	f := v.frame.Load()
 	s.mu.Lock()
 	s.watches = append(s.watches, w)
-	w.pending = v.frame.Load() != nil
+	w.next = f
 	s.mu.Unlock()
-	if w.pending {
+	if f != nil {
 		s.poke()
 	}
 	return marked

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -13,7 +14,9 @@ import (
 	"time"
 )
 
-// Run renders views until ctx ends. Then it ends every stream at once and
+// Run renders views until ctx ends. Then it ends every stream: a write
+// under way fails at once, and any other stream ends its response
+// cleanly, compressed stream and all, within its write timeout. Run
 // returns nil when its workers are done; shutdown never waits for a
 // stream. It returns an error only when it cannot start.
 func (h *Hub) Run(ctx context.Context) error {
@@ -50,6 +53,7 @@ func (h *Hub) Run(ctx context.Context) error {
 		wg.Go(w.run)
 	}
 	h.loop(ctx, ws)
+	h.stopSampling()
 	for _, w := range ws {
 		close(w.start)
 	}
@@ -130,7 +134,13 @@ type tick struct {
 	next   atomic.Int64 // the queue: index of the next view to render
 	wg     sync.WaitGroup
 
-	offers []*watch
+	offers []offer
+}
+
+// offer is a new frame for one stream's watch.
+type offer struct {
+	w *watch
+	f *frame
 }
 
 // run renders the dirty views and publishes their frames. It reports
@@ -175,30 +185,37 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 
 // publish stores the new frames and offers them to their streams. A
 // stream gets all of its offers of the tick at once, so the views that
-// changed together go out together.
+// changed together go out together. Views that no worker took from the
+// queue are dirty again, for the next tick.
 func (h *Hub) publish(t *tick) {
+	taken := min(int(t.next.Load()), len(t.views))
 	h.mu.Lock()
-	for i, v := range t.views {
+	for i, v := range t.views[:taken] {
 		f := t.frames[i]
 		if t.errs[i] != nil || f == nil || same(v.frame.Load(), f) {
 			continue
 		}
-		v.seq++
-		v.frame.Store(&frame{seq: v.seq, value: f})
-		t.offers = append(t.offers, v.watches...)
+		nf := &frame{value: f}
+		v.frame.Store(nf)
+		for _, w := range v.watches {
+			t.offers = append(t.offers, offer{w, nf})
+		}
+	}
+	for _, v := range t.views[taken:] {
+		h.mark(v)
 	}
 	h.mu.Unlock()
 
-	slices.SortFunc(t.offers, func(a, b *watch) int { return cmp.Compare(a.s.seq, b.s.seq) })
+	slices.SortFunc(t.offers, func(a, b offer) int { return cmp.Compare(a.w.s.seq, b.w.s.seq) })
 	for i := 0; i < len(t.offers); {
-		s := t.offers[i].s
+		s := t.offers[i].w.s
 		s.mu.Lock()
-		for ; i < len(t.offers) && t.offers[i].s == s; i++ {
-			w := t.offers[i]
-			if w.pending {
+		for ; i < len(t.offers) && t.offers[i].w.s == s; i++ {
+			o := t.offers[i]
+			if o.w.next != nil {
 				h.dropped.Add(1)
 			}
-			w.pending = true
+			o.w.next = o.f
 		}
 		s.mu.Unlock()
 		s.poke()
@@ -217,7 +234,8 @@ func (h *Hub) publish(t *tick) {
 }
 
 // worker renders views from the tick's queue, all in one read
-// transaction per tick, on a connection it holds for its lifetime.
+// transaction per tick, on a connection it holds for its lifetime. A
+// worker whose transaction does not begin takes no view from the queue.
 type worker struct {
 	h     *Hub
 	conn  *sql.Conn
@@ -232,21 +250,25 @@ func (w *worker) run() {
 }
 
 func (w *worker) render(t *tick) {
+	if int(t.next.Load()) >= len(t.views) {
+		return
+	}
 	var tx *sql.Tx
-	var txErr error
+	if w.conn != nil {
+		var err error
+		if tx, err = w.begin(t.ctx); err != nil {
+			if t.ctx.Err() == nil {
+				w.h.log.Error("live: beginning a read transaction", "err", err)
+			}
+			return
+		}
+	}
 	for {
 		i := int(t.next.Add(1)) - 1
 		if i >= len(t.views) {
 			break
 		}
-		if tx == nil && txErr == nil && w.conn != nil {
-			tx, txErr = w.begin(t.ctx)
-		}
-		if txErr != nil {
-			t.errs[i] = txErr
-			continue
-		}
-		t.frames[i], t.errs[i] = render(t.ctx, t.views[i], tx)
+		t.frames[i], t.errs[i] = w.h.render(t.ctx, t.views[i], tx)
 		w.h.renders.Add(1)
 	}
 	if tx != nil {
@@ -264,13 +286,34 @@ func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
 	if err == nil || ctx.Err() != nil {
 		return tx, err
 	}
-	w.conn.Close()
+	// The pool discards a connection on ErrBadConn; Close would keep it.
+	w.conn.Raw(func(any) error { return driver.ErrBadConn })
 	c, err2 := w.h.read.Conn(ctx)
 	if err2 != nil {
 		return nil, errors.Join(err, err2)
 	}
 	w.conn = c
 	return c.BeginTx(ctx, ro)
+}
+
+// render runs v's Render under the render timeout, and logs it when it
+// runs over.
+func (h *Hub) render(ctx context.Context, v *view, tx *sql.Tx) (any, error) {
+	rctx, cancel := context.WithTimeout(ctx, h.renderTimeout)
+	defer cancel()
+	overrun := func() {
+		if ctx.Err() == nil {
+			h.log.Warn("live: render overrun", "view", v.key, "timeout", h.renderTimeout)
+		}
+	}
+	stop := context.AfterFunc(rctx, overrun)
+	f, err := render(rctx, v, tx)
+	// A Render that returns as its ctx ends can stop the AfterFunc before
+	// it starts.
+	if stop() && rctx.Err() != nil {
+		overrun()
+	}
+	return f, err
 }
 
 func render(ctx context.Context, v *view, tx *sql.Tx) (f any, err error) {
@@ -296,16 +339,31 @@ func (h *Hub) measure(d time.Duration) {
 			return
 		}
 		h.samples = make([]time.Duration, 0, 64)
-		time.AfterFunc(h.sampleFor, h.reportOverruns)
+		h.report = time.AfterFunc(h.sampleFor, h.reportOverruns)
 	}
 	h.samples = append(h.samples, d)
 }
 
+// stopSampling drops the samples without a report.
+func (h *Hub) stopSampling() {
+	h.samplesMu.Lock()
+	defer h.samplesMu.Unlock()
+	if h.report != nil {
+		h.report.Stop()
+	}
+	h.samples = nil
+}
+
+// reportOverruns logs the samples. It holds the lock while it logs, so
+// stopSampling waits for a report under way.
 func (h *Hub) reportOverruns() {
 	h.samplesMu.Lock()
+	defer h.samplesMu.Unlock()
 	s := h.samples
 	h.samples = nil
-	h.samplesMu.Unlock()
+	if len(s) == 0 {
+		return
+	}
 	slices.Sort(s)
 	p := func(q int) time.Duration { return s[q*(len(s)-1)/100] }
 	h.log.Warn("live: tick overrun", "tick", h.tick, "n", len(s),

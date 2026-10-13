@@ -30,6 +30,8 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
+
+	"github.com/zweiundeins/lith/internal/shutdown"
 )
 
 // Options tune a stream. The zero value is ready to use.
@@ -87,7 +89,8 @@ type Stream struct {
 	err      error
 
 	mu      sync.Mutex
-	aborted bool
+	writing bool // a write is under way
+	closing bool // Close is writing the end frame
 	closed  bool // after Close, abort leaves the response alone
 }
 
@@ -175,17 +178,21 @@ func (s *Stream) Write(events ...[]byte) error {
 	if n == 0 {
 		return nil
 	}
-	s.in += int64(n)
+	if s.ctx.Err() != nil {
+		return s.ended()
+	}
 	if s.enc == nil {
+		s.in += int64(n)
 		return s.send(events...)
 	}
 	if s.opt.Compress != nil {
 		select {
 		case s.opt.Compress <- struct{}{}:
 		case <-s.ctx.Done():
-			return s.fail(context.Cause(s.ctx))
+			return s.ended()
 		}
 	}
+	s.in += int64(n)
 	s.buf.Reset()
 	var err error
 	for _, e := range events {
@@ -212,15 +219,18 @@ func (s *Stream) Close() error {
 	if s.stop == nil {
 		return nil
 	}
-	s.stop()
-	s.stop = nil
 	var err error
-	if s.enc != nil && s.err == nil && !s.isAborted() {
+	if s.enc != nil && s.err == nil && (s.ctx.Err() == nil || s.shuttingDown()) {
+		s.mu.Lock()
+		s.closing = true
+		s.mu.Unlock()
 		s.buf.Reset()
 		if err = s.enc.Close(); err == nil && s.buf.Len() > 0 {
 			err = s.send(s.buf.Bytes())
 		}
 	}
+	s.stop()
+	s.stop = nil
 	s.enc = nil
 	s.buf = bytes.Buffer{}
 	if s.err == nil {
@@ -237,23 +247,55 @@ func (s *Stream) Close() error {
 // deadline passes, even while nothing is being written.
 func (s *Stream) send(chunks ...[]byte) error {
 	due := time.Now().Add(s.opt.WriteTimeout)
-	if err := s.deadline(due); err != nil {
+	if err := s.start(due); err != nil {
 		return s.fail(err)
 	}
 	for _, c := range chunks {
 		n, err := s.w.Write(c)
 		s.out += int64(n)
 		if err != nil {
-			return s.fail(s.why(err, due))
+			return s.fail(s.finish(s.why(err, due)))
 		}
 	}
 	if err := s.rc.Flush(); err != nil {
-		return s.fail(s.why(err, due))
+		return s.fail(s.finish(s.why(err, due)))
 	}
-	if err := s.deadline(time.Time{}); err != nil {
+	if err := s.finish(nil); err != nil {
 		return s.fail(err)
 	}
 	return nil
+}
+
+// start sets the deadline of a write that begins. Once the request's
+// context has ended it refuses, but for the end frame of a stream that
+// shuts down.
+func (s *Stream) start(due time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ctx.Err() != nil && !(s.closing && s.shuttingDown()) {
+		return context.Cause(s.ctx)
+	}
+	if err := s.deadline(due); err != nil {
+		return err
+	}
+	s.writing = true
+	return nil
+}
+
+// finish ends a write that failed with err, or else clears its deadline.
+// A write that the end of the request's context overtook fails even so,
+// unless the stream shuts down: its client is still there.
+func (s *Stream) finish(err error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writing = false
+	if err != nil {
+		return err
+	}
+	if s.ctx.Err() != nil && !s.shuttingDown() {
+		return context.Cause(s.ctx)
+	}
+	return s.deadline(time.Time{})
 }
 
 // why names the cause of a failed write: the client took no bytes until
@@ -263,43 +305,50 @@ func (s *Stream) why(err error, due time.Time) error {
 	if !time.Now().Before(due) {
 		return fmt.Errorf("sse: the client took no bytes for %v: %w", s.opt.WriteTimeout, os.ErrDeadlineExceeded)
 	}
-	if s.isAborted() {
+	// net/http ends the context before a write to a client that left
+	// fails, while abort may not have run yet.
+	if s.ctx.Err() != nil {
 		return context.Cause(s.ctx)
 	}
 	return err
 }
 
-// deadline sets the write deadline (zero: none), unless the stream has
-// been aborted.
+// deadline sets the write deadline (zero: none). s.mu is held.
 func (s *Stream) deadline(t time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.aborted {
-		return context.Cause(s.ctx)
-	}
 	if err := s.rc.SetWriteDeadline(t); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return err
 	}
 	return nil
 }
 
-// abort runs when the request's context ends: a write in progress fails
-// at once, and no write starts after it. Once Close has returned, the
-// handler may have returned too, and the response is no longer ours.
+// abort runs when the request's context ends: a write under way fails at
+// once, except the end frame of a stream that shuts down. It leaves an
+// idle response alone, so that the response can still end cleanly. Once
+// Close has returned, the handler may have returned too, and the response
+// is no longer ours.
 func (s *Stream) abort() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
+	if s.closed || !s.writing || (s.closing && s.shuttingDown()) {
 		return
 	}
-	s.aborted = true
 	_ = s.rc.SetWriteDeadline(time.Now())
 }
 
-func (s *Stream) isAborted() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.aborted
+// shuttingDown reports whether the request's context ended because the
+// hub stops (shutdown.Cause), while the client is still there.
+func (s *Stream) shuttingDown() bool {
+	return errors.Is(context.Cause(s.ctx), shutdown.Cause)
+}
+
+// ended is the error of a write that the end of the request's context
+// refused before it began. It breaks the stream, unless the stream shuts
+// down: Close still ends that one cleanly.
+func (s *Stream) ended() error {
+	if s.shuttingDown() {
+		return context.Cause(s.ctx)
+	}
+	return s.fail(context.Cause(s.ctx))
 }
 
 func (s *Stream) fail(err error) error {
