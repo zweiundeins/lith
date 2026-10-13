@@ -1,0 +1,267 @@
+/*
+ * View transitions. Every navigation between two pages of the site is a
+ * cross-document view transition, and transitions.js gives it a type in
+ * pagereveal, from where the reader comes and goes:
+ *
+ *   forward, backward   between docs pages, by their order in the
+ *                       navigation: the article slides the way you read
+ *   zoom-in, zoom-out   from the landing page or /demos into a page, and
+ *                       back out
+ *   fade                every other move
+ *   theme               the theme and the style switch (same document): a
+ *                       circle that opens from the switch
+ *
+ * A transition without a type is a stream's patch (sse.Patch's
+ * ViewTransition, Datastar's useViewTransition): the page swaps at once,
+ * and only elements with a name move.
+ *
+ * Names (unique on a page): site-header, logo, docs-nav, docs-nav-marker,
+ * page-title; demo-<slug>, demo-<slug>-title and demo-<slug>-art for a
+ * demo's card and the head of its page; inside a demo,
+ * <slug>-<what>-<id>, with view-transition-class <slug>-<what>.
+ */
+@view-transition {
+	navigation: auto;
+}
+
+@layer components {
+	/* Every group glides into place. */
+	::view-transition-group(*) {
+		animation-duration: var(--lith-dur-4);
+		animation-timing-function: var(--lith-ease-glide);
+	}
+
+	/* Without a type the page swaps at once. */
+	::view-transition-old(root),
+	::view-transition-new(root) {
+		animation: none;
+		mix-blend-mode: normal;
+	}
+
+	/* The chrome stays where it is and never fades: the header, the logo,
+	 * the docs navigation and its marker swap their snapshots. */
+	::view-transition-old(site-header),
+	::view-transition-new(site-header),
+	::view-transition-old(logo),
+	::view-transition-new(logo),
+	::view-transition-old(docs-nav),
+	::view-transition-new(docs-nav),
+	::view-transition-old(docs-nav-marker),
+	::view-transition-new(docs-nav-marker) {
+		animation: none;
+		mix-blend-mode: normal;
+	}
+
+	/* An element on one side only fades: out quickly, in a little later. */
+	::view-transition-old(*):only-child {
+		animation: vt-fade-out var(--lith-dur-2) var(--lith-ease-exit) both;
+	}
+
+	::view-transition-new(*):only-child {
+		animation: vt-fade-in var(--lith-dur-3) var(--lith-ease-glide) 80ms both;
+	}
+
+	/* Docs: the article slides the way you read. */
+	/* The old article leaves fast, so the two texts barely overlap, and
+	 * the new one glides in a moment later. */
+	html:active-view-transition-type(forward) {
+		&::view-transition-old(root) {
+			animation: vt-out-to-start var(--lith-dur-2) var(--lith-ease-exit) both;
+		}
+
+		&::view-transition-new(root) {
+			animation: vt-in-from-end var(--lith-dur-4) var(--lith-ease-glide) 110ms both;
+		}
+	}
+
+	html:active-view-transition-type(backward) {
+		&::view-transition-old(root) {
+			animation: vt-out-to-end var(--lith-dur-2) var(--lith-ease-exit) both;
+		}
+
+		&::view-transition-new(root) {
+			animation: vt-in-from-start var(--lith-dur-4) var(--lith-ease-glide) 110ms both;
+		}
+	}
+
+	/* Into a page and back out: the page opens up, or settles back. */
+	html:active-view-transition-type(zoom-in) {
+		&::view-transition-old(root) {
+			animation: vt-zoom-past var(--lith-dur-3) var(--lith-ease-exit) both;
+		}
+
+		&::view-transition-new(root) {
+			animation: vt-zoom-up var(--lith-dur-5) var(--lith-ease-zoom) both;
+		}
+	}
+
+	html:active-view-transition-type(zoom-out) {
+		&::view-transition-old(root) {
+			animation: vt-zoom-away var(--lith-dur-3) var(--lith-ease-exit) both;
+		}
+
+		&::view-transition-new(root) {
+			animation: vt-zoom-down var(--lith-dur-5) var(--lith-ease-zoom) both;
+		}
+	}
+
+	html:active-view-transition-type(fade) {
+		&::view-transition-old(root) {
+			animation: vt-fade-out var(--lith-dur-2) var(--lith-ease-exit) both;
+		}
+
+		&::view-transition-new(root) {
+			animation: vt-fade-in var(--lith-dur-3) var(--lith-ease-glide) 60ms both;
+		}
+	}
+
+	/* A page title that comes from a link in the navigation morphs from it,
+	 * and a demo's card into the head of its page: slower, on the zoom
+	 * curve. Their snapshots cross-fade while the group moves. */
+	::view-transition-group(page-title),
+	::view-transition-group(.demo),
+	::view-transition-group(.demo-title),
+	::view-transition-group(.demo-art) {
+		animation-duration: var(--lith-dur-5);
+		animation-timing-function: var(--lith-ease-zoom);
+	}
+
+	::view-transition-old(page-title),
+	::view-transition-new(page-title),
+	::view-transition-old(.demo-title),
+	::view-transition-new(.demo-title) {
+		block-size: 100%;
+		inline-size: auto;
+		object-fit: fill;
+	}
+
+	/* A card opens into a head without stretching what it holds: each
+	 * snapshot keeps its own size in the corner, and the growing group
+	 * reveals the head while the card fades. */
+	::view-transition-image-pair(.demo) {
+		overflow: clip;
+	}
+
+	::view-transition-old(.demo),
+	::view-transition-new(.demo) {
+		inset: 0 auto auto 0;
+		inline-size: auto;
+		block-size: auto;
+		object-fit: none;
+		animation-duration: var(--lith-dur-3);
+	}
+
+	/* The theme switch: the new look opens as a circle over the old one
+	 * (transitions.js animates the circle). Nothing else moves, so every
+	 * name is off for it. */
+	html:active-view-transition-type(theme) {
+		&::view-transition-old(root),
+		&::view-transition-new(root) {
+			animation: none;
+			mix-blend-mode: normal;
+		}
+	}
+
+	html[data-vt="theme"] *,
+	html:active-view-transition-type(theme) * {
+		view-transition-name: none !important;
+	}
+
+	/* The cards and heads that morph (transitions.js names them). */
+	[data-demo-card],
+	.demo-head {
+		view-transition-class: demo;
+	}
+
+	[data-demo-card] h3,
+	.demo-head h1 {
+		view-transition-class: demo-title;
+	}
+
+	.demo-card__art,
+	.demo-head__art {
+		view-transition-class: demo-art;
+	}
+}
+
+@keyframes vt-fade-out {
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes vt-fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes vt-out-to-start {
+	to {
+		opacity: 0;
+		translate: -1.5rem 0;
+	}
+}
+
+@keyframes vt-in-from-end {
+	from {
+		opacity: 0;
+		translate: 3.5rem 0;
+	}
+}
+
+@keyframes vt-out-to-end {
+	to {
+		opacity: 0;
+		translate: 1.5rem 0;
+	}
+}
+
+@keyframes vt-in-from-start {
+	from {
+		opacity: 0;
+		translate: -3.5rem 0;
+	}
+}
+
+@keyframes vt-zoom-past {
+	to {
+		opacity: 0;
+		scale: 1.05;
+		filter: blur(3px);
+	}
+}
+
+@keyframes vt-zoom-up {
+	from {
+		opacity: 0;
+		scale: 0.94;
+	}
+}
+
+@keyframes vt-zoom-away {
+	to {
+		opacity: 0;
+		scale: 0.95;
+		filter: blur(3px);
+	}
+}
+
+@keyframes vt-zoom-down {
+	from {
+		opacity: 0;
+		scale: 1.05;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	@view-transition {
+		navigation: none;
+	}
+
+	::view-transition-group(*),
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
+}

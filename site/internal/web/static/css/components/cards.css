@@ -1,0 +1,123 @@
+/* Demo cards: on the landing page and on /demos. A card morphs into the
+ * head of its demo's page when it is followed (view transitions). */
+@layer components {
+	.card-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+		gap: var(--lith-space-4);
+		padding: 0;
+		list-style: none;
+	}
+
+	.demo-card {
+		--_n: calc(4px * var(--lith-notch));
+		container: card / inline-size;
+		position: relative;
+		display: grid;
+		grid-template-rows: auto 1fr;
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background: var(--lith-surface-1);
+		transition:
+			border-color var(--lith-dur-2) var(--lith-ease-snap),
+			translate var(--lith-dur-3) var(--lith-ease-glide),
+			background-color var(--lith-dur-2) var(--lith-ease-snap);
+
+		&:hover,
+		&:has(a:focus-visible) {
+			border-color: var(--lith-accent-edge);
+			translate: 0 -3px;
+
+			& .demo-card__art {
+				--lith-seam-glow: 1;
+			}
+
+			& .demo-card__go {
+				translate: 0.25rem 0;
+				color: var(--lith-accent-text);
+			}
+		}
+	}
+
+	/* The glyph on a pixel grid, the mark of a live demo. */
+	.demo-card__stage {
+		display: grid;
+		place-items: center;
+		block-size: 8.5rem;
+		--_grid: color-mix(in oklch, var(--lith-border) 55%, transparent);
+		background:
+			radial-gradient(circle at 50% 115%, var(--lith-accent-subtle), transparent 65%),
+			linear-gradient(var(--_grid) 1px, transparent 1px),
+			linear-gradient(90deg, var(--_grid) 1px, transparent 1px),
+			var(--lith-surface-inset);
+		background-size: auto, 12px 12px, 12px 12px, auto;
+		border-block-end: 1px solid var(--lith-border-subtle);
+	}
+
+	.demo-card__art,
+	.demo-head__art {
+		& svg {
+			block-size: 4.5rem;
+			inline-size: auto;
+			filter: drop-shadow(0 0 calc(var(--lith-seam-glow) * 14px) var(--lith-glow-color));
+			transition: filter var(--lith-dur-3) var(--lith-ease-glide);
+		}
+	}
+
+	.demo-card__body {
+		display: grid;
+		grid-template-rows: auto 1fr auto;
+		gap: var(--lith-space-2);
+		padding: var(--lith-space-5);
+
+		& h3 {
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-xl);
+			font-weight: 600;
+			inline-size: fit-content;
+		}
+
+		& p {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-sm);
+		}
+
+		& a {
+			color: var(--lith-text-1);
+			text-decoration: none;
+
+			/* The whole card follows the link. */
+			&::after {
+				content: "";
+				position: absolute;
+				inset: 0;
+			}
+
+			&:focus-visible {
+				outline: none;
+
+				&::after {
+					outline: 2px solid var(--lith-focus);
+					outline-offset: -6px;
+				}
+			}
+		}
+	}
+
+	.demo-card__go {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		font-weight: 600;
+		transition: translate var(--lith-dur-3) var(--lith-ease-glide), color var(--lith-dur-2) var(--lith-ease-snap);
+
+		& svg {
+			inline-size: 0.9rem;
+			block-size: 0.9rem;
+		}
+	}
+}

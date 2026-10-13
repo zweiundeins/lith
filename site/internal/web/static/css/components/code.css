@@ -1,0 +1,129 @@
+/* Code blocks: chroma's classes coloured by the semantic code tokens, in a
+ * figure with the file or language and a copy button. */
+@layer components {
+	.code {
+		--_n: calc(3px * var(--lith-notch));
+		margin: 0;
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background: var(--lith-code-bg);
+		overflow: hidden;
+
+		.prose & {
+			margin-block: var(--lith-space-6);
+		}
+	}
+
+	.code__bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--lith-space-3);
+		padding: var(--lith-space-1) var(--lith-space-2) var(--lith-space-1) var(--lith-space-4);
+		border-block-end: 1px solid var(--lith-border-subtle);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+	}
+
+	.code__label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.code__copy {
+		display: inline-grid;
+		padding: var(--lith-space-1) var(--lith-space-2);
+		border: 0;
+		background: transparent;
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		cursor: pointer;
+
+		& > span {
+			grid-area: 1 / 1;
+			transition: opacity var(--lith-dur-2) var(--lith-ease-snap), translate var(--lith-dur-2) var(--lith-ease-glide);
+		}
+
+		& .code__copy-done {
+			color: var(--lith-accent-text);
+			opacity: 0;
+			translate: 0 0.4em;
+		}
+
+		&:hover {
+			color: var(--lith-text-1);
+		}
+
+		&[data-copied] {
+			& .code__copy-idle {
+				opacity: 0;
+				translate: 0 -0.4em;
+			}
+
+			& .code__copy-done {
+				opacity: 1;
+				translate: 0 0;
+			}
+		}
+	}
+
+	.chroma {
+		margin: 0;
+		padding: var(--lith-space-4) var(--lith-space-5);
+		overflow-x: auto;
+		color: var(--lith-code-text);
+		font-size: 0.8125rem;
+		line-height: 1.7;
+		tab-size: 4;
+
+		& code {
+			font-size: inherit;
+		}
+
+		& .line {
+			display: block;
+		}
+
+		& :is(.k, .kc, .kd, .kn, .kp, .kr, .kt) {
+			color: var(--lith-code-keyword);
+		}
+
+		& :is(.nt, .nb, .bp) {
+			color: var(--lith-code-tag);
+		}
+
+		& :is(.na, .nf, .fm) {
+			color: var(--lith-code-function);
+		}
+
+		& :is(.s, .s1, .s2, .sb, .sc, .sd, .se, .sh, .si, .sx, .sr, .ss, .dl) {
+			color: var(--lith-code-string);
+		}
+
+		& :is(.m, .mb, .mf, .mh, .mi, .il, .mo) {
+			color: var(--lith-code-number);
+		}
+
+		& :is(.c, .ch, .cm, .c1, .cs, .cp, .cpf) {
+			color: var(--lith-code-comment);
+			font-style: italic;
+		}
+
+		& :is(.o, .ow, .p) {
+			color: var(--lith-text-muted);
+		}
+
+		& :is(.nv, .vc, .vg, .vi, .nx, .n) {
+			color: var(--lith-code-text);
+		}
+
+		& .gp {
+			color: var(--lith-text-muted);
+			user-select: none;
+		}
+	}
+}

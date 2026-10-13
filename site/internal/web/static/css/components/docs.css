@@ -1,0 +1,310 @@
+/* Docs: the navigation, the article, the table of contents, the pager. */
+@layer components {
+	/* The navigation is a sidebar where the docs are wide enough, and a
+	 * popover behind the "Docs menu" button where they are not: one
+	 * element, so it keeps its view-transition name either way. A popover
+	 * that is not open is display: none by the browser's own style; the
+	 * wide layout overrides that. */
+	.docs-nav {
+		grid-area: nav;
+		view-transition-name: docs-nav;
+		font-size: var(--lith-text-sm);
+
+		@container docs (width >= 52rem) {
+			&:not(:popover-open) {
+				position: sticky;
+				inset: auto;
+				inset-block-start: calc(var(--lith-header-height) + var(--lith-space-6));
+				display: block;
+				inline-size: auto;
+				block-size: auto;
+				max-block-size: calc(100dvh - var(--lith-header-height) - var(--lith-space-10));
+				overflow-y: auto;
+				overscroll-behavior: contain;
+				scrollbar-width: thin;
+				margin: 0;
+				padding: 0 var(--lith-space-2) var(--lith-space-6) 0;
+				border: 0;
+				background: none;
+				color: inherit;
+			}
+		}
+
+		&:popover-open {
+			position: fixed;
+			inset: var(--lith-header-height) auto 0 0;
+			inline-size: min(22rem, 88vw);
+			block-size: auto;
+			margin: 0;
+			padding: var(--lith-space-6) var(--lith-space-5);
+			overflow-y: auto;
+			border: 0;
+			border-inline-end: 1px solid var(--lith-border);
+			background: var(--lith-surface-1);
+			color: var(--lith-text-1);
+			box-shadow: var(--lith-shadow-overlay);
+			translate: 0 0;
+			transition: translate var(--lith-dur-3) var(--lith-ease-glide), display var(--lith-dur-3) allow-discrete, overlay var(--lith-dur-3) allow-discrete;
+
+			@starting-style {
+				translate: -100% 0;
+			}
+		}
+
+		&::backdrop {
+			background: oklch(0% 0 0 / 0.35);
+		}
+
+		& ul {
+			display: grid;
+			gap: 1px;
+			margin: 0 0 var(--lith-space-5);
+			padding: 0;
+			list-style: none;
+		}
+
+		& a {
+			position: relative;
+			display: block;
+			padding: var(--lith-space-1) var(--lith-space-3);
+			color: var(--lith-text-2);
+			text-decoration: none;
+			text-wrap: pretty;
+			transition: color var(--lith-dur-1) var(--lith-ease-snap);
+
+			&:hover {
+				color: var(--lith-text-1);
+			}
+
+			&[aria-current="page"] {
+				color: var(--lith-text-1);
+				font-weight: 600;
+			}
+		}
+	}
+
+	.docs-nav__section {
+		margin-block-end: var(--lith-space-2);
+		padding-inline: var(--lith-space-3);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		font-weight: 600;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+
+		& a {
+			display: inline;
+			padding: 0;
+			color: inherit;
+		}
+	}
+
+	/* The highlight behind the current page: a view-transition name of its
+	 * own, so on a move between pages it glides to the new item. */
+	.docs-nav__marker {
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		border-inline-start: 3px solid var(--lith-accent);
+		background: var(--lith-accent-subtle);
+		view-transition-name: docs-nav-marker;
+	}
+
+	.docs-nav li {
+		position: relative;
+		isolation: isolate;
+	}
+
+	.docs-menu-button {
+		display: none;
+		justify-self: start;
+		margin-block-end: var(--lith-space-4);
+
+		@container docs (width < 52rem) {
+			display: inline-flex;
+		}
+	}
+
+	.docs-article {
+		grid-area: article;
+		display: grid;
+		min-inline-size: 0;
+		max-inline-size: var(--lith-prose-max);
+	}
+
+	.page-head {
+		display: grid;
+		gap: var(--lith-space-3);
+		padding-block-end: var(--lith-space-6);
+		margin-block-end: var(--lith-space-8);
+		border-block-end: 1px solid var(--lith-border-subtle);
+
+		& h1 {
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-3xl);
+			font-weight: 600;
+			line-height: var(--lith-leading-tight);
+			letter-spacing: 0.01em;
+			inline-size: fit-content;
+		}
+
+		& .lede {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-lg);
+		}
+	}
+
+	/* The page's title morphs between pages (view transitions). */
+	.page-title {
+		view-transition-name: page-title;
+	}
+
+	.crumbs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: 0.02em;
+
+		& a {
+			color: var(--lith-text-2);
+			text-decoration: none;
+
+			&:hover {
+				color: var(--lith-accent-text);
+			}
+		}
+	}
+
+	.draft-badge {
+		justify-self: start;
+		padding: 0.1em 0.5em;
+		border: 1px dashed var(--lith-accent-edge);
+		color: var(--lith-accent-text);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+	}
+
+	.docs-toc {
+		grid-area: toc;
+		position: sticky;
+		inset-block-start: calc(var(--lith-header-height) + var(--lith-space-6));
+		display: grid;
+		gap: var(--lith-space-2);
+		font-size: var(--lith-text-sm);
+
+		@container docs (width < 72rem) {
+			display: none;
+		}
+
+		& h2 {
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			letter-spacing: var(--lith-tracking-caps);
+			text-transform: uppercase;
+		}
+
+		& ul {
+			display: grid;
+			gap: var(--lith-space-1);
+			padding: 0;
+			list-style: none;
+			border-inline-start: 1px solid var(--lith-border-subtle);
+		}
+
+		& li {
+			padding-inline-start: var(--lith-space-3);
+
+			&.is-sub {
+				padding-inline-start: var(--lith-space-6);
+			}
+		}
+
+		& a {
+			color: var(--lith-text-2);
+			text-decoration: none;
+
+			&:hover {
+				color: var(--lith-accent-text);
+			}
+		}
+	}
+
+	/* Previous and next page. */
+	.pager {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--lith-space-4);
+		margin-block-start: var(--lith-space-12);
+
+		& a {
+			--_n: calc(3px * var(--lith-notch));
+			display: grid;
+			gap: var(--lith-space-1);
+			padding: var(--lith-space-4) var(--lith-space-5);
+			border: 1px solid var(--lith-border);
+			border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+			clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+			color: var(--lith-text-1);
+			text-decoration: none;
+			transition: border-color var(--lith-dur-2) var(--lith-ease-snap), background-color var(--lith-dur-2) var(--lith-ease-snap);
+
+			&:hover {
+				border-color: var(--lith-accent-edge);
+				background: var(--lith-surface-1);
+			}
+
+			& span {
+				color: var(--lith-text-muted);
+				font-family: var(--lith-font-ui);
+				font-size: var(--lith-text-xs);
+			}
+
+			& strong {
+				font-weight: 600;
+			}
+		}
+
+		& .pager__next {
+			grid-column: 2;
+			text-align: end;
+		}
+	}
+
+	.edit-link {
+		margin-block-start: var(--lith-space-6);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+
+		& a {
+			color: var(--lith-text-muted);
+		}
+	}
+
+	/* How far down the page the reader is: a bar under the header, driven
+	 * by the scroll position. */
+	@supports (animation-timeline: scroll()) {
+		.read-progress {
+			position: fixed;
+			inset: var(--lith-header-height) 0 auto;
+			z-index: var(--lith-z-sticky);
+			block-size: 2px;
+			background: var(--lith-accent);
+			transform-origin: left;
+			scale: 0 1;
+			animation: progress linear both;
+			animation-timeline: scroll(root block);
+			pointer-events: none;
+		}
+	}
+
+	@keyframes progress {
+		to {
+			scale: 1 1;
+		}
+	}
+}

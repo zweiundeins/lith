@@ -1,0 +1,98 @@
+/* Elements, before any class. */
+@layer base {
+	html {
+		background: var(--lith-bg);
+		color: var(--lith-text-1);
+		scrollbar-color: var(--lith-border) var(--lith-bg);
+		scroll-padding-block-start: calc(var(--lith-header-height) + var(--lith-space-6));
+		accent-color: var(--lith-accent);
+	}
+
+	body {
+		background:
+			radial-gradient(64rem 28rem at 78% -6rem, var(--lith-bg-glow), transparent 70%),
+			var(--lith-bg);
+		font-family: var(--lith-font-body);
+		font-size: var(--lith-text-md);
+		line-height: var(--lith-leading-normal);
+	}
+
+	::selection {
+		background: var(--lith-selection);
+		color: var(--lith-text-1);
+	}
+
+	h1,
+	h2,
+	h3,
+	h4 {
+		line-height: var(--lith-leading-snug);
+		text-wrap: balance;
+		font-weight: 650;
+		color: var(--lith-text-1);
+	}
+
+	p,
+	li,
+	dd,
+	figcaption {
+		text-wrap: pretty;
+	}
+
+	a {
+		color: var(--lith-accent-text);
+		text-decoration-color: color-mix(in oklch, currentColor 45%, transparent);
+		text-decoration-thickness: 1px;
+		text-underline-offset: 0.22em;
+		transition: color var(--lith-dur-1) var(--lith-ease-snap), text-decoration-color var(--lith-dur-1) var(--lith-ease-snap);
+
+		&:hover {
+			text-decoration-color: currentColor;
+		}
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--lith-focus);
+		outline-offset: 2px;
+	}
+
+	code,
+	kbd,
+	samp,
+	pre {
+		font-family: var(--lith-font-code);
+		font-size: 0.86em;
+		font-variant-ligatures: none;
+	}
+
+	:not(pre) > code {
+		padding: 0.08em 0.36em;
+		border-radius: 4px;
+		background: var(--lith-surface-inset);
+		box-shadow: inset 0 0 0 1px var(--lith-border-subtle);
+		color: var(--lith-text-1);
+		overflow-wrap: break-word;
+	}
+
+	kbd {
+		padding: 0.05em 0.4em;
+		border: 1px solid var(--lith-border);
+		border-block-end-width: 2px;
+		border-radius: 4px;
+		background: var(--lith-surface-2);
+		font-size: var(--lith-text-xs);
+	}
+
+	hr {
+		border: 0;
+		border-block-start: 1px solid var(--lith-border-subtle);
+	}
+
+	img {
+		block-size: auto;
+	}
+
+	[hidden] {
+		display: none !important;
+	}
+}

@@ -1,0 +1,330 @@
+/* The header, the display menu, tooltips and the footer. */
+@layer components {
+	.skip-link {
+		position: absolute;
+		inset-block-start: var(--lith-space-2);
+		inset-inline-start: var(--lith-space-2);
+		z-index: calc(var(--lith-z-sticky) + 1);
+		padding: var(--lith-space-2) var(--lith-space-3);
+		background: var(--lith-accent);
+		color: var(--lith-on-accent);
+		font-weight: 600;
+		translate: 0 -200%;
+
+		&:focus-visible {
+			translate: 0 0;
+		}
+	}
+
+	/* ── Header: stays put across pages (view transitions). ─────────── */
+	.site-header {
+		container: header / inline-size;
+		position: sticky;
+		inset-block-start: 0;
+		z-index: var(--lith-z-sticky);
+		border-block-end: 1px solid var(--lith-border-subtle);
+		background: color-mix(in oklch, var(--lith-bg) 84%, transparent);
+		backdrop-filter: blur(12px) saturate(1.2);
+		view-transition-name: site-header;
+	}
+
+	.site-header__inner {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-6);
+		block-size: var(--lith-header-height);
+	}
+
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--lith-space-3);
+		color: var(--lith-text-1);
+		text-decoration: none;
+
+		& .brand__logo {
+			inline-size: auto;
+			block-size: 2.25rem;
+			view-transition-name: logo;
+			filter: drop-shadow(0 0 calc(var(--lith-seam-glow) * 10px) var(--lith-glow-color));
+			animation: breathe 6s ease-in-out infinite alternate;
+		}
+
+		& .brand__word {
+			font-family: var(--lith-font-display);
+			font-size: 1.65rem;
+			font-weight: 600;
+			line-height: 1;
+			letter-spacing: 0.02em;
+		}
+
+		&:hover .brand__logo {
+			--lith-seam-glow: 1;
+		}
+	}
+
+	/* The seam breathes: --lith-seam-glow is a registered number, so it
+	 * animates, and the halo's opacity and the glow follow it. */
+	@keyframes breathe {
+		from {
+			--lith-seam-glow: 0.45;
+		}
+		to {
+			--lith-seam-glow: 1;
+		}
+	}
+
+	.px-art {
+		& .halo {
+			opacity: calc(0.25 + var(--lith-seam-glow) * 0.75);
+		}
+
+		& .seam {
+			opacity: calc(0.8 + var(--lith-seam-glow) * 0.2);
+		}
+	}
+
+	.site-nav {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-1);
+		margin-inline-start: auto;
+
+		& a {
+			position: relative;
+			padding: var(--lith-space-2) var(--lith-space-3);
+			color: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-sm);
+			font-weight: 600;
+			text-decoration: none;
+
+			&::after {
+				content: "";
+				position: absolute;
+				inset-inline: var(--lith-space-3);
+				inset-block-end: -3px;
+				block-size: 3px;
+				background: var(--lith-accent);
+				scale: 0 1;
+				transform-origin: left;
+				transition: scale var(--lith-dur-3) var(--lith-ease-glide);
+			}
+
+			&:hover {
+				color: var(--lith-text-1);
+			}
+
+			&[aria-current="page"] {
+				color: var(--lith-text-1);
+
+				&::after {
+					scale: 1 1;
+				}
+			}
+		}
+
+		@container header (width < 30rem) {
+			& .site-nav__github {
+				display: none;
+			}
+		}
+	}
+
+	/* ── The display menu: a popover anchored to its button. ────────── */
+	.prefs-button {
+		anchor-name: --prefs;
+	}
+
+	.menu {
+		--_s: var(--lith-frame-step);
+		position: fixed;
+		position-anchor: --prefs;
+		position-area: block-end span-inline-start;
+		position-try-fallbacks: flip-block, flip-inline;
+		margin: var(--lith-space-3) 0 0;
+		inset: auto;
+		min-inline-size: 15rem;
+		padding: var(--lith-space-3);
+		border: 0;
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+		color: var(--lith-text-1);
+		/* A pixel frame: four copies of the box, each a step out, which
+		 * leaves the corners open. Then the overlay's shadow. */
+		box-shadow:
+			0 calc(-1 * var(--_s)) 0 0 var(--lith-border-strong),
+			0 var(--_s) 0 0 var(--lith-border-strong),
+			calc(-1 * var(--_s)) 0 0 0 var(--lith-border-strong),
+			var(--_s) 0 0 0 var(--lith-border-strong),
+			var(--lith-shadow-overlay);
+		opacity: 0;
+		translate: 0 -0.4rem;
+		transition:
+			opacity var(--lith-dur-2) var(--lith-ease-glide),
+			translate var(--lith-dur-2) var(--lith-ease-glide),
+			display var(--lith-dur-2) allow-discrete,
+			overlay var(--lith-dur-2) allow-discrete;
+
+		&:popover-open {
+			opacity: 1;
+			translate: 0 0;
+
+			@starting-style {
+				opacity: 0;
+				translate: 0 -0.4rem;
+			}
+		}
+	}
+
+	.menu__group {
+		display: grid;
+		gap: var(--lith-space-2);
+
+		& + & {
+			margin-block-start: var(--lith-space-4);
+		}
+	}
+
+	.menu__label {
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	/* A row of choices, one of them pressed. */
+	.choice {
+		display: grid;
+		grid-auto-flow: column;
+		grid-auto-columns: 1fr;
+		gap: 2px;
+		padding: 2px;
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-inset);
+
+		& button {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: var(--lith-space-1);
+			padding: var(--lith-space-2);
+			border: 0;
+			border-radius: calc(4px * (1 - var(--lith-notch)));
+			background: transparent;
+			color: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			font-weight: 600;
+			cursor: pointer;
+
+			& svg {
+				inline-size: 1rem;
+				block-size: 1rem;
+			}
+
+			&:hover {
+				color: var(--lith-text-1);
+			}
+
+			&[aria-pressed="true"] {
+				background: var(--lith-surface-2);
+				color: var(--lith-text-1);
+				box-shadow: inset 0 -2px 0 var(--lith-accent);
+			}
+		}
+	}
+
+	/* ── Tooltips: anchored to their term, scoped so every tip can call
+	 * its anchor --tip. Where anchor positioning is missing, the text
+	 * stays for screen readers only. ───────────────────────────────── */
+	.tip {
+		anchor-name: --tip;
+		anchor-scope: --tip;
+		text-decoration: underline dotted color-mix(in oklch, currentColor 55%, transparent);
+		text-underline-offset: 0.25em;
+		cursor: help;
+	}
+
+	.tip__bubble {
+		position: absolute;
+		position-anchor: --tip;
+		position-area: block-start;
+		position-try-fallbacks: flip-block;
+		z-index: var(--lith-z-tooltip);
+		inline-size: max-content;
+		max-inline-size: 18rem;
+		margin-block: var(--lith-space-2);
+		padding: var(--lith-space-2) var(--lith-space-3);
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		background: var(--lith-text-1);
+		color: var(--lith-bg);
+		font-family: var(--lith-font-body);
+		font-size: var(--lith-text-xs);
+		font-weight: 500;
+		line-height: 1.45;
+		letter-spacing: normal;
+		text-align: start;
+		text-transform: none;
+		box-shadow: var(--lith-shadow-2);
+		pointer-events: none;
+		opacity: 0;
+		translate: 0 0.25rem;
+		transition: opacity var(--lith-dur-2) var(--lith-ease-glide), translate var(--lith-dur-2) var(--lith-ease-glide);
+	}
+
+	.tip:is(:hover, :focus-visible) .tip__bubble {
+		opacity: 1;
+		translate: 0 0;
+		transition-delay: 120ms;
+	}
+
+	@supports not (anchor-name: --tip) {
+		.tip__bubble {
+			position: absolute;
+			inline-size: 1px;
+			block-size: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
+		}
+	}
+
+	/* ── Footer ─────────────────────────────────────────────────────── */
+	.site-footer {
+		margin-block-start: var(--lith-space-16);
+		border-block-start: 1px solid var(--lith-border-subtle);
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+
+		& .wrap {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			justify-content: space-between;
+			gap: var(--lith-space-4) var(--lith-space-8);
+			padding-block: var(--lith-space-8);
+		}
+
+		& a {
+			color: var(--lith-text-2);
+		}
+
+		& nav {
+			display: flex;
+			flex-wrap: wrap;
+			gap: var(--lith-space-2) var(--lith-space-5);
+		}
+	}
+
+	.site-footer__about {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-3);
+
+		& svg {
+			block-size: 1.75rem;
+			inline-size: auto;
+		}
+	}
+}

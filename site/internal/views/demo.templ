@@ -1,0 +1,59 @@
+package views
+
+// DemoPage is a demo's own page.
+type DemoPage struct {
+	Card   Card
+	Server templ.Component // what the server does (Markdown, rendered)
+	How    templ.Component // how it works (Markdown, rendered)
+	Stage  templ.Component // the demo itself, in its data-demo element
+}
+
+templ Demo(d DemoPage) {
+	<div class="wrap demo-page">
+		<header class="demo-head" style={ vtName("demo-" + d.Card.Slug) }>
+			<p class="crumbs"><a href="/demos">Demos</a></p>
+			<div class="demo-head__art" style={ vtName("demo-" + d.Card.Slug + "-art") }>
+				@Art(d.Card.Art, "")
+			</div>
+			<h1 style={ vtName("demo-" + d.Card.Slug + "-title") }>{ d.Card.Title }</h1>
+			<p class="lede">{ d.Card.Summary }</p>
+		</header>
+		<div class="demo-body">
+			<section class="demo-stage" aria-label="The demo">
+				<p class="live-badge" data-class:is-live="$_live" data-text="$_live ? 'live' : 'connecting'">live</p>
+				@d.Stage
+			</section>
+			<aside class="panel" aria-labelledby="server-title">
+				<h2 id="server-title">On the server</h2>
+				<div class="prose prose--small">
+					@d.Server
+				</div>
+			</aside>
+		</div>
+		<details class="howto">
+			<summary>How it works</summary>
+			<div class="prose">
+				@d.How
+			</div>
+		</details>
+	</div>
+}
+
+templ DemoIndex(cards []Card) {
+	<div class="wrap">
+		<header class="page-intro">
+			<h1 class="page-title">Demos</h1>
+			<p>Each demo runs on this server, on lith. Open one in two windows to see the other's changes arrive.</p>
+		</header>
+		@CardGrid(cards)
+	</div>
+}
+
+templ NotFound() {
+	<div class="wrap lost">
+		@Art(logoSVG, "")
+		<h1 class="page-title display">Nothing here</h1>
+		<p>This page does not exist, or not any more.</p>
+		<a class="btn btn--primary" href="/">To the start</a>
+	</div>
+}

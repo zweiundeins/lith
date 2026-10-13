@@ -1,0 +1,157 @@
+package views
+
+templ LandingPage(l Landing) {
+	<section class="hero" aria-labelledby="hero-title">
+		<div class="hero__party" data-slot="hero">
+			if c, ok := l.Slots["hero"]; ok {
+				@c
+			}
+		</div>
+		<div class="wrap hero__inner">
+			<div class="hero__copy">
+				<p class="eyebrow">Go · SQLite · Datastar</p>
+				<h1 id="hero-title" class="acrostic" aria-label="lith: Linear writes, Immediate mode, Ticks, Hypermedia">
+					<span style="--i: 0" aria-hidden="true"><b>L</b><i>inear writes</i></span>
+					<span style="--i: 1" aria-hidden="true"><b>I</b><i>mmediate mode</i></span>
+					<span style="--i: 2" aria-hidden="true"><b>T</b><i>icks</i></span>
+					<span style="--i: 3" aria-hidden="true"><b>H</b><i>ypermedia</i></span>
+				</h1>
+				<p class="hero__lede">
+					lith is the runtime under the Go apps of zwei und eins: one SQLite file, one writer that applies every change in order,
+					views rendered once per tick for everyone who watches them, and HTML streamed to each browser over server-sent events.
+				</p>
+				<div class="cluster hero__actions">
+					<a class="btn btn--primary" href="/docs/getting-started">
+						Get started
+						@Icon("arrow-right")
+					</a>
+					<a class="btn" href="/demos">See the demos</a>
+					<a class="btn btn--ghost" href={ safe(l.Repo) }>
+						@Icon("github")
+						GitHub
+					</a>
+				</div>
+			</div>
+			<div class="hero__art" aria-hidden="true">
+				@Art(heroSVG, "hero__monolith")
+				<div class="embers">
+					for _, e := range embers {
+						<i style={ emberStyle(e.X, e.Delay, e.Dur, e.Drift) }></i>
+					}
+				</div>
+			</div>
+		</div>
+	</section>
+	<section class="wrap section" aria-labelledby="ideas-title">
+		<header class="section__head reveal">
+			<h2 id="ideas-title">The four ideas</h2>
+			<p>The name is the design: each letter is one rule the runtime keeps, and each rule has a package behind it.</p>
+		</header>
+		<div class="ideas">
+			for _, i := range ideas {
+				<article class="idea reveal" id={ i.Slot } aria-labelledby={ i.Slot + "-title" }>
+					<div class="idea__text">
+						<h3 id={ i.Slot + "-title" }><span class="idea__letter">{ i.Letter }</span>{ i.Name }</h3>
+						<p>{ i.Text }</p>
+						<a href={ safe(i.Href) }>How { i.Name } works</a>
+					</div>
+					<div class="idea__slot" data-slot={ i.Slot }>
+						if c, ok := l.Slots[i.Slot]; ok {
+							@c
+						} else {
+							@i.listing()
+						}
+					</div>
+				</article>
+			}
+		</div>
+	</section>
+	<section class="band" aria-labelledby="numbers-title">
+		<div class="wrap section">
+			<header class="section__head reveal">
+				<h2 id="numbers-title">Measured</h2>
+				<p>
+					In process, on an Intel i5-13500 with Go 1.27 and SQLite 3.53, October 2026.
+					With <span class="tip" tabindex="0">synchronous=NORMAL<span class="tip__bubble" role="tooltip">SQLite syncs the log only at checkpoints: a power loss can undo up to about 35 s of commits, a crash of the process none. FULL syncs every batch.</span></span> unless it says otherwise.
+				</p>
+			</header>
+			<dl class="stats reveal">
+				for _, s := range stats {
+					<div class="stat">
+						<dt>{ s.Label }<small>{ s.Detail }</small></dt>
+						<dd>{ s.Value }</dd>
+					</div>
+				}
+			</dl>
+			<p class="note">
+				How each number was taken, with the commands to run it again:
+				<a href={ safe(l.Repo + "/blob/main/bench/RESULTS.md") }>bench/RESULTS.md</a>.
+				The kanban numbers come from kanban's own load tool.
+			</p>
+		</div>
+	</section>
+	<section class="wrap section" aria-labelledby="start-title">
+		<header class="section__head reveal">
+			<h2 id="start-title">Start a project</h2>
+		</header>
+		<div class="quickstart reveal">
+			<ol>
+				<li>lith-new copies the template into a new module: a guestbook with tests, CI, a systemd unit, a Caddy block and a deploy script with rollback.</li>
+				<li>Run it and open two tabs. Sign in one; the other shows the entry in the next tick.</li>
+				<li>Replace the guestbook with your first feature and keep the wiring. <a href="/docs/getting-started">Getting started</a> walks through it.</li>
+			</ol>
+			@quickstartCode()
+		</div>
+	</section>
+	if len(l.Cards) > 0 {
+		<section class="wrap section" aria-labelledby="demos-title">
+			<header class="section__head reveal">
+				<h2 id="demos-title">Demos</h2>
+				<p>Each demo runs on this server, on lith, with the code that does it beside it.</p>
+			</header>
+			@CardGrid(l.Cards)
+		</section>
+	}
+	<section class="wrap section" aria-labelledby="credits-title">
+		<header class="section__head reveal">
+			<h2 id="credits-title">Credits</h2>
+		</header>
+		<div class="credits reveal">
+			<article>
+				<h3><a href="https://github.com/andersmurphy/hyperlith">hyperlith</a></h3>
+				<p>Anders Murphy's Clojure framework on Datastar, which handles the streams, their compression and the render rate. lith's design follows it, and his posts on <a href="https://andersmurphy.com">andersmurphy.com</a> measure each part.</p>
+			</article>
+			<article>
+				<h3><a href="https://github.com/zangster300/northstar">northstar</a></h3>
+				<p>A Go starter for Datastar apps by zangster300, the other model for how lith's template is laid out.</p>
+			</article>
+			<article>
+				<h3><a href="https://data-star.dev">Datastar</a></h3>
+				<p>The hypermedia framework in the browser: signals, morphs and the events every lith stream speaks.</p>
+			</article>
+		</div>
+	</section>
+}
+
+// CardGrid lists demos as cards that morph into their page's head.
+templ CardGrid(cards []Card) {
+	<ul class="card-grid" role="list">
+		for _, c := range cards {
+			<li class="demo-card reveal" data-demo-card={ c.Slug }>
+				<div class="demo-card__stage">
+					<div class="demo-card__art">
+						@Art(c.Art, "")
+					</div>
+				</div>
+				<div class="demo-card__body">
+					<h3><a href={ safe("/demos/" + c.Slug) }>{ c.Title }</a></h3>
+					<p>{ c.Summary }</p>
+					<span class="demo-card__go" aria-hidden="true">
+						Open the demo
+						@Icon("arrow-right")
+					</span>
+				</div>
+			</li>
+		}
+	</ul>
+}

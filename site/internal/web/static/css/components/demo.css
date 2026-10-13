@@ -1,0 +1,225 @@
+/* A demo's page: its head (the card it came from morphs into it), the
+ * stage with the demo, what the server does, and how it works. */
+@layer components {
+	.demo-page {
+		display: grid;
+		gap: var(--lith-space-8);
+		padding-block: var(--lith-space-8) var(--lith-space-12);
+	}
+
+	.demo-head {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		grid-template-areas: "art crumbs" "art title" "art lede";
+		column-gap: var(--lith-space-6);
+		row-gap: var(--lith-space-2);
+		align-items: center;
+		padding: var(--lith-space-6);
+		border: 1px solid var(--lith-border-subtle);
+		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+
+		@container page (width < 36rem) {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-areas: "crumbs" "title" "lede";
+
+			& .demo-head__art {
+				display: none;
+			}
+		}
+
+		& .crumbs {
+			grid-area: crumbs;
+		}
+
+		& h1 {
+			grid-area: title;
+			inline-size: fit-content;
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-3xl);
+			font-weight: 600;
+			line-height: var(--lith-leading-tight);
+		}
+
+		& .lede {
+			grid-area: lede;
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-lg);
+		}
+	}
+
+	.demo-head__art {
+		grid-area: art;
+		display: grid;
+		place-items: center;
+		padding: var(--lith-space-4);
+		--_grid: color-mix(in oklch, var(--lith-border) 55%, transparent);
+		background:
+			linear-gradient(var(--_grid) 1px, transparent 1px),
+			linear-gradient(90deg, var(--_grid) 1px, transparent 1px),
+			var(--lith-surface-inset);
+		background-size: 12px 12px;
+	}
+
+	/* The stage holds the demo itself; its pixel grid marks it as live. */
+	.demo-stage {
+		container: stage / inline-size;
+		position: relative;
+		min-inline-size: 0;
+		padding: var(--lith-space-6);
+		border: 1px solid var(--lith-border);
+		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
+		--_grid: color-mix(in oklch, var(--lith-border-subtle) 70%, transparent);
+		background:
+			radial-gradient(circle at 50% 0%, var(--lith-accent-subtle), transparent 55%),
+			linear-gradient(var(--_grid) 1px, transparent 1px),
+			linear-gradient(90deg, var(--_grid) 1px, transparent 1px),
+			var(--lith-surface-inset);
+		background-size: auto, 16px 16px, 16px 16px, auto;
+
+		@container page (width < 36rem) {
+			padding: var(--lith-space-4);
+		}
+	}
+
+	/* "live" in the stage's corner, lit while the tab's stream is open. */
+	.live-badge {
+		position: absolute;
+		inset-block-start: var(--lith-space-3);
+		inset-inline-end: var(--lith-space-3);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+
+		&::before {
+			content: "";
+			inline-size: 6px;
+			block-size: 6px;
+			background: var(--lith-text-muted);
+		}
+
+		/* $_live: the tab's stream is open. */
+		&.is-live::before {
+			background: var(--lith-ok);
+			box-shadow: 0 0 8px var(--lith-ok);
+			animation: blink 2s steps(2, jump-none) infinite;
+		}
+	}
+
+	@keyframes blink {
+		50% {
+			opacity: 0.3;
+		}
+	}
+
+	.panel {
+		display: grid;
+		gap: var(--lith-space-3);
+		padding: var(--lith-space-6);
+		border: 1px solid var(--lith-border-subtle);
+		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+
+		& > h2 {
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			letter-spacing: var(--lith-tracking-caps);
+			text-transform: uppercase;
+		}
+	}
+
+	/* "How it works": a disclosure that opens to its own height. */
+	.howto {
+		border: 1px solid var(--lith-border-subtle);
+		border-radius: calc(var(--lith-radius-lg) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+
+		& > summary {
+			display: flex;
+			align-items: center;
+			gap: var(--lith-space-3);
+			padding: var(--lith-space-5) var(--lith-space-6);
+			color: var(--lith-text-1);
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-xl);
+			font-weight: 600;
+			cursor: pointer;
+			list-style: none;
+
+			&::-webkit-details-marker {
+				display: none;
+			}
+
+			/* A pixel chevron that turns when the panel opens. */
+			&::before {
+				content: "";
+				inline-size: 8px;
+				block-size: 12px;
+				background: var(--lith-accent);
+				clip-path: polygon(0 0, 3px 0, 3px 2px, 5px 2px, 5px 4px, 8px 4px, 8px 8px, 5px 8px, 5px 10px, 3px 10px, 3px 12px, 0 12px);
+				transition: rotate var(--lith-dur-3) var(--lith-ease-steps);
+			}
+
+			&:hover {
+				color: var(--lith-accent-text);
+			}
+		}
+
+		&[open] > summary::before {
+			rotate: 90deg;
+		}
+
+		&::details-content {
+			block-size: 0;
+			overflow: clip;
+			transition: block-size var(--lith-dur-4) var(--lith-ease-glide), content-visibility var(--lith-dur-4) allow-discrete;
+		}
+
+		&[open]::details-content {
+			block-size: auto;
+		}
+
+		& .prose {
+			padding: 0 var(--lith-space-6) var(--lith-space-6);
+		}
+	}
+
+	/* The demos index and the page for a missing one. */
+	.page-intro {
+		display: grid;
+		gap: var(--lith-space-3);
+		max-inline-size: 46rem;
+		padding-block: var(--lith-space-10) var(--lith-space-8);
+
+		& h1 {
+			font-family: var(--lith-font-display);
+			font-size: var(--lith-text-3xl);
+			font-weight: 600;
+			line-height: var(--lith-leading-tight);
+			inline-size: fit-content;
+		}
+
+		& p {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-lg);
+		}
+	}
+
+	.lost {
+		display: grid;
+		justify-items: start;
+		gap: var(--lith-space-4);
+		padding-block: var(--lith-space-16);
+
+		& svg {
+			block-size: 7rem;
+			inline-size: auto;
+		}
+	}
+}

@@ -1,0 +1,119 @@
+package views
+
+import "github.com/zweiundeins/lith/site/internal/docs"
+
+// DocsPage is a page of the docs with everything around it.
+type DocsPage struct {
+	Docs *docs.Docs
+	Page *docs.Page
+	// Edit is the URL of the page's source on GitHub.
+	Edit string
+}
+
+templ Docs(d DocsPage) {
+	<div class="wrap docs">
+		@docsNav(d.Docs, d.Page)
+		<article class="docs-article">
+			<button class="btn btn--sm docs-menu-button" type="button" popovertarget="docs-nav">
+				@Icon("menu")
+				Docs menu
+			</button>
+			<header class="page-head">
+				<p class="crumbs">
+					<a href="/docs">Docs</a>
+					if s := d.Page.Section; s != nil && s.Index != d.Page {
+						<span aria-hidden="true">/</span>
+						<a href={ safe(s.Index.Path) }>{ s.Title() }</a>
+					}
+				</p>
+				<h1 class="page-title">{ d.Page.Title }</h1>
+				if d.Page.Draft {
+					<p class="draft-badge">Draft: not on the public site</p>
+				}
+				<p class="lede">{ d.Page.Summary }</p>
+			</header>
+			<div class="prose">
+				@templ.Raw(d.Page.HTML)
+			</div>
+			if d.Page == d.Docs.Home {
+				@sectionList(d.Docs)
+			}
+			<nav class="pager" aria-label="Previous and next page">
+				if p := d.Page.Prev; p != nil {
+					<a class="pager__prev" href={ safe(p.Path) } rel="prev">
+						<span>Previous</span>
+						<strong>{ p.Title }</strong>
+					</a>
+				}
+				if n := d.Page.Next; n != nil {
+					<a class="pager__next" href={ safe(n.Path) } rel="next">
+						<span>Next</span>
+						<strong>{ n.Title }</strong>
+					</a>
+				}
+			</nav>
+			<p class="edit-link"><a href={ safe(d.Edit) }>Edit this page on GitHub</a></p>
+		</article>
+		if len(d.Page.Headings) > 0 {
+			<aside class="docs-toc" aria-labelledby="toc-title">
+				<h2 id="toc-title">On this page</h2>
+				<ul>
+					for _, h := range d.Page.Headings {
+						<li
+							if h.Level == 3 {
+								class="is-sub"
+							}
+						><a href={ safe("#" + h.ID) }>{ h.Text }</a></li>
+					}
+				</ul>
+			</aside>
+		}
+	</div>
+	<div class="read-progress" aria-hidden="true"></div>
+}
+
+// docsNav is the docs' navigation: a sidebar, or a popover on narrow
+// pages. The current page's item carries the marker that glides to the
+// next page's item (view transitions).
+templ docsNav(d *docs.Docs, current *docs.Page) {
+	<nav id="docs-nav" class="docs-nav" popover aria-label="Docs" data-docs-nav>
+		<ul>
+			@navItem(d.Home, current)
+		</ul>
+		for _, s := range d.Sections {
+			<p class="docs-nav__section">{ s.Title() }</p>
+			<ul>
+				@navItem(s.Index, current)
+				for _, p := range s.Pages {
+					@navItem(p, current)
+				}
+			</ul>
+		}
+	</nav>
+}
+
+templ navItem(p, current *docs.Page) {
+	<li>
+		<a
+			href={ safe(p.Path) }
+			if p == current {
+				aria-current="page"
+			}
+		><span>{ p.Nav }</span></a>
+		if p == current {
+			<span class="docs-nav__marker" aria-hidden="true"></span>
+		}
+	</li>
+}
+
+// sectionList ends the docs' home page with every section.
+templ sectionList(d *docs.Docs) {
+	<ul class="card-grid docs-sections" role="list">
+		for _, s := range d.Sections {
+			<li class="panel">
+				<h2><a href={ safe(s.Index.Path) }>{ s.Title() }</a></h2>
+				<p>{ s.Index.Summary }</p>
+			</li>
+		}
+	</ul>
+}

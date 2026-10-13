@@ -1,0 +1,138 @@
+/* Running text from Markdown: the docs and the demos' notes. */
+@layer components {
+	.prose {
+		color: var(--lith-text-2);
+		font-size: 1.0625rem;
+		line-height: 1.7;
+
+		& > * + * {
+			margin-block-start: var(--lith-space-4);
+		}
+
+		& :is(h2, h3, h4) {
+			position: relative;
+			color: var(--lith-text-1);
+			scroll-margin-block-start: calc(var(--lith-header-height) + var(--lith-space-6));
+		}
+
+		& h2 {
+			margin-block-start: var(--lith-space-12);
+			font-size: var(--lith-text-xl);
+		}
+
+		& h3 {
+			margin-block-start: var(--lith-space-8);
+			font-size: var(--lith-text-lg);
+		}
+
+		& :is(h2, h3) + * {
+			margin-block-start: var(--lith-space-3);
+		}
+
+		/* The link to a heading shows on hover and focus. */
+		& .anchor {
+			margin-inline-start: 0.4em;
+			color: var(--lith-text-muted);
+			text-decoration: none;
+			opacity: 0;
+			transition: opacity var(--lith-dur-1) var(--lith-ease-snap);
+
+			&::before {
+				content: "#";
+				font-family: var(--lith-font-ui);
+				font-weight: 400;
+			}
+
+			&:focus-visible {
+				opacity: 1;
+			}
+		}
+
+		& :is(h2, h3, h4):hover .anchor {
+			opacity: 1;
+		}
+
+		& strong {
+			color: var(--lith-text-1);
+			font-weight: 650;
+		}
+
+		& :is(ul, ol) {
+			padding-inline-start: var(--lith-space-6);
+
+			& li + li {
+				margin-block-start: var(--lith-space-2);
+			}
+
+			& li::marker {
+				color: var(--lith-accent-text);
+			}
+		}
+
+		& blockquote {
+			padding: var(--lith-space-3) var(--lith-space-5);
+			border-inline-start: 3px solid var(--lith-accent);
+			background: var(--lith-accent-subtle);
+			color: var(--lith-text-1);
+		}
+
+		& table {
+			display: block;
+			inline-size: 100%;
+			overflow-x: auto;
+			border-collapse: collapse;
+			font-size: var(--lith-text-sm);
+			line-height: 1.5;
+		}
+
+		& :is(th, td) {
+			padding: var(--lith-space-2) var(--lith-space-3);
+			border-block-end: 1px solid var(--lith-border-subtle);
+			text-align: start;
+			vertical-align: top;
+		}
+
+		& th {
+			color: var(--lith-text-1);
+			font-weight: 600;
+			white-space: nowrap;
+		}
+
+		& td {
+			min-inline-size: 8rem;
+		}
+
+		& hr {
+			margin-block: var(--lith-space-10);
+		}
+	}
+
+	/* The demos' notes are shorter and smaller. */
+	.prose--small {
+		font-size: var(--lith-text-sm);
+		line-height: 1.65;
+
+		& > * + * {
+			margin-block-start: var(--lith-space-3);
+		}
+
+		& h2 {
+			margin-block-start: var(--lith-space-8);
+			font-size: var(--lith-text-md);
+		}
+
+		& h3 {
+			margin-block-start: var(--lith-space-6);
+			font-size: var(--lith-text-sm);
+		}
+	}
+
+	.notice {
+		display: grid;
+		gap: var(--lith-space-2);
+		padding: var(--lith-space-4) var(--lith-space-5);
+		border-inline-start: 3px solid var(--lith-accent);
+		background: var(--lith-accent-subtle);
+		color: var(--lith-text-1);
+	}
+}

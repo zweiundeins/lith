@@ -1,0 +1,82 @@
+/*
+ * Semantic tokens: the contract every component styles against. Each holds
+ * its light and its dark value in light-dark(), so the theme is only the
+ * page's color-scheme: dark by default, light, or the system's
+ * ([data-lith-theme] on <html>, kept in the lith-theme cookie and rendered by
+ * the server, so no page flashes the other theme). Every pair of text and
+ * surface here passes WCAG AA in both themes (TestContrast).
+ */
+@layer theme {
+	:root {
+		color-scheme: dark;
+
+		--lith-bg: light-dark(var(--lith-paper), var(--lith-stone-12));
+		--lith-bg-glow: light-dark(oklch(91% 0.06 70 / 0.55), oklch(42% 0.12 52 / 0.24));
+		--lith-surface-1: light-dark(var(--lith-paper-raised), var(--lith-stone-11));
+		--lith-surface-2: light-dark(var(--lith-stone-1), var(--lith-stone-10));
+		--lith-surface-inset: light-dark(var(--lith-paper-inset), var(--lith-stone-13));
+		--lith-surface-hover: light-dark(var(--lith-stone-1), var(--lith-stone-9));
+		--lith-surface-overlay: light-dark(oklch(99.3% 0.002 80 / 0.92), oklch(19.5% 0.007 60 / 0.92));
+
+		--lith-border: light-dark(var(--lith-stone-3), var(--lith-stone-8));
+		--lith-border-subtle: light-dark(var(--lith-stone-2), var(--lith-stone-9));
+		--lith-border-strong: light-dark(var(--lith-stone-4), var(--lith-stone-7));
+
+		--lith-text-1: light-dark(var(--lith-stone-11), var(--lith-stone-1));
+		--lith-text-2: light-dark(var(--lith-stone-8), var(--lith-stone-3));
+		--lith-text-muted: light-dark(var(--lith-stone-6), var(--lith-stone-4));
+
+		/* The accent. --lith-accent fills (buttons, the seam, markers) and
+		 * carries --lith-on-accent; --lith-accent-text is the accent as text
+		 * (links, emphasis), darker in the light theme to stay readable. */
+		--lith-accent: var(--lith-ember-5);
+		--lith-accent-strong: light-dark(var(--lith-ember-6), var(--lith-ember-4));
+		--lith-accent-text: light-dark(var(--lith-ember-8), var(--lith-ember-4));
+		--lith-accent-edge: light-dark(var(--lith-ember-8), var(--lith-ember-5));
+		--lith-accent-subtle: light-dark(oklch(74% 0.165 60 / 0.14), oklch(74% 0.165 60 / 0.12));
+		--lith-on-accent: var(--lith-stone-12);
+		--lith-glow-color: light-dark(oklch(74% 0.165 60 / 0.35), oklch(74% 0.165 60 / 0.5));
+
+		--lith-danger: light-dark(var(--lith-red-dark), var(--lith-red-light));
+		--lith-danger-subtle: light-dark(oklch(50% 0.17 25 / 0.08), oklch(72% 0.15 25 / 0.12));
+		--lith-ok: light-dark(var(--lith-green-dark), var(--lith-green-light));
+
+		--lith-focus: light-dark(var(--lith-ember-8), var(--lith-ember-4));
+		--lith-selection: oklch(74% 0.165 60 / 0.32);
+
+		--lith-shadow-1: 0 1px 2px light-dark(oklch(30% 0.01 60 / 0.12), oklch(0% 0 0 / 0.4));
+		--lith-shadow-2: 0 10px 30px -12px light-dark(oklch(30% 0.01 60 / 0.25), oklch(0% 0 0 / 0.7));
+		--lith-shadow-overlay: 0 18px 48px -12px light-dark(oklch(30% 0.01 60 / 0.3), oklch(0% 0 0 / 0.75));
+
+		/* Code: chroma's classes map to these (components.css, .chroma). */
+		--lith-code-bg: var(--lith-surface-inset);
+		--lith-code-text: light-dark(var(--lith-stone-9), var(--lith-stone-2));
+		--lith-code-keyword: light-dark(var(--lith-ember-8), var(--lith-ember-4));
+		--lith-code-function: light-dark(var(--lith-stone-11), var(--lith-stone-0));
+		--lith-code-tag: light-dark(var(--lith-ember-8), var(--lith-ember-3));
+		--lith-code-string: light-dark(var(--lith-sage-dark), var(--lith-sage-light));
+		--lith-code-number: light-dark(var(--lith-gold-dark), var(--lith-gold-light));
+		--lith-code-comment: light-dark(var(--lith-stone-6), var(--lith-stone-5));
+
+		/* The art's theme-aware colours (internal/pixelart). */
+		--lith-art-seam-core: var(--lith-ember-1);
+		--lith-art-seam: var(--lith-ember-5);
+		--lith-art-seam-edge: var(--lith-ember-7);
+	}
+
+	[data-lith-theme="light"] {
+		color-scheme: light;
+	}
+
+	[data-lith-theme="system"] {
+		color-scheme: light dark;
+	}
+
+	/* The 8-bit details off: round corners, hairline frames, and the
+	 * reading face for display text. Combines with either theme. */
+	[data-lith-style="smooth"] {
+		--lith-notch: 0;
+		--lith-frame-step: 1px;
+		--lith-font-display: var(--lith-font-body);
+	}
+}

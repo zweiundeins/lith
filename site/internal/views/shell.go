@@ -1,0 +1,138 @@
+// Package views renders the site's pages with templ: the shell around every
+// page, the landing page, the docs, the demo pages. Demos render their own
+// parts in their packages and may use the helpers here (Art, Icon, Count).
+package views
+
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+
+	"github.com/a-h/templ"
+
+	"github.com/zweiundeins/lith/site/internal/pixelart"
+)
+
+// Assets are the hashed URLs of the files every page loads.
+type Assets struct {
+	CSS         string // the stylesheet bundle
+	Datastar    string // the vendored Datastar build
+	Transitions string // transitions.js: view transitions and the display menu
+	Font        string // Pixelify Sans, preloaded for the display text
+	Icon        string // the logo as an SVG file, the favicon
+}
+
+// Shell is the frame around a page.
+type Shell struct {
+	// Title is the page's own title; the document's is "<Title> · lith",
+	// or just "lith" when it is empty (the landing page).
+	Title       string
+	Description string
+	// Path is the page's canonical path, Base the site's public URL.
+	Path, Base string
+	// Nav names the header link of the current section: "docs", "demos".
+	Nav string
+	// Theme is "dark" (the default), "light" or "system"; Style is "pixel"
+	// (the default) or "smooth". Both come from cookies, so the page is
+	// drawn in them from the first byte.
+	Theme, Style string
+	Assets       Assets
+	Nonce        string
+	Version      string
+	Repo         string
+	// Stream is the URL of the page's stream, without its query; "" for a
+	// page that does not stream. The page opens it with the tab id Tab.
+	Stream string
+	Tab    string
+}
+
+// DocumentTitle is the <title> of the page.
+func (s Shell) DocumentTitle() string {
+	if s.Title == "" {
+		return "lith: Linear writes, Immediate mode, Ticks, Hypermedia"
+	}
+	return s.Title + " · lith"
+}
+
+// colorScheme is the <meta name="color-scheme"> of a theme.
+func colorScheme(theme string) string {
+	switch theme {
+	case "light":
+		return "light"
+	case "system":
+		return "light dark"
+	}
+	return "dark"
+}
+
+// StreamID is the id of the element that opens a page's stream, and the
+// stream's live.Spec.Reconnect: when the server restarts, the stream's last
+// event re-creates the element, and its data-init opens the stream again.
+// Its data-indicator keeps $_live true while the stream is open.
+const StreamID = "stream"
+
+// openStream opens the tab's stream. retry 'error' keeps trying through a
+// restart's 502s and 503s and never gives up; a stream the server ends
+// stays closed, except through sse.Reconnect.
+func openStream(url string) string {
+	return "@get(" + jsString(url+"?tab=") + " + $_tab, {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})"
+}
+
+// pageSignals are the signals every streaming page starts with: the tab
+// id, local to the browser (_), and sent along by the actions that need it.
+func pageSignals(tab string) string {
+	return "{_tab: " + jsString(tab) + "}"
+}
+
+func jsString(s string) string {
+	b, _ := json.Marshal(s)
+	return strings.ReplaceAll(string(b), "'", `'`)
+}
+
+// Art inlines pixel art as decorative SVG, with the given classes. The art's
+// own <style>, which animates it as a file, stays out: inlined, the site's
+// stylesheet animates it (--lith-seam-glow).
+func Art(svg, class string) templ.Component {
+	if i := strings.Index(svg, "<style>"); i >= 0 {
+		if j := strings.Index(svg[i:], "</style>"); j >= 0 {
+			svg = svg[:i] + svg[i+j+len("</style>"):]
+		}
+	}
+	svg = strings.Replace(svg, `class="px-art"`, `class="px-art `+class+`" aria-hidden="true" focusable="false"`, 1)
+	return templ.Raw(svg)
+}
+
+// logo and hero are rendered once.
+var (
+	logoSVG = pixelart.Logo()
+	heroSVG = pixelart.Hero()
+)
+
+// LogoSVG is the small monolith.
+func LogoSVG() string { return logoSVG }
+
+// Count says how many of a thing there are: "No entries yet", "1 entry",
+// "12 entries".
+func Count(n int, one, many string) string {
+	switch n {
+	case 0:
+		return "No " + many + " yet"
+	case 1:
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
+}
+
+func safe(s string) templ.SafeURL { return templ.SafeURL(s) }
+
+// vtName is a style that gives an element a view-transition name.
+func vtName(name string) string { return "view-transition-name: " + name }
+
+func itoa(n int) string { return strconv.Itoa(n) }
+
+func pressed(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
