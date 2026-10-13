@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,6 +75,14 @@ func TestBoardLoad(t *testing.T) {
 		id   string
 		wire atomic.Int64
 	}
+	// The second tab, which never moves, notes when each read arrives and
+	// how many bytes it brought, to tell a move's frame from the others.
+	type chunk struct {
+		at time.Time
+		n  int
+	}
+	var chunksMu sync.Mutex
+	var chunks []chunk
 	// The first tab also decodes its stream, to tell its events apart.
 	var events boardBuffer
 	decoded := make(chan struct{})
@@ -120,6 +129,11 @@ func TestBoardLoad(t *testing.T) {
 			for {
 				n, err := body.Read(buf)
 				tb.wire.Add(int64(n))
+				if i == 1 && n > 0 {
+					chunksMu.Lock()
+					chunks = append(chunks, chunk{time.Now(), n})
+					chunksMu.Unlock()
+				}
 				if err != nil {
 					return
 				}
@@ -167,6 +181,7 @@ func TestBoardLoad(t *testing.T) {
 	versions := make([]int, 12)
 	mover := list[0]
 	moves := 0
+	var committed []time.Time
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for end := time.Now().Add(moving); time.Now().Before(end); <-tick.C {
@@ -176,11 +191,30 @@ func TestBoardLoad(t *testing.T) {
 		if code := boardPost(t, mover.c, mover.addr, base+"/cmd/board/move", body); code != http.StatusNoContent {
 			t.Fatalf("move %d: %d", moves, code)
 		}
+		committed = append(committed, time.Now())
 		versions[card]++
 		moves++
 	}
 	s2 := take()
 	report("a move a second", s1, s2, moves)
+
+	// What reached the second tab within 60 ms of each move's commit: the
+	// tick that rendered the move, and now and then the numbers' frame of
+	// the same tick.
+	chunksMu.Lock()
+	var perMove []int
+	for _, c := range committed {
+		sum := 0
+		for _, ch := range chunks {
+			if !ch.at.Before(c) && ch.at.Sub(c) <= 60*time.Millisecond {
+				sum += ch.n
+			}
+		}
+		perMove = append(perMove, sum)
+	}
+	chunksMu.Unlock()
+	slices.Sort(perMove)
+	t.Logf("a move's write to a tab that did not move: %d bytes at the median, %d to %d", perMove[len(perMove)/2], perMove[0], perMove[len(perMove)-1])
 
 	m := boardMetrics(t, srv)
 	rss := boardRSS(t, srv.Process.Pid)
