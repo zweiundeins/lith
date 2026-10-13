@@ -45,11 +45,17 @@ func migrations(fsys fs.FS) ([]migration, error) {
 	return ms, nil
 }
 
-// migrate applies the migrations above the database's user_version. Foreign
-// keys are off meanwhile, as SQLite's procedure for schema changes asks:
-// otherwise rebuilding a table would cascade the deletes of its old copy.
-// foreign_key_check runs before each commit instead.
-func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) (err error) {
+// Migrate applies the NNN_name.sql files at the root of fsys that are
+// numbered above the database's PRAGMA user_version, as Open does with
+// Options.Migrations: in order, each in a transaction of its own, and it
+// refuses a database whose version is newer than the newest file. db is
+// the write connection (DB.W), or any connection to the file in a test or
+// a tool.
+//
+// Foreign keys are off meanwhile, as SQLite's procedure for schema
+// changes asks: otherwise rebuilding a table would cascade the deletes of
+// its old copy. foreign_key_check runs before each commit instead.
+func Migrate(ctx context.Context, db *sql.DB, fsys fs.FS) (err error) {
 	ms, err := migrations(fsys)
 	if err != nil {
 		return err

@@ -45,6 +45,13 @@ type Options struct {
 	// PRAGMA user_version in order, each in a transaction of its own, and
 	// refuses a database whose version is newer than the newest file.
 	Migrations fs.FS
+	// Migrate is a project's own migration runner, for one that keeps its
+	// schema_migrations table, say. Open calls it instead of applying
+	// Migrations (set one of them, not both), with the write connection,
+	// before it opens the read pool. A runner that changes the
+	// connection's pragmas (foreign_keys) must set them back: the writer
+	// takes the connection over.
+	Migrate func(ctx context.Context, w *sql.DB) error
 	// Readers is the size of the read pool (default max(4, GOMAXPROCS)).
 	Readers int
 	// CacheKiB is the page cache of each connection (default 32000).
@@ -71,6 +78,9 @@ func (o Options) withDefaults() (Options, error) {
 	case CheckpointAuto, CheckpointWriter, CheckpointExternal:
 	default:
 		return o, fmt.Errorf("sqlite: unknown Options.Checkpoint %d", o.Checkpoint)
+	}
+	if o.Migrations != nil && o.Migrate != nil {
+		return o, errors.New("sqlite: set Options.Migrations or Options.Migrate, not both")
 	}
 	if o.Readers <= 0 {
 		o.Readers = max(4, runtime.GOMAXPROCS(0))
@@ -141,9 +151,15 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		return nil, fmt.Errorf("sqlite: open %s: journal mode is %s, not wal", path, mode)
 	}
 	if opts.Migrations != nil {
-		if err := migrate(ctx, w, opts.Migrations); err != nil {
+		if err := Migrate(ctx, w, opts.Migrations); err != nil {
 			w.Close()
 			return nil, err
+		}
+	}
+	if opts.Migrate != nil {
+		if err := opts.Migrate(ctx, w); err != nil {
+			w.Close()
+			return nil, fmt.Errorf("sqlite: migrate %s: %w", path, err)
 		}
 	}
 
