@@ -540,6 +540,19 @@ func TestCloseDrainsTheQueue(t *testing.T) {
 	}
 }
 
+// entered is a context that reports a Do past the writer's closed check:
+// enqueue asks for Done only to wait for room in the queue.
+type entered struct {
+	context.Context
+	in   chan<- struct{}
+	once sync.Once
+}
+
+func (c *entered) Done() <-chan struct{} {
+	c.once.Do(func() { c.in <- struct{}{} })
+	return c.Context.Done()
+}
+
 func TestRunStopsWithItsContext(t *testing.T) {
 	db := openDB(t, sqlite.Options{})
 	defer db.Close()
@@ -553,8 +566,14 @@ func TestRunStopsWithItsContext(t *testing.T) {
 	f := &fixture{db: db, w: w}
 	release := f.block(t)
 	var wg sync.WaitGroup
+	in := make(chan struct{}, 20)
 	for range 20 { // more than the queue holds: some Do wait for room
-		wg.Go(func() { w.Do(context.Background(), increment(1)) })
+		wg.Go(func() { w.Do(&entered{Context: context.Background(), in: in}, increment(1)) })
+	}
+	// A Do that has not reached the queue when Run stops is refused, so
+	// cancel once all of them are queued or waiting for room.
+	for range 20 {
+		<-in
 	}
 	f.queued(t, 8)
 	cancel()
