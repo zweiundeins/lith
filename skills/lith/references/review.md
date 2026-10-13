@@ -8,8 +8,15 @@ pattern matches, and what the review of October 2026 found where.
 
 - `rg -n '\.(Exec|ExecContext)\(' --type go -g '!*_test.go'`: every hit must
   sit inside a writer command (`Apply(tx *writer.Tx)` or a `writer.Func`), in
-  migrations, or in a test. A store method that writes on its own is a second
-  writer. (libretto had 398 such sites, swisscyberguard 89.)
+  a `w.Exclusive` fn, in migrations, or in a test. A store method that writes
+  on its own is a second writer. (libretto had 398 such sites, swisscyberguard
+  89.)
+- `rg -n 'sql\.Open\(' --type go` outside lith: a second connection that
+  writes to the database file (libretto's Legacy, for the factory reset and
+  tenant imports) takes the write lock beside the writer, and a transaction
+  on it past the busy timeout fails the writer's batches with `SQLITE_BUSY`.
+  Pragma toggles, ATTACH, DETACH and VACUUM go in `w.Exclusive`, on the
+  writer's own connection.
 - `rg -n 'BeginTx\([^)]*nil\)|\.Begin\(\)' --type go`: a deferred
   transaction that reads and then writes can fail with `SQLITE_BUSY_SNAPSHOT`
   next to Litestream's connection; `busy_timeout` does not retry it.

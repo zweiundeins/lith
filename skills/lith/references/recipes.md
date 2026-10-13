@@ -298,6 +298,49 @@ for chunk := range slices.Chunk(rows, 5000) {
 }
 ```
 
+## Work a transaction cannot hold
+
+`PRAGMA foreign_keys` does nothing inside a transaction, and ATTACH, DETACH
+and VACUUM are refused there. `w.Exclusive(ctx, fn)` runs fn on the writer's
+own connection between two batches, outside any transaction; commands queued
+meanwhile wait and run after it in order. It replaces a second write
+connection, such as libretto's Legacy (factory reset, tenant import and
+merge): a transaction on that one that runs past the busy timeout makes the
+writer's batches fail with `SQLITE_BUSY`.
+
+```go
+err := w.Exclusive(ctx, func(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, `ATTACH DATABASE ? AS src`, path); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.WithoutCancel(ctx), `DETACH DATABASE src`)
+	tx, err := conn.BeginTx(ctx, nil) // IMMEDIATE, like every transaction on the write connection
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO cars SELECT * FROM src.cars`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO trips SELECT * FROM src.trips`); err != nil {
+		return err
+	}
+	return tx.Commit()
+})
+if err == nil {
+	hub.Changed([]string{"cars"}) // Exclusive reaches no OnCommit
+}
+```
+
+- fn restores every pragma it changes, on its error paths too: a `defer`
+  with `context.WithoutCancel(ctx)` still runs when the request is gone. It
+  ends its transactions and closes its rows; a transaction it leaves open is
+  rolled back and reported.
+- fn never waits for the writer (`Do`, `Flush`, another `Exclusive`): the
+  writer is waiting for fn.
+- Every command waits while fn runs. An import that a command's transaction
+  can hold goes through commands in chunks instead, as above.
+
 ## An event-sourced command
 
 The writer serialises commands, so there is no optimistic retry loop. One
