@@ -167,8 +167,8 @@ func (c Reset) Apply(tx *writer.Tx) error {
 		state.Refusal = fmt.Sprintf("Someone reset the board %s. Try again in %s.", ago(since), seconds(ResetEvery-since))
 	default:
 		b.Cells = make([]byte, Cells)
-		b.Generation, b.Reset = 0, now
-		b.Rate, b.RateSince, b.RateFrom = 0, 0, 0
+		b.restart()
+		b.Reset = now
 		b.changed(now)
 		if err := b.save(tx); err != nil {
 			return err

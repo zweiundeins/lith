@@ -21,6 +21,7 @@ templ Stage(b Board, here, colour int, now time.Time) {
 			data-on:pointermove={ move }
 			data-on:pointerup={ end }
 			data-on:pointercancel={ end }
+			data-on:lostpointercapture={ end }
 			data-on:pointerleave={ leave }
 			data-on:click={ click }
 			data-on:keydown={ key }

@@ -92,8 +92,15 @@ func TestEmptyBoard(t *testing.T) {
 		t.Errorf("a step on an empty board touched %v", got)
 	}
 	e.Do(t, Step{At: t0.Add(EmptyFor)})
-	if b = board(t, e); Population(b.Cells) == 0 || b.Quiet != 0 {
-		t.Errorf("after %v: %d cells, quiet %d", EmptyFor, Population(b.Cells), b.Quiet)
+	if b = board(t, e); Population(b.Cells) == 0 || b.Quiet != 0 || b.Generation != 0 {
+		t.Errorf("after %v: %d cells, quiet %d, generation %d", EmptyFor, Population(b.Cells), b.Quiet, b.Generation)
+	}
+	// The new soup counts its rate from its own first step.
+	for i := 1; i <= 11; i++ {
+		e.Do(t, Step{At: t0.Add(EmptyFor + time.Duration(i)*100*time.Millisecond)})
+	}
+	if b = board(t, e); b.Rate != 100 || b.Generation != 11 {
+		t.Errorf("the new soup's rate: %s at generation %d", tenths(b.Rate), b.Generation)
 	}
 }
 

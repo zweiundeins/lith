@@ -127,7 +127,13 @@ func (b *Board) quietFor() time.Duration {
 func (b *Board) reseed(now int64) {
 	b.Cells = make([]byte, Cells)
 	Soup(b.Cells, rand.New(rand.NewPCG(uint64(now), 0x11fe)))
-	b.Generation, b.Quiet, b.Recent = 0, 0, nil
+	b.restart()
+	b.Quiet, b.Recent = 0, nil
+}
+
+// restart counts the generations, and their rate, from 0 again.
+func (b *Board) restart() {
+	b.Generation, b.Stepped = 0, 0
 	b.Rate, b.RateSince, b.RateFrom = 0, 0, 0
 }
 
