@@ -1,10 +1,9 @@
 // Package canvas is the shared pixel canvas: everyone paints on one 64 by
-// 64 board with Starbase's sb-pixel-board. A stroke is a command; the
-// writer stores the board as one row of two packed BLOBs, and one shared
-// view renders it once per tick for every painter. The page lists the
-// painters here in their colours and counts the pixels of the last
-// minute. A pixel fades back to the background a day after it was last
-// painted.
+// 64 board with Starbase's sb-pixel-board. A stroke is a run of commands;
+// the writer keeps the board as one row of 2,048 bytes, and one shared view
+// renders it once per tick for every painter. The page lists the painters
+// here in their colours and counts the pixels of the last minute. A pixel
+// fades back to the background a day after it was last painted.
 package canvas
 
 import (
@@ -23,6 +22,11 @@ const (
 	Lifetime = 24 * time.Hour // a pixel fades back to the background this long after its last paint
 	Window   = 60             // seconds in "the last minute"
 	Shown    = 40             // painters the list shows at most
+
+	// MaxPainters is how many painters the sweep keeps at most, the
+	// newest: a painter is a row per tab that opened the page in the last
+	// day.
+	MaxPainters = 5000
 
 	// The pixel limits: a session paints 20 pixels a second after a burst
 	// of 60, an address four times that.

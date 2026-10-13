@@ -60,7 +60,7 @@ templ Board(cells string) {
 // site's. A change is the tab's own (its brush) and goes to the server,
 // which shows it in the list of painters.
 templ palette(color int) {
-	<fieldset class="cv__palette" data-on:change={ pick } data-on:datastar-fetch={ pickFailed }>
+	<fieldset class="cv__palette" data-on:input={ choose } data-on:change__debounce.300ms={ pick } data-on:datastar-fetch={ pickFailed }>
 		<legend>Brush</legend>
 		<div class="cv__swatches">
 			for _, i := range swatchOrder {
@@ -89,7 +89,15 @@ templ Here(list []Painter) {
 		<h3 id="canvas-here-title">{ hereTitle(len(list)) }</h3>
 		<ul class="cv__painters" role="list">
 			for _, p := range shown(list) {
-				<li id={ "canvas-painter-" + p.Tag } class="cv__painter" data-tag={ p.Tag } data-c={ strconv.Itoa(p.Color) }>
+				<li
+					id={ "canvas-painter-" + p.Tag }
+					class="cv__painter"
+					data-tag={ p.Tag }
+					data-c={ strconv.Itoa(p.Color) }
+					if p.Active {
+						data-active
+					}
+				>
 					<svg viewBox="0 0 5 5" aria-hidden="true" focusable="false"><path d={ face(p.Tag) }></path></svg>
 					if p.Pixels > 0 {
 						<span class="cv__painted" aria-hidden="true">{ strconv.Itoa(p.Pixels) }</span>

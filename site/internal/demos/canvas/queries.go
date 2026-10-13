@@ -15,28 +15,37 @@ import (
 // it.
 type Painter struct {
 	Tag    string
-	Color  int // -1 until the tab's first pick arrives
-	Pixels int // painted in the last minute
+	Color  int  // -1 until the tab's first pick arrives
+	Pixels int  // painted in the last minute
+	Active bool // painted in the last few seconds
 	id     int64
 }
+
+// activeFor is how recent a painter's last paint is while they count as
+// painting.
+const activeFor = 4 // seconds
 
 // painters returns the painters of the tabs: those that picked a colour
 // in the order they came, then the others. Every query is a point lookup
 // or a scan of the last minute, so a render with 300 tabs stays short.
 func painters(ctx context.Context, q sqlite.Querier, tabs []string, now time.Time) ([]Painter, error) {
-	recent := map[int64]int{}
-	rows, err := q.QueryContext(ctx, `SELECT painter, sum(pixels) FROM canvas_recent WHERE sec > ? GROUP BY painter`, now.Unix()-Window)
+	type activity struct {
+		pixels int
+		last   int64
+	}
+	recent := map[int64]activity{}
+	rows, err := q.QueryContext(ctx, `SELECT painter, sum(pixels), max(sec) FROM canvas_recent WHERE sec > ? GROUP BY painter`, now.Unix()-Window)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id int64
-		var n int
-		if err := rows.Scan(&id, &n); err != nil {
+		var a activity
+		if err := rows.Scan(&id, &a.pixels, &a.last); err != nil {
 			return nil, err
 		}
-		recent[id] = n
+		recent[id] = a
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -51,7 +60,8 @@ func painters(ctx context.Context, q sqlite.Querier, tabs []string, now time.Tim
 		case err != nil:
 			return nil, err
 		default:
-			p.Pixels = recent[p.id]
+			a := recent[p.id]
+			p.Pixels, p.Active = a.pixels, a.last > now.Unix()-activeFor
 			known = append(known, p)
 		}
 	}

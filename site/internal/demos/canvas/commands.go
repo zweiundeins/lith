@@ -150,7 +150,8 @@ func upsertPainter(tx *writer.Tx, v demo.Viewer, color, pixels int, at time.Time
 }
 
 // sweep fades the pixels whose day is over, forgets the seconds that
-// have left the last minute, and the painters not seen for a day.
+// have left the last minute, and the painters not seen for a day or
+// beyond the newest MaxPainters.
 func sweep(tx *writer.Tx, now time.Time) error {
 	if err := fade(tx, now); err != nil {
 		return err
@@ -163,7 +164,12 @@ func sweep(tx *writer.Tx, now time.Time) error {
 		tx.Touch(TopicPaints, TopicPainters)
 	}
 	n, err := demo.DeleteOlder(tx, "canvas_painters", "seen", now.Add(-Lifetime))
-	if n > 0 {
+	if err != nil {
+		return err
+	}
+	// Every page load adds a painter; a flood of them stops at the cap.
+	m, err := demo.KeepNewest(tx, "canvas_painters", MaxPainters)
+	if n+m > 0 {
 		tx.Touch(TopicPainters)
 	}
 	return err

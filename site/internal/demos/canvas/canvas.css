@@ -1,10 +1,10 @@
 /* The canvas. Its rules apply inside its own elements only. */
 @scope ([data-demo="canvas"]) {
 	/* The palette: sixteen of the site's colours. The neutrals turn over
-	 * with the theme, like ink on paper and chalk on slate; the hues keep
-	 * their colour where it reads on both backgrounds, and the two that
-	 * would vanish into one take a step along their ramp. The page reads
-	 * them into the hex colours sb-pixel-board paints with (expr.go). */
+	 * with the theme, like ink on paper and chalk on slate, so a drawing
+	 * keeps its contrast; the hues keep their colour, but the palest three
+	 * (glow, flame, gold) take a darker step on paper. The page reads them
+	 * into the hex colours sb-pixel-board paints with (expr.go). */
 	:scope {
 		--canvas-c0: var(--lith-surface-inset);
 		--canvas-c1: light-dark(var(--lith-stone-12), var(--lith-stone-1));
@@ -40,6 +40,25 @@
 	[data-c="13"] { --_c: var(--canvas-c13); }
 	[data-c="14"] { --_c: var(--canvas-c14); }
 	[data-c="15"] { --_c: var(--canvas-c15); }
+
+	/* The brush: the colour of the checked swatch, for the frame and the
+	 * palette's legend. */
+	.cv:has([data-c="0"] > :checked) { --_brush: var(--canvas-c0); }
+	.cv:has([data-c="1"] > :checked) { --_brush: var(--canvas-c1); }
+	.cv:has([data-c="2"] > :checked) { --_brush: var(--canvas-c2); }
+	.cv:has([data-c="3"] > :checked) { --_brush: var(--canvas-c3); }
+	.cv:has([data-c="4"] > :checked) { --_brush: var(--canvas-c4); }
+	.cv:has([data-c="5"] > :checked) { --_brush: var(--canvas-c5); }
+	.cv:has([data-c="6"] > :checked) { --_brush: var(--canvas-c6); }
+	.cv:has([data-c="7"] > :checked) { --_brush: var(--canvas-c7); }
+	.cv:has([data-c="8"] > :checked) { --_brush: var(--canvas-c8); }
+	.cv:has([data-c="9"] > :checked) { --_brush: var(--canvas-c9); }
+	.cv:has([data-c="10"] > :checked) { --_brush: var(--canvas-c10); }
+	.cv:has([data-c="11"] > :checked) { --_brush: var(--canvas-c11); }
+	.cv:has([data-c="12"] > :checked) { --_brush: var(--canvas-c12); }
+	.cv:has([data-c="13"] > :checked) { --_brush: var(--canvas-c13); }
+	.cv:has([data-c="14"] > :checked) { --_brush: var(--canvas-c14); }
+	.cv:has([data-c="15"] > :checked) { --_brush: var(--canvas-c15); }
 
 	/* The stage: the canvas, and beside it (below it on narrow stages)
 	 * the brush, the painters and the pulse. */
@@ -84,11 +103,16 @@
 		--_n: calc(6px * var(--lith-notch));
 		padding: var(--lith-space-2);
 		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
-		background:
-			linear-gradient(var(--lith-border-subtle), var(--lith-border-subtle)) padding-box,
-			var(--lith-surface-2);
+		background-color: var(--lith-border-subtle);
 		box-shadow: inset 0 0 0 1px var(--lith-border);
+		transition: background-color var(--lith-dur-4) var(--lith-ease-glide);
 		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+	}
+
+	/* While you paint, the frame takes your brush's colour. */
+	.cv__frame:has(sb-pixel-board:active) {
+		background-color: color-mix(in oklch, var(--_brush, var(--lith-accent)) 55%, var(--lith-border-subtle));
+		transition-duration: var(--lith-dur-1);
 	}
 
 	/* Until the page has read its palette from the tokens, the board
@@ -161,6 +185,19 @@
 		margin: 0;
 		padding: 0;
 		border: 0;
+
+		/* The brush's colour beside its name. */
+		& legend::after {
+			content: "";
+			display: inline-block;
+			inline-size: 0.625rem;
+			block-size: 0.625rem;
+			margin-inline-start: var(--lith-space-2);
+			vertical-align: -0.0625rem;
+			background: var(--_brush, transparent);
+			box-shadow: 0 0 0 1px color-mix(in oklch, var(--lith-text-1) 25%, transparent);
+			transition: background-color var(--lith-dur-3) var(--lith-ease-glide);
+		}
 	}
 
 	.cv__swatches {
@@ -275,10 +312,22 @@
 		}
 
 		/* No colour yet, or the background's: the face as an outline. */
-		&:is([data-c="-1"], [data-c="0"]) path {
-			fill: none;
-			stroke: var(--lith-text-muted);
-			stroke-width: 0.3;
+		&:is([data-c="-1"], [data-c="0"]) {
+			color: var(--lith-text-muted);
+
+			& path {
+				fill: none;
+				stroke: currentColor;
+				stroke-width: 0.3;
+			}
+		}
+
+		/* Painting now: a ring in their colour that blinks, like the live
+		 * dot, until their strokes stop. */
+		&[data-active] {
+			outline: 2px solid currentColor;
+			outline-offset: 2px;
+			animation: canvas-painting 1.2s steps(2, jump-none) infinite;
 		}
 	}
 
@@ -426,8 +475,14 @@
 	}
 }
 
-/* The count's number, animatable: outside the scope, since a property is
- * the document's. */
+/* Outside the scope: keyframes and properties are the document's. */
+@keyframes canvas-painting {
+	50% {
+		outline-color: transparent;
+	}
+}
+
+/* The count's number, animatable. */
 @property --canvas-n {
 	syntax: "<integer>";
 	inherits: false;

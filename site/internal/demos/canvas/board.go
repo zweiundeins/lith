@@ -153,9 +153,9 @@ func face(tag string) string {
 
 // The palette, by index. Each colour is a token of the site's, named
 // --canvas-c<index> in canvas.css: the neutrals turn over with the theme,
-// like ink on paper and chalk on slate, and the hues keep their colour
-// where it reads on both backgrounds. The page resolves the tokens to the
-// hex colours sb-pixel-board paints with.
+// like ink on paper and chalk on slate, and the hues keep their colour,
+// the palest three a step darker on paper. The page resolves the tokens to
+// the hex colours sb-pixel-board paints with.
 var colorNames = [16]string{
 	"Background", "Ink", "Ash", "Stone", "Slate", "Shade", "Glow", "Seam",
 	"Edge", "Rust", "Flame", "Gold", "Sage", "Green", "Coral", "Wine",

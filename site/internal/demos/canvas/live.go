@@ -49,7 +49,15 @@ func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component
 	if err != nil {
 		return nil, err
 	}
-	return Stage(Page{Cells: cells, Painters: list, Pulse: p, Color: color, Me: Tag(v.Tab)}), nil
+	// The tab's first pick, which the page sends as it starts, brings its
+	// brush to the painters; the document draws it so already.
+	me := Tag(v.Tab)
+	for i := range list {
+		if list[i].Tag == me && list[i].Color < 0 {
+			list[i].Color = color
+		}
+	}
+	return Stage(Page{Cells: cells, Painters: list, Pulse: p, Color: color, Me: me}), nil
 }
 
 // pageViews are what a painter's stream watches: the board, the painters

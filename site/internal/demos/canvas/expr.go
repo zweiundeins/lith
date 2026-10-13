@@ -45,8 +45,12 @@ const paint = `@post('/cmd/canvas/paint', {payload: {tab: $_tab, color: evt.deta
 // after three seconds, since no frame confirms them.
 const refused = `evt.detail.el === el && ['error', 'retries-failed'].includes(evt.detail.type) && ($_canvas.problem = 'Some pixels did not reach the canvas: each painter gets 20 a second, and the connection has to hold. They fade back; paint them again in a moment.')`
 
-// pick makes the swatch the brush, and tells the server.
-const pick = `$_canvas.color = +evt.target.value; $_canvas.problem = ''; @post('/cmd/canvas/pick', {payload: {tab: $_tab, color: $_canvas.color}})`
+// choose makes the swatch the brush, at once.
+const choose = `$_canvas.color = +evt.target.value; $_canvas.problem = ''`
+
+// pick tells the server the brush a moment after the last change, so that
+// arrowing through the swatches sends one pick.
+const pick = `@post('/cmd/canvas/pick', {payload: {tab: $_tab, color: $_canvas.color}})`
 
 // pickFailed: the brush changed on this page, but the list of painters
 // still shows the old colour until the next paint.

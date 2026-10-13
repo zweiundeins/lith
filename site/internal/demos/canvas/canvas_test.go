@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -70,12 +71,16 @@ func TestPaint(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		want := []Painter{{Tag: Tag(ada.Tab), Color: 7, Pixels: 1}, {Tag: Tag(bob.Tab), Color: 0, Pixels: 1}, {Tag: Tag("t3"), Color: -1}}
+		want := []Painter{{Tag: Tag(ada.Tab), Color: 7, Pixels: 1, Active: true}, {Tag: Tag(bob.Tab), Color: 0, Pixels: 1, Active: true}, {Tag: Tag("t3"), Color: -1}}
 		for i := range want {
 			list[i].id = 0
 		}
 		if !slices.Equal(list, want) {
 			t.Errorf("painters %+v", list)
+		}
+		// Ten seconds on, nobody is painting any more.
+		if list, err = painters(ctx, tx, []string{ada.Tab}, t0.Add(70*time.Second)); err != nil || list[0].Active || list[0].Pixels != 1 {
+			t.Errorf("ten seconds later: %+v, %v", list, err)
 		}
 		return nil
 	})
@@ -176,6 +181,23 @@ func TestSweep(t *testing.T) {
 	if got := e.Touched(); len(got) != 0 {
 		t.Errorf("a sweep with nothing to do touched %v", got)
 	}
+
+	// A flood of tabs stops at the cap, the newest kept.
+	e.Do(t, writer.Func(func(tx *writer.Tx) error {
+		for i := range MaxPainters + 10 {
+			if err := (Pick{Viewer: demo.Viewer{Session: "flood", Tab: fmt.Sprint("flood-", i)}, Color: 1, At: t0.Add(Lifetime)}).Apply(tx); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	e.Do(t, writer.Func(func(tx *writer.Tx) error { return sweep(tx, t0.Add(Lifetime+time.Minute)) }))
+	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT count(*) FROM canvas_painters`).Scan(&painters)
+	})
+	if painters != MaxPainters {
+		t.Errorf("%d painters after a flood, want %d", painters, MaxPainters)
+	}
 }
 
 // The last minute stays a minute: a paint deletes the seconds that left
@@ -250,6 +272,21 @@ func TestViews(t *testing.T) {
 			if strings.Contains(f, ada.Tab) {
 				t.Error("a shared view carries a tab id")
 			}
+		}
+
+		// A new tab of the same session: among the painters already, in
+		// the brush the session used last, before its first pick.
+		fresh := demo.Viewer{Session: ada.Session, Tab: "tab-fresh-0123456789"}
+		page, err = renderPage(ctx, tx, fresh)
+		if err != nil {
+			return err
+		}
+		html.Reset()
+		if err := page.Render(ctx, &html); err != nil {
+			return err
+		}
+		if !strings.Contains(html.String(), `data-tag="`+Tag(fresh.Tab)+`" data-c="14"`) {
+			t.Error("a new tab is not among the painters in its brush")
 		}
 		return nil
 	})

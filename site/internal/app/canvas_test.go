@@ -129,6 +129,48 @@ func paintScene(t *testing.T, a *app.App) {
 	}
 }
 
+// pen draws on a page's canvas with the mouse, by cells: down moves
+// there and presses, to drags with the button held, up releases.
+type pen struct {
+	t       *testing.T
+	p       *browser.Page
+	x, y, w float64
+}
+
+func penOn(t *testing.T, p *browser.Page) *pen {
+	t.Helper()
+	var r struct{ X, Y, W float64 }
+	p.Eval(t, `(() => { const b = document.querySelector('#canvas-board').shadowRoot.querySelector('canvas').getBoundingClientRect(); return {x: b.left, y: b.top, w: b.width} })()`, &r)
+	return &pen{t: t, p: p, x: r.X, y: r.Y, w: r.W}
+}
+
+func (pn *pen) mouse(typ string, x, y int, pressed bool) {
+	button, buttons := "none", 0
+	if pressed || typ == "mouseReleased" {
+		button = "left"
+	}
+	if pressed {
+		buttons = 1
+	}
+	cell := pn.w / 64
+	pn.p.Call(pn.t, "Input.dispatchMouseEvent", map[string]any{
+		"type": typ, "x": pn.x + (float64(x)+0.5)*cell, "y": pn.y + (float64(y)+0.5)*cell,
+		"button": button, "buttons": buttons, "clickCount": 1,
+	})
+}
+
+func (pn *pen) down(x, y int) {
+	pn.mouse("mouseMoved", x, y, false)
+	pn.mouse("mousePressed", x, y, true)
+}
+
+func (pn *pen) to(x, y int) {
+	pn.mouse("mouseMoved", x, y, true)
+	time.Sleep(10 * time.Millisecond)
+}
+
+func (pn *pen) up(x, y int) { pn.mouse("mouseReleased", x, y, false) }
+
 // TestShotsCanvas writes screenshots of the canvas with a picture on it
 // and a few painters on the page: both themes, the smooth style, a phone.
 //
@@ -141,12 +183,21 @@ func TestShotsCanvas(t *testing.T) {
 	a, base := apptest.Start(t)
 	paintScene(t, a)
 	b := browser.Start(t)
-	// Painters in their colours.
+	// Painters in their colours; the last one paints stars while the
+	// shots are taken.
+	var painter *browser.Page
 	for _, color := range []string{"14", "13", "6"} {
-		p := b.NewPage(t, 800, 600)
-		p.Navigate(t, base+"/demos/canvas")
-		p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
-		p.Eval(t, `document.querySelector('.cv__swatch input[value="`+color+`"]').click()`, nil)
+		painter = b.NewPage(t, 800, 600)
+		painter.Navigate(t, base+"/demos/canvas")
+		painter.Wait(t, `document.querySelector('.live-badge.is-live') && document.querySelector('#canvas-board[palette]')`, 10*time.Second)
+		painter.Eval(t, `document.querySelector('.cv__swatch input[value="`+color+`"]').click()`, nil)
+	}
+	stars := penOn(t, painter)
+	twinkle := func() {
+		for _, s := range [][2]int{{14, 30}, {50, 18}, {23, 8}, {60, 40}, {36, 5}} {
+			stars.down(s[0], s[1])
+			stars.up(s[0], s[1])
+		}
 	}
 	shot := func(name string, w, h int, cookie string, full bool, setup ...string) {
 		p := b.NewPage(t, w, h)
@@ -162,6 +213,7 @@ func TestShotsCanvas(t *testing.T) {
 		for _, js := range setup {
 			p.Eval(t, js, nil)
 		}
+		twinkle()
 		time.Sleep(900 * time.Millisecond)
 		p.Screenshot(t, filepath.Join(dir, name+".png"), full)
 		p.ShotElement(t, ".demo-stage", filepath.Join(dir, name+"-stage.png"), 1.5)
@@ -178,6 +230,21 @@ func TestShotsCanvas(t *testing.T) {
 	shot("canvas-smooth", 1440, 900, "lith-style=smooth", false)
 	shot("mobile-canvas", 390, 844, "", true)
 	shot("canvas-how", 1440, 900, "", true, `document.querySelector('.howto').open = true`)
+
+	// A stroke of your own under way: the frame in your brush's colour.
+	p := b.NewPage(t, 1440, 900)
+	p.Navigate(t, base+"/demos/canvas")
+	p.Wait(t, `document.querySelector('#canvas-board[palette]') && document.querySelector('.live-badge.is-live')`, 10*time.Second)
+	p.Eval(t, `document.querySelector('.cv__swatch input[value="11"]').click()`, nil)
+	pn := penOn(t, p)
+	pn.down(40, 30)
+	for i := 1; i <= 8; i++ {
+		pn.to(40+i, 30-i/2)
+	}
+	twinkle()
+	time.Sleep(700 * time.Millisecond)
+	p.ShotElement(t, ".demo-stage", filepath.Join(dir, "canvas-stroke.png"), 1.5)
+	pn.up(48, 26)
 }
 
 // TestCanvas paints over HTTP and reads the outcome from the stream: the
@@ -349,33 +416,38 @@ func TestCanvasBrowser(t *testing.T) {
 	bob.Wait(t, `document.querySelector('#canvas-painter-`+me+`')?.dataset.c === '14'`, 5*time.Second)
 
 	// A stroke across eleven cells of row 10, with the mouse.
-	var r struct{ X, Y, W float64 }
-	ada.Eval(t, `(() => { const b = document.querySelector('#canvas-board').shadowRoot.querySelector('canvas').getBoundingClientRect(); return {x: b.left, y: b.top, w: b.width} })()`, &r)
-	mouse := func(typ string, x, y int, pressed bool) {
-		button, buttons := "none", 0
-		if pressed || typ == "mouseReleased" {
-			button = "left"
-		}
-		if pressed {
-			buttons = 1
-		}
-		ada.Call(t, "Input.dispatchMouseEvent", map[string]any{
-			"type": typ, "x": r.X + (float64(x)+0.5)*r.W/64, "y": r.Y + (float64(y)+0.5)*r.W/64,
-			"button": button, "buttons": buttons, "clickCount": 1,
-		})
-	}
-	mouse("mouseMoved", 10, 10, false)
-	mouse("mousePressed", 10, 10, true)
+	pn := penOn(t, ada)
+	pn.down(10, 10)
 	for x := 11; x <= 20; x++ {
-		mouse("mouseMoved", x, 10, true)
-		time.Sleep(10 * time.Millisecond)
+		pn.to(x, 10)
 	}
-	mouse("mouseReleased", 20, 10, false)
+	pn.up(20, 10)
 	const stroke = `document.querySelector('#canvas-board').getAttribute('cells').slice(650, 661) === 'eeeeeeeeeee'`
 	bob.Wait(t, stroke, 5*time.Second)
 	ada.Wait(t, stroke, 5*time.Second)
 	bob.Wait(t, `document.querySelector('#canvas-pulse .cv__n').textContent === '11'`, 5*time.Second)
 	bob.Wait(t, `document.querySelector('#canvas-painter-`+me+` .cv__painted')?.textContent === '11'`, 5*time.Second)
+	// The board's frames left the page's palette and brush alone.
+	var kept bool
+	ada.Eval(t, `(b => b.hasAttribute('palette') && b.getAttribute('color') === '14' && getComputedStyle(b).opacity === '1')(document.querySelector('#canvas-board'))`, &kept)
+	if !kept {
+		t.Error("a frame of the board took the page's palette or brush")
+	}
+
+	// A long stroke at once is more than the burst of 60 pixels: the
+	// server refuses the rest, and the page says why.
+	pn.down(0, 40)
+	for x := 1; x < 64; x++ {
+		pn.to(x, 40)
+	}
+	for x := 63; x >= 0; x -= 2 {
+		pn.to(x, 41)
+	}
+	pn.up(0, 41)
+	ada.Wait(t, `document.querySelector('.cv__problem').textContent.includes('20 a second')`, 5*time.Second)
+	pn.down(5, 5) // a new stroke clears it
+	pn.up(5, 5)
+	ada.Wait(t, `document.querySelector('.cv__problem').textContent === ''`, 2*time.Second)
 
 	// Bob paints from the keyboard: Space paints the cursor's cell, which
 	// starts in the middle, in his brush.
@@ -396,8 +468,12 @@ func TestCanvasBrowser(t *testing.T) {
 	bob.Wait(t, `document.querySelectorAll('#canvas-here .cv__painter').length === 1`, 5*time.Second)
 
 	for name, p := range map[string]*browser.Page{"Ada's canvas": ada, "Bob's canvas": bob} {
-		if errs := p.Errors(); len(errs) > 0 {
-			t.Errorf("%s: %v", name, errs)
+		for _, e := range p.Errors() {
+			// The refused paints of the long stroke, which Chromium logs.
+			if strings.Contains(e, "status of 429") && strings.Contains(e, "/cmd/canvas/paint") {
+				continue
+			}
+			t.Errorf("%s: %s", name, e)
 		}
 	}
 }
