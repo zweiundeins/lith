@@ -8,8 +8,6 @@ import (
 )
 
 func mount(k *demo.Kit) {
-	rt.Store(&deps{hub: k.Hub, w: k.W})
-
 	// A click: the box and the state it should take. Setting a box twice
 	// changes it once, so a retried request needs no op id.
 	k.Command("set", demo.Rate{Every: setEvery, Burst: setBurst}, func(w http.ResponseWriter, r *http.Request) {

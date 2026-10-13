@@ -207,6 +207,7 @@ func cbFrameSizes(t *testing.T, base string) (tile, board, stats int) {
 	t.Helper()
 	c := client(t)
 	events := listen(t, c, base+"/demos/checkboxes/stream?tab=sizes")
+	post(t, c, base+"/cmd/checkboxes/window", `{"tab":"sizes","offset":0,"count":12,"cols":2}`)
 	for tile == 0 || board == 0 || stats == 0 {
 		var e string
 		select {
@@ -344,6 +345,12 @@ func cbMeasureWire(t *testing.T, a *app.App, base string) string {
 		raw.Add(int64(n))
 		return n, err
 	})
+	// The page answers the list's first frame with its window: the top.
+	if err := a.Writer().Do(context.Background(), checkboxes.SetWindow{
+		Viewer: demo.Viewer{Session: sid, Tab: "wire"}, Window: checkboxes.Window{}, At: time.Now(), Hub: a.Hub(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	dec, err := zstd.NewReader(counted, zstd.WithDecoderConcurrency(1))
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +366,7 @@ func cbMeasureWire(t *testing.T, a *app.App, base string) string {
 			}
 		}
 	}()
-	// The window's twelve tiles, from the Rewatch.
+	// The window's twelve tiles.
 	var firsts int64
 	for range checkboxes.Slots {
 		select {

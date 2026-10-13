@@ -139,9 +139,10 @@
 	}
 
 	/* Where the view is in the million: a mark on a rail that follows the
-	 * list's scroll (a scroll-driven animation). */
+	 * list's scroll (a scroll-driven animation). A browser without scroll
+	 * timelines shows no rail rather than a mark that stays put. */
 	.cb-where {
-		display: flex;
+		display: none;
 		align-items: center;
 		gap: var(--lith-space-3);
 		color: var(--lith-text-muted);
@@ -170,7 +171,11 @@
 		box-shadow: 0 0 8px var(--lith-glow-color);
 	}
 
-	@supports (animation-timeline: scroll()) {
+	@supports (animation-timeline: scroll()) and (timeline-scope: --cb-grid) {
+		.cb-where {
+			display: flex;
+		}
+
 		.cb-grid::part(scroller) {
 			scroll-timeline: --cb-grid block;
 		}

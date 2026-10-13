@@ -11,12 +11,11 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
-// Hub is what the demo asks of lith's live hub: to change what a tab's
-// stream watches, and how many streams watch a view.
+// Hub is what SetWindow asks of lith's live hub: to change what a tab's
+// stream watches. The handler hands it the kit's.
 type Hub interface {
 	Watch(streamID string, v live.View) bool
 	Unwatch(streamID, key string) bool
-	Count(key string) int
 }
 
 var _ Hub = (*live.Hub)(nil)
@@ -98,25 +97,9 @@ func (c SetWindow) Apply(tx *writer.Tx) error {
 	return nil
 }
 
-// Rewatch makes a tab's stream watch the chunks of the window the tab
-// stored. A stream opens with the tab's own view and the numbers only, so
-// a page that comes back, after a deploy or a dropped connection, gets its
-// chunks from here, in the writer's order like SetWindow's.
-type Rewatch struct {
-	Viewer demo.Viewer
-	Hub    Hub
-}
-
-func (c Rewatch) Apply(tx *writer.Tx) error {
-	w, err := window(tx.Context(), tx, c.Viewer)
-	if err != nil {
-		return err
-	}
-	tx.AfterCommit(func() { watch(c.Hub, c.Viewer.Tab, w) })
-	return nil
-}
-
-// follow moves a tab's stream from one window to the next.
+// follow moves a tab's stream from one window to the next: Unwatch for
+// the chunks it left, Watch for the window's. A chunk the stream watches
+// already stays as it is; a new one comes with its newest frame.
 func follow(h Hub, tab string, from, to Window) {
 	if h == nil {
 		return
@@ -126,17 +109,8 @@ func follow(h Hub, tab string, from, to Window) {
 			h.Unwatch(tab, ChunkTopic(n))
 		}
 	}
-	watch(h, tab, to)
-}
-
-// watch makes a tab's stream watch the window's chunks. A chunk it
-// watches already stays as it is; a new one comes with its newest frame.
-func watch(h Hub, tab string, w Window) {
-	if h == nil {
-		return
-	}
-	for n := w.Start; n < w.End(); n++ {
-		h.Watch(tab, chunkView(h, n))
+	for n := to.Start; n < to.End(); n++ {
+		h.Watch(tab, chunkView(n))
 	}
 }
 

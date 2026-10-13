@@ -14,17 +14,24 @@ import (
 )
 
 // TestCheckboxes reads the million checkboxes from a tab's stream: the
-// tab's list and the numbers at once, the chunks of its window a moment
-// later, a flip in the next tick, and after a scroll the chunks of the new
-// window and none of the old one.
+// tab's list, which asks for the window, and the numbers at once; the
+// chunks of the window once the page has sent it; a flip in the next tick;
+// after a scroll the chunks of the new window and none of the old one;
+// and after the stream comes back, the window the tab stored.
 func TestCheckboxes(t *testing.T) {
 	a, base := apptest.Start(t)
 	c := client(t)
 	get(t, c, base+"/demos/checkboxes") // the session's cookie
 
 	events := listen(t, c, base+"/demos/checkboxes/stream?tab=tab1")
-	next(t, events, `id="checkboxes-board"`)
-	next(t, events, `id="checkboxes-stats"`)
+	cbSeen(t, events, `id="checkboxes-board"`, `{"_checkboxes":{"hello":true}}`, `id="checkboxes-stats"`)
+	if n := a.Hub().Count("checkboxes:chunk:0"); n != 0 {
+		t.Errorf("a stream watches %d chunks before the page sends its window", n)
+	}
+	// The page answers the list's first frame with its window (greet).
+	if code := post(t, c, base+"/cmd/checkboxes/window", `{"tab":"tab1","offset":0,"count":12,"cols":2}`); code != http.StatusNoContent {
+		t.Fatalf("the first window: %d", code)
+	}
 	first := next(t, events, `id="checkboxes-tile-0"`)
 	if !strings.Contains(first, "selector #checkboxes-slot-0") || !strings.Contains(first, "mode inner") {
 		t.Errorf("chunk 0's frame:\n%.300s", first)
@@ -60,9 +67,12 @@ func TestCheckboxes(t *testing.T) {
 		}
 	}
 
-	// The stream comes back, as after a deploy: it watches the window the
-	// tab stored, not the top.
+	// The stream comes back, as after a deploy: the list's first frame,
+	// at the window the tab stored, asks again, and the page's answer
+	// brings that window's chunks.
 	again := listen(t, c, base+"/demos/checkboxes/stream?tab=tab1")
+	cbSeen(t, again, `offset="1998"`, `{"_checkboxes":{"hello":true}}`)
+	post(t, c, base+"/cmd/checkboxes/window", `{"tab":"tab1","offset":1998,"count":12,"cols":2}`)
 	next(t, again, `id="checkboxes-tile-2005"`)
 	waitFor(t, "the window watched again", func() bool {
 		return a.Hub().Count("checkboxes:chunk:2005") == 1 && a.Hub().Count("checkboxes:chunk:0") == 0

@@ -24,7 +24,7 @@ After the write it counts the flip in a row of totals and a row for the second, 
 Each chunk is a view of its own, keyed by its topic. Every tab that shows the chunk shares it: a flip renders it once, and the same frame goes to each of them. The frame holds the chunk's tile and no more, about 8.6 KB of HTML, so a flip costs the tabs that show that tile and leaves the rest alone.
 
 ```go title=live.go
-func chunkView(h Hub, n int) live.View {
+func chunkView(n int) live.View {
 	key := ChunkTopic(n)
 	return live.View{
 		Key:      key,
@@ -35,13 +35,13 @@ func chunkView(h Hub, n int) live.View {
 			if err != nil {
 				return nil, err
 			}
-			return tileFrame(n, bits, h.Count(key)), nil
+			return tileFrame(n, bits, demo.Watching(ctx, key)), nil
 		},
 	}
 }
 ```
 
-`Presence` renders the tile again when a tab starts or stops watching it, so it can say how many tabs show it. Open the demo in two windows: the tiles that both show say "2 watching", until one window scrolls away from them.
+`Presence` renders the tile again when a tab starts or stops watching it, and `demo.Watching` counts them from the render's context, so the tile can say how many tabs show it. Open the demo in two windows: the tiles that both show say "2 watching", until one window scrolls away from them.
 
 ## Watching what the tab shows
 
@@ -65,7 +65,9 @@ func (c SetWindow) Apply(tx *writer.Tx) error {
 
 `follow` calls `hub.Unwatch` for each chunk the tab left and `hub.Watch` for each chunk of the new window. A chunk another tab watches sends its newest frame at once; one nobody watched renders in the next tick.
 
-Why a command, and not the stream's own request with the window in its URL: the window is the tab's state, so it outlives a deploy in SQLite; the watches change on the writer's goroutine, in the order the windows were stored, so two windows sent in quick succession can never leave the stream on the older one; and the stream stays open while you scroll, keeping its zstd history. A stream opens with the tab's own view and the numbers only. A moment after it opens, a `Rewatch` command reads the tab's window and watches its chunks, again on the writer's goroutine, so a page that comes back after a deploy or a dropped connection gets the chunks it shows.
+Why a command, and not the stream's own request with the window in its URL: the window is the tab's state, so it outlives a deploy in SQLite; the watches change on the writer's goroutine, in the order the windows were stored, so two windows sent in quick succession can never leave the stream on the older one; and the stream stays open while you scroll, keeping its zstd history.
+
+A stream opens with the tab's own view and the numbers only. The tab's view is a `demo.Frame`: a stream sends its first form when it opens and the next form after that, and the first form also sets a signal, `$_checkboxes.hello`, which the page answers with the window it shows. So every stream, the first one and one that comes back after a deploy or a dropped connection, watches the chunks its page shows, and the request that says so arrives once the stream is there.
 
 ## Slots
 
@@ -75,7 +77,7 @@ The list's items are twelve slots, and chunk `n` always sits in slot `n % 12`. I
 for n := w.Start; n < w.End(); n++ {
 	<div id={ slotID(slot(n)) } class="cb-slot" data-ignore-morph>
 		if tiles != nil {
-			@tile(n, tiles[n-w.Start], watchers(n))
+			@tile(n, tiles[n-w.Start].bits, tiles[n-w.Start].watching)
 		}
 	</div>
 }

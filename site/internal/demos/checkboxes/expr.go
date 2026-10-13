@@ -22,8 +22,9 @@ const (
 
 // signals are the demo's own, declared on the stage: the grid's geometry,
 // the jump field, the box it asked for, a count of tiles and windows that
-// arrived, and the last problem to report.
-var signals = `{_checkboxes: {cols: ` + strconv.Itoa(defaultCols) + `, pitch: ` + strconv.Itoa(defaultPitch) + `, item: ` + strconv.Itoa(defaultItem) + `, jump: '', target: 0, moved: 0, problem: ''}}`
+// arrived, the last problem to report, and hello, which a stream's first
+// frame sets to ask for the window (greet).
+var signals = `{_checkboxes: {cols: ` + strconv.Itoa(defaultCols) + `, pitch: ` + strconv.Itoa(defaultPitch) + `, item: ` + strconv.Itoa(defaultItem) + `, jump: '', target: 0, moved: 0, problem: '', hello: false}}`
 
 // measure fits the grid to the width it has, on load and on resize: two
 // tiles to a row from 600px, boxes 16 to 24px apart. The tiles take the
@@ -69,6 +70,14 @@ $_checkboxes.problem = evt.detail.argsRaw?.status === '429' ? 'Too many clicks a
 // view sends the list at its new offset. A newer request cancels the one
 // in flight, as Datastar does for the same URL.
 const setWindow = `@post('/cmd/checkboxes/window', {payload: {tab: $_tab, offset: evt.detail.offset, count: evt.detail.count, cols: $_checkboxes.cols}})`
+
+// greet answers a stream's first frame with the window the list shows,
+// so that the new stream watches its chunks. A refusal (the rate, a
+// restart) is tried again.
+const greet = `if (!$_checkboxes.hello) return;
+$_checkboxes.hello = false;
+const host = document.getElementById('checkboxes-grid');
+@post('/cmd/checkboxes/window', {payload: {tab: $_tab, offset: +host.getAttribute('offset'), count: host.children.length, cols: $_checkboxes.cols}, retry: 'error', retryMaxCount: 5})`
 
 // jump scrolls the list to the tile of the box asked for; focusTarget
 // gives the box the focus once the tile is in its place.

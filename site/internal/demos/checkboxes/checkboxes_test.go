@@ -50,18 +50,6 @@ func (h *hub) Unwatch(id, key string) bool {
 	return ok
 }
 
-func (h *hub) Count(key string) int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	n := 0
-	for _, keys := range h.watches {
-		if keys[key] {
-			n++
-		}
-	}
-	return n
-}
-
 // chunksOf returns the chunks a stream watches, in order.
 func (h *hub) chunksOf(id string) []int {
 	h.mu.Lock()
@@ -172,12 +160,15 @@ func TestSetWindow(t *testing.T) {
 	h := newHub()
 	at := time.Unix(1_800_000_000, 0)
 
-	// A new tab shows the top; its stream gets the top's chunks.
-	e.Do(t, Rewatch{Viewer: me, Hub: h})
+	// A new tab shows the top and answers its stream's first frame with
+	// that window: nothing to store, and the stream gets the top's chunks.
+	e.Do(t, SetWindow{Viewer: me, Window: Window{Start: 0}, At: at, Hub: h})
 	if got := h.chunksOf(me.Tab); !slices.Equal(got, span(0, Slots)) {
 		t.Errorf("a new tab watches %v", got)
 	}
-	e.Touched()
+	if got := e.Touched(); len(got) != 0 {
+		t.Errorf("the window a new tab shows touched %v", got)
+	}
 
 	e.Do(t, SetWindow{Viewer: me, Window: Window{Start: 6}, At: at, Hub: h})
 	if got := h.chunksOf(me.Tab); !slices.Equal(got, span(6, 18)) {
@@ -202,9 +193,10 @@ func TestSetWindow(t *testing.T) {
 		t.Errorf("the same window touched %v", got)
 	}
 
-	// The stream comes back (a deploy): Rewatch watches the stored window.
+	// The stream comes back (a deploy): the page answers its first frame
+	// with the window it shows, and the new stream watches it.
 	back := newHub()
-	e.Do(t, Rewatch{Viewer: me, Hub: back})
+	e.Do(t, SetWindow{Viewer: me, Window: Window{Start: 3896}, At: at, Hub: back})
 	if got := back.chunksOf(me.Tab); !slices.Equal(got, span(3896, Chunks)) {
 		t.Errorf("a stream that comes back watches %v", got)
 	}
@@ -234,7 +226,7 @@ func TestViews(t *testing.T) {
 	}
 	e.Do(t, SetWindow{Viewer: me, Window: Window{Start: 10}, At: at, Hub: h})
 	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
-		frame, err := chunkView(h, 13).Render(ctx, tx)
+		frame, err := chunkView(13).Render(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -255,15 +247,10 @@ func TestViews(t *testing.T) {
 		if strings.Contains(f, "watching") {
 			t.Error("a tile one tab watches counts its watchers")
 		}
-		h.Watch("t2", live.View{Key: ChunkTopic(13)})
-		frame, err = chunkView(h, 13).Render(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(string(frame.([]byte)), `<span class="cb-tile__eyes">2 watching</span>`) {
+		if two := string(tileFrame(13, make([]byte, 32), 2)); !strings.Contains(two, `<span class="cb-tile__eyes">2 watching</span>`) {
 			t.Error("a tile two tabs watch does not say so")
 		}
-		last, err := chunkView(h, Chunks-1).Render(ctx, tx)
+		last, err := chunkView(Chunks-1).Render(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -275,7 +262,11 @@ func TestViews(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		b := string(board.([]byte))
+		frames := board.(demo.Frame)
+		b := string(frames.Next)
+		if first := string(frames.First); !strings.HasPrefix(first, b) || !strings.Contains(first, `{"_checkboxes":{"hello":true}}`) || strings.Contains(b, "datastar-patch-signals") {
+			t.Errorf("only the list's first frame asks for the window:\n%s", first)
+		}
 		if !strings.Contains(b, `offset="10"`) || !strings.Contains(b, `total="3907"`) {
 			t.Errorf("the tab's list:\n%s", b)
 		}
@@ -291,7 +282,7 @@ func TestViews(t *testing.T) {
 			t.Error("the tab's view carries tiles")
 		}
 
-		stats, err := statsView(h).Render(ctx, tx)
+		stats, err := statsView().Render(ctx, tx)
 		if err != nil {
 			return err
 		}

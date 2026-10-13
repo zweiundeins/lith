@@ -5,7 +5,7 @@ import "strconv"
 // Stage is the demo on its page: the numbers, the jump field, and the grid
 // at the tab's window, its tiles drawn from the document's read. The
 // stage holds the signals and the handlers; no frame morphs it.
-templ Stage(w Window, tiles [][]byte, s Stats) {
+templ Stage(w Window, tiles []shown, s Stats) {
 	<div
 		class="cb"
 		data-signals={ signals }
@@ -70,9 +70,10 @@ templ StatsBar(s Stats) {
 // its tiles per row and row height (columns, item-size). Slots outside
 // the window wait in the park, so that a chunk's frame always finds its
 // slot. tiles holds the window's chunks for the GET document; the tab's
-// view sends the slots empty, and data-ignore-morph keeps their tiles.
-templ Board(w Window, tiles [][]byte) {
-	<div id="checkboxes-board" class="cb-board">
+// view sends the slots empty, and data-ignore-morph keeps their tiles. A
+// stream's first frame of it asks the page for its window (greet).
+templ Board(w Window, tiles []shown) {
+	<div id="checkboxes-board" class="cb-board" data-effect={ greet }>
 		<sb-virtual-scroll
 			id="checkboxes-grid"
 			class="cb-grid"
@@ -90,7 +91,7 @@ templ Board(w Window, tiles [][]byte) {
 			for n := w.Start; n < w.End(); n++ {
 				<div id={ slotID(slot(n)) } class="cb-slot" data-ignore-morph>
 					if tiles != nil {
-						@tile(n, tiles[n-w.Start], watchers(n))
+						@tile(n, tiles[n-w.Start].bits, tiles[n-w.Start].watching)
 					}
 				</div>
 			}

@@ -39,10 +39,6 @@ const (
 
 	setEvery, setBurst       = 100 * time.Millisecond, 30 // a session's clicks: 10 a second, after 30 at once
 	windowEvery, windowBurst = 100 * time.Millisecond, 30 // a session's windows, as it scrolls
-	// rewatchAfter is how long after its stream opens a tab's window is
-	// watched again: long enough for the stream to have replaced one
-	// still open with the tab's id.
-	rewatchAfter = 250 * time.Millisecond
 )
 
 // StatsKey is the key of the numbers' view, which every tab watches.
