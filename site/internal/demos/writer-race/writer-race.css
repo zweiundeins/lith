@@ -769,16 +769,16 @@
 		font-size: var(--lith-text-sm);
 
 		& th:first-child {
-			inline-size: 4.5rem;
+			inline-size: 3.5rem;
 		}
 
 		& th:nth-child(2) {
-			inline-size: 8.5rem;
+			inline-size: 8rem;
 		}
 
 		& th,
 		& td {
-			padding: var(--lith-space-2) var(--lith-space-3);
+			padding: var(--lith-space-2);
 			border-block-end: 1px solid var(--lith-border-subtle);
 			text-align: start;
 			white-space: nowrap;
@@ -790,7 +790,7 @@
 			font-family: var(--lith-font-ui);
 			font-size: 0.6875rem;
 			font-weight: 600;
-			letter-spacing: 0.04em;
+			letter-spacing: 0.02em;
 			white-space: normal;
 			vertical-align: bottom;
 		}
@@ -829,11 +829,6 @@
 		@container results (width < 26rem) {
 			& .wr-table__p99 {
 				display: none;
-			}
-
-			& th,
-			& td {
-				padding-inline: var(--lith-space-2);
 			}
 		}
 	}
