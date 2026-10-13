@@ -6,8 +6,7 @@ order: 8
 
 ## Where lith comes from
 
-- [hyperlith](https://github.com/andersmurphy/hyperlith) is Anders Murphy's Clojure framework on Datastar: it handles the streams, their compression and the render rate. lith's design follows it, one writer with a savepoint per command, views rendered once for everyone who watches them, a compressor per stream, and his posts at [andersmurphy.com](https://andersmurphy.com) measure each part.
-- [northstar](https://github.com/zangster300/northstar) is a Go starter for Datastar apps by zangster300.
+lith is inspired by [hyperlith](https://github.com/andersmurphy/hyperlith) and [northstar](https://github.com/zangster300/northstar).
 
 lith's code started in [kanban](https://github.com/zweiundeins/kanban), [starbase](https://github.com/zweiundeins/starbase) and [Libretto](https://libretto.ch).
 
