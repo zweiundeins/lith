@@ -282,6 +282,14 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error)
 
 Open starts an event stream on w: it picks the encoding from the request's Accept-Encoding, sends the headers and flushes them. The stream ends when the request's context ends. The handler must Close the stream before it returns.
 
+#### func (*Stream) Budget {#Stream.Budget}
+
+```go
+func (s *Stream) Budget() *Budget
+```
+
+Budget is the budget the stream shares with other streams (Options.Budget), nil for none.
+
 #### func (*Stream) Close {#Stream.Close}
 
 ```go
@@ -321,6 +329,14 @@ func (s *Stream) Sent() (events, wire int64)
 ```
 
 Sent reports the bytes of events written to the stream and the bytes that went out for them, compressed.
+
+#### func (*Stream) Tier {#Stream.Tier}
+
+```go
+func (s *Stream) Tier() (name string, heap int64)
+```
+
+Tier names what the stream's encoder holds now, as BudgetStats.Streams counts it: "zstd 2^19", "zstd 2^18 low memory", "br q4 2^18" or "gzip"; "zstd asleep" while a zstd stream has no encoder (it hibernates, or its budget has no room for it); "identity" when it goes out uncompressed. heap is what the stream's budget reserves for the encoder: 0 without a budget, and for a stream asleep or uncompressed.
 
 #### func (*Stream) Write {#Stream.Write}
 

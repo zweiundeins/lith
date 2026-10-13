@@ -175,6 +175,14 @@ func (h *Hub) Watch(streamID string, v View) bool
 
 Watch makes the open stream with this ID watch v as well: it gets v's current frame at once, or its first one. It reports whether such a stream is open. If none is, as when a page's command arrives before its stream, a stream that opens with the ID within Options.PendingWatch watches v from the start, after the views of its Spec.
 
+#### func (*Hub) Watchers {#Hub.Watchers}
+
+```go
+func (h *Hub) Watchers(key string) []string
+```
+
+Watchers are the IDs of the streams watching the view, each once, in the order the streams opened; streams without an ID are left out. A view with Presence that calls it in its Render lists who is there.
+
 ### type Options {#Options}
 
 ```go
