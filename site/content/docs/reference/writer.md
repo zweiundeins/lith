@@ -19,6 +19,14 @@ err = w.Do(ctx, writer.Func(func(tx *writer.Tx) error {
 }))
 ```
 
+## Constants
+
+```go
+const SizeBuckets = 11
+```
+
+SizeBuckets is the number of buckets in Stats.Sizes.
+
 ## Variables
 
 ```go
@@ -213,6 +221,10 @@ type Stats struct {
 	LastCommit time.Duration // the last batch, from BEGIN to the end of COMMIT
 	P99Commit  time.Duration // 99th percentile of the last 1024 batches
 	Busy       time.Duration // time spent in batches
+	// Sizes counts the batches by the commands they took, in powers of
+	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
+	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.
+	Sizes [SizeBuckets]int64
 }
 ```
 
