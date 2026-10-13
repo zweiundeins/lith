@@ -55,7 +55,7 @@ func TestCanvasLoad(t *testing.T) {
 		metrics = func() map[string]float64 {
 			rec := httptest.NewRecorder()
 			a.Metrics().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
-			return parseMetrics(rec.Body)
+			return canvasParseMetrics(rec.Body)
 		}
 	} else {
 		metricsURL := os.Getenv("LITH_SITE_CANVAS_METRICS")
@@ -64,9 +64,9 @@ func TestCanvasLoad(t *testing.T) {
 			p, _ := strconv.Atoi(port)
 			metricsURL = fmt.Sprintf("http://%s:%d/metrics", host, p+100)
 		}
-		metrics = func() map[string]float64 { return scrape(t, metricsURL) }
+		metrics = func() map[string]float64 { return canvasScrape(t, metricsURL) }
 	}
-	painters := envInt("LITH_SITE_CANVAS_PAINTERS", 100)
+	painters := canvasEnvInt("LITH_SITE_CANVAS_PAINTERS", 100)
 	duration := 60 * time.Second
 	if d, err := time.ParseDuration(os.Getenv("LITH_SITE_CANVAS_FOR")); err == nil {
 		duration = d
@@ -179,7 +179,7 @@ func TestCanvasLoad(t *testing.T) {
 	busy := during["lith_site_writer_busy_seconds_total"] - before["lith_site_writer_busy_seconds_total"]
 	frames := during["lith_site_live_frames_sent_total"] - before["lith_site_live_frames_sent_total"]
 	t.Logf("%d painters for %v: %d actions answered 204, %d 429, %d failed", painters, duration, painted.Load(), refused.Load(), failed.Load())
-	t.Logf("streams open: %.0f, tiers: %s", during["lith_site_live_streams"], tiers(during))
+	t.Logf("streams open: %.0f, tiers: %s", during["lith_site_live_streams"], canvasTiers(during))
 	t.Logf("resident at most %.1f MiB, heap in use at most %.1f MiB, encoders' budget reserved at most %.1f MiB of %.1f MiB",
 		rss/(1<<20), heap/(1<<20), reserved/(1<<20), during["lith_site_sse_budget_limit_bytes"]/(1<<20))
 	if inproc {
@@ -193,7 +193,7 @@ func TestCanvasLoad(t *testing.T) {
 	}
 }
 
-func envInt(name string, def int) int {
+func canvasEnvInt(name string, def int) int {
 	if n, err := strconv.Atoi(os.Getenv(name)); err == nil && n > 0 {
 		return n
 	}
@@ -201,19 +201,19 @@ func envInt(name string, def int) int {
 }
 
 // scrape reads the metrics of a site's metrics listener.
-func scrape(t *testing.T, url string) map[string]float64 {
+func canvasScrape(t *testing.T, url string) map[string]float64 {
 	t.Helper()
 	res, err := http.Get(url)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	return parseMetrics(res.Body)
+	return canvasParseMetrics(res.Body)
 }
 
-// parseMetrics reads Prometheus' text format into values by name, with
+// canvasParseMetrics reads Prometheus' text format into values by name, with
 // the labels as written.
-func parseMetrics(r io.Reader) map[string]float64 {
+func canvasParseMetrics(r io.Reader) map[string]float64 {
 	m := map[string]float64{}
 	lines := bufio.NewScanner(r)
 	lines.Buffer(nil, 1<<20)
@@ -234,7 +234,7 @@ func parseMetrics(r io.Reader) map[string]float64 {
 	return m
 }
 
-func tiers(m map[string]float64) string {
+func canvasTiers(m map[string]float64) string {
 	var parts []string
 	for k, v := range m {
 		if s, ok := strings.CutPrefix(k, "lith_site_sse_budget_streams{"); ok && v > 0 {

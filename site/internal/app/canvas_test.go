@@ -19,10 +19,10 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demos/canvas"
 )
 
-// scene is a picture for the canvas's screenshots, in palette indices: a
-// monolith under the stars on a hill, its seam aglow, and what a few
-// painters left around it.
-func scene() [canvas.Cells]int {
+// canvasScene is a picture for the canvas's screenshots, in palette
+// indices: a monolith under the stars on a hill, its seam aglow, and what
+// a few painters left around it.
+func canvasScene() [canvas.Cells]int {
 	var g [canvas.Cells]int
 	put := func(x, y, c int) {
 		if x >= 0 && y >= 0 && x < canvas.Size && y < canvas.Size {
@@ -106,11 +106,11 @@ func scene() [canvas.Cells]int {
 	return g
 }
 
-// paintScene paints the scene through the writer, a colour at a time, as
-// a few painters would.
-func paintScene(t *testing.T, a *app.App) {
+// paintCanvasScene paints the scene through the writer, a colour at a
+// time, as a few painters would.
+func paintCanvasScene(t *testing.T, a *app.App) {
 	t.Helper()
-	g := scene()
+	g := canvasScene()
 	byColor := map[int][]int{}
 	for i, c := range g {
 		if c != 0 {
@@ -129,22 +129,22 @@ func paintScene(t *testing.T, a *app.App) {
 	}
 }
 
-// pen draws on a page's canvas with the mouse, by cells: down moves
+// canvasPen draws on a page's canvas with the mouse, by cells: down moves
 // there and presses, to drags with the button held, up releases.
-type pen struct {
+type canvasPen struct {
 	t       *testing.T
 	p       *browser.Page
 	x, y, w float64
 }
 
-func penOn(t *testing.T, p *browser.Page) *pen {
+func canvasPenOn(t *testing.T, p *browser.Page) *canvasPen {
 	t.Helper()
 	var r struct{ X, Y, W float64 }
 	p.Eval(t, `(() => { const b = document.querySelector('#canvas-board').shadowRoot.querySelector('canvas').getBoundingClientRect(); return {x: b.left, y: b.top, w: b.width} })()`, &r)
-	return &pen{t: t, p: p, x: r.X, y: r.Y, w: r.W}
+	return &canvasPen{t: t, p: p, x: r.X, y: r.Y, w: r.W}
 }
 
-func (pn *pen) mouse(typ string, x, y int, pressed bool) {
+func (pn *canvasPen) mouse(typ string, x, y int, pressed bool) {
 	button, buttons := "none", 0
 	if pressed || typ == "mouseReleased" {
 		button = "left"
@@ -159,17 +159,17 @@ func (pn *pen) mouse(typ string, x, y int, pressed bool) {
 	})
 }
 
-func (pn *pen) down(x, y int) {
+func (pn *canvasPen) down(x, y int) {
 	pn.mouse("mouseMoved", x, y, false)
 	pn.mouse("mousePressed", x, y, true)
 }
 
-func (pn *pen) to(x, y int) {
+func (pn *canvasPen) to(x, y int) {
 	pn.mouse("mouseMoved", x, y, true)
 	time.Sleep(10 * time.Millisecond)
 }
 
-func (pn *pen) up(x, y int) { pn.mouse("mouseReleased", x, y, false) }
+func (pn *canvasPen) up(x, y int) { pn.mouse("mouseReleased", x, y, false) }
 
 // TestShotsCanvas writes screenshots of the canvas with a picture on it
 // and a few painters on the page: both themes, the smooth style, a phone.
@@ -181,7 +181,7 @@ func TestShotsCanvas(t *testing.T) {
 		t.Skip("set LITH_SITE_SHOTS to a directory for the screenshots")
 	}
 	a, base := apptest.Start(t)
-	paintScene(t, a)
+	paintCanvasScene(t, a)
 	b := browser.Start(t)
 	// Painters in their colours; the last one paints stars while the
 	// shots are taken.
@@ -192,7 +192,7 @@ func TestShotsCanvas(t *testing.T) {
 		painter.Wait(t, `document.querySelector('.live-badge.is-live') && document.querySelector('#canvas-board[palette]')`, 10*time.Second)
 		painter.Eval(t, `document.querySelector('.cv__swatch input[value="`+color+`"]').click()`, nil)
 	}
-	stars := penOn(t, painter)
+	stars := canvasPenOn(t, painter)
 	twinkle := func() {
 		for _, s := range [][2]int{{14, 30}, {50, 18}, {23, 8}, {60, 40}, {36, 5}} {
 			stars.down(s[0], s[1])
@@ -231,12 +231,31 @@ func TestShotsCanvas(t *testing.T) {
 	shot("mobile-canvas", 390, 844, "", true)
 	shot("canvas-how", 1440, 900, "", true, `document.querySelector('.howto').open = true`)
 
+	shot("tablet-canvas", 820, 1180, "", false)
+
+	// The theme switch: the circle opens on the canvas already in the
+	// light theme's palette.
+	vt := b.NewPage(t, 1280, 800)
+	vt.Navigate(t, base+"/demos/canvas")
+	vt.Wait(t, `document.querySelector('#canvas-board[palette]') && document.querySelector('.live-badge.is-live')`, 10*time.Second)
+	vt.Eval(t, "document.fonts.ready.then(() => true)", nil)
+	time.Sleep(800 * time.Millisecond)
+	vt.Call(t, "Animation.enable", nil)
+	vt.Call(t, "Animation.setPlaybackRate", map[string]any{"playbackRate": 0.1})
+	vt.Eval(t, `document.querySelector('.prefs-button').click(); document.querySelector('[data-pref="theme"][data-value="light"]').click()`, nil)
+	for i := range 4 {
+		time.Sleep(900 * time.Millisecond)
+		vt.Call(t, "Animation.setPlaybackRate", map[string]any{"playbackRate": 0.1})
+		vt.Screenshot(t, filepath.Join(dir, fmt.Sprintf("vt-canvas-theme-%d.png", i)), false)
+	}
+	vt.Call(t, "Animation.setPlaybackRate", map[string]any{"playbackRate": 1})
+
 	// A stroke of your own under way: the frame in your brush's colour.
 	p := b.NewPage(t, 1440, 900)
 	p.Navigate(t, base+"/demos/canvas")
 	p.Wait(t, `document.querySelector('#canvas-board[palette]') && document.querySelector('.live-badge.is-live')`, 10*time.Second)
 	p.Eval(t, `document.querySelector('.cv__swatch input[value="11"]').click()`, nil)
-	pn := penOn(t, p)
+	pn := canvasPenOn(t, p)
 	pn.down(40, 30)
 	for i := 1; i <= 8; i++ {
 		pn.to(40+i, 30-i/2)
@@ -309,12 +328,12 @@ func TestCanvas(t *testing.T) {
 //	go test ./internal/app -run TestCanvasWire -v
 func TestCanvasWire(t *testing.T) {
 	a, base := apptest.Start(t)
-	paintScene(t, a)
+	paintCanvasScene(t, a)
 	c := client(t)
 	get(t, c, base+"/demos/canvas")
 	const paints = 40
 	for _, enc := range []string{"identity", "zstd", "br"} {
-		w := openRaw(t, c, base+"/demos/canvas/stream?tab=wire"+enc, enc)
+		w := openCanvasRaw(t, c, base+"/demos/canvas/stream?tab=wire"+enc, enc)
 		time.Sleep(300 * time.Millisecond) // the first frames
 		start := w.bytes()
 		for i := range paints {
@@ -333,23 +352,23 @@ func TestCanvasWire(t *testing.T) {
 	}
 }
 
-type rawStream struct {
+type canvasRawStream struct {
 	mu     sync.Mutex
 	n      int
 	cancel context.CancelFunc
 }
 
-func (s *rawStream) bytes() int {
+func (s *canvasRawStream) bytes() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.n
 }
 
-func (s *rawStream) close() { s.cancel() }
+func (s *canvasRawStream) close() { s.cancel() }
 
-// openRaw opens a stream with the encoding and counts the bytes that
+// openCanvasRaw opens a stream with the encoding and counts the bytes that
 // arrive, as they are on the wire.
-func openRaw(t *testing.T, c *http.Client, url, encoding string) *rawStream {
+func openCanvasRaw(t *testing.T, c *http.Client, url, encoding string) *canvasRawStream {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -362,7 +381,7 @@ func openRaw(t *testing.T, c *http.Client, url, encoding string) *rawStream {
 	if res.StatusCode != http.StatusOK || (encoding != "identity" && res.Header.Get("Content-Encoding") != encoding) {
 		t.Fatalf("stream: %d, %q", res.StatusCode, res.Header.Get("Content-Encoding"))
 	}
-	s := &rawStream{cancel: cancel}
+	s := &canvasRawStream{cancel: cancel}
 	go func() {
 		defer res.Body.Close()
 		buf := make([]byte, 32<<10)
@@ -416,7 +435,7 @@ func TestCanvasBrowser(t *testing.T) {
 	bob.Wait(t, `document.querySelector('#canvas-painter-`+me+`')?.dataset.c === '14'`, 5*time.Second)
 
 	// A stroke across eleven cells of row 10, with the mouse.
-	pn := penOn(t, ada)
+	pn := canvasPenOn(t, ada)
 	pn.down(10, 10)
 	for x := 11; x <= 20; x++ {
 		pn.to(x, 10)
