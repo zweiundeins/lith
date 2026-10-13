@@ -8,7 +8,7 @@
 //	Sessions             starbase's cookie-only session, hyperlith's __Host-sid, swisscyberguard's 256-bit tokens
 //	CSRF                 Go's CrossOriginProtection rules, strict on missing headers like hyperlith and starbase, kanban's Datastar-Request check
 //	SecurityHeaders, CSP starbase's per-request nonce, hyperlith's policy as data, kanban's and swisscyberguard's other headers
-//	Compress             starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap where libretto and swisscyberguard kept bypass lists
+//	Compress, Negotiate  starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap where libretto and swisscyberguard kept bypass lists
 //	Static, Precompress  starbase's precompress package, libretto's content ETags with no-cache, kanban's hashed immutable URLs
 //	Limiter              starbase's token bucket, swept as it goes, and libretto's rule that a clock step must not reset it
 //	Health, Ready        libretto's and swisscyberguard's liveness and readiness probes, with checks registered by the app

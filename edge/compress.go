@@ -32,7 +32,7 @@ func Compress(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		cw := &compressWriter{w: w, coding: pick(r.Header.Get("Accept-Encoding"), "br", "zstd", "gzip")}
+		cw := &compressWriter{w: w, coding: Negotiate(r.Header.Get("Accept-Encoding"))}
 		next.ServeHTTP(cw, r)
 		cw.close()
 	})
@@ -192,15 +192,21 @@ func compressible(ctype string) bool {
 	return false
 }
 
-// pick returns the one of codings that an Accept-Encoding header rates
+// Negotiate returns the one of codings that an Accept-Encoding header rates
 // highest, earlier ones winning ties, or "" when it accepts none of them.
-func pick(header string, codings ...string) string {
+// Without codings it chooses among br, zstd and gzip, as Compress does. A
+// handler with prerendered variants names the ones it has, such as br and
+// gzip from Precompress.
+func Negotiate(acceptEncoding string, codings ...string) string {
+	if len(codings) == 0 {
+		codings = []string{"br", "zstd", "gzip"}
+	}
 	best, bestQ := "", 0.0
-	if header == "" {
+	if acceptEncoding == "" {
 		return best
 	}
 	for _, coding := range codings {
-		if q := quality(header, coding); q > bestQ {
+		if q := quality(acceptEncoding, coding); q > bestQ {
 			best, bestQ = coding, q
 		}
 	}

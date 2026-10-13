@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash/maphash"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,6 +59,58 @@ func TestServePrecompressed(t *testing.T) {
 	}
 	if w := get("br", "", []byte("tiny")); w.Header().Get("Content-Encoding") != "" || w.Body.String() != "tiny" {
 		t.Error("a tiny body should go out as it is")
+	}
+}
+
+func TestServePrecompressedHashesOnce(t *testing.T) {
+	serve := func(b []byte, ifNoneMatch string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/about", nil)
+		r.Header.Set("Accept-Encoding", "br")
+		if ifNoneMatch != "" {
+			r.Header.Set("If-None-Match", ifNoneMatch)
+		}
+		w := httptest.NewRecorder()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		ServePrecompressed(w, r, b)
+		return w
+	}
+	body := []byte(strings.Repeat("<p>a page rendered at startup</p>\n", 40))
+	etag := serve(body, "").Header().Get("ETag")
+	first, ok := bodySums.Load(maphash.Bytes(bodySeed, body))
+	if !ok {
+		t.Fatal("the body's hash was not kept")
+	}
+	if w := serve(bytes.Clone(body), ""); w.Header().Get("ETag") != etag {
+		t.Errorf("the same content in another slice: ETag %s, want %s", w.Header().Get("ETag"), etag)
+	}
+	if again, _ := bodySums.Load(maphash.Bytes(bodySeed, body)); again != first {
+		t.Error("the same content was hashed again")
+	}
+	for _, inm := range []string{etag, "W/" + etag, `"other", ` + etag, "*"} {
+		if w := serve(body, inm); w.Code != http.StatusNotModified || w.Body.Len() != 0 {
+			t.Errorf("If-None-Match %s: %d", inm, w.Code)
+		}
+	}
+	if w := serve(body, `"other"`); w.Code != http.StatusOK {
+		t.Errorf("If-None-Match of another content: %d", w.Code)
+	}
+
+	// A buffer rendered into again holds another content: its hash is not
+	// taken for the new bytes, nor the new bytes for the old content's.
+	buf := []byte(strings.Repeat("<p>render one</p>\n", 40))
+	old := bytes.Clone(buf)
+	oldTag := serve(buf, "").Header().Get("ETag")
+	copy(buf, strings.Repeat("<p>render two</p>\n", 40))
+	newer := bytes.Clone(buf)
+	for _, c := range []struct {
+		b    []byte
+		want []byte
+	}{{buf, newer}, {old, old}} {
+		sum := sha256.Sum256(c.want)
+		w := serve(c.b, "")
+		if tag := w.Header().Get("ETag"); tag != `"`+etagOf(sum)+`-br"` || !bytes.Equal(decode(t, "br", w.Body.Bytes()), c.want) {
+			t.Errorf("%.20q: ETag %s, the old one %s", c.want, tag, oldTag)
+		}
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"hash/maphash"
 	"math/bits"
 	"net/http"
 	"strconv"
@@ -57,11 +58,39 @@ func precompress(b []byte, sum [32]byte) (br, gz []byte) {
 // ServePrecompressed answers with body in the best of Precompress's codings
 // the request accepts. Bodies under 512 bytes, types that don't compress and
 // requests that accept neither coding get it as it is. It sets an ETag of the
-// content and leaves conditional and range requests to http.ServeContent.
-// Set Content-Type and Cache-Control before; a Content-Encoding it sets keeps
-// Compress out of the way.
+// content and leaves conditional and range requests to http.ServeContent, so
+// an If-None-Match that names the ETag gets a 304. Set Content-Type and
+// Cache-Control before; a Content-Encoding it sets keeps Compress out of the
+// way.
+//
+// Like Precompress, it hashes and compresses each content once and keeps the
+// result, the body included, for the life of the process: it is for bytes
+// served many times, such as prerendered pages.
 func ServePrecompressed(w http.ResponseWriter, r *http.Request, body []byte) {
-	serveContent(w, r, body, sha256.Sum256(body))
+	serveContent(w, r, body, bodySum(body))
+}
+
+var (
+	bodySeed = maphash.MakeSeed()
+	bodySums sync.Map // maphash of a body to *hashedBody
+)
+
+type hashedBody struct {
+	body []byte
+	sum  [32]byte
+}
+
+// bodySum is sha256.Sum256(body), looked up by a hash several times faster.
+func bodySum(body []byte) [32]byte {
+	key := maphash.Bytes(bodySeed, body)
+	if v, ok := bodySums.Load(key); ok {
+		if s := v.(*hashedBody); bytes.Equal(s.body, body) {
+			return s.sum
+		}
+	}
+	s := &hashedBody{body: body, sum: sha256.Sum256(body)}
+	bodySums.Store(key, s)
+	return s.sum
 }
 
 func serveContent(w http.ResponseWriter, r *http.Request, body []byte, sum [32]byte) {
@@ -72,7 +101,7 @@ func serveContent(w http.ResponseWriter, r *http.Request, body []byte, sum [32]b
 	tag, content := etagOf(sum), body
 	if len(body) >= minSize && compressible(h.Get("Content-Type")) {
 		addVary(h, "Accept-Encoding")
-		switch pick(r.Header.Get("Accept-Encoding"), "br", "gzip") {
+		switch Negotiate(r.Header.Get("Accept-Encoding"), "br", "gzip") {
 		case "br":
 			if br, _ := precompress(body, sum); len(br) < len(body) {
 				tag, content = tag+"-br", br
