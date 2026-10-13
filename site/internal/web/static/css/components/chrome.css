@@ -84,11 +84,26 @@
 		}
 	}
 
+	/* Where the header is narrow, its links move into the menu. */
+	.menu-button {
+		display: none;
+		order: -1;
+		margin-inline-start: calc(-1 * var(--lith-space-2));
+
+		@container header (width < 34rem) {
+			display: inline-grid;
+		}
+	}
+
 	.site-nav {
 		display: flex;
 		align-items: center;
 		gap: var(--lith-space-1);
 		margin-inline-start: auto;
+
+		@container header (width < 34rem) {
+			display: none;
+		}
 
 		& a {
 			position: relative;
@@ -124,9 +139,42 @@
 			}
 		}
 
-		@container header (width < 30rem) {
-			& .site-nav__github {
-				display: none;
+	}
+
+	.prefs-button {
+		@container header (width < 34rem) {
+			margin-inline-start: auto;
+		}
+	}
+
+	/* The menu: Starbase's sb-drawer, from the start edge. */
+	.menu-drawer {
+		--sb-drawer-size: min(20rem, 86vw);
+
+		&::part(heading) {
+			font-family: var(--lith-font-display);
+			font-size: 1.5rem;
+			font-weight: 600;
+		}
+	}
+
+	.menu-drawer__nav {
+		display: grid;
+		gap: var(--lith-space-1);
+		margin-block-end: var(--lith-space-6);
+		padding-block-end: var(--lith-space-4);
+		border-block-end: 1px solid var(--lith-border-subtle);
+
+		& a {
+			padding: var(--lith-space-2) var(--lith-space-3);
+			color: var(--lith-text-1);
+			font-family: var(--lith-font-ui);
+			font-weight: 600;
+			text-decoration: none;
+
+			&[aria-current="page"] {
+				box-shadow: inset 3px 0 0 var(--lith-accent);
+				background: var(--lith-accent-subtle);
 			}
 		}
 	}

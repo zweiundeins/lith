@@ -33,7 +33,13 @@ templ Document(s Shell, body templ.Component) {
 			// finds the elements it names.
 			<link rel="expect" href="#page-end" blocking="render"/>
 			<script src={ s.Assets.Transitions }></script>
-			<script type="module" src={ s.Assets.Datastar }></script>
+			// The import map comes before every module: the Starbase bundles
+			// import 'datastar', which it maps to the build loaded here.
+			@importMap(s)
+			<script type="module" src={ s.Assets.Datastar.URL } integrity={ s.Assets.Datastar.Integrity }></script>
+			for _, c := range s.Components {
+				<script type="module" src={ c.URL } integrity={ c.Integrity }></script>
+			}
 		</head>
 		<body
 			if s.Stream != "" {
@@ -51,6 +57,7 @@ templ Document(s Shell, body templ.Component) {
 				</main>
 				@Footer(s)
 			</div>
+			@Menu(s)
 			<span id="page-end" hidden></span>
 		</body>
 	</html>
@@ -63,6 +70,9 @@ templ Header(s Shell) {
 				@Art(logoSVG, "brand__logo")
 				<span class="brand__word">lith</span>
 			</a>
+			<button class="icon-btn menu-button" type="button" aria-label="Menu" data-on:click="$_menu.show()">
+				@Icon("menu")
+			</button>
 			<nav class="site-nav" aria-label="Main">
 				<a
 					href="/docs"
@@ -114,6 +124,32 @@ templ prefButton(key, value, label, icon, current string) {
 		@Icon(icon)
 		{ label }
 	</button>
+}
+
+// Menu is the menu of narrow screens: Starbase's sb-drawer, from the start
+// edge, with the main links and, in the docs, the docs' navigation. It
+// traps the focus while open, and Escape or the backdrop closes it.
+templ Menu(s Shell) {
+	<sb-drawer class="menu-drawer" data-ref:_menu side="start" heading="lith">
+		<nav class="menu-drawer__nav" aria-label="Main">
+			<a
+				href="/docs"
+				if s.Nav == "docs" {
+					aria-current="page"
+				}
+			>Docs</a>
+			<a
+				href="/demos"
+				if s.Nav == "demos" {
+					aria-current="page"
+				}
+			>Demos</a>
+			<a href={ safe(s.Repo) }>GitHub</a>
+		</nav>
+		if s.Docs != nil {
+			@s.Docs
+		}
+	</sb-drawer>
 }
 
 templ Footer(s Shell) {

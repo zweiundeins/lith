@@ -27,6 +27,7 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/docs"
 	"github.com/zweiundeins/lith/site/internal/markdown"
+	"github.com/zweiundeins/lith/site/internal/starbase"
 	"github.com/zweiundeins/lith/site/internal/views"
 )
 
@@ -52,8 +53,10 @@ type Server struct {
 	log    *slog.Logger
 	static *edge.Static
 	assets views.Assets
-	docs   *docs.Docs
-	demos  []site
+	// starbase are the vendored Starbase components.
+	starbase *starbase.Set
+	docs     *docs.Docs
+	demos    []site
 	// commands limits every action of the site per client address.
 	commands *edge.Limiter
 }
@@ -135,6 +138,7 @@ func (s *Server) shell(r *http.Request, title, description, path, nav string) vi
 		Theme:  pref(r, "lith-theme", "dark", "light", "system"),
 		Style:  pref(r, "lith-style", "pixel", "smooth"),
 		Assets: s.assets, Nonce: edge.Nonce(r.Context()), Version: s.cfg.Version, Repo: s.cfg.Repo,
+		Components: s.components(),
 	}
 }
 
@@ -158,6 +162,13 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	if s.embeds(viewer) != nil {
 		sh.Stream, sh.Tab = "/stream", viewer.Tab
 	}
+	uses := []string{"tabs"} // the quick start
+	for _, d := range s.demos {
+		if d.Embed != nil {
+			uses = append(uses, d.Components...)
+		}
+	}
+	sh.Components = s.components(uses...)
 	cards := s.cards()
 	s.page(w, r, sh, func(ctx context.Context, tx *sql.Tx) (templ.Component, error) {
 		slots := map[string]templ.Component{}
@@ -235,6 +246,7 @@ func (s *Server) demoPage(w http.ResponseWriter, r *http.Request) {
 	viewer := demo.Viewer{Session: edge.SessionID(r.Context()), Tab: demo.NewID()}
 	sh := s.shell(r, d.Title, d.Summary, "/demos/"+d.Slug, "demos")
 	sh.Stream, sh.Tab = "/demos/"+d.Slug+"/stream", viewer.Tab
+	sh.Components = s.components(d.Components...)
 	s.page(w, r, sh, func(ctx context.Context, tx *sql.Tx) (templ.Component, error) {
 		stage, err := d.Page.Render(ctx, tx, viewer)
 		if err != nil {
@@ -327,6 +339,7 @@ func (s *Server) doc(w http.ResponseWriter, r *http.Request) {
 		title = "Docs"
 	}
 	sh := s.shell(r, title, p.Summary, p.Path, "docs")
+	sh.Docs = views.DocsNav(d, p, false)
 	s.page(w, r, sh, func(context.Context, *sql.Tx) (templ.Component, error) {
 		return views.Docs(views.DocsPage{Docs: d, Page: p, Edit: s.cfg.Repo + "/blob/main/site/content/docs/" + p.File}), nil
 	})

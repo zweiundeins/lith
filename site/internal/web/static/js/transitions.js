@@ -74,7 +74,7 @@
 		if (isDocs(from) && isDocs(to) && e.activation.navigationType !== 'traverse') {
 			const link = Array.from(document.querySelectorAll('[data-docs-nav] a')).find((a) => a.pathname === to)
 			const title = document.querySelector('.page-title')
-			if (link && title && link.getAttribute('aria-current') !== 'page') {
+			if (link && title && link.getAttribute('aria-current') !== 'page' && link.checkVisibility?.()) {
 				name(title, 'none')
 				name(link.querySelector('span'), 'page-title')
 			}

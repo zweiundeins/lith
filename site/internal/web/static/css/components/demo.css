@@ -3,6 +3,7 @@
 @layer components {
 	.demo-page {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--lith-space-8);
 		padding-block: var(--lith-space-8) var(--lith-space-12);
 	}
@@ -119,6 +120,7 @@
 
 	.panel {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--lith-space-3);
 		padding: var(--lith-space-6);
 		border: 1px solid var(--lith-border-subtle);

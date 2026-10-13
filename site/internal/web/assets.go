@@ -2,6 +2,7 @@ package web
 
 import (
 	"embed"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/pixelart"
+	"github.com/zweiundeins/lith/site/internal/starbase"
 	"github.com/zweiundeins/lith/site/internal/views"
 )
 
@@ -25,6 +27,7 @@ var staticFiles embed.FS
 var Stylesheets = []string{
 	"css/tokens.css",
 	"css/theme.css",
+	"css/starbase.css",
 	"css/reset.css",
 	"css/base.css",
 	"css/layout.css",
@@ -65,14 +68,54 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 	}
 	s.static.Add("site.css", bundle)
 	s.static.Add("art/logo.svg", []byte(pixelart.Logo()))
+	if s.starbase, err = starbase.Load(files); err != nil {
+		return err
+	}
+	for _, d := range list {
+		if _, err := s.starbase.Scripts(d.Components...); err != nil {
+			return fmt.Errorf("demo %s: %w", d.Slug, err)
+		}
+	}
+	datastar := s.static.URL("vendor/datastar-rocket.js")
+	m := map[string]any{"imports": map[string]string{"datastar": datastar}}
+	integrity := map[string]string{}
+	for _, f := range s.starbase.Lazy() {
+		integrity["/static/"+f.Name] = f.Integrity // a bundle imports it by its plain name
+	}
+	if len(integrity) > 0 {
+		m["integrity"] = integrity
+	}
+	importMap, err := json.Marshal(m) // escapes <, > and &: safe in a <script>
+	if err != nil {
+		return err
+	}
 	s.assets = views.Assets{
 		CSS:         s.static.URL("site.css"),
-		Datastar:    s.static.URL("vendor/datastar-rocket.js"),
+		Datastar:    views.Script{URL: datastar, Integrity: s.starbase.Lock.Datastar.Integrity},
 		Transitions: s.static.URL("js/transitions.js"),
 		Font:        s.static.URL("fonts/pixelify-sans.woff2"),
 		Icon:        s.static.URL("art/logo.svg"),
+		ImportMap:   string(importMap),
 	}
 	return nil
+}
+
+// siteComponents are the Starbase components every page uses: the menu.
+var siteComponents = []string{"drawer"}
+
+// components returns the bundles a page loads for the Starbase components
+// it uses besides the site's own.
+func (s *Server) components(slugs ...string) []views.Script {
+	files, err := s.starbase.Scripts(append(append([]string(nil), siteComponents...), slugs...)...)
+	if err != nil {
+		s.log.Error("starbase", "err", err) // New checked every demo's
+		return nil
+	}
+	out := make([]views.Script, len(files))
+	for i, f := range files {
+		out[i] = views.Script{URL: s.static.URL(f.Name), Integrity: f.Integrity}
+	}
+	return out
 }
 
 // Bundle joins the stylesheets into one, with font URLs pointing at their

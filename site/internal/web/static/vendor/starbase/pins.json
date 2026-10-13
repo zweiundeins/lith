@@ -1,0 +1,17 @@
+{
+  "base": "https://starbase.zweiundeins.gmbh",
+  "catalog": "0563a22623af",
+  "components": [
+    "data-table",
+    "drawer",
+    "gauge",
+    "meter",
+    "pixel-board",
+    "popover",
+    "sparkline",
+    "tabs",
+    "toast",
+    "tooltip",
+    "virtual-scroll"
+  ]
+}

@@ -50,6 +50,12 @@ type Demo struct {
 	// @scope ([data-demo="<slug>"]), and the site adds it to its bundle in
 	// the components layer.
 	CSS string
+	// Components are the Starbase components the demo renders, by slug
+	// ("pixel-board"): the site loads their bundles, and those of the
+	// components they render, on the demo's page, and on the landing page
+	// when the demo has an Embed. Each must be vendored
+	// (internal/web/static/vendor/starbase/pins.json).
+	Components []string
 	// Mount adds the demo's routes through the kit: its actions, and GET
 	// routes under /demos/<slug>/ if it needs any.
 	Mount func(k *Kit)

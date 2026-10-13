@@ -1,0 +1,123 @@
+{
+  "base": "https://starbase.zweiundeins.gmbh",
+  "catalog": "0563a22623af",
+  "datastar": {
+    "url": "https://starbase.zweiundeins.gmbh/c/datastar@f602fbe19d74/datastar-rocket.js",
+    "integrity": "sha384-mvTnynHaljKNMleD0bj6/rWROnluHlNmbc5rOQTd+fQH3YBDYhlvHdNquEX99by5"
+  },
+  "components": [
+    {
+      "slug": "data-table",
+      "tag": "sb-data-table",
+      "hash": "320c8a1fe881",
+      "pinned": true,
+      "bundle": "data-table.bundle.min.js",
+      "renders": [
+        "virtual-scroll"
+      ],
+      "files": {
+        "data-table.bundle.min.js": "sha384-pqD+BoqZYVi3sqSH4akZOwjaevStKppsA4HjMwGaIkWeb5M3JFvuSahxnCPeM52W"
+      }
+    },
+    {
+      "slug": "drawer",
+      "tag": "sb-drawer",
+      "hash": "9b79168e90f0",
+      "pinned": true,
+      "bundle": "drawer.bundle.min.js",
+      "files": {
+        "drawer.bundle.min.js": "sha384-YokbbE5k1vXAd8044WsTMzwwaPh5sHxXg89AbbxZm6DWXFy8dLmj+dDJyLuIxo5p"
+      }
+    },
+    {
+      "slug": "gauge",
+      "tag": "sb-gauge",
+      "hash": "5e3c3921852c",
+      "pinned": true,
+      "bundle": "gauge.bundle.min.js",
+      "files": {
+        "gauge.bundle.min.js": "sha384-bGNN5sLdtMXaI51s9harUVs3wPejDFk3v9nMeNe+27x84hyA2LSUIhDcELR/0jqf"
+      }
+    },
+    {
+      "slug": "meter",
+      "tag": "sb-meter",
+      "hash": "16bb74fb0714",
+      "pinned": true,
+      "bundle": "meter.bundle.min.js",
+      "files": {
+        "meter.bundle.min.js": "sha384-dnDl76l+jtSE1ektJUY28Ww22IbXVzsKxpHeULOKT471h2iVoD1jG4cDP96SzW/9"
+      }
+    },
+    {
+      "slug": "pixel-board",
+      "tag": "sb-pixel-board",
+      "hash": "81ef7f3559a7",
+      "pinned": true,
+      "bundle": "pixel-board.bundle.min.js",
+      "files": {
+        "pixel-board.bundle.min.js": "sha384-sAYaNqMe98z5IYcvoaZEZj2HSPIa8f9OotXbXu+g1+RMInMxqBjZIIuj+FyzhJYc"
+      }
+    },
+    {
+      "slug": "popover",
+      "tag": "sb-popover",
+      "hash": "60c8637be048",
+      "pinned": true,
+      "bundle": "popover.bundle.min.js",
+      "files": {
+        "popover.bundle.min.js": "sha384-PyY1dmlm2SGRWjapcExaE1BnPbi469Vmpfr5NeC+IgEeIp8ARfV/pYvSTCzxE6kJ"
+      }
+    },
+    {
+      "slug": "sparkline",
+      "tag": "sb-sparkline",
+      "hash": "2cb572cc41c3",
+      "pinned": true,
+      "bundle": "sparkline.bundle.min.js",
+      "files": {
+        "sparkline.bundle.min.js": "sha384-+S6PVE3m6wrLttbOjM/SensYbZa87IYERQhulGA3escM9BMYDUopUMPpOMkA1yOD"
+      }
+    },
+    {
+      "slug": "tabs",
+      "tag": "sb-tabs",
+      "hash": "5c10a36a64dc",
+      "pinned": true,
+      "bundle": "tabs.bundle.min.js",
+      "files": {
+        "tabs.bundle.min.js": "sha384-kiKBs+uYghB25P+Y1A0tjR6RtpPMRwMg2Y8QQSlIQ+TOOpg2CtDXH7fwuYD9d9uK"
+      }
+    },
+    {
+      "slug": "toast",
+      "tag": "sb-toast",
+      "hash": "7dac1fa990bb",
+      "pinned": true,
+      "bundle": "toast.bundle.min.js",
+      "files": {
+        "toast.bundle.min.js": "sha384-hY9R9uaq/UMDRAV49h5eoFl9ss0YapNvP5OgKYiMLeNG/aX8QA7G8sitMj10qxrW"
+      }
+    },
+    {
+      "slug": "tooltip",
+      "tag": "sb-tooltip",
+      "hash": "f00b7e5c49d2",
+      "pinned": true,
+      "bundle": "tooltip.bundle.min.js",
+      "files": {
+        "tooltip.bundle.min.js": "sha384-GDnEOKqDISiMQBldrD8TF3aY2vOpvS9aQzdg1tsqq+mb4Kp1veqZ7ao5KLtEmB+G"
+      }
+    },
+    {
+      "slug": "virtual-scroll",
+      "tag": "sb-virtual-scroll",
+      "hash": "fc58d030f1f0",
+      "pinned": true,
+      "bundle": "virtual-scroll.bundle.min.js",
+      "files": {
+        "virtual-scroll.bundle.min.js": "sha384-IPywQempFhqlCvigDmX88k1xsVXSApdo6H9idy1eeCe7N9cJaGBFpjDKgTf+noYa"
+      }
+    }
+  ]
+}

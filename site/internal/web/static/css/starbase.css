@@ -1,0 +1,100 @@
+/*
+ * Starbase's components (static/vendor/starbase) read Starbase's semantic
+ * tokens, --sb-*, with Starbase's colours as fallbacks. Here they take the
+ * site's: the surfaces, text, accent, borders, focus and overlays of both
+ * themes (light-dark() through --lith-*), the code colours, and the 8-bit
+ * details, so [data-lith-style="smooth"] smooths the components too.
+ */
+@layer theme {
+	:root {
+		--sb-bg: var(--lith-bg);
+		--sb-bg-glow: var(--lith-bg-glow);
+		--sb-surface-raised: var(--lith-surface-1);
+		--sb-surface-card: var(--lith-surface-1);
+		--sb-surface-inset: var(--lith-surface-inset);
+		--sb-surface-hover: var(--lith-surface-hover);
+		/* The backdrop behind a modal drawer or dialog. */
+		--sb-surface-overlay: light-dark(oklch(30% 0.01 60 / 0.35), oklch(9% 0.005 60 / 0.62));
+
+		--sb-border: var(--lith-border);
+		--sb-border-subtle: var(--lith-border-subtle);
+		--sb-border-strong: var(--lith-border-strong);
+
+		--sb-text-1: var(--lith-text-1);
+		--sb-text-2: var(--lith-text-2);
+		--sb-text-muted: var(--lith-text-muted);
+		--sb-text-on-brand: var(--lith-on-accent);
+		--sb-text-on-danger: light-dark(var(--lith-stone-0), var(--lith-stone-12));
+
+		/* Starbase's brand is the site's one accent. brand-light is what
+		 * components fill a selection with and write --sb-bg on (a selected
+		 * tab), so it is the accent as text: readable both ways. */
+		--sb-brand: var(--lith-accent);
+		--sb-brand-hover: var(--lith-accent-strong);
+		--sb-brand-light: var(--lith-accent-text);
+		--sb-brand-subtle: var(--lith-accent-subtle);
+		--sb-accent: var(--lith-accent);
+		--sb-datastar: var(--lith-ok);
+
+		--sb-ok: var(--lith-ok);
+		--sb-ok-subtle: color-mix(in oklch, var(--lith-ok) 14%, transparent);
+		--sb-warn: var(--lith-accent-text);
+		--sb-warn-subtle: var(--lith-accent-subtle);
+		--sb-danger: var(--lith-danger);
+		--sb-danger-subtle: var(--lith-danger-subtle);
+		--sb-info: var(--lith-text-2);
+		--sb-info-subtle: color-mix(in oklch, var(--lith-text-2) 12%, transparent);
+
+		--sb-control-bg: var(--lith-surface-inset);
+		--sb-control-border: var(--lith-border);
+		--sb-control-border-hover: var(--lith-border-strong);
+		--sb-control-text: var(--lith-text-1);
+		--sb-control-placeholder: var(--lith-text-muted);
+		--sb-control-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		--sb-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+
+		--sb-frame-color: var(--lith-accent);
+		--sb-glow-brand: 0 0 0 1px var(--lith-accent-edge), 0 8px 28px -10px var(--lith-glow-color);
+		--sb-focus-ring: 0 0 0 2px var(--lith-bg), 0 0 0 4px var(--lith-focus);
+		--sb-selection: var(--lith-selection);
+		/* One shadow without spread: notched components draw it with
+		 * filter: drop-shadow(), which takes no spread. */
+		--sb-shadow-overlay: 0 16px 32px light-dark(oklch(30% 0.01 60 / 0.28), oklch(0% 0 0 / 0.7));
+
+		--sb-code-keyword: var(--lith-code-keyword);
+		--sb-code-function: var(--lith-code-function);
+		--sb-code-tag: var(--lith-code-tag);
+		--sb-code-string: var(--lith-code-string);
+		--sb-code-number: var(--lith-code-number);
+
+		--sb-font-display: var(--lith-font-display);
+		--sb-font-ui: var(--lith-font-ui);
+		--sb-font-body: var(--lith-font-body);
+		--sb-font-heading: var(--lith-font-body);
+		--sb-display-case: none;
+		--sb-notch: var(--lith-notch);
+		--sb-frame-step: var(--lith-frame-step);
+
+		--sb-z-sticky: var(--lith-z-sticky);
+		--sb-z-overlay: var(--lith-z-overlay);
+		--sb-z-toast: 60;
+		--sb-z-tooltip: var(--lith-z-tooltip);
+	}
+}
+
+@layer components {
+	/* Until a component's bundle has defined it: nothing that would jump. */
+	sb-drawer:not(:defined),
+	sb-toast:not(:defined),
+	sb-popover:not(:defined) {
+		display: none;
+	}
+
+	sb-tabs:not(:defined) {
+		display: block;
+
+		& > [slot]:not(:first-of-type) {
+			display: none;
+		}
+	}
+}

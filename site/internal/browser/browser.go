@@ -477,3 +477,13 @@ func jsQuote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+// Press sends a key press (down and up) to the focused element: "Escape",
+// "Enter", "Tab".
+func (p *Page) Press(t testing.TB, key string) {
+	t.Helper()
+	codes := map[string]int{"Escape": 27, "Enter": 13, "Tab": 9}
+	for _, typ := range []string{"rawKeyDown", "keyUp"} {
+		p.Call(t, "Input.dispatchKeyEvent", map[string]any{"type": typ, "key": key, "code": key, "windowsVirtualKeyCode": codes[key]})
+	}
+}

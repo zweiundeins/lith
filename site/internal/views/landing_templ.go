@@ -303,20 +303,69 @@ func LandingPage(l Landing) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\">bench/RESULTS.md</a>. The kanban numbers come from kanban's own load tool.</p></div></section><section class=\"wrap section\" aria-labelledby=\"start-title\"><header class=\"section__head reveal\"><h2 id=\"start-title\">Start a project</h2></header><div class=\"quickstart reveal\"><ol><li>lith-new copies the template into a new module: a guestbook with tests, CI, a systemd unit, a Caddy block and a deploy script with rollback.</li><li>Run it and open two tabs. Sign in one; the other shows the entry in the next tick.</li><li>Replace the guestbook with your first feature and keep the wiring. <a href=\"/docs/getting-started\">Getting started</a> walks through it.</li></ol>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\">bench/RESULTS.md</a>. The kanban numbers come from kanban's own load tool.</p></div></section><section class=\"wrap section\" aria-labelledby=\"start-title\"><header class=\"section__head reveal\"><h2 id=\"start-title\">Start a project</h2></header><div class=\"quickstart reveal\"><ol><li>lith-new copies the template into a new module: a guestbook with tests, CI, a systemd unit, a Caddy block and a deploy script with rollback.</li><li>Run it and open two tabs. Sign in one; the other shows the entry in the next tick.</li><li>Replace the guestbook with your first feature and keep the wiring. <a href=\"/docs/getting-started\">Getting started</a> walks through it.</li></ol><sb-tabs class=\"starts\" labels=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = quickstartCode().Render(ctx, templ_7745c5c3_Buffer)
+		var templ_7745c5c3_Var17 string
+		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(startLabels())
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 103, Col: 49}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" aria-label=\"How to start\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, st := range starts {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div slot=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var18 string
+			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(st.Slot)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 105, Col: 24}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "\" class=\"starts__panel\"><p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var19 string
+			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(st.Text)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 106, Col: 18}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = st.code().Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</sb-tabs></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if len(l.Cards) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<section class=\"wrap section\" aria-labelledby=\"demos-title\"><header class=\"section__head reveal\"><h2 id=\"demos-title\">Demos</h2><p>Each demo runs on this server, on lith, with the code that does it beside it.</p></header>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<section class=\"wrap section\" aria-labelledby=\"demos-title\"><header class=\"section__head reveal\"><h2 id=\"demos-title\">Demos</h2><p>Each demo runs on this server, on lith, with the code that does it beside it.</p></header>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -324,12 +373,12 @@ func LandingPage(l Landing) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<section class=\"wrap section\" aria-labelledby=\"credits-title\"><header class=\"section__head reveal\"><h2 id=\"credits-title\">Credits</h2></header><div class=\"credits reveal\"><article><h3><a href=\"https://github.com/andersmurphy/hyperlith\">hyperlith</a></h3><p>Anders Murphy's Clojure framework on Datastar, which handles the streams, their compression and the render rate. lith's design follows it, and his posts on <a href=\"https://andersmurphy.com\">andersmurphy.com</a> measure each part.</p></article><article><h3><a href=\"https://github.com/zangster300/northstar\">northstar</a></h3><p>A Go starter for Datastar apps by zangster300, the other model for how lith's template is laid out.</p></article><article><h3><a href=\"https://data-star.dev\">Datastar</a></h3><p>The hypermedia framework in the browser: signals, morphs and the events every lith stream speaks.</p></article></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<section class=\"wrap section\" aria-labelledby=\"credits-title\"><header class=\"section__head reveal\"><h2 id=\"credits-title\">Credits</h2></header><div class=\"credits reveal\"><article><h3><a href=\"https://github.com/andersmurphy/hyperlith\">hyperlith</a></h3><p>Anders Murphy's Clojure framework on Datastar, which handles the streams, their compression and the render rate. lith's design follows it, and his posts on <a href=\"https://andersmurphy.com\">andersmurphy.com</a> measure each part.</p></article><article><h3><a href=\"https://github.com/zangster300/northstar\">northstar</a></h3><p>A Go starter for Datastar apps by zangster300, the other model for how lith's template is laid out.</p></article><article><h3><a href=\"https://data-star.dev\">Datastar</a></h3><p>The hypermedia framework in the browser: signals, morphs and the events every lith stream speaks.</p></article></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -354,30 +403,30 @@ func CardGrid(cards []Card) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var17 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var17 == nil {
-			templ_7745c5c3_Var17 = templ.NopComponent
+		templ_7745c5c3_Var20 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var20 == nil {
+			templ_7745c5c3_Var20 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<ul class=\"card-grid\" role=\"list\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<ul class=\"card-grid\" role=\"list\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, c := range cards {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<li class=\"demo-card reveal\" data-demo-card=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<li class=\"demo-card reveal\" data-demo-card=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var18 string
-			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Slug)
+			var templ_7745c5c3_Var21 string
+			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Slug)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 140, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 147, Col: 55}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\"><div class=\"demo-card__stage\"><div class=\"demo-card__art\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "\"><div class=\"demo-card__stage\"><div class=\"demo-card__art\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -385,46 +434,46 @@ func CardGrid(cards []Card) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</div></div><div class=\"demo-card__body\"><h3><a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</div></div><div class=\"demo-card__body\"><h3><a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var19 templ.SafeURL
-			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinURLErrs(safe("/demos/" + c.Slug))
+			var templ_7745c5c3_Var22 templ.SafeURL
+			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinURLErrs(safe("/demos/" + c.Slug))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 147, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 154, Col: 43}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "\">")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var20 string
-			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(c.Title)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 147, Col: 55}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</a></h3><p>")
+			var templ_7745c5c3_Var23 string
+			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(c.Title)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 154, Col: 55}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var21 string
-			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(c.Summary)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 148, Col: 19}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</a></h3><p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</p><span class=\"demo-card__go\" aria-hidden=\"true\">Open the demo")
+			var templ_7745c5c3_Var24 string
+			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(c.Summary)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/landing.templ`, Line: 155, Col: 19}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "</p><span class=\"demo-card__go\" aria-hidden=\"true\">Open the demo")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -432,12 +481,12 @@ func CardGrid(cards []Card) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</span></div></li>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "</span></div></li>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</ul>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "</ul>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

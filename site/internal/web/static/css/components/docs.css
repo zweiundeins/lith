@@ -1,58 +1,25 @@
 /* Docs: the navigation, the article, the table of contents, the pager. */
 @layer components {
-	/* The navigation is a sidebar where the docs are wide enough, and a
-	 * popover behind the "Docs menu" button where they are not: one
-	 * element, so it keeps its view-transition name either way. A popover
-	 * that is not open is display: none by the browser's own style; the
-	 * wide layout overrides that. */
+	/* The navigation: a sticky sidebar where the docs are wide enough.
+	 * Where they are not, it hides, and the "Docs menu" button opens its
+	 * copy in the menu (sb-drawer). */
 	.docs-nav {
 		grid-area: nav;
-		view-transition-name: docs-nav;
 		font-size: var(--lith-text-sm);
 
-		@container docs (width >= 52rem) {
-			&:not(:popover-open) {
-				position: sticky;
-				inset: auto;
-				inset-block-start: calc(var(--lith-header-height) + var(--lith-space-6));
-				display: block;
-				inline-size: auto;
-				block-size: auto;
-				max-block-size: calc(100dvh - var(--lith-header-height) - var(--lith-space-10));
-				overflow-y: auto;
-				overscroll-behavior: contain;
-				scrollbar-width: thin;
-				margin: 0;
-				padding: 0 var(--lith-space-2) var(--lith-space-6) 0;
-				border: 0;
-				background: none;
-				color: inherit;
-			}
-		}
-
-		&:popover-open {
-			position: fixed;
-			inset: var(--lith-header-height) auto 0 0;
-			inline-size: min(22rem, 88vw);
-			block-size: auto;
-			margin: 0;
-			padding: var(--lith-space-6) var(--lith-space-5);
+		&[data-docs-nav] {
+			position: sticky;
+			inset-block-start: calc(var(--lith-header-height) + var(--lith-space-6));
+			max-block-size: calc(100dvh - var(--lith-header-height) - var(--lith-space-10));
 			overflow-y: auto;
-			border: 0;
-			border-inline-end: 1px solid var(--lith-border);
-			background: var(--lith-surface-1);
-			color: var(--lith-text-1);
-			box-shadow: var(--lith-shadow-overlay);
-			translate: 0 0;
-			transition: translate var(--lith-dur-3) var(--lith-ease-glide), display var(--lith-dur-3) allow-discrete, overlay var(--lith-dur-3) allow-discrete;
+			overscroll-behavior: contain;
+			scrollbar-width: thin;
+			padding: 0 var(--lith-space-2) var(--lith-space-6) 0;
+			view-transition-name: docs-nav;
 
-			@starting-style {
-				translate: -100% 0;
+			@container docs (width < 52rem) {
+				display: none;
 			}
-		}
-
-		&::backdrop {
-			background: oklch(0% 0 0 / 0.35);
 		}
 
 		& ul {
@@ -111,6 +78,10 @@
 		view-transition-name: docs-nav-marker;
 	}
 
+	.docs-nav__marker--still {
+		view-transition-name: none;
+	}
+
 	.docs-nav li {
 		position: relative;
 		isolation: isolate;
@@ -126,9 +97,12 @@
 		}
 	}
 
+	/* One column that may shrink: a code block scrolls inside it instead of
+	 * widening the article to its longest line. */
 	.docs-article {
 		grid-area: article;
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		min-inline-size: 0;
 		max-inline-size: var(--lith-prose-max);
 	}

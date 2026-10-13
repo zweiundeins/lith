@@ -16,10 +16,20 @@ import (
 // Assets are the hashed URLs of the files every page loads.
 type Assets struct {
 	CSS         string // the stylesheet bundle
-	Datastar    string // the vendored Datastar build
+	Datastar    Script // the vendored Datastar build
 	Transitions string // transitions.js: view transitions and the display menu
 	Font        string // Pixelify Sans, preloaded for the display text
 	Icon        string // the logo as an SVG file, the favicon
+	// ImportMap maps 'datastar' to Datastar's URL for the Starbase
+	// components' bundles, with the integrity of the files they load on
+	// first use: JSON, safe to put in a <script>.
+	ImportMap string
+}
+
+// Script is a module a page loads, with its integrity.
+type Script struct {
+	URL       string
+	Integrity string
 }
 
 // Shell is the frame around a page.
@@ -44,6 +54,11 @@ type Shell struct {
 	// page that does not stream. The page opens it with the tab id Tab.
 	Stream string
 	Tab    string
+	// Components are the Starbase components' bundles the page loads.
+	Components []Script
+	// Docs is the docs' navigation, for the menu on narrow screens; nil
+	// outside the docs.
+	Docs templ.Component
 }
 
 // DocumentTitle is the <title> of the page.
@@ -87,6 +102,11 @@ func pageSignals(tab string) string {
 func jsString(s string) string {
 	b, _ := json.Marshal(s)
 	return strings.ReplaceAll(string(b), "'", `'`)
+}
+
+// importMap is the page's import map, with the request's nonce.
+func importMap(s Shell) templ.Component {
+	return templ.Raw(`<script type="importmap" nonce="` + s.Nonce + `">` + s.Assets.ImportMap + `</script>`)
 }
 
 // Art inlines pixel art as decorative SVG, with the given classes. The art's

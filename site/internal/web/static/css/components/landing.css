@@ -195,6 +195,7 @@
 	/* ── The four ideas ──────────────────────────────────────────────── */
 	.ideas {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--lith-space-6);
 	}
 
@@ -417,6 +418,30 @@
 		to {
 			translate: 0 4rem;
 			opacity: 0.55;
+		}
+	}
+}
+
+@layer components {
+	/* The quick start's tabs: Starbase's sb-tabs, panels in the light DOM. */
+	.starts {
+		display: block;
+		min-inline-size: 0;
+
+		&::part(tablist) {
+			margin-block-end: var(--lith-space-3);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-sm);
+		}
+	}
+
+	.starts__panel {
+		display: grid;
+		gap: var(--lith-space-3);
+
+		& > p {
+			color: var(--lith-text-2);
+			font-size: var(--lith-text-sm);
 		}
 	}
 }

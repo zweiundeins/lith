@@ -1,6 +1,8 @@
 package views
 
 import (
+	"encoding/json"
+
 	"github.com/a-h/templ"
 
 	"github.com/zweiundeins/lith/site/internal/markdown"
@@ -109,13 +111,32 @@ var stats = []stat{
 	{"14,928", "moves a second in kanban, with 200 people", "a move answered in 13.1 ms at p95"},
 }
 
-const quickstart = `go run github.com/zweiundeins/lith/cmd/lith-new@latest \
+// start is one way to begin, a tab of the quick start (Starbase's sb-tabs).
+type start struct {
+	Label, Slot, Text, Code string
+}
+
+var starts = []start{
+	{"New project", "new-project", "A new module from lith's template, its guestbook running.",
+		`go run github.com/zweiundeins/lith/cmd/lith-new@latest \
 	~/guestbook example.com/you/guestbook
 cd ~/guestbook && go mod tidy
-go tool task dev   # http://127.0.0.1:8080`
+go tool task dev   # http://127.0.0.1:8080`},
+	{"Into a module", "into-a-module", "lith in a module of your own: then wire the database, the writer and the hub in main.",
+		`go get github.com/zweiundeins/lith@latest`},
+	{"From a checkout", "from-a-checkout", "A project on a lith checkout: its go.mod gets a replace directive for the checkout, for work on both.",
+		`git clone https://github.com/zweiundeins/lith ~/src/lith
+cd ~/src/lith && go run ./cmd/lith-new -lith . ~/guestbook example.com/you/guestbook`},
+}
 
-func quickstartCode() templ.Component {
-	return templ.Raw(markdown.CodeBlock(quickstart, "sh", "shell"))
+// startLabels are the tabs' labels, for sb-tabs' labels attribute.
+func startLabels() string {
+	b, _ := json.Marshal([]string{starts[0].Label, starts[1].Label, starts[2].Label})
+	return string(b)
+}
+
+func (s start) code() templ.Component {
+	return templ.Raw(markdown.CodeBlock(s.Code, "sh", "shell"))
 }
 
 // embers are the sparks that drift up from the hero's monolith.

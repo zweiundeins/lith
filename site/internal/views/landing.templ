@@ -100,7 +100,14 @@ templ LandingPage(l Landing) {
 				<li>Run it and open two tabs. Sign in one; the other shows the entry in the next tick.</li>
 				<li>Replace the guestbook with your first feature and keep the wiring. <a href="/docs/getting-started">Getting started</a> walks through it.</li>
 			</ol>
-			@quickstartCode()
+			<sb-tabs class="starts" labels={ startLabels() } aria-label="How to start">
+				for _, st := range starts {
+					<div slot={ st.Slot } class="starts__panel">
+						<p>{ st.Text }</p>
+						@st.code()
+					</div>
+				}
+			</sb-tabs>
 		</div>
 	</section>
 	if len(l.Cards) > 0 {

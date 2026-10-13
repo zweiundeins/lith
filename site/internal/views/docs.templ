@@ -12,9 +12,9 @@ type DocsPage struct {
 
 templ Docs(d DocsPage) {
 	<div class="wrap docs">
-		@docsNav(d.Docs, d.Page)
+		@DocsNav(d.Docs, d.Page, true)
 		<article class="docs-article">
-			<button class="btn btn--sm docs-menu-button" type="button" popovertarget="docs-nav">
+			<button class="btn btn--sm docs-menu-button" type="button" data-on:click="$_menu.show()">
 				@Icon("menu")
 				Docs menu
 			</button>
@@ -72,27 +72,37 @@ templ Docs(d DocsPage) {
 	<div class="read-progress" aria-hidden="true"></div>
 }
 
-// docsNav is the docs' navigation: a sidebar, or a popover on narrow
-// pages. The current page's item carries the marker that glides to the
-// next page's item (view transitions).
-templ docsNav(d *docs.Docs, current *docs.Page) {
-	<nav id="docs-nav" class="docs-nav" popover aria-label="Docs" data-docs-nav>
+// DocsNav is the docs' navigation: the sidebar where the docs are wide
+// enough, and its copy in the menu (sb-drawer) where they are not. In the
+// sidebar the current page's item carries the marker that glides to the
+// next page's item, and transitions.js reads the reading order from it
+// (data-docs-nav); the copy has neither, so no name is on a page twice.
+templ DocsNav(d *docs.Docs, current *docs.Page, sidebar bool) {
+	<nav
+		if sidebar {
+			class="docs-nav"
+			data-docs-nav
+		} else {
+			class="docs-nav docs-nav--menu"
+		}
+		aria-label="Docs"
+	>
 		<ul>
-			@navItem(d.Home, current)
+			@navItem(d.Home, current, sidebar)
 		</ul>
 		for _, s := range d.Sections {
 			<p class="docs-nav__section">{ s.Title() }</p>
 			<ul>
-				@navItem(s.Index, current)
+				@navItem(s.Index, current, sidebar)
 				for _, p := range s.Pages {
-					@navItem(p, current)
+					@navItem(p, current, sidebar)
 				}
 			</ul>
 		}
 	</nav>
 }
 
-templ navItem(p, current *docs.Page) {
+templ navItem(p, current *docs.Page, sidebar bool) {
 	<li>
 		<a
 			href={ safe(p.Path) }
@@ -101,7 +111,14 @@ templ navItem(p, current *docs.Page) {
 			}
 		><span>{ p.Nav }</span></a>
 		if p == current {
-			<span class="docs-nav__marker" aria-hidden="true"></span>
+			<span
+				if sidebar {
+					class="docs-nav__marker"
+				} else {
+					class="docs-nav__marker docs-nav__marker--still"
+				}
+				aria-hidden="true"
+			></span>
 		}
 	</li>
 }
