@@ -17,7 +17,7 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 | | `P99Commit` | the 99th percentile of the last 1024 transactions, from `BEGIN` to the end of `COMMIT` |
 | `live.Stats` | `Ticks`, `Renders` | renders per tick |
 | | `Overruns` | ticks that took longer than the tick (50 ms): frames come late for everyone |
-| | `FramesSent`, `FramesDropped` | frames replaced by a newer one before their stream sent them: slow clients |
+| | `FramesSent`, `FramesDropped` | frames written to streams, and frames a newer one replaced before their stream sent them: slow clients |
 | | `Streams`, `Views` | open streams, watched views |
 | | `RendersByKey` | renders per view: a view that renders more often than its topics change listens to too much |
 | `sse.BudgetStats` | `Limit`, `Reserved` | what the encoders may hold and hold now |

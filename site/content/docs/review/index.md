@@ -86,7 +86,7 @@ The proxy must set `X-Forwarded-For`: Caddy's `reverse_proxy` does by default, n
 
 ### Routes without the CSRF check, or without authentication
 
-Every route that changes data passes `edge.CSRF`, and the routes it exempts are listed with a reason. Every such route also checks that the session may do what it asks: the CSRF check says where a request comes from, not who sent it.
+Every route that changes data passes `edge.CSRF`, and the routes it exempts are listed with a reason. Every such route also checks that the session may do what it asks: the CSRF check says where a request comes from, and only the session says who sent it.
 
 ### A fixed window where a promise needs a sliding one
 
@@ -142,7 +142,7 @@ Every view names its topics, and every command touches the topics it changes. A 
 
 ### Random keys on large tables
 
-Random keys scatter inserts over the B-tree: Anders Murphy measured UUIDv4 keys 14 to 16 times slower than sequential ones at 10 million rows. Prefer `INTEGER PRIMARY KEY`; time-ordered ids will do. Random tokens go on small tables, and a bulk insert sorts its batch by key first.
+Random keys scatter inserts over the B-tree: [Anders Murphy measured](https://andersmurphy.com/2026/06/05/the-perils-of-uuid-primary-keys-in-sqlite.html) inserts with UUIDv4 keys 14 to 16 times slower than with integer keys, at 10 million rows. Prefer `INTEGER PRIMARY KEY`; time-ordered ids will do. Random tokens go on small tables, and a bulk insert sorts its batch by key first.
 
 ```sh
 rg -n 'uuid\.(New|NewString)|ulid\.Make' --type go

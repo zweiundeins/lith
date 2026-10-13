@@ -76,7 +76,7 @@ The cookie is `HttpOnly`, `SameSite=Lax`, and lives 400 days, the longest a brow
 | `img-src` | `'self'`, `data:` |
 | `object-src`, `frame-ancestors` | `'none'` |
 
-`'unsafe-eval'` is required: Datastar compiles its expressions with `Function`. Without it a page loads, shows its server-rendered HTML, and does nothing; the violation shows in the console's CSP messages, not as an error. Inline styles are allowed for components that render `<style>` into their shadow roots.
+`'unsafe-eval'` is required: Datastar compiles its expressions with `Function`. Without it a page loads, shows its server-rendered HTML, and does nothing, and no error says why. Inline styles are allowed for components that render `<style>` into their shadow roots.
 
 `SecurityHeaders` makes a new nonce for every request and puts it in the request's context, where `edge.Nonce(ctx)` finds it. An inline script, such as an import map, carries it. This site's pages get it from `edge.Nonce(r.Context())` and render their import map with it:
 
@@ -158,4 +158,4 @@ A check must not queue behind the writer: a command waits for every batch ahead 
 
 ## Errors and logs
 
-`edge.Recover(log, h)` turns a panic into a 500, logged with its stack; when the answer has begun, it aborts the connection instead, so the client sees an incomplete answer and not a truncated one. `edge.LogRequests(log, h)` logs a line per request as it ends: method, path, status, bytes, duration and client, at Error for a 5xx and at Info otherwise.
+`edge.Recover(log, h)` turns a panic into a 500, logged with its stack; when the answer has begun, it aborts the connection instead, so the client can tell that the answer is incomplete. `edge.LogRequests(log, h)` logs a line per request as it ends: method, path, status, bytes, duration and client, at Error for a 5xx and at Info otherwise.
