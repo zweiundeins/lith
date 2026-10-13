@@ -220,6 +220,26 @@ func TestViewSeesOneSnapshot(t *testing.T) {
 	}
 }
 
+func TestViewValue(t *testing.T) {
+	ctx := context.Background()
+	d := open(t, Options{})
+	if _, err := d.W.Exec("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1), (2)"); err != nil {
+		t.Fatal(err)
+	}
+	n, err := d.ViewValue(ctx, func(tx *sql.Tx) (n int, err error) {
+		err = tx.QueryRowContext(ctx, "SELECT count(*) FROM t").Scan(&n)
+		return n, err
+	})
+	if err != nil || n != 2 {
+		t.Fatalf("ViewValue = %d, %v; want 2", n, err)
+	}
+	failed := errors.New("failed")
+	n, err = d.ViewValue(ctx, func(*sql.Tx) (int, error) { return 7, failed })
+	if n != 0 || err != failed {
+		t.Fatalf("a failed ViewValue = %d, %v; want the zero value and its error", n, err)
+	}
+}
+
 var (
 	_ Querier = (*sql.DB)(nil)
 	_ Querier = (*sql.Tx)(nil)

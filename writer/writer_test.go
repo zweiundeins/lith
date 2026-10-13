@@ -467,6 +467,35 @@ func TestDoReportsTheOutcomeAfterItsContextEnds(t *testing.T) {
 	}
 }
 
+func TestDoValue(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	id, err := f.w.DoValue(ctx, func(tx *Tx) (int64, error) {
+		res, err := tx.Exec("INSERT INTO items (name) VALUES (?)", "a")
+		if err != nil {
+			return 0, err
+		}
+		return res.LastInsertId()
+	})
+	if err != nil || id != 1 {
+		t.Fatalf("DoValue = %d, %v; want 1", id, err)
+	}
+
+	refused := errors.New("refused")
+	name, err := f.w.DoValue(ctx, func(tx *Tx) (string, error) {
+		if err := insert("b")(tx); err != nil {
+			return "", err
+		}
+		return "b", refused
+	})
+	if name != "" || err != refused {
+		t.Fatalf("a failed DoValue = %q, %v; want the zero value and its error", name, err)
+	}
+	if n := f.count(t, "SELECT count(*) FROM items"); n != 1 {
+		t.Fatalf("%d items after a failed DoValue, want 1", n)
+	}
+}
+
 type checked struct{ ok bool }
 
 func (c checked) Apply(tx *Tx) error { return increment(1)(tx) }

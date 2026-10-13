@@ -28,7 +28,7 @@ pages and domain model.
 | Package | What it does |
 | --- | --- |
 | [`sqlite`](sqlite) | one write connection and a `query_only` read pool, pragmas, `user_version` migrations, read-only opens, `VACUUM INTO` backups |
-| [`writer`](writer) | the single writer: `Send` and `Do`, batches with a savepoint per command, prepared statements, `Once` for retried requests, `Exclusive` for work between batches |
+| [`writer`](writer) | the single writer: `Send`, `Do` and `DoValue`, batches with a savepoint per command, prepared statements, `Once` for retried requests, `Exclusive` for work between batches |
 | [`live`](live) | topics mark views dirty; a tick feeds render workers that read one snapshot each and render each changed view once for all its viewers |
 | [`sse`](sse) | Datastar events, formatted once and written to many streams, with zstd, brotli or gzip per stream and a deadline on every write |
 | [`edge`](edge) | sessions, CSRF, client IP, CSP with a nonce, compression, precompressed static files, rate limiters, health checks |

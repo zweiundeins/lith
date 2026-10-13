@@ -255,6 +255,29 @@ func (w *Writer) Do(ctx context.Context, cmd Command) error {
 	return <-r.done
 }
 
+// DoValue runs fn as a command, like Do, and returns what fn returned once
+// its batch has committed, or the zero value and the error.
+//
+//	id, err := w.DoValue(ctx, func(tx *writer.Tx) (int64, error) {
+//		res, err := tx.Exec(`INSERT INTO notes (body) VALUES (?)`, body)
+//		if err != nil {
+//			return 0, err
+//		}
+//		return res.LastInsertId()
+//	})
+func (w *Writer) DoValue[T any](ctx context.Context, fn func(*Tx) (T, error)) (T, error) {
+	var v T
+	err := w.Do(ctx, Func(func(tx *Tx) (err error) {
+		v, err = fn(tx)
+		return err
+	}))
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return v, nil
+}
+
 // Flush returns once every command queued before it has been applied,
 // committed or failed: a failure goes to the command's Do, or for a Send
 // to OnSendError. Since commands are applied in the order they arrive, a read

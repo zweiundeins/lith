@@ -133,6 +133,10 @@ func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
   at once (`ErrQueueFull` when the queue is full). A failed Send goes to
   `writer.Options.OnSendError(cmd, err)` on the writer's goroutine, or to the
   log without one.
+- `w.DoValue(ctx, fn)` is `Do` for a function that returns a value, such as
+  a new row's id: `id, err := w.DoValue(ctx, func(tx *writer.Tx) (int64,
+  error) {…})`. It returns the value once the batch has committed, and the
+  zero value with any error.
 - Commands run in the order they arrive. `w.Flush(ctx)` returns once every
   command queued before it is applied: a test sends, flushes, then reads.
 - Build SQL from constants: the writer prepares each SQL text once, and
@@ -192,11 +196,14 @@ n, err := laneCount(tx.Context(), tx, lane) // in a command
 q, _ := sqlite.QuerierFrom(ctx) // in a view's Render
 n, err := laneCount(ctx, q, lane)
 
-err := db.View(ctx, func(tx *sql.Tx) (err error) { // in a GET
-	n, err = laneCount(ctx, tx, lane)
-	return err
+n, err := db.ViewValue(ctx, func(tx *sql.Tx) (int, error) { // in a GET
+	return laneCount(ctx, tx, lane)
 })
 ```
+
+`db.ViewValue` is `db.View` for a function that returns a value; it returns
+the zero value with an error. Several results go in a struct, or stay with
+`db.View` and variables outside the function.
 
 A `*writer.Tx` runs the query on the batch's transaction with the writer's
 statement cache; the ctx it gets cancels nothing. In a view, the worker runs

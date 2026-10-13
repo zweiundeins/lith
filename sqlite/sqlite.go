@@ -252,6 +252,26 @@ func (d *DB) View(ctx context.Context, fn func(*sql.Tx) error) error {
 	return fn(tx)
 }
 
+// ViewValue runs fn like View and returns what it returned, or the zero
+// value and the error.
+//
+//	n, err := db.ViewValue(ctx, func(tx *sql.Tx) (n int, err error) {
+//		err = tx.QueryRowContext(ctx, `SELECT count(*) FROM notes`).Scan(&n)
+//		return n, err
+//	})
+func (d *DB) ViewValue[T any](ctx context.Context, fn func(*sql.Tx) (T, error)) (T, error) {
+	var v T
+	err := d.View(ctx, func(tx *sql.Tx) (err error) {
+		v, err = fn(tx)
+		return err
+	})
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return v, nil
+}
+
 // Backup writes a consistent copy of the database to dst (VACUUM INTO) on
 // a read-only connection of its own, while the database stays in use. dst
 // must not exist; on failure it is removed again.
