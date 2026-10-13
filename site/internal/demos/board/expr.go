@@ -208,6 +208,10 @@ if (k === ' ' || k === 'Enter') {
 	el.bd.walk(c, k)
 }`
 
+// leave puts a card picked up from the keyboard back when the focus goes
+// elsewhere: a click outside the board, another window.
+const leave = `$_board.mode === 'keys' && !(evt.relatedTarget && el.contains(evt.relatedTarget)) && el.bd.cancel(true)`
+
 // post sends the move in hand: requestCancellation 'disabled', so that a
 // second move to the same URL never cancels the first.
 const post = `@post('/cmd/board/move', {payload: {tab: $_tab, op: $_board.op, card: move.card, lane: move.lane, index: move.index, seen: move.seen}, requestCancellation: 'disabled'})`

@@ -22,6 +22,7 @@ templ Stage(b Board, n Numbers, people []Person, me string, now time.Time) {
 		data-on:pointercancel={ lost }
 		data-on:lostpointercapture={ lost }
 		data-on:keydown={ keys }
+		data-on:focusout={ leave }
 		data-on:datastar-fetch={ failed }
 		data-effect={ settle }
 	>

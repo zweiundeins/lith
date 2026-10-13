@@ -375,7 +375,9 @@
 		 * Picked up from the keyboard: it rises. Waiting for its frame:
 		 * faded, a pixel walking in its corner. */
 		opacity: calc(1 - 0.62 * var(--_lift) - 0.38 * var(--bd-wait, 0));
-		outline: 2px dashed color-mix(in oklch, var(--lith-accent) calc(max(var(--_lift), var(--bd-wait, 0)) * 100%), transparent);
+		/* No outline at all otherwise: forced colours would draw even a
+		 * transparent one. */
+		outline: calc(2px * max(var(--_lift), var(--bd-wait, 0))) dashed var(--lith-accent);
 		outline-offset: -4px;
 		translate: 0 calc(-3px * var(--bd-pick, 0));
 		box-shadow: 0 calc(10px * var(--bd-pick, 0)) calc(24px * var(--bd-pick, 0)) calc(-10px * var(--bd-pick, 0)) var(--lith-glow-color);
@@ -787,10 +789,15 @@
 		}
 	}
 
-	/* Forced colours: the states keep a visible edge. */
+	/* Forced colours: the cards keep their edges, the lane a card would go
+	 * to and the marker show in the highlight colour. */
 	@media (forced-colors: active) {
 		.bd-card {
 			border-color: CanvasText;
+		}
+
+		.bd-lane {
+			outline: calc(2px * var(--bd-target)) solid Highlight;
 		}
 
 		.bd-marker {

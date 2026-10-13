@@ -148,6 +148,12 @@ func TestBoard(t *testing.T) {
 		t.Errorf("Bob hears %q about Ada's move", outcome)
 	}
 
+	// A card picked up goes back when the focus leaves it.
+	boardFocus(t, ada, 6)
+	boardPress(t, ada, " ")
+	ada.Eval(t, `document.querySelector('.howto summary').focus()`, nil)
+	ada.Wait(t, `document.querySelector('[aria-live="assertive"]').textContent.startsWith('“Render a shared view” stays in Doing.') && !document.querySelector('style[data-text]').textContent.includes('--bd-pick')`, 2*time.Second)
+
 	// The mouse: Open a stream, from done to the top of to do.
 	// Straight after the move, while its view transition still runs: the
 	// cards take the pointer through the transition's overlay.
