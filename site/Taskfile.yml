@@ -45,7 +45,7 @@ tasks:
     deps: [generate]
     vars:
       VERSION:
-        sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+        sh: git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev
     env:
       CGO_ENABLED: '0'
     cmds:
