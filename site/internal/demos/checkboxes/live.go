@@ -7,6 +7,7 @@ import (
 	"io"
 	mbits "math/bits"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -131,11 +132,16 @@ func statsView(h Hub) live.View {
 	}
 }
 
+// tileBufs are buffers for tileFrame: a tile is written into one, and the
+// event copies it out.
+var tileBufs = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 0, 10<<10)) }}
+
 // tileFrame is the event that morphs chunk n's tile into its slot.
 func tileFrame(n int, bits []byte, watching int) []byte {
-	var b bytes.Buffer
-	b.Grow(9 << 10)
-	writeTile(&b, n, bits, watching)
+	b := tileBufs.Get().(*bytes.Buffer)
+	defer tileBufs.Put(b)
+	b.Reset()
+	writeTile(b, n, bits, watching)
 	return sse.PatchElements(b.Bytes(), sse.Patch{Selector: "#" + slotID(slot(n)), Mode: sse.Inner})
 }
 
