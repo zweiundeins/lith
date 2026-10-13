@@ -11,11 +11,12 @@ tool (
 require (
 	github.com/a-h/templ v0.3.1070
 	github.com/alecthomas/chroma/v2 v2.27.0
+	github.com/klauspost/compress v1.20.3
 	github.com/prometheus/client_golang v1.25.0
 	github.com/yuin/goldmark v1.8.6
-	github.com/zweiundeins/lith v0.0.0-20261013172559-233c24eb68fb
-	github.com/zweiundeins/lith/dbmetrics/prom v0.0.0-00010101000000-000000000000
-	github.com/zweiundeins/lith/prom v0.0.0-00010101000000-000000000000
+	github.com/zweiundeins/lith v0.1.0
+	github.com/zweiundeins/lith/dbmetrics/prom v0.1.0
+	github.com/zweiundeins/lith/prom v0.1.0
 	modernc.org/sqlite v1.60.1
 )
 
@@ -105,7 +106,6 @@ require (
 	github.com/hashicorp/go-getter v1.8.9 // indirect
 	github.com/hashicorp/go-version v1.9.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
-	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
