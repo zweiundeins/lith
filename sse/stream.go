@@ -6,9 +6,9 @@
 // with a window that spans the whole stream, so a frame that repeats much
 // of an earlier one costs little on the wire. The encoders are tuned for
 // many long-lived streams: zstd at its fastest level (Options.ZstdLevel)
-// with a 512 KiB window (about 1 MiB of heap per stream) when the client
-// accepts it, else brotli at quality 4 with a 256 KiB window (about 2 MiB),
-// else gzip.
+// with a 512 KiB window (about 1.7 MiB of heap per stream, 1 MiB with
+// Options.ZstdLowMemory) when the client accepts it, else brotli at
+// quality 4 with a 256 KiB window (about 2 MiB), else gzip.
 //
 // Every write has its own deadline, so run the server without a
 // WriteTimeout and let a stream that cannot take a write in time fail
