@@ -120,17 +120,19 @@ B.walk = (c, key) => {
 // stage captures the pointer, so the drag goes on outside it. A drag
 // starts once the pointer has moved 4 px; a finger's at once. It listens
 // on the window: while a view transition runs (someone's move gliding),
-// Chromium gives every press to the root element, and the card under the
-// pointer is found by its box instead.
+// the cards take no presses. Chromium gives a press to what lies under the
+// transition's scope, the board, or to the root element during a
+// transition of the whole page, and the card under the pointer is found by
+// its box instead.
 const press = `if (evt.button !== 0 || $_board.op) return
-const root = evt.target === document.documentElement
-if (!root && !el.contains(evt.target)) return
+if (evt.target !== document.documentElement && !el.contains(evt.target)) return
 const x = evt.clientX, y = evt.clientY
 const under = (e) => { const r = e.getBoundingClientRect(); return x >= r.left && x < r.right && y >= r.top && y < r.bottom }
-const c = root ? [...el.querySelectorAll('[data-card]')].find(under) : evt.target.closest('[data-card]')
+const hit = evt.target.closest('[data-card]')
+const c = hit ?? [...el.querySelectorAll('[data-card]')].find(under)
 if (!c) return
 const touch = evt.pointerType === 'touch'
-if (touch && !(root ? under(c.querySelector('.bd-card__grip')) : evt.target.closest('.bd-card__grip'))) return
+if (touch && !(hit ? evt.target.closest('.bd-card__grip') : under(c.querySelector('.bd-card__grip')))) return
 if ($_board.mode === 'keys') el.bd.cancel(false)
 const r = c.getBoundingClientRect()
 el.bd.press = {id: +c.dataset.card, pointer: evt.pointerId, x: x, y: y, dx: x - r.left, dy: y - r.top}

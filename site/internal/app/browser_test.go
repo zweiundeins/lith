@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -49,6 +50,16 @@ func TestBrowser(t *testing.T) {
 		p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
 	}
 	waitFor(t, "two tabs on the guestbook's list", func() bool { return a.Hub().Count("guestbook:entries") == 2 })
+	// Bob's page records the view transitions it runs: the stream's must
+	// be scoped to the element they patch, so that the rest of the page
+	// keeps taking clicks while one runs.
+	bob.Eval(t, `(() => {
+		window.vts = []
+		const el = HTMLElement.prototype.startViewTransition
+		HTMLElement.prototype.startViewTransition = function (...args) { vts.push('#' + this.id); return el.apply(this, args) }
+		const doc = document.startViewTransition
+		document.startViewTransition = function (...args) { vts.push('document'); return doc.apply(this, args) }
+	})()`, nil)
 
 	ada.Eval(t, `(() => {
 		const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})) }
@@ -60,6 +71,11 @@ func TestBrowser(t *testing.T) {
 	ada.Wait(t, `document.querySelector('.gb__form button[type=submit]').getAttribute('aria-busy') !== 'true' && document.querySelector('[data-bind="_guestbook.message"]').value === ''`, 5*time.Second)
 	bob.Wait(t, `document.querySelector('#guestbook-entries').textContent.includes('Hello from a headless browser')`, 10*time.Second)
 	bob.Wait(t, `document.querySelector('#guestbook-entries li[data-fresh]')`, time.Second)
+	var vts []string
+	bob.Eval(t, `vts`, &vts)
+	if !slices.Contains(vts, "#guestbook-entries") || slices.Contains(vts, "document") {
+		t.Errorf("the entry arrived in the view transitions %q, want one scoped to #guestbook-entries", vts)
+	}
 	var outcome string
 	bob.Eval(t, `document.querySelector('#guestbook-outcome').textContent.trim()`, &outcome)
 	if outcome != "" {

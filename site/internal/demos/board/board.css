@@ -887,10 +887,11 @@
 }
 
 /* While this page drags a card, others' moves snap into place: a
- * transition would hold the dragged copy still while it runs. */
-html:has([data-demo="board"] .bd.is-dragging)::view-transition-group(*),
-html:has([data-demo="board"] .bd.is-dragging)::view-transition-image-pair(*),
-html:has([data-demo="board"] .bd.is-dragging)::view-transition-old(*),
-html:has([data-demo="board"] .bd.is-dragging)::view-transition-new(*) {
+ * transition would hold the dragged copy still while it runs. The
+ * transition is scoped to the lanes, so its pseudo-elements are theirs. */
+[data-demo="board"] .bd.is-dragging #board-lanes::view-transition-group(*),
+[data-demo="board"] .bd.is-dragging #board-lanes::view-transition-image-pair(*),
+[data-demo="board"] .bd.is-dragging #board-lanes::view-transition-old(*),
+[data-demo="board"] .bd.is-dragging #board-lanes::view-transition-new(*) {
 	animation: none;
 }

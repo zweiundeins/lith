@@ -110,6 +110,49 @@ func TestLogRequests(t *testing.T) {
 	}
 }
 
+// TestQuiet logs a request whose handler called Quiet at Debug, unless it
+// failed, and changes nothing for the others or outside LogRequests.
+func TestQuiet(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := LogRequests(log, Recover(log, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("quiet") {
+			Quiet(r)
+		}
+		switch r.URL.Path {
+		case "/move":
+			w.WriteHeader(http.StatusNoContent)
+		case "/bad":
+			http.Error(w, "bad request", http.StatusBadRequest)
+		case "/fail":
+			http.Error(w, "oops", http.StatusInternalServerError)
+		case "/panic":
+			panic("boom")
+		}
+	})))
+	for _, target := range []string{"/move?quiet", "/bad?quiet", "/fail?quiet", "/panic?quiet", "/move"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", target, nil))
+	}
+	var requests []string
+	for _, l := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if strings.Contains(l, "msg=request") {
+			requests = append(requests, l)
+		}
+	}
+	for i, want := range []string{
+		"level=DEBUG msg=request method=POST path=/move status=204",
+		"level=DEBUG msg=request method=POST path=/bad status=400",
+		"level=ERROR msg=request method=POST path=/fail status=500",
+		"level=ERROR msg=request method=POST path=/panic status=500",
+		"level=INFO msg=request method=POST path=/move status=204",
+	} {
+		if i >= len(requests) || !strings.Contains(requests[i], want) {
+			t.Errorf("line %d: want %s in\n%s", i, want, buf.String())
+		}
+	}
+	Quiet(httptest.NewRequest("GET", "/", nil)) // outside LogRequests: nothing to do, no panic
+}
+
 func TestRecorderReachesTheConnection(t *testing.T) {
 	log, _ := testLogger()
 	srv := httptest.NewServer(LogRequests(log, Recover(log, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

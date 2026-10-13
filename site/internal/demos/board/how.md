@@ -30,7 +30,7 @@ func boardView() live.View {
 			if err != nil {
 				return nil, err
 			}
-			f, err := demo.Animated(ctx, LanesView(b, time.Now()), sse.Patch{})
+			f, err := demo.Animated(ctx, LanesView(b, time.Now()), sse.Patch{ViewTransitionSelector: "#board-lanes"})
 			if err != nil {
 				return nil, err
 			}
@@ -88,7 +88,7 @@ Each card has a `view-transition-name` of its own, `board-card-` and its id, and
 }
 ```
 
-The moved card's group gets `z-index: 1`, so it flies over the other lanes, and rises a little on the way. While a page drags a card of its own, other moves snap into place there instead: a transition holds the page still while it runs, the dragged copy included. During a transition Chromium hands every press to the root element, so the drag finds the card under the pointer by its box.
+The moved card's group gets `z-index: 1`, so it flies over the other lanes, and rises a little on the way. While a page drags a card of its own, other moves snap into place there instead: a transition holds the lanes still while it runs, the dragged copy included. The transition is scoped to the lanes, so the rest of the page keeps taking clicks; the cards take none while it runs (Chromium gives the press to the board beneath), so the drag finds the card under the pointer by its box.
 
 ## Who is on the board
 

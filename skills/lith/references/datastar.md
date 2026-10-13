@@ -69,6 +69,14 @@ write-up; look there before changing the behaviour.
 - Expressions on many repeated elements cost compile time and markup per
   frame (200 cards times a few expressions). Put the behaviour on the
   container and delegate. [kanban]
+- A patch with `useViewTransition` (`sse.Patch{ViewTransition: true}`) runs a
+  transition of the whole document, and while it runs Chromium gives every
+  press on the page to `<html>`: buttons and links miss their clicks. Scope it
+  with `ViewTransitionSelector` to the element that holds what moves; Datastar
+  then calls that element's `startViewTransition`, and the rest of the page
+  keeps working. Inside the scope nothing takes a press until it ends: it
+  goes to what lies beneath. A browser without scoped transitions morphs at
+  once. [lith's site]
 - An action's response carries nothing the view needs: the outcome arrives on
   the tab's stream. Patching elements from an action fights the next frame,
   which overwrites them. Signals from an action are fine (validation
