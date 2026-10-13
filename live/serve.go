@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/zweiundeins/lith/internal/shutdown"
 	"github.com/zweiundeins/lith/sse"
 )
 
@@ -58,9 +59,10 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	h.streams++
 	h.mu.Unlock()
 
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancelCause := context.WithCancelCause(r.Context())
+	cancel := func() { cancelCause(nil) }
 	defer cancel()
-	defer context.AfterFunc(h.done, cancel)()
+	defer context.AfterFunc(h.done, func() { cancelCause(shutdown.Cause) })()
 	st, err := sse.Open(w, r.WithContext(ctx), h.sse)
 	if err != nil {
 		h.mu.Lock()

@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
+
 	"github.com/zweiundeins/lith/sse"
 )
 
@@ -179,6 +181,62 @@ func TestStalledRealClient(t *testing.T) {
 				t.Fatal("the stalled stream dropped no frames")
 			}
 		})
+	}
+}
+
+// When the hub stops, a stream whose client reads ends cleanly: with the
+// end of its compressed stream, and with the end of the response, so the
+// client reads to EOF without an error.
+func TestShutdownEndsResponsesCleanly(t *testing.T) {
+	for _, p := range protocols {
+		for _, enc := range []string{"identity", sse.Zstd} {
+			t.Run(p.name+" "+enc, func(t *testing.T) {
+				h := New(Options{Tick: 5 * time.Millisecond, Log: slog.New(slog.DiscardHandler)})
+				hctx, stop := context.WithCancel(context.Background())
+				defer stop()
+				ran := make(chan error, 1)
+				go func() { ran <- h.Run(hctx) }()
+				v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
+				srv, results := realServer(t, h, p.h2, Spec{Views: []View{v}})
+				req, _ := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/a", nil)
+				req.Header.Set("Accept-Encoding", enc)
+				res, err := srv.Client().Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer res.Body.Close()
+				var body io.Reader = res.Body
+				if enc == sse.Zstd {
+					d, err := zstd.NewReader(res.Body, zstd.WithDecoderConcurrency(1))
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer d.Close()
+					body = d
+				}
+				r := bufio.NewReader(body)
+				for {
+					l, err := r.ReadString('\n')
+					if err != nil {
+						t.Fatalf("before the first frame: %v", err)
+					}
+					if strings.Contains(l, `<p id="v">v</p>`) {
+						break
+					}
+				}
+
+				stop()
+				if _, err := io.ReadAll(r); err != nil {
+					t.Fatalf("the response ended with %v", err)
+				}
+				if err := <-results["/a"]; err != nil {
+					t.Fatalf("Serve returned %v", err)
+				}
+				if err := <-ran; err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
 	}
 }
 

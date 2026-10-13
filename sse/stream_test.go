@@ -16,6 +16,8 @@ import (
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
+
+	"github.com/zweiundeins/lith/internal/shutdown"
 )
 
 // recorder is a ResponseWriter with write deadlines. A stalled recorder
@@ -77,6 +79,12 @@ func (r *recorder) stall(on bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stalled = on
+}
+
+func (r *recorder) writeDeadline() time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.deadline
 }
 
 func (r *recorder) bytes() []byte {
@@ -418,6 +426,66 @@ func TestContextEndAbortsClose(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close outlived its stream")
+	}
+}
+
+// When the hub stops (shutdown.Cause) while the stream is idle, the
+// response stays whole: no write deadline is left behind, later events
+// are refused, and Close still ends the compressed stream.
+func TestShutdownEndsStreamCleanly(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, Zstd), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(Comment("x")); err != nil {
+		t.Fatal(err)
+	}
+	cancel(shutdown.Cause)
+	s.abort()
+	if err := s.Write(Comment("y")); !errors.Is(err, shutdown.Cause) {
+		t.Fatalf("a write after the shutdown: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if d := w.writeDeadline(); !d.IsZero() {
+		t.Fatalf("left a write deadline of %v", d)
+	}
+	got, err := io.ReadAll(decoder(t, Zstd, w.bytes()))
+	if err != nil || string(got) != ": x\n\n" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+// When the hub stops, a write under way fails at once, as when the client
+// leaves, and Close sends nothing after it.
+func TestShutdownCutsWriteUnderWay(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, Zstd), Options{WriteTimeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.stall(true)
+	done := make(chan error, 1)
+	go func() { done <- s.Write(Comment("x")) }()
+	<-w.blocked
+	cancel(shutdown.Cause)
+	select {
+	case err := <-done:
+		if !errors.Is(err, shutdown.Cause) {
+			t.Fatalf("the write failed with %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the write outlived the shutdown")
+	}
+	sent := len(w.bytes())
+	w.stall(false)
+	s.Close()
+	if n := len(w.bytes()) - sent; n > 0 {
+		t.Fatalf("Close wrote %d bytes after a cut write", n)
 	}
 }
 

@@ -14,7 +14,9 @@ import (
 	"time"
 )
 
-// Run renders views until ctx ends. Then it ends every stream at once and
+// Run renders views until ctx ends. Then it ends every stream: a write
+// under way fails at once, and any other stream ends its response
+// cleanly, compressed stream and all, within its write timeout. Run
 // returns nil when its workers are done; shutdown never waits for a
 // stream. It returns an error only when it cannot start.
 func (h *Hub) Run(ctx context.Context) error {
