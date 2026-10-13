@@ -35,6 +35,7 @@ HTML with templ, and each app keeps its own pages and domain model.
 | [`loadtest`](loadtest) | the writer and the render loop under load, in process, without HTTP |
 | [`backup`](backup) | Litestream to S3: restore if missing, attach, snapshots, daily verify (its own module) |
 | [`dbmetrics/prom`](dbmetrics/prom) | a Prometheus observer for `dbmetrics` (its own module) |
+| [`prom`](prom) | the writer's, the hub's and the stream budget's numbers in Prometheus (its own module) |
 
 Everything is pure Go and builds with `CGO_ENABLED=0`.
 

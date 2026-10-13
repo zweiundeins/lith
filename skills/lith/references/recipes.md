@@ -62,6 +62,9 @@ read pool and `Backup` then all open through it.
 ```go
 m := prom.New("app") // github.com/zweiundeins/lith/dbmetrics/prom
 prometheus.MustRegister(m)
+// lith's own numbers (github.com/zweiundeins/lith/prom): the writer's
+// batches, the hub's ticks and frames, the stream budget.
+prometheus.MustRegister(lithprom.New("app", lithprom.Sources{Writer: w, Hub: hub}))
 if err := dbmetrics.Register("sqlite-timed", "sqlite", dbmetrics.Options{Observer: m}); err != nil {
 	return err
 }

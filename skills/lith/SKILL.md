@@ -77,6 +77,7 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, write deadlines |
 | `edge` | sessions cookie, CSRF, client IP, CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
+| `prom` | Prometheus collector for `writer.Stats`, `live.Hub.Stats` and the stream budget: `<ns>_writer_*`, `<ns>_live_*`, `<ns>_sse_budget_*` (nested module) |
 | `tenant` | one database file per account: refcounted pool with LRU eviction |
 | `dbmetrics` | query timing and slow-query log |
 | `loadtest` | writer and render loop under load, in process |
