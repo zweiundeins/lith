@@ -109,6 +109,17 @@ HTML, about 4,000 frames a second, i5-13500, 2026-10-13; brotli from
   its read statements prepared on it. A render that queries through
   `sqlite.QuerierFrom(ctx)` skips modernc's parse and plan, which took 41% of
   the writer's CPU at 200 people until the writer cached its statements.
+- Every read connection keeps the 128 statements it ran last
+  (`sqlite.Options.Statements`, -1: none, about 4 KiB each), so a GET's
+  `db.View` and a Render's tx skip the parse and plan too: from one
+  goroutine, kanban's board read takes 10% less time and the guestbook
+  template's page 19% less (i5-13500, 2026-10-13, bench/RESULTS.md). SQLite
+  still prepares a statement again at every run when a parameter steers its
+  plan: a bound `LIMIT ?`, and, once a full `ANALYZE` fills `sqlite_stat4`, a
+  parameter compared with an indexed column. That holds for the writer's and
+  the workers' statements too: write a fixed LIMIT into the SQL, and leave
+  statistics to `PRAGMA optimize`, which the writer runs and which writes
+  `sqlite_stat1` only.
 - Size the read pool as the hub's workers plus the reads that run at once
   beside it. `sqlite.Options.Readers` defaults to GOMAXPROCS + 4, at least 8,
   which leaves four readers or more beside the default workers.

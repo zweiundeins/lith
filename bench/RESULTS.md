@@ -34,6 +34,32 @@ Here the checkpoint is not part of a transaction's time; the producers queue the
 
 kanban's `BenchmarkMoveCard` on the same machine (2026-10-08, FULL) moved 240 to 340, about 5,100 and about 13,800 cards a second with 1, 50 and 200 people, in transactions of 1, 25 and 103 moves. A move runs about fifteen statements, and a transaction alone took 2.9 to 4.2 ms there. Anders Murphy's benchmark reports 98,163 transactions a second with a savepoint each and FULL on an M1 MacBook, two updates per transaction; without `PRAGMA fullfsync`, macOS's fsync does not wait for the drive's cache, so NORMAL is the closer comparison here.
 
+## Read pool statement cache
+
+Measured on 2026-10-13 between 20:50 and 20:52 UTC on the same machine, with Go 1.27.2 and modernc.org/sqlite v1.60.1 (SQLite 3.53.4), on lith's stmtcache branch at 6bbf9a3, pinned to the performance cores, which gives GOMAXPROCS 12. Six runs, each through every case once:
+
+    taskset -c 0-11 go test ./sqlite -run '^$' -bench View -benchmem -benchtime 2s
+
+`BenchmarkView` (`sqlite/bench_test.go`) reads a page in one `db.View`, as a GET handler does, with the read pool's statement cache (`sqlite.Options.Statements` at its default, 128) and without it (-1), from one goroutine and from twelve (`RunParallel`: the wall time divided by the pages of all twelve). The board is kanban's `ReadBoard` over kanban's seed board of 200 cards in 8 lists: eight queries, four of them joins, one with a `GROUP BY`, and the cards sorted. The guestbook is the lith-new template's page: a `count(*)` and the newest 20 of 1000 entries. Medians of the six runs, the range in brackets:
+
+| µs per page | board, 1 goroutine | board, 12 goroutines | guestbook, 1 goroutine | guestbook, 12 goroutines |
+|---|---|---|---|---|
+| with the cache | 658 (646 to 689) | 397 (355 to 401) | 29.9 (26.4 to 33.0) | 7.8 (6.8 to 9.5) |
+| without | 732 (723 to 788) | 410 (366 to 464) | 37.1 (32.8 to 42.5) | 8.5 (7.4 to 10.9) |
+| less with the cache | 10% | 3% | 19% | 8% |
+
+Every run read the serial pages faster with the cache, the parallel ones five runs of six. Both ways allocate the same: 1,646 allocations and 146 KB per board page, 216 and 10 KB per guestbook page.
+
+The cache saves modernc's parse and plan. In CPU profiles of the serial cases (`-cpuprofile`, 3 s each), preparing took 11.2% of the board's samples without the cache and 0.9% with it, mostly the `ROLLBACK` that ends each View, which modernc runs through `sqlite3_exec`; the rest is running the queries and scanning 200 cards. The guestbook prepared in 26.6% of its samples without the cache and still in 18.0% with it: SQLite 3.53 reads a bound `LIMIT ?` when it prepares the statement and prepares it again whenever the parameter is bound, which modernc does at every run. A variant of the guestbook's read with `LIMIT 20` in its SQL took 21.6 µs with the cache and 29.8 µs without, 28% less, where the same read with `LIMIT ?` took 25.2 and 30.4 µs (medians of three runs).
+
+Twelve goroutines gain less because they wait for modernc's memory allocator, whose malloc and free share one lock in the process: in a CPU profile of the cached board with twelve goroutines, 23% of the samples wait for it.
+
+`TestStatementMemory` fills one connection's cache with 15 variants of the board's eight queries: 120 statements hold 490 KB by `DBSTATUS_STMT_USED`, 4.0 KiB a statement, so a full cache of 128 takes about 0.5 MiB per connection. The first statements on a connection count more, 7.0 KiB each for the board's first eight: they fill the connection's lookaside slots, which SQLite counts at their full size and allocates with the connection anyway.
+
+A full `ANALYZE` takes the gain back from statements whose parameter meets an indexed column: modernc builds SQLite with `SQLITE_ENABLE_STAT4`, and once `sqlite_stat4` has samples, such a parameter steers the plan, so SQLite prepares the statement again at every run. After `ANALYZE` on the benchmark's database (136 rows in `sqlite_stat4`), the cached board read took 798 µs against 704 µs before, in one run each, with re-preparing at 19% of the samples. `PRAGMA optimize`, which the writer runs every six hours and on Close, wrote 13 rows to `sqlite_stat1` and none to `sqlite_stat4`, and the board kept its statements. Both cases hold for any prepared statement, the writer's and the render workers' as well.
+
+The 1-minute load average was 3.37 when the runs began, rose to 5.54 during them, the benchmark's own load included, and was 3.81 after them. A first set with `-count 6`, which runs each case six times in a row, put a minute between a case with the cache and the same case without, while the load rose from 3.47 to 10.57; the drift hid the board's difference (799 against 807 µs), so the runs above go through every case once each.
+
 ## Render loop and streams, in process
 
 Measured on 2026-10-13 on the same machine, an Intel i5-13500 (20 threads), with Go 1.26.5 and modernc.org/sqlite v1.60.1, the database in `/tmp` as above, on lith's main at 6265bce (with the render loop fixes) plus the loadtest branch. The runs are pinned to the performance cores, which gives GOMAXPROCS 12. Two sets of three runs, at 04:25 and 04:30 UTC:
