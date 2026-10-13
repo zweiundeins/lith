@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,4 +80,34 @@ func TestTransitionShots(t *testing.T) {
 	sequence("card", "/", `document.querySelector('[data-demo-card="guestbook"] a').click()`, 6, 700*time.Millisecond)
 	sequence("docs", "/docs/concepts/ticks", `document.querySelector('.docs-nav a[href="/docs/concepts/hypermedia"]').click()`, 6, 700*time.Millisecond)
 	sequence("theme", "/docs/concepts/ticks", `document.querySelector('.prefs-button').click(); document.querySelector('[data-pref="theme"][data-value="light"]').click()`, 6, 700*time.Millisecond)
+
+	// An entry arriving in the guestbook from another tab: the entries
+	// glide down (a view transition) and the new one materialises.
+	signer := b.NewPage(t, 1280, 800)
+	signer.Navigate(t, base+"/demos/guestbook")
+	signer.Wait(t, `document.querySelector('.live-badge.is-live')`, 5*time.Second)
+	p.Navigate(t, base+"/demos/guestbook")
+	p.Wait(t, `document.querySelector('.live-badge.is-live')`, 5*time.Second)
+	sign := func(name, message string) {
+		signer.Eval(t, `(() => {
+			const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})) }
+			set('[data-bind="_guestbook.name"]', `+jsQuote(name)+`)
+			set('[data-bind="_guestbook.message"]', `+jsQuote(message)+`)
+			document.querySelector('.gb__form button[type=submit]').click()
+		})()`, nil)
+		signer.Wait(t, `document.querySelector('.gb__form button[type=submit]').getAttribute('aria-busy') !== 'true'`, 5*time.Second)
+	}
+	sign("Ada", "The first entry.")
+	time.Sleep(3500 * time.Millisecond) // past the signer's rate
+	sign("Grace", "A second one, from another window.")
+	time.Sleep(3500 * time.Millisecond)
+	p.Eval(t, `document.querySelector('#guestbook-entries').scrollIntoView({block: 'center'})`, nil)
+	p.Call(t, "Animation.setPlaybackRate", map[string]any{"playbackRate": 0.1})
+	sign("Linus", "The third arrives while you watch.")
+	for i := range 6 {
+		time.Sleep(600 * time.Millisecond)
+		p.Screenshot(t, filepath.Join(dir, fmt.Sprintf("vt-entry-%d.png", i)), false)
+	}
 }
+
+func jsQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "\\'") + "'" }
