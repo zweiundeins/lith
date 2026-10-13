@@ -67,10 +67,11 @@ type Options struct {
 	// went quiet without closing. The heartbeat then goes out every
 	// Heartbeat, frames or not, and its number grows with every one.
 	HeartbeatSignal string
-	// Hibernate, if set, is how long a stream may send no frame before it
-	// hibernates (sse.Stream.Hibernate): a zstd stream then gives its
-	// encoder back until its next frame, which starts without the history
-	// of the ones before. Heartbeats go out without waking it.
+	// Hibernate is how long a stream may send no frame before it hibernates
+	// (sse.Stream.Hibernate): a zstd stream then gives its encoder back
+	// until its next frame, which starts without the history of the ones
+	// before. Heartbeats go out without waking it. Zero, the default, never
+	// hibernates: every stream keeps its encoder while it is open.
 	Hibernate time.Duration
 	// RenderTimeout is how long a Render may take (default 2s): its ctx
 	// ends then, and a Render still running is logged. Nothing stops a
