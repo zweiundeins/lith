@@ -1,6 +1,8 @@
 // Package sqlite opens one SQLite database file the way the projects use
 // it: a single write connection, for migrations and the writer, and a pool
-// of read-only connections for everything else.
+// of read-only connections for everything else. Each read connection keeps
+// the statements it ran last prepared (Options.Statements), so a query
+// that comes again skips modernc.org/sqlite's parse and plan.
 package sqlite
 
 import (
@@ -83,6 +85,18 @@ type Options struct {
 	// CheckpointWriter the writer reaches its connection through Unwrap,
 	// as dbmetrics' connections allow.
 	Driver string
+	// Statements is how many prepared statements each read connection
+	// keeps, the ones used last (default 128, negative: none). A query on
+	// R, in View or anywhere else, runs on its connection's statement for
+	// its SQL text instead of having modernc.org/sqlite parse and plan it
+	// again; while that statement's rows are open, the query runs on one
+	// of its own. A statement holds its compiled program, about 4 KiB for
+	// the queries of kanban's board page, so a full cache takes about
+	// 0.5 MiB per connection, and a connection keeps only what it ran.
+	// Build SQL from constants: SQL built at runtime, such as an IN list
+	// with a mark per value, takes a place for each text it makes. A
+	// connection reached through sql.Conn.Raw Unwraps to the driver's.
+	Statements int
 }
 
 func (o Options) withDefaults() (Options, error) {
@@ -121,6 +135,9 @@ func (o Options) withDefaults() (Options, error) {
 	}
 	if o.Driver == "" {
 		o.Driver = "sqlite"
+	}
+	if o.Statements == 0 {
+		o.Statements = 128
 	}
 	return o, nil
 }
@@ -173,7 +190,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
 	}
 	var file string
-	r, err := sql.Open(opts.Driver, dsn(path, rp, ro))
+	r, err := openReaders(opts, dsn(path, rp, ro))
 	if err == nil {
 		r.SetMaxOpenConns(opts.Readers)
 		r.SetMaxIdleConns(opts.Readers)
@@ -191,6 +208,19 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		return nil, err
 	}
 	return &DB{W: w, R: r, Path: path, opts: opts, file: file}, nil
+}
+
+// openReaders opens the read pool, with a statement cache on each
+// connection unless Options.Statements turns it off.
+func openReaders(opts Options, dsn string) (*sql.DB, error) {
+	if opts.Statements < 0 {
+		return sql.Open(opts.Driver, dsn)
+	}
+	c, err := connector(opts.Driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+	return sql.OpenDB(&stmtConnector{base: c, max: opts.Statements}), nil
 }
 
 // openWriter opens the write connection, checks that the database is in
