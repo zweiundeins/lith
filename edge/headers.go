@@ -79,6 +79,10 @@ type SecurityHeaders struct {
 	// HSTS sends Strict-Transport-Security for two years, subdomains
 	// included. Set it when the site is served over HTTPS.
 	HSTS bool
+	// HSTSNoSubdomains leaves the subdomains out of HSTS, for a domain whose
+	// subdomains are not all served over HTTPS, such as a mail host on plain
+	// HTTP.
+	HSTSNoSubdomains bool
 	// Referrer is the Referrer-Policy, strict-origin-when-cross-origin when
 	// empty.
 	Referrer string
@@ -107,7 +111,11 @@ func (s SecurityHeaders) Handler(next http.Handler) http.Handler {
 		set = append(set, [2]string{"X-Frame-Options", "SAMEORIGIN"})
 	}
 	if s.HSTS {
-		set = append(set, [2]string{"Strict-Transport-Security", "max-age=63072000; includeSubDomains"})
+		hsts := "max-age=63072000; includeSubDomains"
+		if s.HSTSNoSubdomains {
+			hsts = "max-age=63072000"
+		}
+		set = append(set, [2]string{"Strict-Transport-Security", hsts})
 	}
 	for _, k := range slices.Sorted(maps.Keys(s.Extra)) {
 		set = append(set, [2]string{k, s.Extra[k]})

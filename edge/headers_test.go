@@ -95,6 +95,13 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 
+	if got := serve(SecurityHeaders{HSTS: true, HSTSNoSubdomains: true}, nil).Get("Strict-Transport-Security"); got != "max-age=63072000" {
+		t.Errorf("HSTS without subdomains: %q", got)
+	}
+	if got := serve(SecurityHeaders{HSTSNoSubdomains: true}, nil).Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("HSTSNoSubdomains without HSTS sent %q", got)
+	}
+
 	csp["frame-ancestors"] = []string{"https://partner.test"}
 	if h := serve(SecurityHeaders{CSP: csp}, nil); h.Get("X-Frame-Options") != "" {
 		t.Errorf("X-Frame-Options %q for a framing partner", h.Get("X-Frame-Options"))
