@@ -533,8 +533,11 @@
 		}
 	}
 
+	/* One column that never grows past the tile: the sparkline's canvas
+	 * sizes itself from its box. */
 	.wr-tile {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		align-content: start;
 		gap: var(--lith-space-2);
 		padding: var(--lith-space-3) var(--lith-space-4) var(--lith-space-4);
@@ -567,6 +570,11 @@
 			--sb-gauge-size: min(100%, 9.5rem);
 			--sb-ok: var(--lith-accent);
 		}
+	}
+
+	.wr-tile--p99 sb-sparkline {
+		--sb-sparkline-width: 100%;
+		--sb-sparkline-height: 2.25rem;
 	}
 
 	.wr-tile--queue sb-meter {

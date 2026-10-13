@@ -89,7 +89,7 @@ var Demo = demo.Demo{
 	Server:     server,
 	How:        how,
 	CSS:        css,
-	Components: []string{"gauge", "meter"},
+	Components: []string{"gauge", "meter", "sparkline"},
 	Mount:      mount,
 	Page:       demo.Part{Render: renderPage, Views: pageViews},
 	Embed:      &demo.Embed{Slot: demo.SlotLinear, Part: demo.Part{Render: renderEmbed, Views: embedViews}},

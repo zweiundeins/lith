@@ -21,7 +21,8 @@ type track struct {
 	Progress float64 // of Duration, 0 to 1
 	Chart    chart
 	Bars     []bar
-	Fresh    bool // the race ended a moment ago
+	P99s     string // the commit p99 of every sample, in ms: JSON for sb-sparkline
+	Fresh    bool   // the race ended a moment ago
 }
 
 // window is how many samples the numbers of a running race cover: a
@@ -59,6 +60,7 @@ func newTrack(r Race, pts []Point) track {
 	}
 	t.Chart = newChart(rates(pts), max(Duration, r.Last.At), float64(bench[r.Settings]))
 	t.Bars = bars(r.Last.Sizes)
+	t.P99s = series(pts)
 	return t
 }
 
@@ -165,6 +167,18 @@ func newChart(steps []step, span time.Duration, ref float64) chart {
 	c.Line, c.Area = line.String(), area.String()
 	c.Head = "inset-inline-start: " + pct(float64(hx)/chartW) + "; inset-block-start: " + pct(float64(hy)/chartH)
 	return c
+}
+
+// series writes the samples' commit p99 in milliseconds as a JSON array.
+func series(pts []Point) string {
+	b := []byte{'['}
+	for i, p := range pts {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = strconv.AppendFloat(b, float64(p.P99)/float64(time.Millisecond), 'f', 2, 64)
+	}
+	return string(append(b, ']'))
 }
 
 // nice rounds v up to a number that labels an axis well: 1, 1.2, 1.5, 2,

@@ -131,6 +131,7 @@ templ Track(t track) {
 				<div class="wr-tile wr-tile--p99">
 					<h4>Commit p99</h4>
 					<p class="wr-tile__big">{ ms(t.Race.Last.P99) }</p>
+					<sb-sparkline values={ t.P99s } length="64" tone="accent" label="Commit p99 in milliseconds over the race"></sb-sparkline>
 					<p class="wr-tile__note">of the last 1,024 transactions, BEGIN to COMMIT</p>
 				</div>
 			</div>
