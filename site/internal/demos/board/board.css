@@ -1,0 +1,889 @@
+/* The shared board. Its rules apply inside its own island only; the view
+ * transitions' rules follow at the end, outside the scope.
+ *
+ * The page's own state reaches the cards through custom properties that
+ * the page's style element sets by id (expr.go, looks): --bd-lift on a card
+ * dragged by the pointer, --bd-pick on one picked up from the keyboard,
+ * --bd-wait and --bd-busy on a card whose move waits for its frame,
+ * --bd-nudge on a refused one, --bd-target on the lane it would go to. */
+
+/* A lane lights up as a drag reaches it, and fades as it leaves. */
+@property --bd-target {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 0;
+}
+
+/* A card that just landed glows, and the glow cools down. */
+@property --bd-glow {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 0;
+}
+
+@scope ([data-demo="board"]) {
+	.bd {
+		container: bd / inline-size;
+		position: relative;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-5);
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	/* ── Who is here, and what the board costs ─────────────────────── */
+	/* One strip of three cells: the people, the last tick with a move,
+	 * the frames a second. #board-stats is the stream's target for the
+	 * last two; it lays them out as cells of the strip (display:
+	 * contents). */
+	.bd__top {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		margin-block-start: var(--lith-space-4);
+		border: 1px solid var(--lith-border-subtle);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background: var(--lith-surface-1);
+
+		@container bd (width < 38rem) {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+
+			& .bd-here {
+				grid-column: 1 / -1;
+				border-block-end: 1px solid var(--lith-border-subtle);
+			}
+
+			& .bd-tick {
+				border-inline-start: 0;
+			}
+		}
+
+		@container bd (width < 26rem) {
+			grid-template-columns: minmax(0, 1fr);
+
+			& .bd-rate {
+				border-inline-start: 0;
+				border-block-start: 1px solid var(--lith-border-subtle);
+			}
+		}
+	}
+
+	.bd-stats {
+		display: contents;
+	}
+
+	.bd-cell {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-2);
+		min-inline-size: 0;
+		padding: var(--lith-space-3) var(--lith-space-4);
+	}
+
+	.bd-tick,
+	.bd-rate {
+		border-inline-start: 1px solid var(--lith-border-subtle);
+	}
+
+	.bd-cell__label {
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+
+	.bd-here__list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-2);
+		min-block-size: 2rem;
+		margin: 0;
+	}
+
+	.bd-here__more {
+		display: grid;
+		place-items: center;
+		min-inline-size: 2rem;
+		block-size: 2rem;
+		padding-inline: var(--lith-space-2);
+		color: var(--lith-text-2);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		background: var(--lith-surface-2);
+	}
+
+	/* An avatar: a pixel face on a notched tile, in the person's hue, its
+	 * name in a bubble on hover (screen readers read it in the list). The
+	 * viewer's own carries --bd-me and --bd-you (the page's style). A
+	 * newcomer pops in from its @starting-style. */
+	.bd-av {
+		--_c: light-dark(oklch(52% 0.14 var(--h)), oklch(80% 0.12 var(--h)));
+		--_n: calc(2px * var(--lith-notch));
+		position: relative;
+		outline: calc(2px * var(--bd-me, 0)) solid var(--lith-accent);
+		outline-offset: 2px;
+		transition: scale var(--lith-dur-3) var(--lith-ease-glide), opacity var(--lith-dur-3) var(--lith-ease-glide);
+
+		@starting-style {
+			scale: 0.4;
+			opacity: 0;
+		}
+
+		& > .bd-face {
+			inline-size: 2rem;
+			block-size: 2rem;
+			padding: 0.25rem;
+			background: color-mix(in oklch, var(--_c) 16%, var(--lith-surface-inset));
+			box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--_c) 45%, transparent);
+			clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, 0 calc(100% - var(--_n)), 0 var(--_n));
+			border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		}
+
+		&:hover .bd-av__name {
+			opacity: 1;
+			translate: -50% 0;
+		}
+	}
+
+	.bd-av__name {
+		position: absolute;
+		inset-block-end: calc(100% + 8px);
+		inset-inline-start: 50%;
+		z-index: var(--lith-z-tooltip);
+		inline-size: max-content;
+		padding: var(--lith-space-1) var(--lith-space-2);
+		background: var(--lith-text-1);
+		color: var(--lith-bg);
+		font-size: var(--lith-text-xs);
+		font-weight: 600;
+		pointer-events: none;
+		opacity: 0;
+		translate: -50% 0.25rem;
+		transition: opacity var(--lith-dur-2) var(--lith-ease-glide), translate var(--lith-dur-2) var(--lith-ease-glide);
+
+		&::after {
+			content: var(--bd-you, "");
+		}
+	}
+
+	/* A face: pixels in the hue of the element around it (--h). */
+	.bd-face {
+		display: block;
+		color: light-dark(oklch(52% 0.14 var(--h)), oklch(80% 0.12 var(--h)));
+		fill: currentColor;
+		shape-rendering: crispEdges;
+	}
+
+	/* The last tick with a move: moves, one render, frames, with a pixel
+	 * arrow from each to the next. */
+	.bd-tick__steps {
+		display: flex;
+		align-items: baseline;
+		gap: var(--lith-space-2);
+		min-block-size: 2rem;
+		margin: 0;
+	}
+
+	.bd-tick__step {
+		display: flex;
+		align-items: baseline;
+		gap: 0.3em;
+		color: var(--lith-text-2);
+		font-size: var(--lith-text-sm);
+
+		& dd {
+			order: -1;
+			margin: 0;
+			color: var(--lith-text-1);
+			font-family: var(--lith-font-code);
+			font-size: var(--lith-text-xl);
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+			line-height: 1;
+		}
+
+		& + &::before {
+			content: "";
+			order: -2;
+			align-self: center;
+			inline-size: 10px;
+			block-size: 8px;
+			margin-inline-end: var(--lith-space-1);
+			background: var(--lith-text-muted);
+			clip-path: polygon(0 3px, 6px 3px, 6px 0, 10px 4px, 6px 8px, 6px 5px, 0 5px);
+		}
+	}
+
+	/* One render, whatever the number of tabs: the point of the demo. */
+	.bd-tick__step--render dd {
+		color: var(--lith-accent-text);
+		text-shadow: 0 0 0.6em var(--lith-glow-color);
+	}
+
+	.bd-tick__none {
+		display: flex;
+		align-items: center;
+		min-block-size: 2rem;
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+	}
+
+	.bd-rate__row {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-3);
+		min-block-size: 2rem;
+	}
+
+	.bd-rate__value {
+		min-inline-size: 3ch;
+		color: var(--lith-text-1);
+		font-family: var(--lith-font-code);
+		font-size: var(--lith-text-xl);
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		line-height: 1;
+	}
+
+	.bd-rate__line {
+		--sb-sparkline-width: 7.5rem;
+		--sb-sparkline-height: 1.75rem;
+	}
+
+	/* ── The board ─────────────────────────────────────────────────── */
+	.bd__board {
+		position: relative;
+	}
+
+	.bd.is-dragging,
+	.bd.is-dragging * {
+		cursor: grabbing;
+	}
+
+	.bd-lanes {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--lith-space-3);
+		user-select: none;
+		-webkit-user-select: none;
+
+		@container bd (width < 32rem) {
+			gap: var(--lith-space-2);
+		}
+	}
+
+	.bd-lane {
+		--_edge: color-mix(in oklch, var(--lith-accent) calc(var(--bd-target) * 70%), var(--lith-border-subtle));
+		display: grid;
+		grid-template-rows: auto 1fr;
+		align-content: start;
+		gap: var(--lith-space-3);
+		min-inline-size: 0;
+		min-block-size: 15rem;
+		padding: var(--lith-space-3);
+		border: 1px solid var(--_edge);
+		border-radius: calc(var(--lith-radius-md) * (1 - var(--lith-notch)));
+		background:
+			linear-gradient(color-mix(in oklch, var(--lith-accent) calc(var(--bd-target) * 9%), transparent), transparent 70%),
+			color-mix(in oklch, var(--lith-surface-inset) 80%, transparent);
+		box-shadow: 0 0 calc(var(--bd-target) * 22px) calc(var(--bd-target) * -6px) var(--lith-glow-color);
+		transition: --bd-target var(--lith-dur-2) var(--lith-ease-glide);
+
+	}
+
+	.bd-lane__head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--lith-space-2);
+		font-family: var(--lith-font-display);
+		font-size: var(--lith-text-lg);
+		font-weight: 600;
+		line-height: 1.2;
+
+	}
+
+	.bd-lane__count {
+		min-inline-size: 1.6rem;
+		padding: 0.1rem 0.4rem;
+		background: var(--lith-surface-2);
+		color: var(--lith-text-2);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.bd-lane__cards {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-2);
+		margin: 0;
+	}
+
+	/* A narrow board stacks its lanes, and each lane's cards wrap in rows:
+	 * wider cards than three thin columns could hold. --bd-flow tells the
+	 * drag (expr.go) to read places along the rows. */
+	@container bd (width < 32rem) {
+		.bd-lanes {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.bd-lane {
+			--bd-flow: 1;
+			min-block-size: 0;
+		}
+
+		.bd-lane__cards {
+			grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr));
+			min-block-size: 3rem;
+		}
+	}
+
+	.bd-slot {
+		view-transition-class: board-card;
+	}
+
+	/* A card: the tag's colour down its edge, the title, the tag and the
+	 * face of whoever moved it last. Notched corners, like a button. */
+	.bd-card {
+		--_t: light-dark(oklch(42% 0.12 var(--t, 60)), oklch(78% 0.11 var(--t, 60)));
+		--_n: calc(3px * var(--lith-notch));
+		--_lift: var(--bd-lift, 0);
+		position: relative;
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		grid-template-areas: "grip title" "grip meta";
+		align-items: start;
+		gap: var(--lith-space-1) var(--lith-space-2);
+		inline-size: 100%;
+		padding: var(--lith-space-2) var(--lith-space-3) var(--lith-space-2) var(--lith-space-1);
+		border: 1px solid color-mix(in oklch, var(--lith-accent-edge) calc(max(var(--bd-glow), var(--bd-pick, 0)) * 100%), var(--lith-border));
+		border-inline-start: 3px solid var(--_t);
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, calc(100% - var(--_n)) var(--_n), 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, var(--_n) calc(100% - var(--_n)), 0 calc(100% - var(--_n)), 0 var(--_n), var(--_n) var(--_n));
+		background:
+			radial-gradient(120% 140% at 0% 0%, color-mix(in oklch, var(--lith-accent) calc(var(--bd-glow) * 30%), transparent), transparent 70%),
+			var(--lith-surface-1);
+		color: var(--lith-text-1);
+		text-align: start;
+		cursor: grab;
+		touch-action: manipulation;
+		-webkit-touch-callout: none;
+		/* In hand (the pointer drags its ghost): the card leaves a hole.
+		 * Picked up from the keyboard: it rises. Waiting for its frame:
+		 * faded, a pixel walking in its corner. */
+		opacity: calc(1 - 0.62 * var(--_lift) - 0.38 * var(--bd-wait, 0));
+		outline: 2px dashed color-mix(in oklch, var(--lith-accent) calc(max(var(--_lift), var(--bd-wait, 0)) * 100%), transparent);
+		outline-offset: -4px;
+		translate: 0 calc(-3px * var(--bd-pick, 0));
+		box-shadow: 0 calc(10px * var(--bd-pick, 0)) calc(24px * var(--bd-pick, 0)) calc(-10px * var(--bd-pick, 0)) var(--lith-glow-color);
+		animation: var(--bd-nudge, none) 460ms var(--lith-ease-snap);
+		transition:
+			opacity var(--lith-dur-2) var(--lith-ease-glide),
+			translate var(--lith-dur-1) var(--lith-ease-snap),
+			border-color var(--lith-dur-1) var(--lith-ease-snap),
+			background-color var(--lith-dur-1) var(--lith-ease-snap),
+			box-shadow var(--lith-dur-2) var(--lith-ease-glide);
+
+		&:hover {
+			border-color: var(--lith-border-strong);
+			border-inline-start-color: var(--_t);
+			background-color: var(--lith-surface-hover);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--lith-focus);
+			outline-offset: -5px;
+		}
+
+		/* The pending pixel walks around the corner while the move waits. */
+		&::after {
+			content: "";
+			position: absolute;
+			inset-block-start: 7px;
+			inset-inline-end: 9px;
+			inline-size: 5px;
+			block-size: 5px;
+			background: var(--lith-accent);
+			opacity: var(--bd-wait, 0);
+			animation: var(--bd-busy, none) 0.8s steps(4, end) infinite;
+		}
+	}
+
+	.bd-card[data-tag="design"] {
+		--t: 320;
+	}
+
+	.bd-card[data-tag="server"] {
+		--t: 220;
+	}
+
+	.bd-card[data-tag="docs"] {
+		--t: 145;
+	}
+
+	.bd-card[data-tag="ops"] {
+		--t: 85;
+	}
+
+	/* A grip: two columns of pixels. On a touch screen it is the handle
+	 * that drags; the rest of the card scrolls the page. */
+	.bd-card__grip {
+		grid-area: grip;
+		align-self: stretch;
+		inline-size: 10px;
+		min-block-size: 1.25rem;
+		background:
+			radial-gradient(circle at 2px 2px, var(--lith-text-muted) 1.5px, transparent 1.6px) 1px 3px / 6px 6px;
+		opacity: 0.35;
+		transition: opacity var(--lith-dur-1) var(--lith-ease-snap);
+
+		.bd-card:hover & {
+			opacity: 0.9;
+		}
+
+		@media (pointer: coarse) {
+			inline-size: 18px;
+			margin-block: calc(-1 * var(--lith-space-2));
+			margin-inline-start: calc(-1 * var(--lith-space-1));
+			padding-block: var(--lith-space-2);
+			background-position: 5px 9px;
+			background-origin: content-box;
+			opacity: 0.8;
+			touch-action: none;
+			cursor: grab;
+		}
+	}
+
+	.bd-card__title {
+		grid-area: title;
+		font-size: var(--lith-text-sm);
+		font-weight: 600;
+		line-height: 1.35;
+		overflow-wrap: break-word;
+		hyphens: auto;
+	}
+
+	.bd-card__meta {
+		grid-area: meta;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--lith-space-2);
+		min-block-size: 14px;
+	}
+
+	.bd-tag {
+		padding: 0 0.35rem;
+		background: color-mix(in oklch, var(--_t) 14%, transparent);
+		color: var(--_t);
+		font-family: var(--lith-font-ui);
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+
+		@container bd (width < 20rem) {
+			display: none;
+		}
+	}
+
+	.bd-card__by {
+		margin-inline-start: auto;
+
+		& .bd-face {
+			inline-size: 14px;
+			block-size: 14px;
+		}
+	}
+
+	/* The card that moved last: its glow cools down after it lands. The
+	 * slot animates --bd-glow, which the card reads; the animation's name
+	 * flips with the card's version, so every landing starts it again. */
+	.bd-slot[data-landed="0"] {
+		animation: bd-landed-a 1.8s var(--lith-ease-glide);
+	}
+
+	.bd-slot[data-landed="1"] {
+		animation: bd-landed-b 1.8s var(--lith-ease-glide);
+	}
+
+	/* The last move, under the lanes. */
+	.bd-last {
+		grid-column: 1 / -1;
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		min-block-size: 1.5rem;
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+
+		& b {
+			color: var(--lith-text-2);
+			font-weight: 600;
+		}
+	}
+
+	.bd-last__face {
+		flex: none;
+
+		& .bd-face {
+			inline-size: 1.25rem;
+			block-size: 1.25rem;
+		}
+	}
+
+	/* Where the card would go: a bar of light in the gap above the card
+	 * that would follow it, or below the lane's last card (anchor
+	 * positioning: the page's style names the anchor). */
+	.bd-marker {
+		--_e: var(--bd-edge, 0);
+		position: absolute;
+		position-anchor: --bd-slot;
+		inset-block-start: calc(anchor(top) * (1 - var(--_e)) + anchor(bottom) * var(--_e) + (var(--_e) * 2 - 1) * var(--lith-space-1));
+		inset-inline: anchor(left) anchor(right);
+		z-index: var(--lith-z-raised);
+		block-size: 4px;
+		translate: 0 -50%;
+		background: var(--lith-accent);
+		box-shadow: 0 0 12px var(--lith-glow-color);
+		pointer-events: none;
+		opacity: var(--bd-on, 0);
+		transition:
+			opacity var(--lith-dur-1) var(--lith-ease-snap),
+			inset-block-start var(--lith-dur-1) var(--lith-ease-snap);
+
+		/* Pixel caps at both ends. */
+		&::before,
+		&::after {
+			content: "";
+			position: absolute;
+			inset-block-start: -3px;
+			inline-size: 4px;
+			block-size: 10px;
+			background: inherit;
+		}
+
+		&::before {
+			inset-inline-start: 0;
+		}
+
+		&::after {
+			inset-inline-end: 0;
+		}
+	}
+
+	/* Along a row of cards, the marker stands upright between two. */
+	@container bd (width < 32rem) {
+		.bd-marker {
+			inset-block: anchor(top) anchor(bottom);
+			inset-inline: auto;
+			inset-inline-start: calc(anchor(left) * (1 - var(--_e)) + anchor(right) * var(--_e) + (var(--_e) * 2 - 1) * var(--lith-space-1));
+			inline-size: 4px;
+			block-size: auto;
+			translate: -50% 0;
+
+			&::before,
+			&::after {
+				inset-inline-start: -3px;
+				inline-size: 10px;
+				block-size: 4px;
+			}
+
+			&::before {
+				inset-block-start: 0;
+			}
+
+			&::after {
+				inset-block: auto 0;
+				inset-inline-end: auto;
+			}
+		}
+	}
+
+	@supports not (anchor-name: --bd-slot) {
+		.bd-marker {
+			display: none;
+		}
+	}
+
+	/* The card under the pointer: a copy of it, lifted and tilted, that
+	 * follows the pointer (expr.go moves it). */
+	.bd-ghost {
+		position: absolute;
+		inset-block-start: 0;
+		inset-inline-start: 0;
+		z-index: var(--lith-z-overlay);
+		pointer-events: none;
+		rotate: -2deg;
+		scale: 1.04;
+		filter: drop-shadow(0 14px 18px light-dark(oklch(30% 0.01 60 / 0.28), oklch(0% 0 0 / 0.6)));
+		transition: rotate var(--lith-dur-2) var(--lith-ease-snap), scale var(--lith-dur-2) var(--lith-ease-snap);
+
+		@starting-style {
+			rotate: 0deg;
+			scale: 1;
+		}
+
+		& .bd-card {
+			border-color: var(--lith-accent-edge);
+			border-inline-start-color: var(--_t);
+			background: var(--lith-surface-1);
+			opacity: 1;
+			outline: 0;
+			animation: none;
+			cursor: grabbing;
+		}
+	}
+
+	/* ── Under the board ───────────────────────────────────────────── */
+	.bd__foot {
+		display: grid;
+		gap: var(--lith-space-2);
+	}
+
+	.bd__help {
+		max-inline-size: 46rem;
+		color: var(--lith-text-muted);
+		font-size: var(--lith-text-sm);
+	}
+
+	/* ── The landing page's slot ───────────────────────────────────── */
+	.bd-embed {
+		container: bd / inline-size;
+		display: grid;
+		gap: var(--lith-space-4);
+		padding: var(--lith-space-5);
+		border: 1px solid var(--lith-border);
+		background: var(--lith-surface-inset);
+
+		& > .btn {
+			justify-self: start;
+		}
+
+		/* The cells of the page's strip, as a plain column here. */
+		& .bd-cell {
+			padding: 0;
+			border: 0;
+		}
+
+		& .bd-tick__step dd,
+		& .bd-rate__value {
+			font-size: var(--lith-text-lg);
+		}
+	}
+
+	.bd-embed__head {
+		display: flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+	}
+
+	.bd-embed__dot {
+		inline-size: 6px;
+		block-size: 6px;
+		background: var(--lith-text-muted);
+
+		.is-live > & {
+			background: var(--lith-ok);
+			box-shadow: 0 0 8px var(--lith-ok);
+		}
+	}
+
+	.bd-embed__body {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		align-items: start;
+		gap: var(--lith-space-5);
+
+		@container bd (width < 30rem) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	.bd-embed__side {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-4);
+	}
+
+	/* The board in miniature: a pixel block for each card, its tag's
+	 * colour on its edge. One that just moved arrives with a glow. */
+	.bd-mini {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--lith-space-2);
+	}
+
+	.bd-mini__lane {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-2);
+		min-block-size: 8.5rem;
+		padding: var(--lith-space-2);
+		border: 1px solid var(--lith-border-subtle);
+		background: var(--lith-surface-1);
+	}
+
+	.bd-mini__name {
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: 0.625rem;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.bd-mini__cards {
+		display: grid;
+		gap: 4px;
+		margin: 0;
+	}
+
+	.bd-mini__card {
+		--_t: light-dark(oklch(48% 0.13 var(--t, 60)), oklch(78% 0.11 var(--t, 60)));
+		block-size: 12px;
+		border-inline-start: 3px solid var(--_t);
+		background:
+			linear-gradient(90deg, color-mix(in oklch, var(--lith-text-muted) 45%, transparent) 0 55%, transparent 55%) 4px 4px / calc(100% - 10px) 3px no-repeat,
+			var(--lith-surface-2);
+		transition:
+			translate var(--lith-dur-5) var(--lith-ease-glide),
+			opacity var(--lith-dur-5) var(--lith-ease-glide),
+			box-shadow 2.4s var(--lith-ease-glide),
+			background-color 2.4s var(--lith-ease-glide);
+
+		&[data-tag="design"] {
+			--t: 320;
+		}
+
+		&[data-tag="server"] {
+			--t: 220;
+		}
+
+		&[data-tag="docs"] {
+			--t: 145;
+		}
+
+		&[data-tag="ops"] {
+			--t: 85;
+		}
+
+		&[data-fresh] {
+			@starting-style {
+				translate: 0 -0.5rem;
+				opacity: 0;
+				background-color: var(--lith-accent);
+				box-shadow: 0 0 16px var(--lith-glow-color), inset 0 0 0 1px var(--lith-accent);
+			}
+		}
+	}
+
+	/* Forced colours: the states keep a visible edge. */
+	@media (forced-colors: active) {
+		.bd-card {
+			border-color: CanvasText;
+		}
+
+		.bd-marker {
+			background: Highlight;
+		}
+	}
+}
+
+/* A refused card shakes, in pixel steps. */
+@keyframes bd-nudge {
+	0%,
+	100% {
+		translate: 0 0;
+	}
+	20%,
+	60% {
+		translate: -4px 0;
+	}
+	40%,
+	80% {
+		translate: 4px 0;
+	}
+}
+
+@keyframes bd-busy {
+	0% {
+		translate: 0 0;
+	}
+	25% {
+		translate: -5px 0;
+	}
+	50% {
+		translate: -5px 5px;
+	}
+	75% {
+		translate: 0 5px;
+	}
+}
+
+/* Two names for one landing, so that each new version starts it again. */
+@keyframes bd-landed-a {
+	from {
+		--bd-glow: 1;
+	}
+}
+
+@keyframes bd-landed-b {
+	from {
+		--bd-glow: 1;
+	}
+}
+
+/* View transitions belong to the document, outside the scope. The board's
+ * frames morph in a view transition (sse.Patch's ViewTransition): each
+ * card glides from its old place to its new one on the glide curve, and
+ * shows its new look all the way (no cross-fade). */
+::view-transition-group(.board-card) {
+	animation-duration: var(--lith-dur-5);
+	animation-timing-function: var(--lith-ease-glide);
+}
+
+::view-transition-old(.board-card) {
+	animation: none;
+	opacity: 0;
+}
+
+::view-transition-new(.board-card) {
+	animation: none;
+}
+
+/* The card that moved: above the others while it flies (the groups stack
+ * in the old page's order, which would pass it under a lane's cards),
+ * lifted on the way and set down on arrival. */
+::view-transition-group(.board-moved) {
+	z-index: 1;
+}
+
+::view-transition-image-pair(.board-moved) {
+	animation: bd-carry var(--lith-dur-5) var(--lith-ease-glide);
+}
+
+@keyframes bd-carry {
+	40% {
+		scale: 1.05;
+		filter: drop-shadow(0 12px 14px oklch(0% 0 0 / 0.35));
+	}
+}
+
+/* While this page drags a card, others' moves snap into place: a
+ * transition would hold the dragged copy still while it runs. */
+html:has([data-demo="board"] .bd.is-dragging)::view-transition-group(*),
+html:has([data-demo="board"] .bd.is-dragging)::view-transition-image-pair(*),
+html:has([data-demo="board"] .bd.is-dragging)::view-transition-old(*),
+html:has([data-demo="board"] .bd.is-dragging)::view-transition-new(*) {
+	animation: none;
+}

@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
+	"github.com/zweiundeins/lith/site/internal/demos/board"
 	"github.com/zweiundeins/lith/site/internal/demos/guestbook"
 	"github.com/zweiundeins/lith/site/internal/migrate"
 	"github.com/zweiundeins/lith/site/migrations"
@@ -17,6 +18,7 @@ import (
 // All are the site's demos, in the order of their cards.
 var All = []demo.Demo{
 	guestbook.Demo,
+	board.Demo,
 }
 
 // Check validates every demo, and that no two share a slug or a slot of

@@ -1,0 +1,239 @@
+package board
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/zweiundeins/lith/site/internal/views"
+)
+
+// Stage is the demo on its page: who is here and the numbers on top, the
+// board, and under it the tab's outcome and the help. The stage itself is
+// never morphed; the regions inside it with ids are the stream's.
+templ Stage(b Board, n Numbers, people []Person, me string, now time.Time) {
+	<div
+		class="bd"
+		data-signals={ signals(b.Version) }
+		data-init={ controller }
+		data-class:is-dragging="$_board.mode === 'pointer'"
+		data-on:pointerdown__window={ press }
+		data-on:pointermove={ drag }
+		data-on:pointerup={ release }
+		data-on:pointercancel={ lost }
+		data-on:lostpointercapture={ lost }
+		data-on:keydown={ keys }
+		data-on:datastar-fetch={ failed }
+		data-effect={ settle }
+	>
+		@meStyle(me)
+		<style data-text={ looks }></style>
+		<span hidden data-init={ hello } data-on:datastar-fetch={ helloAgain }></span>
+		<div class="bd__top">
+			@Here(people)
+			@Stats(n)
+		</div>
+		<div class="bd__board">
+			@LanesView(b, now)
+			<div class="bd-marker" aria-hidden="true"></div>
+			<div class="bd-ghost" aria-hidden="true" inert style="display: none" data-show="$_board.mode === 'pointer'"></div>
+		</div>
+		<div class="bd__foot">
+			@Outcome(TabState{})
+			<p class="outcome is-problem" role="alert" style="display: none" data-show="$_board.problem" data-text="$_board.problem"></p>
+			<p id="board-help" class="bd__help">
+				Drag a card to another place, or focus it and press <kbd>Space</kbd>: the arrow keys choose a place, <kbd>Space</kbd> drops it there, <kbd>Esc</kbd> puts it back. On a touch screen, drag a card by its grip.
+			</p>
+			<p class="visually-hidden" aria-live="assertive" data-text="$_board.say"></p>
+		</div>
+	</div>
+}
+
+// LanesView is the board's shared region: the same bytes for every tab. Each
+// card has a view-transition name of its own, so when a frame moves one,
+// it glides from its old place to its new one.
+templ LanesView(b Board, now time.Time) {
+	<div id="board-lanes" class="bd-lanes">
+		for i, lane := range b.Lanes {
+			<section class="bd-lane" data-lane={ strconv.Itoa(i) } data-name={ LaneNames[i] } aria-labelledby={ "board-lane-" + strconv.Itoa(i) }>
+				<h3 id={ "board-lane-" + strconv.Itoa(i) } class="bd-lane__head">
+					<span class="bd-lane__name">{ LaneNames[i] }</span>
+					<span class="bd-lane__count">{ strconv.Itoa(len(lane)) }<span class="visually-hidden">{ cardsWord(len(lane)) }</span></span>
+				</h3>
+				<ol class="bd-lane__cards" role="list">
+					for j, c := range lane {
+						<li
+							id={ cardID(c.ID) }
+							class="bd-slot"
+							data-card={ strconv.FormatInt(c.ID, 10) }
+							data-version={ strconv.FormatInt(c.Version, 10) }
+							data-title={ c.Title }
+							if landed(b, c, now) {
+								data-landed={ strconv.FormatInt(c.Version%2, 10) }
+								style={ "view-transition-name: " + cardID(c.ID) + "; view-transition-class: board-card board-moved" }
+							} else {
+								style={ "view-transition-name: " + cardID(c.ID) }
+							}
+						>
+							<button type="button" class="bd-card" data-tag={ c.Tag } aria-describedby="board-help">
+								<span class="bd-card__grip" aria-hidden="true"></span>
+								<span class="bd-card__title">{ c.Title }</span>
+								<span class="bd-card__meta">
+									<span class="visually-hidden">, </span>
+									<span class="bd-tag">{ c.Tag }</span>
+									<span class="visually-hidden">{ ", " + strconv.Itoa(j+1) + " of " + strconv.Itoa(len(lane)) }</span>
+									if c.MovedBy != "" {
+										@moverOf(AvatarOf(c.MovedBy))
+									}
+								</span>
+							</button>
+						</li>
+					}
+				</ol>
+			</section>
+		}
+		<p class="bd-last">
+			if b.Last.ID != 0 && b.LastBy != "" {
+				<span class="bd-last__face" style={ hueStyle(AvatarOf(b.LastBy)) }>
+					@face(AvatarOf(b.LastBy))
+				</span>
+				<span><b>{ AvatarOf(b.LastBy).Name }</b> moved “{ b.Last.Title }” to { LaneNames[b.Last.Lane] }.</span>
+			} else {
+				<span>The board is as it started. It goes back to this after an hour without a move.</span>
+			}
+		</p>
+	</div>
+}
+
+templ moverOf(a Avatar) {
+	<span class="bd-card__by" style={ hueStyle(a) }>
+		@face(a)
+		<span class="visually-hidden">{ ", moved by " + a.Name }</span>
+	</span>
+}
+
+// face is an avatar's pixel face in the hue its element sets, decorative:
+// its name is beside it.
+templ face(a Avatar) {
+	<svg class="bd-face" viewBox="0 0 7 7" aria-hidden="true"><path d={ a.Path }></path></svg>
+}
+
+// Here is who has the page open: an avatar per session, in the order they
+// came, and how many tabs they have open. A new one pops in
+// (@starting-style); the page's own style marks the viewer's.
+templ Here(people []Person) {
+	<div id="board-here" class="bd-cell bd-here">
+		<p class="bd-cell__label">{ hereLine(people) }</p>
+		<ul class="bd-here__list" role="list" aria-label="On the board now">
+			for i, p := range people {
+				if i < Shown {
+					<li id={ "board-av-" + p.Who } class="bd-av" data-who={ p.Who } style={ hueStyle(p.Avatar) }>
+						@face(p.Avatar)
+						<span class="bd-av__name">{ p.Name }</span>
+					</li>
+				}
+			}
+			if len(people) > Shown {
+				<li class="bd-here__more">{ "+" + strconv.Itoa(len(people)-Shown) }</li>
+			}
+		</ul>
+	</div>
+}
+
+// Stats are the board's numbers: what its last tick with a move cost (the
+// moves it took in, one render, a frame for every tab that watches), and
+// the frames it sends a second, with a sparkline of the last 30 seconds.
+templ Stats(n Numbers) {
+	<div id="board-stats" class="bd-stats">
+		<div class="bd-cell bd-tick">
+			<p class="bd-cell__label">The last tick with a move</p>
+			if n.Last.Moves > 0 {
+				<dl class="bd-tick__steps">
+					<div class="bd-tick__step">
+						<dt>{ plural(n.Last.Moves, "move", "moves") }</dt>
+						<dd>{ strconv.Itoa(n.Last.Moves) }</dd>
+					</div>
+					<div class="bd-tick__step bd-tick__step--render">
+						<dt>render</dt>
+						<dd>1</dd>
+					</div>
+					<div class="bd-tick__step">
+						<dt>{ plural(n.Last.Frames, "frame", "frames") }</dt>
+						<dd>{ strconv.Itoa(n.Last.Frames) }</dd>
+					</div>
+				</dl>
+			} else {
+				<p class="bd-tick__none">None since the server started.</p>
+			}
+		</div>
+		<div class="bd-cell bd-rate">
+			<p class="bd-cell__label">Frames a second</p>
+			<div class="bd-rate__row">
+				<b class="bd-rate__value">{ rate(n.PerSecond) }</b>
+				<sb-sparkline class="bd-rate__line" values={ series(n.Series) } length="30" scale="fixed" min="0" max={ strconv.Itoa(ceiling(n.Series)) } tone="accent" label="The board's frames a second, over the last 30 seconds"></sb-sparkline>
+			</div>
+		</div>
+	</div>
+}
+
+// Outcome is the tab's own region: what became of its last move.
+templ Outcome(s TabState) {
+	<p
+		id="board-outcome"
+		role="status"
+		if s.Refusal != "" {
+			class="outcome is-refused"
+		} else {
+			class="outcome"
+		}
+	>
+		if s.Refusal != "" {
+			{ s.Refusal }
+		} else if s.Op != "" && s.Title != "" {
+			You moved “{ s.Title }” to { LaneNames[s.Lane] }.
+		}
+	</p>
+}
+
+// Embed is the board in the landing page's slot: a miniature, its numbers
+// and who is on it, kept current by the landing page's stream.
+templ Embed(b Board, n Numbers, people []Person, now time.Time) {
+	<div class="bd-embed">
+		<p class="bd-embed__head" data-class:is-live="$_live"><span class="bd-embed__dot" aria-hidden="true"></span>The shared board, live</p>
+		<div class="bd-embed__body">
+			@Mini(b, now)
+			<div class="bd-embed__side">
+				@Stats(n)
+				@Here(people)
+			</div>
+		</div>
+		<a class="btn btn--sm" href="/demos/board">
+			Move a card
+			@views.Icon("arrow-right")
+		</a>
+	</div>
+}
+
+// Mini is the board in miniature: a pixel block for each card. A card that
+// moved gets a new id (its version is in it), so the morph puts in a new
+// element, and one that just moved arrives with a glow (@starting-style).
+templ Mini(b Board, now time.Time) {
+	<div id="board-mini" class="bd-mini" role="img" aria-label={ miniLabel(b) }>
+		for i, lane := range b.Lanes {
+			<div class="bd-mini__lane">
+				<span class="bd-mini__name" aria-hidden="true">{ LaneNames[i] }</span>
+				<ol class="bd-mini__cards" role="list">
+					for _, c := range lane {
+						<li
+							id={ "board-mini-" + strconv.FormatInt(c.ID, 10) + "-" + strconv.FormatInt(c.Version, 10) }
+							class="bd-mini__card"
+							data-tag={ c.Tag }
+							if !c.MovedAt.IsZero() && now.Sub(c.MovedAt) < Fresh {
+								data-fresh
+							}
+						></li>
+					}
+				</ol>
+			</div>
+		}
+	</div>
+}
