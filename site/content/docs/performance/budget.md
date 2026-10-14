@@ -335,13 +335,13 @@ At 2,000 streams:
 | zstd at the floor, low memory | 2,000 | 1,626 MiB | 2,703 | 2,000 | 1,278 MiB | 379 |
 | budget of 128 MiB, first write only | 74 | 124 MiB | 136,865 | 74 | 123 MiB | 13,203 |
 | budget of 128 MiB | 144 | 119 MiB | 132,037 | 167 | 109 MiB | 12,590 |
-| budget of 128 MiB, 503 | 144, 1,856 refused | 117 MiB | 2,762 | 167, 1,833 refused | 107 MiB | 379 |
+| budget of 128 MiB, 503 | 143, 1,857 refused | 116 MiB | 2,703 | 167, 1,833 refused | 107 MiB | 379 |
 | budget of 1 GiB | 1,150 | 936 MiB | 61,937 | 1,337 | 855 MiB | 4,796 |
 
 - When each stream writes only its first frame, the first 73 take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor.
 - A budget of 1 GiB gives the board's streams zstd 2^19 up to about 550 streams, 2^19 with low memory up to about 850, 2^18 with low memory up to 1,150, and nothing beyond. A stream that finds room for 2^15 but not for 2^18 takes 2^15, which compresses each frame alone: one stream at a time.
 - The budget books 32 KiB for every open stream, compressed or not: 62 MiB at 2,000 streams, beyond the limit when the streams cannot be turned away.
-- With `Refuse`, the streams beyond the floor's room get a 503 instead of every frame uncompressed: the bytes per frame of the streams that run stay near those of the floor.
+- With `Refuse`, the streams beyond the floor's room get a 503 instead of every frame uncompressed, and every stream let in holds the floor: the bytes per frame of the streams that run are those of the floor.
 
 ## The board with and without a budget
 
@@ -370,52 +370,59 @@ A hub makes a budget when it is given none: half the process's memory limit, for
 - A brotli stream takes the window that holds its frame and no larger one: the 235 KB board takes 140 bytes a frame at quality 4 and 2^18, and 141 at 2^19. It takes quality 4 while the budget stays at most half full, quality 3 after that, and a window below its frame (quality 3 at 2^16, 17,013 bytes a frame for that board) only when quality 3 at its window does not fit what is left. It goes out uncompressed only when even 2^16 does not fit.
 - A zstd stream takes the largest tier within its fair share, since its bytes keep falling as its window grows: the 235 KB board takes 4,183 bytes a frame at 2^18 with low memory, 2,948 at 2^19 and 1,715 at 2^20; the 49 KB board 1,180 at 2^16 and 287 at 2^19. As streams open it moves down to the window that holds its frame and no further, takes 2^15 only when that window does not fit, and moves up again at a write once room frees up.
 - A brotli stream keeps its tier until it closes. A stream with `live.Spec.Reconnect` whose window is below its frame, or that went out uncompressed, ends with `sse.Reconnect` once room frees up for a window that holds its frame, and the page opens it again: one stream a second, and a stream ID once a minute.
-- With `Refuse`, a budget turns away every stream it has no room for, an uncompressed one when its 32 KiB do not fit, and the streams it lets in compress until they close: a zstd stream keeps 2^15 booked while it has no encoder, so it never sends raw blocks. Memory is then the stream cap: `live.Options.MaxStreams` stays at its default, 2000, as a backstop, and pages open their streams with `retry: 'error'`, so that a refused tab comes back once a stream closes.
+- With `Refuse`, a budget lets a stream in only with room for the smallest tier whose window holds its frame, and turns away every other stream, an uncompressed one when its 32 KiB do not fit. `live.Serve` opens a stream once its first frames are rendered and gives their length to the budget (`sse.Options.Frame`), so the response's headers go out with the first frame: with a hub that ticks every 50 ms, 24 ms later at the median and 45 at the 90th percentile, while the first frame comes as soon as before. A stream let in keeps a window that holds its frame until it closes: a zstd stream keeps that tier booked while it has no encoder and moves no lower, a brotli stream takes no window below its frame. When the budget turns a stream away, the zstd streams above their frame's window move down to it at their next write, until the stream would fit. A stream whose frames outgrow its window later keeps its tier and sends more bytes a frame until it gets a larger one: a zstd stream once room frees up, a brotli stream when it opens again. Memory is then the stream cap: `live.Options.MaxStreams` stays at its default, 2000, as a backstop, and pages open their streams with `retry: 'error'`, so that a refused tab comes back once a stream closes.
 
-`TestBudgetCurve` (`curve.csv`) opens streams one by one on a hub with real encoders and frames: data tables of 49, 143 and 233 KB in one view that every stream watches, twice as many streams as the budget has MiB; and 150 tabs that each watch a 233 KB view of their own, in 150 MiB and in the least budget that holds them all at 2^18, and 200 zstd tabs in 150 MiB. After every ten opens every view changes and every stream writes, so that zstd streams move. The first uncompressed stream is the first whose first frame went out uncompressed or in raw blocks: a zstd stream sends raw blocks until the streams above their share have moved down. Booked is what the budget books once every stream is open, heap what the heap and the stacks hold after a collection; the test's streams have no net/http connections, for which the budget books part of its 32 KiB a stream. The bytes per frame are the mean of every stream's last frame, uncompressed ones included.
+`TestBudgetCurve` (`curve.csv`) opens streams one by one on a hub with real encoders and frames: data tables of 49, 143 and 233 KB in one view that every stream watches, twice as many streams as the budget has MiB; and 150 tabs that each watch a 233 KB view of their own, in 150 MiB and in the least budget that holds them all at 2^18, and 200 zstd tabs in 150 MiB; and the 150 tabs in budgets of 120 and 150 MiB with `Refuse`, where a tab turned away tries again once after the next round of writes, as a page would, and else stays away. After every ten opens every view changes and every stream writes, so that zstd streams move. The first uncompressed stream is the first whose first frame went out uncompressed or in raw blocks: a zstd stream sends raw blocks until the streams above their share have moved down. Booked is what the budget books once every stream is open, heap what the heap and the stacks hold after a collection; the test's streams have no net/http connections, for which the budget books part of its 32 KiB a stream. The bytes per frame are the mean of every stream's last frame, uncompressed ones included.
 
 <!-- include: bench/budget/curve.md -->
 | Frame | Views | Budget | Clients | Opened | Window holds the frame | Compressed | First uncompressed | Booked | Heap | Bytes per frame |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 49 KB | one | 64 MiB | brotli | 128 | 70 | 70 | 71st | 65.8 MiB | 60.7 MiB | 22,667 |
-| 49 KB | one | 64 MiB | zstd | 128 | 89 | 90 | 38th | 64.4 MiB | 55.0 MiB | 15,333 |
-| 49 KB | one | 64 MiB | half each | 128 | 81 | 81 | 52nd | 64.7 MiB | 57.2 MiB | 18,603 |
-| 49 KB | one | 128 MiB | brotli | 256 | 139 | 139 | 140th | 131.3 MiB | 120.4 MiB | 22,937 |
-| 49 KB | one | 128 MiB | zstd | 256 | 181 | 182 | 75th | 130.2 MiB | 111.6 MiB | 14,603 |
+| 49 KB | one | 64 MiB | brotli | 128 | 70 | 70 | 71st | 65.8 MiB | 60.6 MiB | 22,667 |
+| 49 KB | one | 64 MiB | zstd | 128 | 88 | 90 | 38th | 64.3 MiB | 54.9 MiB | 15,352 |
+| 49 KB | one | 64 MiB | half each | 128 | 80 | 81 | 52nd | 64.5 MiB | 57.0 MiB | 18,626 |
+| 49 KB | one | 128 MiB | brotli | 256 | 139 | 139 | 140th | 131.3 MiB | 120.3 MiB | 22,937 |
+| 49 KB | one | 128 MiB | zstd | 256 | 181 | 182 | 75th | 130.2 MiB | 111.5 MiB | 14,603 |
 | 49 KB | one | 128 MiB | half each | 256 | 161 | 162 | 102nd | 129.6 MiB | 114.8 MiB | 18,492 |
-| 49 KB | one | 150 MiB | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 140.8 MiB | 22,880 |
-| 49 KB | one | 150 MiB | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.6 MiB | 14,555 |
-| 49 KB | one | 150 MiB | half each | 300 | 188 | 190 | 120th | 152.2 MiB | 134.8 MiB | 18,421 |
+| 49 KB | one | 150 MiB | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 141.0 MiB | 22,880 |
+| 49 KB | one | 150 MiB | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.5 MiB | 14,555 |
+| 49 KB | one | 150 MiB | half each | 300 | 188 | 190 | 120th | 152.2 MiB | 135.0 MiB | 18,421 |
 | 143 KB | one | 64 MiB | brotli | 128 | 48 | 49 | 50th | 66.1 MiB | 61.7 MiB | 88,754 |
 | 143 KB | one | 64 MiB | zstd | 128 | 71 | 72 | 38th | 65.7 MiB | 59.9 MiB | 62,994 |
-| 143 KB | one | 64 MiB | half each | 128 | 57 | 60 | 44th | 65.4 MiB | 60.2 MiB | 76,574 |
-| 143 KB | one | 128 MiB | brotli | 256 | 97 | 98 | 99th | 132.9 MiB | 124.2 MiB | 89,131 |
-| 143 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.0 MiB | 119.1 MiB | 64,748 |
-| 143 KB | one | 128 MiB | half each | 256 | 117 | 119 | 87th | 131.5 MiB | 121.2 MiB | 77,787 |
+| 143 KB | one | 64 MiB | half each | 128 | 58 | 59 | 44th | 65.2 MiB | 60.1 MiB | 77,566 |
+| 143 KB | one | 128 MiB | brotli | 256 | 97 | 98 | 99th | 132.9 MiB | 124.1 MiB | 89,131 |
+| 143 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.0 MiB | 118.8 MiB | 64,748 |
+| 143 KB | one | 128 MiB | half each | 256 | 117 | 119 | 87th | 131.6 MiB | 121.3 MiB | 77,791 |
 | 143 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.4 MiB | 145.2 MiB | 89,163 |
 | 143 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 153.9 MiB | 139.9 MiB | 63,252 |
 | 143 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.0 MiB | 141.9 MiB | 77,175 |
-| 233 KB | one | 64 MiB | brotli | 128 | 48 | 49 | 50th | 66.2 MiB | 62.3 MiB | 144,803 |
-| 233 KB | one | 64 MiB | zstd | 128 | 71 | 71 | 38th | 65.2 MiB | 60.2 MiB | 106,031 |
-| 233 KB | one | 64 MiB | half each | 128 | 57 | 60 | 44th | 65.4 MiB | 60.9 MiB | 125,313 |
+| 233 KB | one | 64 MiB | brotli | 128 | 48 | 49 | 50th | 66.2 MiB | 62.4 MiB | 144,803 |
+| 233 KB | one | 64 MiB | zstd | 128 | 71 | 71 | 38th | 65.2 MiB | 60.2 MiB | 106,040 |
+| 233 KB | one | 64 MiB | half each | 128 | 58 | 59 | 44th | 65.1 MiB | 60.6 MiB | 126,941 |
 | 233 KB | one | 128 MiB | brotli | 256 | 97 | 97 | 98th | 132.3 MiB | 124.4 MiB | 146,277 |
-| 233 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.1 MiB | 120.5 MiB | 107,002 |
+| 233 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.1 MiB | 120.7 MiB | 107,002 |
 | 233 KB | one | 128 MiB | half each | 256 | 118 | 118 | 86th | 131.4 MiB | 122.3 MiB | 128,340 |
-| 233 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.1 MiB | 145,428 |
-| 233 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.7 MiB | 103,090 |
-| 233 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.1 MiB | 143.6 MiB | 125,854 |
+| 233 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.4 MiB | 145,428 |
+| 233 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.8 MiB | 103,090 |
+| 233 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.1 MiB | 143.5 MiB | 125,854 |
 | 233 KB | one each | 150 MiB | brotli | 150 | 114 | 114 | 115th | 150.6 MiB | 144.7 MiB | 58,333 |
-| 233 KB | one each | 150 MiB | zstd | 150 | 150 | 150 | 88th | 133.6 MiB | 125.1 MiB | 3,016 |
-| 233 KB | one each | 150 MiB | half each | 150 | 123 | 124 | 102nd | 134.9 MiB | 128.0 MiB | 47,700 |
-| 233 KB | one each | 150 MiB | zstd | 200 | 168 | 168 | 88th | 150.6 MiB | 140.4 MiB | 43,126 |
+| 233 KB | one each | 150 MiB | zstd | 150 | 150 | 150 | 88th | 133.6 MiB | 125.0 MiB | 3,016 |
+| 233 KB | one each | 150 MiB | half each | 150 | 124 | 124 | 102nd | 135.2 MiB | 128.2 MiB | 47,582 |
+| 233 KB | one each | 150 MiB | zstd | 200 | 168 | 168 | 88th | 150.6 MiB | 140.4 MiB | 43,147 |
 | 233 KB | one each | 200 MiB | brotli | 150 | 150 | 150 | none | 197.4 MiB | 190.5 MiB | 3,308 |
-| 233 KB | one each | 140 MiB | zstd | 150 | 150 | 150 | 82nd | 133.6 MiB | 125.1 MiB | 5,443 |
-| 233 KB | one each | 230 MiB | half each | 150 | 150 | 150 | none | 224.9 MiB | 217.1 MiB | 3,191 |
+| 233 KB | one each | 140 MiB | zstd | 150 | 150 | 150 | 82nd | 133.6 MiB | 125.1 MiB | 5,509 |
+| 233 KB | one each | 230 MiB | half each | 150 | 150 | 150 | none | 224.9 MiB | 217.0 MiB | 3,191 |
+| 233 KB | one each | 120 MiB, `Refuse` | brotli | 91 of 150 | 91 | 91 | none | 119.5 MiB | 115.4 MiB | 3,189 |
+| 233 KB | one each | 120 MiB, `Refuse` | zstd | 134 of 150 | 134 | 134 | none | 119.3 MiB | 111.8 MiB | 3,826 |
+| 233 KB | one each | 120 MiB, `Refuse` | half each | 111 of 150 | 111 | 111 | none | 119.4 MiB | 113.7 MiB | 2,108 |
+| 233 KB | one each | 150 MiB, `Refuse` | brotli | 114 of 150 | 114 | 114 | none | 149.5 MiB | 144.2 MiB | 4,295 |
+| 233 KB | one each | 150 MiB, `Refuse` | zstd | 150 of 150 | 150 | 150 | none | 133.6 MiB | 125.2 MiB | 3,202 |
+| 233 KB | one each | 150 MiB, `Refuse` | half each | 139 of 150 | 139 | 139 | none | 149.9 MiB | 142.7 MiB | 3,343 |
 <!-- end include -->
 
 - 150 MiB holds 114 brotli tabs with a 233 KB view of their own at 2^18, 168 zstd tabs, and 123 of 150 when half are each. The hub keeps none of the tabs' frames, which would take 235 KiB each, 34 MiB for 150 tabs.
 - All 150 tabs hold 2^18 in 200 MiB with brotli (197.4 MiB booked, 190.5 MiB of heap: 62 at quality 4, 88 at quality 3), in 140 MiB with zstd (133.6 and 125.1 MiB), and in 230 MiB half each, where the zstd tabs take 2^19 while there is room. With the default limit, half of GOMEMLIMIT, 150 brotli tabs need a GOMEMLIMIT of 400 MiB.
 - With brotli and zstd tabs mixed, the zstd streams that opened first hold large tiers until a stream finds no room and they write again, and brotli streams that open meanwhile go out uncompressed. With `Reconnect`, those come back once the zstd streams have moved down.
+- With `Refuse`, every tab let in holds 2^18 from its first frame, and the rest get a 503. 120 MiB holds 134 of the 150 zstd tabs, 91 brotli tabs (37 at quality 4, 54 at 3) and 111 when half are each, at 2 to 4 KB a frame; 150 MiB holds all 150 zstd tabs, 114 brotli tabs and 139 mixed. Without `Refuse`, in 150 MiB the zstd tabs from the 88th on sent their first frames in raw blocks until the others had moved down, and 36 brotli tabs went out uncompressed.
 
 [Streams and compression](/docs/guides/streams#the-memory-budget) shows the settings.
 

@@ -77,20 +77,28 @@ i5-13500 core, 2026-10-12:
   against 69 us with it). The other half is GC headroom: a 230 KB render
   allocates about 1 MiB of garbage. zstd takes the largest tier within its
   fair share and shrinks while open, down to its frame's window, then 2^15,
-  then raw blocks (never with `Refuse`). brotli keeps its tier: its frame's
-  window (no larger) at q4 while the budget is at most half full, q3 after,
-  q3 2^16 only when that does not fit, uncompressed last. Without a memory
-  limit nothing changes.
+  then raw blocks (with `Refuse`, never below its frame's window). brotli
+  keeps its tier: its frame's window (no larger) at q4 while the budget is at
+  most half full, q3 after, q3 2^16 only when that does not fit (never with
+  `Refuse`), uncompressed last. Without a memory limit nothing changes.
   Configure it with
   `live.Options{SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{...})}}`:
   `Limit` in bytes (-1: none), `MinWindow` for frames that refer back further
   than one write, `MaxWindow`, and `Refuse` to answer 503 instead of sending
-  uncompressed, for pages with large frames (kanban's board). With `Refuse`
-  every stream without room is refused, an uncompressed one when its 32 KiB
-  do not fit, and every stream let in compresses until it closes (zstd keeps
-  2^15 booked while asleep, never raw blocks). Memory is then the stream cap:
-  leave `MaxStreams` at its default (2000) as a backstop for a process
-  without a memory limit, and open streams with retry 'error'. A stream's own
+  uncompressed or with a window below the frame, for pages with large frames
+  (kanban's board). With `Refuse` a stream gets in only with room for 32 KiB
+  and the smallest tier whose window holds its frame (`sse.Options.Frame`:
+  `hub.Serve` opens a stream once its first frames are rendered and passes
+  their length, so its headers go out with the first frame, up to a tick
+  later), an uncompressed one with room for its 32 KiB. Every stream let in
+  keeps such a window until it closes: zstd keeps it booked while asleep and
+  moves no lower, brotli takes no smaller window, and when a stream is
+  turned away the zstd streams above their frame's window move down to it.
+  Frames that later outgrow the window cost more bytes, never the stream. In
+  120 MiB, 134 zstd tabs with a 233 KB view each get in at 2^18, or 91
+  brotli tabs; the rest get 503. Memory is then the stream cap: leave
+  `MaxStreams` at its default (2000) as a backstop for a process without a
+  memory limit, and open streams with retry 'error'. A stream's own
   ZstdWindow and BrotliWindow cap what it gets. A brotli stream below its
   frame's window (or uncompressed) with `Spec.Reconnect` set is ended with
   `sse.Reconnect` once room frees up, and the page reopens on a better tier
