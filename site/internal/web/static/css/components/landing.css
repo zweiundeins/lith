@@ -418,7 +418,8 @@
 
 	/* ── Scroll-driven reveals: sections rise into place as they enter
 	 * the viewport, driven by the scroll position (no script). Without
-	 * support they are simply there. ──────────────────────────────── */
+	 * support they are simply there. No fade: a section that stops at the
+	 * bottom of the viewport would keep its text faded, below 4.5:1. ── */
 	@media (prefers-reduced-motion: no-preference) {
 		@supports (animation-timeline: view()) {
 			.reveal {
@@ -437,7 +438,6 @@
 
 	@keyframes reveal {
 		from {
-			opacity: 0;
 			translate: 0 2.5rem;
 			scale: 0.985;
 		}
