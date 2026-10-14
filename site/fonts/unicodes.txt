@@ -1,0 +1,29 @@
+# The characters the site's fonts keep (go tool task fonts): what the pages
+# and the code blocks show. TestFontSubset fails when a page uses one that
+# is not here, and when the stylesheet's unicode-range differs.
+U+0020-007E  # Basic Latin
+U+00A0-00BF  # Latin-1 punctuation and signs: no-break space to ¿, with · µ « »
+U+00D7       # ×
+U+00F7       # ÷
+U+2010-2014  # hyphens and dashes
+U+2018-201E  # quotes
+U+2022       # bullet
+U+2026       # ellipsis
+U+2032-2033  # primes
+U+2039-203A  # single guillemets
+U+2190-2193  # arrows
+U+2212       # minus
+U+2248       # almost equal
+U+2260       # not equal
+U+2264-2265  # less and greater or equal
+U+2500       # box drawing for trees in code: ─
+U+2502       # │
+U+250C       # ┌
+U+2510       # ┐
+U+2514       # └
+U+2518       # ┘
+U+251C       # ├
+U+2524       # ┤
+U+252C       # ┬
+U+2534       # ┴
+U+253C       # ┼

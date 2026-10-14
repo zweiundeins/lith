@@ -58,6 +58,15 @@ tasks:
     cmds:
       - go build -trimpath -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.BIN}} ./cmd/lith-site
 
+  fonts:
+    desc: Subset the fonts in fonts/ to the characters of fonts/unicodes.txt, as woff2 in internal/web/static/fonts (fonttools on Python 3.12, pinned, through uvx)
+    vars:
+      SUBSET: SOURCE_DATE_EPOCH=0 uvx --quiet --python 3.12 --from 'fonttools==4.60.1' --with 'brotli==1.1.0' pyftsubset --unicodes-file=fonts/unicodes.txt --flavor=woff2 --no-hinting --name-IDs=0,1,2,3,4,5,6,13,14
+    cmds:
+      # Code turns ligatures off (base.css), so JetBrains Mono keeps none: its calt is two thirds of the file.
+      - "{{.SUBSET}} --layout-features=ccmp,locl,mark,mkmk,kern fonts/jetbrains-mono.ttf --output-file=internal/web/static/fonts/jetbrains-mono.woff2"
+      - "{{.SUBSET}} fonts/pixelify-sans.ttf --output-file=internal/web/static/fonts/pixelify-sans.woff2"
+
   vendor-starbase:
     desc: Copy the Starbase components of internal/web/static/vendor/starbase/pins.json from its pinned snapshot, checking their integrity
     cmds:
