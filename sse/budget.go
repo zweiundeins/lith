@@ -220,7 +220,8 @@ func (b *Budget) menu(coding string, o Options) []tier {
 	lo, hi := min(b.minWindow, ceil), min(b.maxWindow, ceil)
 	var m []tier
 	for _, t := range all {
-		if t.window >= lo && t.window <= hi && (t.lowMem || !o.ZstdLowMemory) {
+		// ZstdLowMemory narrows zstd's tiers only: a brotli client keeps its.
+		if t.window >= lo && t.window <= hi && (coding != Zstd || t.lowMem || !o.ZstdLowMemory) {
 			m = append(m, t)
 		}
 	}

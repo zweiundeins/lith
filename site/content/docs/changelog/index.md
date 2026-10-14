@@ -8,6 +8,10 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## v0.1.1 (2026-10-14)
+
+- `sse`: with `ZstdLowMemory` set and a memory budget (every `live` hub has one), a client that accepts brotli but not zstd, such as Safari, got its stream uncompressed: the low-memory filter dropped the brotli tiers too. It now narrows zstd's tiers only. Apps that set `ZstdLowMemory` should update.
+
 ## v0.1.0 (2026-10-13)
 
 The first release: the runtime for Go, SQLite and Datastar apps, with a template for new apps, a skill for coding agents and the website at lith.zweiundeins.gmbh. It needs Go 1.27 and builds with `CGO_ENABLED=0`.

@@ -160,6 +160,12 @@ func TestBudgetTiers(t *testing.T) {
 		t.Errorf("with ZstdLowMemory: %s", got)
 	}
 	s.Close()
+	// A brotli client keeps its tiers: ZstdLowMemory is about zstd only.
+	s, _ = openWith(t, Brotli, Options{Budget: NewBudget(BudgetOptions{Limit: 1 << 30}), ZstdLowMemory: true})
+	if got := label(s.tier, s.encoding); got != "br q4 2^18" {
+		t.Errorf("brotli with ZstdLowMemory: %s", got)
+	}
+	s.Close()
 }
 
 // Streams that took large tiers while few were open move down at their
