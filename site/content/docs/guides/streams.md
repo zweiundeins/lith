@@ -17,10 +17,10 @@ Every tab holds one open stream, and every stream compresses what it sends with 
 | --- | --- | --- |
 | zstd | fastest level, window 2^19 (512 KiB), history twice the window | about 1.7 MiB |
 | zstd, `ZstdLowMemory` | the same, history at the window | about 1.0 MiB |
-| brotli | quality 4, window 2^18 (256 KiB) | about 2.1 MiB |
+| brotli | quality 4, window 2^18 (256 KiB) | about 1.6 MiB |
 | gzip | fastest level | about 0.8 MiB |
 
-Chrome, Firefox and Edge accept zstd; Safari decodes it from version 26.3, and older Safari gets brotli. On lith's shared board, zstd sends 2.3 times brotli's bytes for half its CPU ([Performance](/docs/performance/encoders)). Datastar's Go SDK, given `WithBrotli` without `WithBrotliLGWin`, keeps brotli's 4 MiB window: 9.9 MiB of heap per stream, against 1.0 to 1.7 MiB for lith's zstd.
+Chrome, Firefox and Edge accept zstd; Safari decodes it from version 26.3, and older Safari gets brotli. On lith's shared board, zstd sends 2.6 times brotli's bytes for about half its CPU ([Performance](/docs/performance/encoders)). Datastar's Go SDK, given `WithBrotli` without `WithBrotliLGWin`, keeps brotli's 4 MiB window: 9.9 MiB of heap per stream, against 1.0 to 1.7 MiB for lith's zstd.
 
 `sse.Options` sets the encoders, through `live.Options.SSE` for a hub's streams:
 

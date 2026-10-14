@@ -11,7 +11,7 @@ The server sends HTML, and the browser morphs it into the page. A view's frame i
 
 Each stream compresses what it sends with a window of its own: zstd when the browser accepts it, else brotli, else gzip. The window spans the whole stream, so a frame that repeats most of the frame before it refers back to it and costs little. Rendering whole views relies on this.
 
-lith's load test sends a board of 139 KB to 200 streams. With zstd, a frame takes 2,205 bytes on the wire, and the 200 streams keep 1.6 cores busy; brotli sends 955 bytes for 3.3 cores. Most of that CPU is the encoders: rendering takes under 4% of it.
+lith's load test sends a board of 139 KB to 200 streams. With zstd, a frame takes 2,217 bytes on the wire, and the 200 streams keep 1.8 cores busy; brotli sends 854 bytes for 3.4 cores. Most of that CPU is the encoders: rendering takes under 4% of it.
 
 ## A window within a budget
 

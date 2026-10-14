@@ -18,7 +18,7 @@ func read(st *sse.Stream, m *demo.Meter, now time.Time) Reading {
 
 ## The coding
 
-`sse.Negotiate` picks the coding with the highest weight in your browser's `Accept-Encoding`, zstd before brotli before gzip when they tie. Chrome, Edge and Firefox accept zstd, Safari from 26.3. zstd sends more bytes than brotli for a sixth of its CPU or less: on one core, a 57 KB page with five rows changed per frame took zstd 36 to 41 µs a frame for 405 bytes on the wire, and brotli at quality 4 251 to 265 µs for 121 bytes. The coding reads none when your browser accepted none, or when the budget had no room for a brotli or gzip encoder.
+`sse.Negotiate` picks the coding with the highest weight in your browser's `Accept-Encoding`, zstd before brotli before gzip when they tie. Chrome, Edge and Firefox accept zstd, Safari from 26.3. zstd sends more bytes than brotli for an eighth of its CPU or less: on one core, a 57 KB page with five rows changed per frame took zstd 29 to 30 µs a frame for 405 bytes on the wire, and brotli at quality 4 249 to 257 µs for 155 bytes. The coding reads none when your browser accepted none, or when the budget had no room for a brotli or gzip encoder.
 
 ## The setting from the budget
 
