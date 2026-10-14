@@ -114,23 +114,23 @@ i5-13500 core, 2026-10-12:
 
 `sse.Options.ZstdLevel` trades bytes on the wire for CPU and heap. lith's
 200-tab board in process (`BenchmarkBoardZstdLevels` in `loadtest`, 140 KB of
-HTML, about 4,000 frames a second, i5-13500, 2026-10-13; brotli from
+HTML, about 4,000 frames a second, i5-13500, 2026-10-14; brotli from
 `BenchmarkSharedBoard` the same day), medians of three runs:
 
 | Encoder | Bytes per frame | Cores busy | Heap per stream |
 | --- | --- | --- | --- |
-| zstd fastest (lith's default) | 2,266 | 1.32 | 1.68 MiB |
-| zstd default | 1,138 | 1.07 | 2.76 MiB |
-| zstd better compression | 365 | 3.11 | 5.56 MiB |
-| brotli quality 4 | 955 | 3.31 | 2.13 MiB |
+| zstd fastest (lith's default) | 2,213 | 1.84 | 1.66 MiB |
+| zstd default | 1,087 | 1.74 | 2.76 MiB |
+| zstd better compression | 365 | 3.15 | 5.56 MiB |
+| brotli quality 4 | 854 | 3.42 | 1.56 MiB |
 
 - zstd's default level halves the bytes of the fastest for no more CPU, and
   holds 1.1 MiB more per stream: about 220 MiB more for 200 tabs.
 - Better compression sends fewer bytes than brotli for about brotli's CPU, at
   5.6 MiB a stream.
 - `sse.Options.ZstdLowMemory` keeps zstd's history at its window: 1.0 MiB a
-  stream instead of 1.65 MiB, for half again the CPU per frame with 20
-  streams and twice with 200 (`TestHeapPerStream`, `bench/RESULTS.md`).
+  stream instead of 1.65 MiB, for 40% more CPU per frame with 20 streams
+  (`TestHeapPerStream`, `bench/RESULTS.md`).
 
 ## Render loop
 

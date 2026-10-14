@@ -6,11 +6,11 @@ description: An hour of 200 tabs, simulated second by second: what an idle zstd 
 order: 5
 ---
 
-Most open tabs sit still. With `live.Options.Hibernate` set, a zstd stream that sent no frame for that long ends its zstd frame and gives its encoder back to a pool, and its window back to the budget; its next frame takes an encoder from the pool and starts without the history of the frames before. Heartbeats go out without waking it. It is off unless an app sets it.
+Most open tabs sit still. With `live.Options.Hibernate` set, a zstd stream that sent no frame for that long ends its zstd frame and gives its encoder back to a pool, and its window back to the budget; its next frame takes an encoder from the pool, with the window the budget then allows, and starts without the history of the frames before. A budget with `Refuse` keeps the smallest window that holds the stream's frame booked for it while it sleeps, so it wakes with at least that window. Heartbeats go out without waking it. It is off unless an app sets it.
 
 ## An hour of 200 tabs
 
-`TestHibernation` (`hibernate.csv`) simulates an hour of 200 tabs, second by second, with [the page workload's](/docs/performance/budget) frames: each person changes something every three minutes on average, a modal and then, a second later, the list it changed, and the hub sends a heartbeat after 20 s of silence. The heap per tab is the mean of samples every five minutes after the first ten, each after a collection, which also empties the pool of encoders.
+`TestHibernation` (`hibernate.csv`) simulates an hour of 200 tabs, second by second, with [the page workload's](/docs/performance/budget) frames: each person changes something every three minutes on average, a modal and then, a second later, the list it changed, and the hub sends a heartbeat after 20 s of silence. The heap per tab is the mean of samples every five minutes after the first ten, each after a collection, which also empties the pool of encoders. Measured on 2026-10-13 on the development machine; a run with lith v0.2.0 on 2026-10-14 gave the same bytes, and the same heap within 0.001 MiB a tab.
 
 ```chart
 kind: bars

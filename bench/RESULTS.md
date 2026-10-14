@@ -100,84 +100,80 @@ The 1-minute load average was 3.37 when the runs began, rose to 5.54 during them
 
 ## Render loop and streams, in process
 
-Measured on 2026-10-13 on the same machine, an Intel i5-13500 (20 threads), with Go 1.26.5 and modernc.org/sqlite v1.60.1, the database in `/tmp` as above, on lith's main at 6265bce (with the render loop fixes) plus the loadtest branch. The runs are pinned to the performance cores, which gives GOMAXPROCS 12. Two sets of three runs, at 04:25 and 04:30 UTC:
+Measured on 2026-10-14 on the same machine, an Intel i5-13500 (20 threads), with Go 1.27.2, modernc.org/sqlite v1.60.1, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, the database in `/tmp` as above, on lith's main at ff7e536 (v0.2.0). The runs are pinned to the performance cores, which gives GOMAXPROCS 12. Two sets of three runs, at 17:21 and 17:26 UTC:
 
     taskset -c 0-11 go test ./loadtest -run '^$' -bench SharedBoard -count 3
 
-`BenchmarkSharedBoard` (`loadtest/bench_test.go`) is kanban's 200-tab run without HTTP: 200 streams on one board of 200 cards (`loadtest.Board`, 139 KB of HTML), while 200 producers send 800 commands a second between them. Each command adds one to a card's counter, so the board changes in every tick. The database runs with `synchronous=FULL` and the writer's checkpoints. Each stream compresses every frame and hands it to a client that takes it at once: no network, no load tool. Each run warms up for 2 s and is measured for 10 s. Medians of the six runs, the range in brackets:
+`BenchmarkSharedBoard` (`loadtest/bench_test.go`) is kanban's 200-tab run without HTTP: 200 streams on one board of 200 cards (`loadtest.Board`, 139 KB of HTML), while 200 producers send 800 commands a second between them. Each command adds one to a card's counter, so the board changes in every tick. The database runs with the writer's checkpoints, with `synchronous=FULL` and then NORMAL (below). Each stream compresses every frame and hands it to a client that takes it at once: no network, no load tool. Each run warms up for 2 s and is measured for 10 s. With FULL, medians of the six runs, the range in brackets:
 
 | | zstd | brotli |
 |---|---|---|
-| CPU, cores busy | 1.59 (1.01 to 1.65) | 3.31 (3.00 to 3.61) |
-| ticks a second | 19.8 (17.8 to 19.8) | 19.8 (19.7 to 19.9) |
-| tick p50 | 2.5 ms (1.12 to 3.47) | 0.87 ms (0.75 to 1.69) |
-| tick p95 | 4.6 ms (4.07 to 4.81) | 2.1 ms (1.65 to 2.52) |
-| tick p99 | 5.2 ms (5.00 to 5.79) | 2.7 ms (2.10 to 3.24) |
-| tick max | 6.5 ms (5.25 to 9.72) | 3.6 ms (2.31 to 5.83) |
+| CPU, cores busy | 1.82 (1.28 to 1.90) | 3.42 (3.38 to 3.58) |
+| ticks a second | 19.8 | 19.9 (19.8 to 19.9) |
+| tick p50 | 2.9 ms (0.77 to 3.30) | 1.2 ms (1.04 to 1.37) |
+| tick p95 | 3.6 ms (3.48 to 3.89) | 1.8 ms (1.75 to 1.88) |
+| tick p99 | 4.1 ms (3.76 to 4.31) | 2.1 ms (2.10 to 2.23) |
+| tick max | 4.4 ms (4.13 to 5.11) | 2.3 ms (2.20 to 3.74) |
 | renders per tick | 1.00 | 1.00 |
-| frames sent a second | 3,954 (3,542 to 3,960) | 3,966 (3,953 to 3,974) |
+| frames sent a second | 3,960 (3,956 to 3,965) | 3,968 (3,964 to 3,977) |
 | frames dropped | 0 | 0 |
-| bytes per frame on the wire | 2,205 (2,098 to 2,315) | 955 (934 to 1,000) |
-| heap per stream | 1.67 MiB (1.66 to 1.68) | 2.13 MiB |
+| bytes per frame on the wire | 2,217 (2,153 to 2,297) | 854 (852 to 862) |
+| heap per stream | 1.68 MiB (1.66 to 1.68) | 1.56 MiB |
 | commands a second | 800 | 800 |
-| commands per transaction | 2.1 (2.09 to 3.61) | 2.0 (1.40 to 2.27) |
-| command from due to commit, p50 | 5.1 ms (4.91 to 8.38) | 3.9 ms (2.85 to 4.86) |
-| command from due to commit, p99 | 13 to 747 ms | 17 to 61 ms |
+| commands per transaction | 2.4 (1.69 to 2.64) | 1.3 (1.25 to 1.40) |
+| command from due to commit, p50 | 5.5 ms (3.48 to 5.86) | 2.7 ms (2.55 to 2.87) |
+| command from due to commit, p99 | 9.5 to 13.1 ms | 6.4 to 7.8 ms |
 
-A tick renders the board once for all 200 streams and hands them the frame. No tick overran its 50 ms, and no stream missed a frame. In a CPU profile of one run per encoding (`-cpuprofile`, same command), rendering takes 0.3% of the samples with brotli and 3.6% with zstd, the writer 3.5% and 10.6%. kanban renders its board in 2.4 ms.
+A tick renders the board once for all 200 streams and hands them the frame. No tick overran its 50 ms, and no stream missed a frame. In a CPU profile of one more run per encoding with FULL (`-cpuprofile`, the samples under each package by `go tool pprof -focus`), rendering takes 0.6% of the samples with brotli and 3.8% with zstd, the writer 3.4% and 11.6%. kanban renders its board in 2.4 ms.
 
-Compression is the cost: 91% of the samples with brotli, 74% with zstd. zstd sends 2.3 times the bytes of brotli per frame (2,205 against 955) for half the CPU (1.59 against 3.31 cores). kanban's load tool measured 999 bytes per frame with brotli at quality 4, and 4.9 cores for its server; the 3.3 cores here are the streams, the render loop and the writer, without HTTP. A quarter of zstd's samples are `memmove`, four fifths of them in the encoder's `addBlock`, which copies each frame into its history.
+Compression is the cost: 94% of the samples with brotli, 76% with zstd. zstd sends 2.6 times the bytes of brotli per frame (2,217 against 854) for about half the CPU (1.82 against 3.42 cores). kanban's load tool measured 999 bytes per frame with brotli at quality 4, and 4.9 cores for its server; the 3.4 cores here are the streams, the render loop and the writer, without HTTP. A fifth of zstd's samples are `memmove`, three quarters of them in the encoder's `addBlock`, which copies each frame into its history.
 
-zstd's numbers depend on what else the machine does. Four zstd runs alternated with and without twelve `nice -n 19 yes > /dev/null` loops pinned to the same cores: with the loops, the process used 0.80 and 0.86 cores at a tick p50 of 1.25 ms; without them, 1.50 and 1.90 cores at 1.7 and 4.1 ms, and in CPU profiles of such a pair the same compression took 12.7 s against 8.0 s. The zstd process leaves most of its cores idle between ticks, and cores that keep falling idle do the same work in more time: through the CPU's power management (intel_pstate, powersave) or through the scheduler moving threads to idle cores, which these runs do not tell apart. brotli keeps three cores busy itself and varies less. Compare runs made under the same conditions.
+zstd's numbers depend on what else the machine does. On 2026-10-13, on lith's main at 6265bce, four zstd runs alternated with and without twelve `nice -n 19 yes > /dev/null` loops pinned to the same cores: with the loops, the process used 0.80 and 0.86 cores at a tick p50 of 1.25 ms; without them, 1.50 and 1.90 cores at 1.7 and 4.1 ms, and in CPU profiles of such a pair the same compression took 12.7 s against 8.0 s. The zstd process leaves most of its cores idle between ticks, and cores that keep falling idle do the same work in more time: through the CPU's power management (intel_pstate, powersave) or through the scheduler moving threads to idle cores, which these runs do not tell apart. brotli keeps three cores busy itself and varies less. Compare runs made under the same conditions.
 
-The heap per stream is what the sse package measures: 1.67 MiB with zstd's full history, 2.13 MiB with brotli at quality 4 and a 2^18 window. 200 tabs hold 334 MiB or 426 MiB.
+The heap per stream is what the sse package measures: 1.68 MiB with zstd's full history, 1.56 MiB with brotli at quality 4 and a 2^18 window. 200 tabs hold 336 MiB or 312 MiB.
 
-The writer kept up with 800 commands a second in every run, about two to a transaction. A command's time from when it was due to its commit is mostly the fsync: its p50 was 3 to 8 ms. Its p99 depends on the disk, the host's shared SSD pool: in two zstd runs of the second set, while another agent's test suites ran, the writer waited up to 0.8 s for the disk and then took up to 512 commands (MaxBatch) into one transaction; fewer commits made fewer ticks (17.8 a second in the slowest run).
+The writer kept up with 800 commands a second in every run, 1.3 to 2.4 to a transaction with FULL. A command's time from when it was due to its commit is mostly the fsync: its p50 was 2.5 to 5.9 ms. Its p99 depends on the disk, the host's shared SSD pool: 6 to 13 ms in these runs. On 2026-10-13, in two zstd runs while another agent's test suites ran, the writer waited up to 0.8 s for the disk and then took up to 512 commands (MaxBatch) into one transaction; fewer commits made fewer ticks (17.8 a second in the slowest run).
 
-Other agents compiled and ran test suites on the machine during both sets: the 1-minute load average was 4.7 before the first set and 9.7 after it, 10.3 before the second and 9.1 after it, on 20 threads.
+The 1-minute load average was 1.4 before the first set and 3.9 after it, 5.3 before the second and 5.0 after it, on 20 threads, the benchmark's own work included; the zstd levels (below) ran between the two sets.
 
 ### synchronous FULL against NORMAL
 
-Measured on 2026-10-13 between 12:58 and 13:03 UTC on the same machine, with Go 1.27.2, modernc.org/sqlite v1.60.1 and klauspost/compress v1.20.3, on lith's main at 8db2b69 plus the change that makes NORMAL the default. `BenchmarkSharedBoard` now runs each encoding with `synchronous=FULL`, then NORMAL. Two sets of three runs:
-
-    taskset -c 0-11 go test ./loadtest -run '^$' -bench SharedBoard -count 3
-
-Medians of the six runs, the range in brackets:
+The same runs: `BenchmarkSharedBoard` runs each encoding with `synchronous=FULL`, then NORMAL. Medians of the six runs, the range in brackets:
 
 | | FULL, zstd | NORMAL, zstd | FULL, brotli | NORMAL, brotli |
 |---|---|---|---|---|
-| CPU, cores busy | 0.98 (0.66 to 1.82) | 1.04 (0.77 to 1.62) | 2.53 (1.89 to 3.28) | 2.80 (2.51 to 3.07) |
-| ticks a second | 19.6 (9.4 to 19.8) | 19.4 (17.3 to 19.7) | 15.8 (13.1 to 19.2) | 19.8 (18.8 to 19.8) |
-| tick p95 | 4.0 ms (1.19 to 4.72) | 4.2 ms (1.16 to 4.58) | 1.4 ms (1.14 to 2.92) | 2.0 ms (1.14 to 2.76) |
+| CPU, cores busy | 1.82 (1.28 to 1.90) | 1.53 (0.89 to 1.67) | 3.42 (3.38 to 3.58) | 3.13 (3.10 to 3.22) |
+| ticks a second | 19.8 | 19.8 (19.6 to 19.8) | 19.9 (19.8 to 19.9) | 19.8 |
+| tick p95 | 3.6 ms (3.48 to 3.89) | 3.5 ms (1.63 to 3.58) | 1.8 ms (1.75 to 1.88) | 2.4 ms (2.29 to 2.46) |
 | frames dropped | 0 | 0 | 0 | 0 |
-| commands per transaction | 1.78 (1.29 to 7.32) | 1.07 (1.04 to 1.19) | 3.63 (1.81 to 4.37) | 1.03 (1.03 to 1.09) |
-| command from due to commit, p50 | 3.4 ms (2.7 to 323) | 0.54 ms (0.52 to 0.61) | 11.0 ms (3.1 to 11.8) | 0.30 ms (0.28 to 0.32) |
-| command from due to commit, p99 | 154 ms (21 to 2,715) | 172 ms (62 to 808) | 777 ms (146 to 1,945) | 34 ms (23 to 448) |
+| commands per transaction | 2.39 (1.69 to 2.64) | 1.03 (1.02 to 1.04) | 1.30 (1.25 to 1.40) | 1.02 (1.01 to 1.04) |
+| command from due to commit, p50 | 5.5 ms (3.5 to 5.9) | 0.51 ms (0.51 to 0.53) | 2.7 ms (2.5 to 2.9) | 0.29 ms (0.29 to 0.31) |
+| command from due to commit, p99 | 11 ms (9.5 to 13.1) | 29 ms (9.2 to 48.8) | 7.4 ms (6.4 to 7.8) | 12 ms (1.4 to 40.6) |
 
-With NORMAL a command commits in about half a millisecond at p50; with FULL it waits for its batch's fsync, 3 to 11 ms, and the writer takes two to four commands into a transaction instead of one. The render loop does the same work in both modes: one render a tick, no dropped frames, and the CPU goes to the encoders. With FULL and brotli the slower commits leave some ticks with nothing new, 15.8 ticks a second against 19.8.
+With NORMAL a command commits in 0.3 to 0.5 ms at p50; with FULL it waits for its batch's fsync, 2.7 to 5.5 ms, and the writer takes 1.3 to 2.4 commands into a transaction instead of one. The render loop does the same work in both modes: one render a tick, no dropped frames, and the CPU goes to the encoders.
 
-The p99s compare poorly: they are the shared SSD pool's. A run with a disk stall waits for seconds in either mode (FULL with zstd once 2.7 s, at 9.4 ticks a second). The 1-minute load average was 1.5 before the first set and 5.7 after the second, the benchmark's own work included.
+The p99s compare poorly: they are the shared SSD pool's. On 2026-10-13, on lith's main at 8db2b69, a run with a disk stall waited for seconds in either mode (FULL with zstd once 2.7 s, at 9.4 ticks a second).
 
 What NORMAL saves is latency, and what it costs is durability: a power loss or kernel crash can undo up to about 35 s of acknowledged commits, those since the writer's last checkpoint, with Linux's default writeback. A crash of the process loses none.
 
 ### zstd levels
 
-Measured on 2026-10-13 between 05:02 and 05:04 UTC on the same machine and toolchain, with klauspost/compress v1.20.1, on lith's api-core branch, which adds `sse.Options.ZstdLevel`:
+Measured on 2026-10-14 between 17:24 and 17:26 UTC, between the two sets above, on the same machine and toolchain, on lith's main at ff7e536:
 
     taskset -c 0-11 go test ./loadtest -run '^$' -bench BoardZstdLevels -count 3
 
-`BenchmarkBoardZstdLevels` (`loadtest/bench_test.go`) is `BenchmarkSharedBoard` with every stream on zstd, at SpeedFastest (lith's default), SpeedDefault and SpeedBetterCompression. Medians of three runs each, the range in brackets:
+`BenchmarkBoardZstdLevels` (`loadtest/bench_test.go`) is `BenchmarkSharedBoard` with every stream on zstd, at SpeedFastest (lith's default), SpeedDefault and SpeedBetterCompression, with FULL. Medians of three runs each, the range in brackets:
 
 | | fastest | default | better |
 |---|---|---|---|
-| bytes per frame on the wire | 2,266 (2,183 to 2,283) | 1,138 (1,087 to 1,153) | 365 (364 to 366) |
-| CPU, cores busy | 1.32 (1.05 to 1.41) | 1.07 (1.07 to 1.15) | 3.11 (3.08 to 3.20) |
-| heap per stream | 1.68 MiB | 2.76 MiB | 5.56 MiB |
-| tick p99 | 5.2 ms (2.80 to 5.24) | 2.5 ms (2.03 to 4.38) | 2.8 ms (1.97 to 3.99) |
+| bytes per frame on the wire | 2,213 (2,186 to 2,220) | 1,087 (1,076 to 1,129) | 365 (364 to 367) |
+| CPU, cores busy | 1.84 (1.80 to 1.90) | 1.74 (1.71 to 1.76) | 3.15 (3.01 to 3.45) |
+| heap per stream | 1.66 MiB | 2.76 MiB | 5.56 MiB |
+| tick p99 | 4.14 ms (4.12 to 4.22) | 4.16 ms (4.10 to 4.22) | 3.33 ms (3.29 to 3.54) |
 
-Every run sent 3,920 to 3,969 frames a second and dropped none. The default level halves the bytes of the fastest for no more CPU in these runs, and costs 1.1 MiB more per stream: about 220 MiB more for 200 tabs. Better compression sends a third of the default's bytes and fewer than brotli's 955 (above), for about brotli's CPU (3.31 cores) and two and a half times its heap. The 1-minute load average was 6.8 before the runs and 11.9 after them, from other agents' work, and the fastest level varied the most, as in the runs above.
+Every run sent 3,959 to 3,971 frames a second and dropped none. The default level halves the bytes of the fastest for no more CPU in these runs, and costs 1.1 MiB more per stream: about 220 MiB more for 200 tabs. Better compression sends a third of the default's bytes and fewer than brotli's 854 (above), for about brotli's CPU (3.42 cores) and three and a half times its heap. The 1-minute load average was 3.9 before the runs and 5.3 after them, the benchmark's own work included.
 
-`TestHeapPerStream` (`sse/heap_test.go`) measures the same levels on one core, without the render loop: 200 frames of a 57 KB page, of which five rows change from one frame to the next, to each of 20 streams. Three runs of
+`TestHeapPerStream` (`sse/heap_test.go`) measures the same levels on one core, without the render loop: 200 frames of a 57 KB page, of which five rows change from one frame to the next, to each of 20 streams. Three runs on 2026-10-14 at 17:21 UTC, on lith's main at ff7e536, of
 
     go test ./sse -run TestHeapPerStream -v -count 3
 
@@ -185,17 +181,17 @@ gave the same bytes in each run:
 
 | | bytes per frame | time per frame | heap per stream |
 |---|---|---|---|
-| zstd fastest | 405 | 36 to 41 µs | 1.65 MiB |
-| zstd fastest, `ZstdLowMemory` | 405 | 55 to 58 µs | 1.02 MiB |
-| zstd default | 228 | 31 µs | 2.73 MiB |
-| zstd better | 108 | 184 to 201 µs | 5.54 MiB |
-| brotli, quality 4 | 121 | 251 to 265 µs | 2.02 MiB |
+| zstd fastest | 405 | 29 to 30 µs | 1.65 MiB |
+| zstd fastest, `ZstdLowMemory` | 405 | 40 to 42 µs | 1.03 MiB |
+| zstd default | 228 | 23 to 25 µs | 2.73 MiB |
+| zstd better | 109 | 119 to 122 µs | 5.54 MiB |
+| brotli, quality 4 | 155 | 249 to 257 µs | 1.55 MiB |
 
 The `memmove` in zstd's `addBlock` comes from its history: the encoder keeps twice its window (1 MiB for the 512 KiB window) and, when the next block does not fit, moves the newest 512 KiB to the front. With a 140 KB frame that is one 512 KiB move every three or four frames, as many bytes again as copying each frame in. No encoder option changes the ratio: a larger window moves more bytes less often, and `ZstdLowMemory` moves once for every frame.
 
 ## Stream budget and hibernation
 
-Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:
+Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1; the settings and the floor again on 2026-10-14 between 17:28 and 17:34 UTC, on lith's main at ff7e536 (v0.2.0, whose streams flush their brotli encoders within a frame), with the 1-minute load average between 1.5 and 4.9. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:
 
     LITH_BUDGET=1 LITH_BUDGET_RUNS=3 taskset -c 0-11 go test ./bench/budget -run Settings -v -timeout 1h
 
@@ -203,40 +199,40 @@ Other agents' work kept the 1-minute load average between 3.3 and 5.6 while the 
 
 ### Settings
 
-Two workloads. The board is `loadtest.Board`'s view rendered from SQLite: 200 frames of 142 KB, one card changed before each. The page is a synthetic tab of a small business app shaped like libretto's: lists of up to 72 entries, a form in a modal, a detail page and an overview, 150 frames of 2.4 to 36.9 KB (13.6 KB on average), most of them a view the tab saw before with a change. `TestSettings` writes the frames to 64 streams in turn, as the hub does, and measures the heap the open streams keep after two collections, divided by 64, the bytes per frame on the wire after the first frame, and the process's CPU time per frame, the median of three runs (the runs differ by under 6%). zstd runs at its fastest level (`settings.csv`):
+Two workloads. The board is `loadtest.Board`'s view rendered from SQLite: 200 frames of 142 KB, one card changed before each. The page is a synthetic tab of a small business app shaped like libretto's: lists of up to 72 entries, a form in a modal, a detail page and an overview, 150 frames of 2.4 to 36.9 KB (13.6 KB on average), most of them a view the tab saw before with a change. `TestSettings` writes the frames to 64 streams in turn, as the hub does, and measures the heap the open streams keep after two collections, divided by 64, the bytes per frame on the wire after the first frame, and the process's CPU time per frame, the median of three runs (the runs differ by up to 11%). zstd runs at its fastest level (`settings.csv`):
 
 | Setting | Board: heap | bytes per frame | CPU per frame | Page: heap | bytes per frame | CPU per frame |
 |---|---|---|---|---|---|---|
-| zstd 2^15 | 1.62 MiB | 11,234 | 161 µs | 1.62 MiB | 1,130 | 21.6 µs |
-| zstd 2^15, low memory | 0.53 MiB | 11,234 | 159 µs | 0.52 MiB | 1,130 | 20.3 µs |
-| zstd 2^16 | 1.66 MiB | 10,872 | 160 µs | 1.65 MiB | 571 | 14.6 µs |
-| zstd 2^16, low memory | 0.63 MiB | 10,872 | 156 µs | 0.58 MiB | 571 | 13.2 µs |
-| zstd 2^17 | 1.66 MiB | 10,831 | 167 µs | 1.65 MiB | 379 | 12.4 µs |
-| zstd 2^17, low memory | 0.69 MiB | 10,831 | 167 µs | 0.64 MiB | 379 | 11.3 µs |
-| zstd 2^18 | 1.66 MiB | 2,703 | 68.3 µs | 1.65 MiB | 248 | 10.3 µs |
-| zstd 2^18, low memory | 0.81 MiB | 2,703 | 76.8 µs | 0.76 MiB | 248 | 10.3 µs |
-| zstd 2^19 | 1.66 MiB | 1,471 | 62.3 µs | 1.65 MiB | 189 | 9.5 µs |
-| zstd 2^19, low memory | 1.06 MiB | 1,471 | 84.1 µs | 1.01 MiB | 189 | 10.8 µs |
-| zstd 2^20 | 2.66 MiB | 794 | 55.6 µs | 2.65 MiB | 163 | 10.0 µs |
-| zstd 2^20, low memory | 1.56 MiB | 794 | 124 µs | 1.51 MiB | 163 | 12.0 µs |
-| brotli q3 2^16 | 0.89 MiB | 9,999 | 709 µs | 0.69 MiB | 311 | 50.0 µs |
-| brotli q3 2^17 | 1.02 MiB | 10,006 | 693 µs | 0.82 MiB | 242 | 48.4 µs |
-| brotli q3 2^18 | 1.27 MiB | 1,823 | 349 µs | 1.07 MiB | 186 | 46.0 µs |
-| brotli q3 2^19 | 1.77 MiB | 899 | 309 µs | 1.57 MiB | 161 | 45.7 µs |
-| brotli q3 2^20 | 2.77 MiB | 411 | 294 µs | 2.57 MiB | 157 | 47.1 µs |
-| brotli q4 2^16 | 1.75 MiB | 9,716 | 889 µs | 1.22 MiB | 239 | 60.8 µs |
-| brotli q4 2^17 | 1.88 MiB | 9,648 | 879 µs | 1.34 MiB | 198 | 57.9 µs |
-| brotli q4 2^18 | 2.13 MiB | 986 | 374 µs | 1.59 MiB | 161 | 56.3 µs |
-| brotli q4 2^19 | 2.63 MiB | 389 | 347 µs | 2.09 MiB | 147 | 55.8 µs |
-| brotli q4 2^20 | 3.63 MiB | 161 | 334 µs | 3.09 MiB | 143 | 57.0 µs |
-| gzip | 0.80 MiB | 13,169 | 150 µs | 0.79 MiB | 1,318 | 16.7 µs |
-| identity | 1 KiB | 142,067 | 0.2 µs | 1 KiB | 13,703 | 0.3 µs |
+| zstd 2^15 | 1.62 MiB | 11,234 | 151 µs | 1.62 MiB | 1,130 | 19.5 µs |
+| zstd 2^15, low memory | 0.53 MiB | 11,234 | 147 µs | 0.52 MiB | 1,130 | 17.8 µs |
+| zstd 2^16 | 1.66 MiB | 10,872 | 149 µs | 1.65 MiB | 571 | 13.0 µs |
+| zstd 2^16, low memory | 0.63 MiB | 10,872 | 146 µs | 0.58 MiB | 571 | 12.2 µs |
+| zstd 2^17 | 1.66 MiB | 10,831 | 156 µs | 1.65 MiB | 379 | 11.0 µs |
+| zstd 2^17, low memory | 0.69 MiB | 10,831 | 155 µs | 0.64 MiB | 379 | 10.8 µs |
+| zstd 2^18 | 1.66 MiB | 2,703 | 63.5 µs | 1.65 MiB | 248 | 9.9 µs |
+| zstd 2^18, low memory | 0.81 MiB | 2,703 | 72.0 µs | 0.76 MiB | 248 | 9.6 µs |
+| zstd 2^19 | 1.66 MiB | 1,471 | 58.5 µs | 1.65 MiB | 189 | 9.0 µs |
+| zstd 2^19, low memory | 1.06 MiB | 1,471 | 78.7 µs | 1.01 MiB | 189 | 10.2 µs |
+| zstd 2^20 | 2.66 MiB | 794 | 52.4 µs | 2.65 MiB | 163 | 9.3 µs |
+| zstd 2^20, low memory | 1.56 MiB | 794 | 116 µs | 1.51 MiB | 163 | 11.1 µs |
+| brotli q3 2^16 | 0.67 MiB | 10,402 | 803 µs | 0.66 MiB | 266 | 51.1 µs |
+| brotli q3 2^17 | 0.79 MiB | 10,454 | 799 µs | 0.78 MiB | 224 | 49.9 µs |
+| brotli q3 2^18 | 1.04 MiB | 158 | 398 µs | 1.03 MiB | 183 | 49.2 µs |
+| brotli q3 2^19 | 1.54 MiB | 162 | 386 µs | 1.53 MiB | 169 | 49.2 µs |
+| brotli q3 2^20 | 2.54 MiB | 162 | 386 µs | 2.53 MiB | 166 | 51.4 µs |
+| brotli q4 2^16 | 1.18 MiB | 9,903 | 956 µs | 1.17 MiB | 242 | 59.4 µs |
+| brotli q4 2^17 | 1.30 MiB | 9,849 | 931 µs | 1.30 MiB | 201 | 58.7 µs |
+| brotli q4 2^18 | 1.55 MiB | 95 | 394 µs | 1.55 MiB | 163 | 55.3 µs |
+| brotli q4 2^19 | 2.05 MiB | 98 | 397 µs | 2.05 MiB | 150 | 55.2 µs |
+| brotli q4 2^20 | 3.05 MiB | 99 | 394 µs | 3.05 MiB | 146 | 58.5 µs |
+| gzip | 0.80 MiB | 13,169 | 143 µs | 0.79 MiB | 1,318 | 16.3 µs |
+| identity | 1 KiB | 142,067 | 0.3 µs | 1 KiB | 13,703 | 0.3 µs |
 
-- A window that cannot reach the frame before costs the board four times the bytes and over twice the CPU: below 2^18 a frame finds the previous one out of reach. The page loses less, since a window still holds several of its frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. libretto's real frames lose less (9% more at 2^17, 19% at 2^16): their measured session repeats a few views more often than this page.
-- zstd with its full history holds 1.6 MiB at every window up to 2^19, so below 2^19 only low memory saves heap. It costs CPU with the board's frames (84 µs against 62 at 2^19, 124 against 56 at 2^20) and 1 to 2 µs with the page's.
-- On the board, brotli at quality 3 holds 0.86 MiB less than quality 4 at the same window and sends about twice its bytes. Both take four to six times zstd's CPU.
+- A window that cannot reach the frame before costs the board four times the bytes with zstd and a hundred times with brotli, and twice the CPU or more: below 2^18 a frame finds the previous one out of reach. The page loses less, since a window still holds several of its frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. libretto's real frames lose less (9% more at 2^17, 19% at 2^16): their measured session repeats a few views more often than this page.
+- zstd with its full history holds 1.6 MiB at every window up to 2^19, so below 2^19 only low memory saves heap. It costs CPU with the board's frames (79 µs against 59 at 2^19, 116 against 52 at 2^20) and 1 to 2 µs with the page's.
+- On the board, brotli at quality 3 holds 0.51 MiB less than quality 4 at the same window, and once the window holds the frame sends two thirds more bytes for about the same CPU. At the same window, brotli takes five to seven and a half times the CPU of zstd with its full history on the board, four to six times on the page.
 
-`TestFloor` (`floor.csv`, the page) finds what a compressed stream holds whatever its window: zstd with low memory holds 0.44 MiB at its smallest window, 2^10 (its 256 KiB hash table, 129 KiB of history and its block buffers), brotli at quality 2 or 3 0.60 MiB at windows up to 2^14, gzip 0.79 MiB. Below 0.44 MiB a stream only goes out uncompressed.
+`TestFloor` (`floor.csv`, the page) finds what a compressed stream holds whatever its window: zstd with low memory holds 0.44 MiB at its smallest window, 2^10 (its 256 KiB hash table, 129 KiB of history and its block buffers), brotli at quality 2 or 3 0.56 MiB at windows up to 2^14, gzip 0.79 MiB. Below 0.44 MiB a stream only goes out uncompressed.
 
 ### Hibernation
 
@@ -251,7 +247,7 @@ Two workloads. The board is `loadtest.Board`'s view rendered from SQLite: 200 fr
 | | 30 s | 0.268 MiB | 16% | 1,532 | 2,412 B |
 | | 120 s | 0.787 MiB | 48% | 1,093 | 1,798 B |
 
-After 30 s, a sixth of the encoders stay and a frame takes about 1.1 KB more: 41% of the frames start a zstd frame without history (1,947 bytes on average), and the list after a modal finds only the modal in its frame. That is about 45 KB more per tab and hour. A heartbeat of a hibernating stream goes out in a frame of its own, 15 bytes instead of 6. Waking takes 36 to 62 µs for the page's 37 KB list with an encoder from the pool and 101 to 117 µs with a new one, 124 µs and 303 to 467 µs for the board's frame (`TestWakeCost`); the list then takes 3,790 bytes on the wire, the board 10,930.
+After 30 s, a sixth of the encoders stay and a frame takes about 1.1 KB more: 41% of the frames start a zstd frame without history (1,947 bytes on average), and the list after a modal finds only the modal in its frame. That is about 45 KB more per tab and hour. A heartbeat of a hibernating stream goes out in a frame of its own, 15 bytes instead of 6. Waking takes 36 to 62 µs for the page's 37 KB list with an encoder from the pool and 101 to 117 µs with a new one, 124 µs and 303 to 467 µs for the board's frame (`TestWakeCost`); the list then takes 3,790 bytes on the wire, the board 10,930. Run once more on 2026-10-14 at 17:33 UTC, on lith's main at ff7e536 (v0.2.0), the simulation gave the same bytes and the same heap within 0.001 MiB a tab, and waking took 34 and 103 µs for the list, 124 and 249 µs for the board.
 
 Headless Chromium 154 (`TestChromiumDecodesFrames` in `sse`) decodes a zstd body of several frames event by event, each as soon as it is sent: frames that hibernation ended, raw frames while a budget had no room, frames from pooled encoders. Given a brotli body that holds a second brotli stream after the first, it decodes the first and drops the second without an error.
 
@@ -265,10 +261,10 @@ Headless Chromium 154 (`TestChromiumDecodesFrames` in `sse`) decodes a zstd body
 | zstd at the floor, low memory | 2,000 | 1,626 MiB | 2,703 | 2,000 | 1,278 MiB | 379 |
 | budget of 128 MiB, first write only | 74 | 124 MiB | 136,865 | 74 | 123 MiB | 13,203 |
 | budget of 128 MiB | 144 | 119 MiB | 132,037 | 167 | 109 MiB | 12,590 |
-| budget of 128 MiB, 503 | 144, 1,856 refused | 117 MiB | 2,762 | 167, 1,833 refused | 107 MiB | 379 |
+| budget of 128 MiB, 503 | 143, 1,857 refused | 116 MiB | 2,703 | 167, 1,833 refused | 107 MiB | 379 |
 | budget of 1 GiB | 1,150 | 936 MiB | 61,937 | 1,337 | 855 MiB | 4,796 |
 
-When each stream writes only its first frame, the first 73 take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor. A budget of 1 GiB gives the board's streams zstd 2^19 up to about 550 streams, 2^19 with low memory up to about 850, 2^18 with low memory up to 1,150, and nothing beyond. The budget books 32 KiB for every open stream, 62 MiB at 2,000.
+When each stream writes only its first frame, the first 73 take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor. A budget of 1 GiB gives the board's streams zstd 2^19 up to 590 streams, 2^19 with low memory up to about 900, 2^18 with low memory up to 1,150, and nothing beyond. The budget books 32 KiB for every open stream, 62 MiB at 2,000.
 
 ### The board with and without a budget
 
@@ -335,16 +331,16 @@ Hashing a frame for the unchanged-frame check takes 3.5 µs at 49 KB and 15.8 µ
 
 | Frame | Views | Clients | Opened | Window holds the frame | Compressed | First uncompressed | Booked | Heap |
 |---|---|---|---|---|---|---|---|---|
-| 49 KB | one | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 140.8 MiB |
-| 49 KB | one | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.6 MiB |
-| 233 KB | one | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.1 MiB |
-| 233 KB | one | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.7 MiB |
+| 49 KB | one | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 141.0 MiB |
+| 49 KB | one | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.5 MiB |
+| 233 KB | one | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.4 MiB |
+| 233 KB | one | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.8 MiB |
 | 233 KB | one each | brotli | 150 | 114 | 114 | 115th | 150.6 MiB | 144.7 MiB |
-| 233 KB | one each | zstd | 150 | 150 | 150 | 88th | 133.6 MiB | 125.1 MiB |
-| 233 KB | one each | half each | 150 | 123 | 124 | 102nd | 134.9 MiB | 128.0 MiB |
+| 233 KB | one each | zstd | 150 | 150 | 150 | 88th | 133.6 MiB | 125.0 MiB |
+| 233 KB | one each | half each | 150 | 124 | 124 | 102nd | 135.2 MiB | 128.2 MiB |
 | 233 KB | one each | zstd | 200 | 168 | 168 | 88th | 150.6 MiB | 140.4 MiB |
 
-The hub keeps no frame of a view that one stream watches, so the tabs book no frames. 150 tabs with a 233 KB view of their own all hold 2^18 in 200 MiB with brotli (197.4 MiB booked, 190.5 MiB of heap), in 140 MiB with zstd (133.6 and 125.1 MiB), and in 230 MiB half each.
+The hub keeps no frame of a view that one stream watches, so the tabs book no frames. 150 tabs with a 233 KB view of their own all hold 2^18 in 200 MiB with brotli (197.4 MiB booked, 190.5 MiB of heap), in 140 MiB with zstd (133.6 and 125.1 MiB), and in 230 MiB half each. With `Refuse`, every tab let in holds 2^18: 120 MiB lets in 134 of the 150 zstd tabs, 91 brotli tabs and 111 when half are each; 150 MiB all 150 zstd tabs, 114 brotli tabs and 139 mixed.
 
 ### What lith adopted
 

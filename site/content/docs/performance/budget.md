@@ -7,7 +7,7 @@ description: What each window and encoder setting costs, what streams and views 
 order: 4
 ---
 
-The tests in `bench/budget` measured what a stream's encoder costs under each setting, what a stream and a view hold besides it, and how memory budgets behave as streams open. Their CSV files are the source of the charts and tables on this page. Measured on 2026-10-13 and 2026-10-14 with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, pinned to the performance cores.
+The tests in `bench/budget` measured what a stream's encoder costs under each setting, what a stream and a view hold besides it, and how memory budgets behave as streams open. Their CSV files are the source of the charts and tables on this page. Measured on 2026-10-13 and 2026-10-14 on the development machine with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, pinned to the performance cores.
 
 The two workloads:
 
@@ -16,7 +16,7 @@ The two workloads:
 
 ## Settings
 
-`TestSettings` writes each workload's frames to 64 streams in turn, as the hub does, and measures the heap the open streams keep after two collections, the bytes per frame on the wire after the first frame, and the CPU time per frame: the median of three runs, which differ by under 6%.
+`TestSettings` writes each workload's frames to 64 streams in turn, as the hub does, and measures the heap the open streams keep after two collections, the bytes per frame on the wire after the first frame, and the CPU time per frame: the median of three runs, which differ by up to 11%. Measured on 2026-10-14 with lith v0.2.0.
 
 ```chart
 kind: bars
@@ -35,14 +35,14 @@ series: zstd, fastest=zstd; brotli, quality 4=br
 "zstd, fastest",18,2703
 "zstd, fastest",19,1471
 "zstd, fastest",20,794
-"brotli, quality 4",16,9716
-"brotli, quality 4",17,9648
-"brotli, quality 4",18,986
-"brotli, quality 4",19,389
-"brotli, quality 4",20,161
+"brotli, quality 4",16,9903
+"brotli, quality 4",17,9849
+"brotli, quality 4",18,95
+"brotli, quality 4",19,98
+"brotli, quality 4",20,99
 ```
 
-A window that cannot reach the frame before costs the board four times the bytes and over twice the CPU: below 2^18, a frame finds the previous one out of reach. The page loses less, since a window still holds several of its smaller frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. libretto's real frames lose less again, 9% more at 2^17 and 19% at 2^16, since its sessions repeat a few views more often than this page.
+A window that cannot reach the frame before costs the board four times the bytes with zstd and a hundred times with brotli, and twice the CPU or more: below 2^18, a frame finds the previous one out of reach. The page loses less, since a window still holds several of its smaller frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. libretto's real frames lose less again, 9% more at 2^17 and 19% at 2^16, since its sessions repeat a few views more often than this page.
 
 ```chart
 kind: bars
@@ -57,10 +57,10 @@ series: full history=false; low memory=true
 ---
 full history,15,1.622
 full history,16,1.657
-full history,17,1.656
-full history,18,1.656
-full history,19,1.656
-full history,20,2.656
+full history,17,1.657
+full history,18,1.657
+full history,19,1.657
+full history,20,2.657
 low memory,15,0.525
 low memory,16,0.626
 low memory,17,0.688
@@ -69,27 +69,27 @@ low memory,19,1.063
 low memory,20,1.563
 ```
 
-zstd with its full history holds 1.6 MiB at every window up to 2^19, so below 2^19 only `ZstdLowMemory` saves heap. Low memory costs CPU with the board's large frames, 84 µs per frame against 62 at 2^19 and 124 against 56 at 2^20, and 1 to 2 µs with the page's. On the board, brotli at quality 3 holds 0.86 MiB less than at quality 4 for the same window and sends about twice its bytes; both take four to six times zstd's CPU. The table of every setting, for both workloads, is in [`bench/RESULTS.md`](https://github.com/zweiundeins/lith/blob/main/bench/RESULTS.md) and `settings.csv`.
+zstd with its full history holds 1.6 MiB at every window up to 2^19, so below 2^19 only `ZstdLowMemory` saves heap. Low memory costs CPU with the board's large frames, 79 µs per frame against 59 at 2^19 and 116 against 52 at 2^20, and 1 to 2 µs with the page's. On the board, brotli at quality 3 holds 0.51 MiB less than at quality 4 for the same window, and once the window holds the frame sends two thirds more bytes for about the same CPU. At the same window, brotli takes five to seven and a half times the CPU of zstd with its full history on the board, and four to six times on the page. The table of every setting, for both workloads, is in [`bench/RESULTS.md`](https://github.com/zweiundeins/lith/blob/main/bench/RESULTS.md) and `settings.csv`.
 
 ## The least a stream holds
 
-`TestFloor` (`floor.csv`, the page) finds what a compressed stream holds whatever its window: zstd with low memory 0.44 MiB at its smallest window, 2^10 (its 256 KiB hash table, 129 KiB of history and its block buffers), brotli at quality 2 or 3 0.60 MiB at windows up to 2^14, gzip 0.79 MiB. Below 0.44 MiB, a stream only goes out uncompressed.
+`TestFloor` (`floor.csv`, the page) finds what a compressed stream holds whatever its window: zstd with low memory 0.44 MiB at its smallest window, 2^10 (its 256 KiB hash table, 129 KiB of history and its block buffers), brotli at quality 2 or 3 0.56 MiB at windows up to 2^14, gzip 0.79 MiB. Below 0.44 MiB, a stream only goes out uncompressed.
 
 ## Large frames and brotli's flushes
 
-`TestFrameSizes` (`framesize.csv`, measured on 2026-10-14) writes frames of about 50, 142 and 230 KB to 64 streams of each tier: the board with 70, 200 and 330 cards; a data table of 690 rows that changes three cells before each frame and scrolls a few rows every tenth; and a list of 1,300 rows of which every hundredth changes in place. zstd holds what its tier books at every size, or at most 40 KiB more.
+`TestFrameSizes` (`framesize.csv`, measured on 2026-10-14) writes frames of about 50, 142 and 230 KB to 64 streams of each tier: the board with 70, 200 and 330 cards; a data table of 690 rows that changes three cells before each frame and scrolls a few rows every tenth; and a list of 1,300 rows of which every hundredth changes in place. At every one of these sizes, each tier holds at most what the budget books for it: the tiers are the most a stream held, rounded up to 16 KiB.
 
-A brotli encoder that is not flushed codes all it took since its last flush as one metablock, and keeps an output buffer twice its size: its heap grew with the frame. Within a metablock it also extends a copy into the next input block (16 KiB at quality 3, 64 KiB at 4) without hashing that block, so after a change it could find nothing of the frame before and coded the rest of the frame in short pieces of itself. A stream now flushes its brotli encoder every 16 KiB of a frame at quality 3 and every 32 KiB at 4: it parses and hashes every block, and holds the same heap at every frame size, 12 to 32% below its tier. At 2^18, before and after:
+A brotli encoder that takes a frame whole codes it as one metablock and keeps an output buffer twice its size, so its heap grows with the frame. Within a metablock it also extends a copy into the next input block (16 KiB at quality 3, 64 KiB at 4) without hashing that block, so after a change it finds nothing of the frame before and codes the rest of the frame in short pieces of itself. A stream flushes its brotli encoder every 16 KiB of a frame at quality 3 and every 32 KiB at 4: it parses and hashes every block, and holds about the same heap at every frame size. At 2^18, with the flushes and with each frame taken whole:
 
-| Frame | Setting | Heap | Bytes per frame | CPU per frame |
+| Frame | Setting | Heap, flushed / whole | Bytes per frame, flushed / whole | CPU per frame, flushed / whole |
 | --- | --- | --- | --- | --- |
-| board, 230 KB | quality 3 | 1,554 KiB, now 1,083 | 3,173, now 259 | 559 µs, now 630 |
-| board, 230 KB | quality 4 | 2,370 KiB, now 1,603 | 2,382, now 140 | 625 µs, now 648 |
-| data table, 230 KB | quality 3 | 1,562 KiB, now 1,091 | 5,756, now 227 | 704 µs, now 627 |
-| data table, 230 KB | quality 4 | 2,373 KiB, now 1,611 | 3,450, now 134 | 734 µs, now 637 |
-| list, 230 KB | quality 3 | 1,530 KiB, now 1,063 | 363, now 676 | 511 µs, now 666 |
-| list, 230 KB | quality 4 | 2,346 KiB, now 1,591 | 285, now 406 | 590 µs, now 656 |
-| board, 50 KB | quality 4 | 1,790 KiB, now 1,585 | 34, now 50 | 137 µs, now 141 |
+| board, 230 KB | quality 3 | 1,083 / 1,554 KiB | 259 / 3,173 | 630 / 559 µs |
+| board, 230 KB | quality 4 | 1,603 / 2,370 KiB | 140 / 2,382 | 648 / 625 µs |
+| data table, 230 KB | quality 3 | 1,091 / 1,562 KiB | 227 / 5,756 | 627 / 704 µs |
+| data table, 230 KB | quality 4 | 1,611 / 2,373 KiB | 134 / 3,450 | 637 / 734 µs |
+| list, 230 KB | quality 3 | 1,063 / 1,530 KiB | 676 / 363 | 666 / 511 µs |
+| list, 230 KB | quality 4 | 1,591 / 2,346 KiB | 406 / 285 | 656 / 590 µs |
+| board, 50 KB | quality 4 | 1,585 / 1,790 KiB | 50 / 34 | 141 / 137 µs |
 
 Each flush costs a metablock header, about 25 bytes when the block holds a change: the list, with its changes spread through every block, pays that and loses what the flushes win elsewhere. A window smaller than the frame gains nothing from them and pays up to 5% more bytes.
 
@@ -106,7 +106,7 @@ A frame refers to the one before while the window holds it. `TestWindowMargin` (
 
 In a hub, a stream with an encoder holds what `TestFrameSizes` measured for it: with the 233 KB table, shared or its own, 1,075 to 1,079 KiB a stream at quality 3 and 2^18, 1,602 to 1,605 KiB at quality 4 and 846 to 850 KiB with zstd at 2^18 and low memory, the hub's part included.
 
-So a budget books what stays: each stream's encoder at its tier, the most a stream held at that tier with frames of 50 to 230 KB rounded up to 16 KiB; 32 KiB for each stream; and the newest frame of each view that two or more streams watch, at its length and 8 KiB, once for all of them. A tab with a 233 KB view of its own at quality 3 and 2^18 books 1,104 + 32 = 1,136 KiB: its frame is garbage once the stream has written it, as the render's buffers are. `TestBudgetMatchesHeap` in `live` checks the model: for 12 streams with a view of 146 or 246 KB each, or one view for every two, what the budget books is what they hold after a collection, within 2 to 4% for brotli and zstd. Uncompressed, where the budget books little but the 32 KiB a stream, which include net/http's buffers that the test's streams have none of, they hold 11 to 33% less.
+So a budget books what stays: each stream's encoder at its tier, the most a stream held at that tier with frames of 50 to 230 KB rounded up to 16 KiB; 32 KiB for each stream; and the newest frame of each view that two or more streams watch, at its length and 8 KiB, once for all of them. A tab with a 233 KB view of its own at quality 3 and 2^18 books 1,104 + 32 = 1,136 KiB: its frame is garbage once the stream has written it, as the render's buffers are. `TestBudgetMatchesHeap` in `live` checks the model: for 12 streams with a view of 146 or 246 KB each, or one view for every two, what the budget books is what they hold after a collection, within 1 to 4% for brotli and zstd. Uncompressed, where the budget books little but the 32 KiB a stream, which include net/http's buffers that the test's streams have none of, they hold 11 to 33% less.
 
 What a render allocates is garbage: it is not part of what the streams hold, and the budget does not book it. Go's collector lets the heap grow to twice what is live before it collects (GOGC=100), and the budget's default limit, half of GOMEMLIMIT, leaves that half to the garbage and to the rest of the app. A tab that renders its own 233 KB view every tick makes 1 MiB of garbage a tick, and 150 such tabs 150 MiB.
 
@@ -339,7 +339,7 @@ At 2,000 streams:
 | budget of 1 GiB | 1,150 | 936 MiB | 61,937 | 1,337 | 855 MiB | 4,796 |
 
 - When each stream writes only its first frame, the first 73 take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor.
-- A budget of 1 GiB gives the board's streams zstd 2^19 up to about 550 streams, 2^19 with low memory up to about 850, 2^18 with low memory up to 1,150, and nothing beyond. A stream that finds room for 2^15 but not for 2^18 takes 2^15, which compresses each frame alone: one stream at a time.
+- A budget of 1 GiB gives the board's streams zstd 2^19 up to 590 streams, 2^19 with low memory up to about 900, 2^18 with low memory up to 1,150, and nothing beyond. A stream that finds room for 2^15 but not for 2^18 takes 2^15, which compresses each frame alone: one stream at a time.
 - The budget books 32 KiB for every open stream, compressed or not: 62 MiB at 2,000 streams, beyond the limit when the streams cannot be turned away.
 - With `Refuse`, the streams beyond the floor's room get a 503 instead of every frame uncompressed, and every stream let in holds the floor: the bytes per frame of the streams that run are those of the floor.
 
@@ -370,7 +370,7 @@ A hub makes a budget when it is given none: half the process's memory limit, for
 - A brotli stream takes the window that holds its frame and no larger one: the 235 KB board takes 140 bytes a frame at quality 4 and 2^18, and 141 at 2^19. It takes quality 4 while the budget stays at most half full, quality 3 after that, and a window below its frame (quality 3 at 2^16, 17,013 bytes a frame for that board) only when quality 3 at its window does not fit what is left. It goes out uncompressed only when even 2^16 does not fit.
 - A zstd stream takes the largest tier within its fair share, since its bytes keep falling as its window grows: the 235 KB board takes 4,183 bytes a frame at 2^18 with low memory, 2,948 at 2^19 and 1,715 at 2^20; the 49 KB board 1,180 at 2^16 and 287 at 2^19. As streams open it moves down to the window that holds its frame and no further, takes 2^15 only when that window does not fit, and moves up again at a write once room frees up.
 - A brotli stream keeps its tier until it closes. A stream with `live.Spec.Reconnect` whose window is below its frame, or that went out uncompressed, ends with `sse.Reconnect` once room frees up for a window that holds its frame, and the page opens it again: one stream a second, and a stream ID once a minute.
-- With `Refuse`, a budget lets a stream in only with room for the smallest tier whose window holds its frame, and turns away every other stream, an uncompressed one when its 32 KiB do not fit. `live.Serve` opens a stream once its first frames are rendered and gives their length to the budget (`sse.Options.Frame`), so the response's headers go out with the first frame: with a hub that ticks every 50 ms, 24 ms later at the median and 45 at the 90th percentile, while the first frame comes as soon as before. A stream let in keeps a window that holds its frame until it closes: a zstd stream keeps that tier booked while it has no encoder and moves no lower, a brotli stream takes no window below its frame. When the budget turns a stream away, the zstd streams above their frame's window move down to it at their next write, until the stream would fit. A stream whose frames outgrow its window later keeps its tier and sends more bytes a frame until it gets a larger one: a zstd stream once room frees up, a brotli stream when it opens again. Memory is then the stream cap: `live.Options.MaxStreams` stays at its default, 2000, as a backstop, and pages open their streams with `retry: 'error'`, so that a refused tab comes back once a stream closes.
+- With `Refuse`, a budget lets a stream in only with room for the smallest tier whose window holds its frame, and turns away every other stream, an uncompressed one when its 32 KiB do not fit. `live.Serve` opens a stream once its first frames are rendered and gives their length to the budget (`sse.Options.Frame`), so the response's headers go out with the first frame: with a hub that ticks every 50 ms, 24 ms after the request at the median and 45 at the 90th percentile. A stream let in keeps a window that holds its frame until it closes: a zstd stream keeps that tier booked while it has no encoder and moves no lower, a brotli stream takes no window below its frame. When the budget turns a stream away, the zstd streams above their frame's window move down to it at their next write, until the stream would fit. A stream whose frames outgrow its window later keeps its tier and sends more bytes a frame until it gets a larger one: a zstd stream once room frees up, a brotli stream when it opens again. Memory is then the stream cap: `live.Options.MaxStreams` stays at its default, 2000, as a backstop, and pages open their streams with `retry: 'error'`, so that a refused tab comes back once a stream closes.
 
 `TestBudgetCurve` (`curve.csv`) opens streams one by one on a hub with real encoders and frames: data tables of 49, 143 and 233 KB in one view that every stream watches, twice as many streams as the budget has MiB; and 150 tabs that each watch a 233 KB view of their own, in 150 MiB and in the least budget that holds them all at 2^18, and 200 zstd tabs in 150 MiB; and the 150 tabs in budgets of 120 and 150 MiB with `Refuse`, where a tab turned away tries again once after the next round of writes, as a page would, and else stays away. After every ten opens every view changes and every stream writes, so that zstd streams move. The first uncompressed stream is the first whose first frame went out uncompressed or in raw blocks: a zstd stream sends raw blocks until the streams above their share have moved down. Booked is what the budget books once every stream is open, heap what the heap and the stacks hold after a collection; the test's streams have no net/http connections, for which the budget books part of its 32 KiB a stream. The bytes per frame are the mean of every stream's last frame, uncompressed ones included.
 
@@ -419,7 +419,7 @@ A hub makes a budget when it is given none: half the process's memory limit, for
 | 233 KB | one each | 150 MiB, `Refuse` | half each | 139 of 150 | 139 | 139 | none | 149.9 MiB | 142.7 MiB | 3,343 |
 <!-- end include -->
 
-- 150 MiB holds 114 brotli tabs with a 233 KB view of their own at 2^18, 168 zstd tabs, and 123 of 150 when half are each. The hub keeps none of the tabs' frames, which would take 235 KiB each, 34 MiB for 150 tabs.
+- 150 MiB holds 114 brotli tabs with a 233 KB view of their own at 2^18, 168 zstd tabs, and 124 of 150 when half are each. The hub keeps none of the tabs' frames, which would take 235 KiB each, 34 MiB for 150 tabs.
 - All 150 tabs hold 2^18 in 200 MiB with brotli (197.4 MiB booked, 190.5 MiB of heap: 62 at quality 4, 88 at quality 3), in 140 MiB with zstd (133.6 and 125.1 MiB), and in 230 MiB half each, where the zstd tabs take 2^19 while there is room. With the default limit, half of GOMEMLIMIT, 150 brotli tabs need a GOMEMLIMIT of 400 MiB.
 - With brotli and zstd tabs mixed, the zstd streams that opened first hold large tiers until a stream finds no room and they write again, and brotli streams that open meanwhile go out uncompressed. With `Reconnect`, those come back once the zstd streams have moved down.
 - With `Refuse`, every tab let in holds 2^18 from its first frame, and the rest get a 503. 120 MiB holds 134 of the 150 zstd tabs, 91 brotli tabs (37 at quality 4, 54 at 3) and 111 when half are each, at 2 to 4 KB a frame; 150 MiB holds all 150 zstd tabs, 114 brotli tabs and 139 mixed. Without `Refuse`, in 150 MiB the zstd tabs from the 88th on sent their first frames in raw blocks until the others had moved down, and 36 brotli tabs went out uncompressed.

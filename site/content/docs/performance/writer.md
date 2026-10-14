@@ -5,7 +5,7 @@ summary: Commands a second with synchronous FULL and NORMAL, at 1, 50 and 200 pr
 order: 1
 ---
 
-`BenchmarkWriter` (`writer/bench_test.go`) runs the writer alone, without HTTP: 1, 50 or 200 producers, each moving money between ten accounts of its own and waiting for the commit with `Do`, as a request handler does. A command reads a balance, debits one account, credits another, appends to a ledger and touches a topic: four statements, plus the writer's `SAVEPOINT` and `RELEASE`. SQLite checkpoints the WAL itself (`CheckpointAuto`). Measured on 2026-10-12, medians of three runs.
+`BenchmarkWriter` (`writer/bench_test.go`) runs the writer alone, without HTTP: 1, 50 or 200 producers, each moving money between ten accounts of its own and waiting for the commit with `Do`, as a request handler does. A command reads a balance, debits one account, credits another, appends to a ledger and touches a topic: four statements, plus the writer's `SAVEPOINT` and `RELEASE`. SQLite checkpoints the WAL itself (`CheckpointAuto`). Measured on 2026-10-12 on the development machine, medians of three runs.
 
 ```chart
 kind: bars
@@ -52,11 +52,11 @@ At 200 producers with `CheckpointAuto`, the slowest 1% of transactions take 7 to
 | FULL | 200 | 45,100 (44,075 to 46,228) | 125 | 2.6 | 4.6 to 5.3 |
 | NORMAL | 200 | 71,381 (68,629 to 74,217) | 102 | 1.1 | 3.0 to 3.8 |
 
-The checkpoint is no longer part of a transaction's time: the producers queue their next commands while it runs. The template and this site open their databases with `CheckpointWriter`.
+With `CheckpointWriter` the checkpoint is not part of a transaction's time: the producers queue their next commands while it runs. The template and this site open their databases with `CheckpointWriter`.
 
 ## A real command
 
-kanban's `BenchmarkMoveCard` on the same machine, on 2026-10-08 with FULL, moved 240 to 340, about 5,100 and about 13,800 cards a second with 1, 50 and 200 people, in transactions of 1, 25 and 103 moves. A move runs about fifteen statements, and a transaction alone took 2.9 to 4.2 ms. Before the writer prepared each SQL text once, modernc's parsing and planning took 41% of the writer's CPU at 200 people, and the same run moved 10,000 cards a second.
+kanban's `BenchmarkMoveCard` on the same machine, on 2026-10-08 with FULL, moved 240 to 340, about 5,100 and about 13,800 cards a second with 1, 50 and 200 people, in transactions of 1, 25 and 103 moves. A move runs about fifteen statements, and a transaction alone took 2.9 to 4.2 ms.
 
 Anders Murphy's benchmark, two updates per transaction on an M1 MacBook, reports 98,163 transactions a second with a savepoint each and FULL. Without `PRAGMA fullfsync`, macOS's fsync does not wait for the drive's cache, so NORMAL is the closer comparison here. His workload is smaller than a real command: the shape carries over, the figures do not.
 

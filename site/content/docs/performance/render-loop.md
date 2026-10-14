@@ -10,34 +10,34 @@ order: 2
 
 ## zstd against brotli
 
-Measured on 2026-10-13 with `synchronous=FULL` and the writer's checkpoints, two sets of three runs; medians of the six, the range in brackets:
+Measured on 2026-10-14 on the development machine with lith v0.2.0, `synchronous=FULL` and the writer's checkpoints, two sets of three runs; medians of the six, the range in brackets:
 
 | | zstd | brotli |
 | --- | --- | --- |
-| CPU, cores busy | 1.59 (1.01 to 1.65) | 3.31 (3.00 to 3.61) |
-| Ticks a second | 19.8 (17.8 to 19.8) | 19.8 (19.7 to 19.9) |
-| Tick p50 | 2.5 ms (1.12 to 3.47) | 0.87 ms (0.75 to 1.69) |
-| Tick p99 | 5.2 ms (5.00 to 5.79) | 2.7 ms (2.10 to 3.24) |
+| CPU, cores busy | 1.82 (1.28 to 1.90) | 3.42 (3.38 to 3.58) |
+| Ticks a second | 19.8 | 19.9 (19.8 to 19.9) |
+| Tick p50 | 2.9 ms (0.77 to 3.30) | 1.2 ms (1.04 to 1.37) |
+| Tick p99 | 4.1 ms (3.76 to 4.31) | 2.1 ms (2.10 to 2.23) |
 | Renders per tick | 1.00 | 1.00 |
-| Frames sent a second | 3,954 (3,542 to 3,960) | 3,966 (3,953 to 3,974) |
+| Frames sent a second | 3,960 (3,956 to 3,965) | 3,968 (3,964 to 3,977) |
 | Frames dropped | 0 | 0 |
-| Bytes per frame on the wire | 2,205 (2,098 to 2,315) | 955 (934 to 1,000) |
-| Heap per stream | 1.67 MiB | 2.13 MiB |
-| Commands per transaction | 2.1 | 2.0 |
+| Bytes per frame on the wire | 2,217 (2,153 to 2,297) | 854 (852 to 862) |
+| Heap per stream | 1.68 MiB | 1.56 MiB |
+| Commands per transaction | 2.4 | 1.3 |
 
 A tick renders the board once for all 200 streams and hands them the frame. No tick overran its 50 ms, and no stream missed a frame.
 
 ## Where the CPU goes
 
-In a CPU profile of one run per encoding, compression takes 91% of the samples with brotli and 74% with zstd. Rendering takes 0.3% and 3.6%, the writer 3.5% and 10.6%. Once views render once for every viewer, the encoders are the cost: zstd sends 2.3 times brotli's bytes per frame for half the CPU.
+In a CPU profile of one run per encoding, compression takes 94% of the samples with brotli and 76% with zstd. Rendering takes 0.6% and 3.8%, the writer 3.4% and 11.6%. Once views render once for every viewer, the encoders are the cost: zstd sends 2.6 times brotli's bytes per frame for about half the CPU.
 
-A quarter of zstd's samples are `memmove`, four fifths of them in the encoder's `addBlock`, which copies each frame into its history: the encoder keeps twice its window and, when the next block does not fit, moves the newest half to the front.
+A fifth of zstd's samples are `memmove`, three quarters of them in the encoder's `addBlock`, which copies each frame into its history: the encoder keeps twice its window and, when the next block does not fit, moves the newest half to the front.
 
-zstd's numbers depend on what else the machine does. A zstd process leaves most of its cores idle between ticks, and cores that keep falling idle do the same work in more time, through the CPU's power management or the scheduler moving threads to idle cores. Runs alternated with and without twelve busy loops on the same cores used 0.80 and 0.86 cores with the loops, 1.50 and 1.90 without. brotli keeps three cores busy itself and varies less. Compare runs made under the same conditions.
+zstd's numbers depend on what else the machine does. A zstd process leaves most of its cores idle between ticks, and cores that keep falling idle do the same work in more time, through the CPU's power management or the scheduler moving threads to idle cores. On 2026-10-13, runs alternated with and without twelve busy loops on the same cores used 0.80 and 0.86 cores with the loops, 1.50 and 1.90 without. brotli keeps three cores busy itself and varies less. Compare runs made under the same conditions.
 
 ## FULL against NORMAL
 
-The same benchmark runs each encoding with `synchronous=FULL`, then NORMAL. Measured on 2026-10-13 with Go 1.27.2, two sets of three runs:
+The same runs measure each encoding with `synchronous=FULL`, then NORMAL:
 
 ```chart
 kind: bars
@@ -46,23 +46,23 @@ x: streams' encoding
 y: ms
 source: bench/RESULTS.md
 ---
-FULL,zstd,3.4
-FULL,brotli,11.0
-NORMAL,zstd,0.54
-NORMAL,brotli,0.30
+FULL,zstd,5.5
+FULL,brotli,2.7
+NORMAL,zstd,0.51
+NORMAL,brotli,0.29
 ```
 
 | | FULL, zstd | NORMAL, zstd | FULL, brotli | NORMAL, brotli |
 | --- | --- | --- | --- | --- |
-| CPU, cores busy | 0.98 | 1.04 | 2.53 | 2.80 |
-| Ticks a second | 19.6 | 19.4 | 15.8 | 19.8 |
+| CPU, cores busy | 1.82 | 1.53 | 3.42 | 3.13 |
+| Ticks a second | 19.8 | 19.8 | 19.9 | 19.8 |
 | Frames dropped | 0 | 0 | 0 | 0 |
-| Commands per transaction | 1.78 | 1.07 | 3.63 | 1.03 |
-| Due to commit, p50 | 3.4 ms | 0.54 ms | 11.0 ms | 0.30 ms |
+| Commands per transaction | 2.39 | 1.03 | 1.30 | 1.02 |
+| Due to commit, p50 | 5.5 ms | 0.51 ms | 2.7 ms | 0.29 ms |
 
-With NORMAL a command commits in about half a millisecond; with FULL it waits for its batch's fsync, 3 to 11 ms, and the writer takes two to four commands into a transaction instead of one. The render loop does the same work in both modes: one render a tick, no dropped frames. With FULL and brotli, the slower commits leave some ticks with nothing new, 15.8 ticks a second against 19.8.
+With NORMAL a command commits in 0.3 to 0.5 ms; with FULL it waits for its batch's fsync, 2.7 to 5.5 ms, and the writer takes 1.3 to 2.4 commands into a transaction instead of one. The render loop does the same work in both modes: one render a tick, no dropped frames.
 
-The p99s of these runs are the shared SSD pool's: a run with a disk stall waits for seconds in either mode. `RESULTS.md` has them, with their ranges.
+The p99s are the shared SSD pool's: medians of 7 to 29 ms in these runs, and seconds in a run with a disk stall, in either mode. `RESULTS.md` has them, with their ranges.
 
 ## Measuring again
 
