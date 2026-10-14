@@ -187,3 +187,30 @@ func measureUnflushed(frames [][]byte, s setting, streams int) result {
 	}
 	return r
 }
+
+// TestWindowMargin writes data tables of 206 to 266 KB, each frame a few
+// cells apart from the one before, to streams at 2^18: how close to the
+// window a frame may come and still refer to the one before. It writes
+// margin.csv.
+func TestWindowMargin(t *testing.T) {
+	request(t)
+	f, err := os.Create("margin.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	c := csv.NewWriter(f)
+	c.Write([]string{"rows", "frame_bytes", "share_of_window", "setting", "bytes_per_frame"})
+	for _, rows := range []int{620, 660, 700, 740, 780, 800} {
+		frames := tableFrames(rows, 40)
+		for _, s := range []setting{{coding: sse.Brotli, window: 18, q: 3}, {coding: sse.Brotli, window: 18, q: 4}, {coding: sse.Zstd, window: 18, lowMem: true}} {
+			r := measure(t, "margin", frames, s, 4)
+			c.Write([]string{strconv.Itoa(rows), strconv.FormatFloat(r.in, 'f', 0, 64), strconv.FormatFloat(r.in/(1<<18), 'f', 3, 64), s.String(), strconv.FormatFloat(r.perFrame, 'f', 0, 64)})
+			c.Flush()
+			t.Logf("%7.0f B (%.3f of 2^18) %-22s %6.0f B/frame", r.in, r.in/(1<<18), s, r.perFrame)
+		}
+	}
+	if err := c.Error(); err != nil {
+		t.Fatal(err)
+	}
+}
