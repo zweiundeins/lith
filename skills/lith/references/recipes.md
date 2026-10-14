@@ -115,8 +115,8 @@ func (c MoveCard) Apply(tx *writer.Tx) error {
 }
 ```
 
-The handler validates, sends and answers 204. The outcome reaches the page on
-its stream.
+The handler validates, hands the command over with `Do` and answers 204. The
+outcome reaches the page on its stream.
 
 ```go
 func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +137,18 @@ func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
   at once (`ErrQueueFull` when the queue is full). A failed Send goes to
   `writer.Options.OnSendError(cmd, err)` on the writer's goroutine, or to the
   log without one.
+- `Do` for what a person asked for: its 204 means stored, and a failed batch
+  or a stopping server answers an error, so a pending button never waits
+  forever for its op id. It costs about half a millisecond with NORMAL, and
+  waiting handlers hold the load back. `Send` only for updates the next one
+  replaces and nobody waits for (a pointer's position, a heartbeat): the
+  site's cursor party.
+- Every outcome a command reaches, a refusal included, goes into the tab's
+  state and over the stream. The status code says only that the request
+  reached no outcome (never arrived, turned away by a limit or check, the
+  writer failed, the server stops): the page shows "did not go through" from
+  `datastar-fetch`'s error. Never write those failures to the stream: it may
+  be down too, and storing them needs the writer that failed.
 - `w.DoValue(ctx, fn)` is `Do` for a function that returns a value, such as
   a new row's id: `id, err := w.DoValue(ctx, func(tx *writer.Tx) (int64,
   error) {…})`. It returns the value once the batch has committed, and the

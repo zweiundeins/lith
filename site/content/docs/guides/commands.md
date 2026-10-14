@@ -93,6 +93,12 @@ There are three ways to hand a command over. All of them queue it, and the write
 
 `Send` returns before the command runs, so its error goes somewhere else: to `Options.OnSendError(cmd, err)` when the app sets one, on the writer's goroutine after the batch, and to the log otherwise.
 
+### Do or Send
+
+Use `Do` for what a person asked for: a sign-up, a card moved, a message sent. Its 204 then means the change is stored. If the batch fails, or the server stops before the commit, the handler answers with an error, and the page drops its pending state and says the request did not go through. A page that waits for an op id would otherwise wait forever. The wait costs little: commands share a commit, so with `synchronous=NORMAL` a command commits in about half a millisecond at p50, and its frame follows in the next tick anyway. Handlers that wait for their commits also hold the load back by themselves, where a flood of `Send`s fills the queue and gets `ErrQueueFull`.
+
+Use `Send` for updates the next one replaces, which nobody waits for: a pointer's position, a heartbeat, a "last seen". A lost one costs nothing, and waiting for each would only slow down a page that sends fifteen a second. The site's cursor party sends its moves this way.
+
 `DoValue` takes a function, not a command, so a command's `Validate` does not run unless the caller calls it:
 
 ```go source=site/internal/docs/example/board/commands.go
@@ -110,7 +116,7 @@ func Create(ctx context.Context, w *writer.Writer, name string) (int64, error) {
 
 ## The handler's answer
 
-A handler validates, hands the command over and answers 204. The page learns the outcome from its stream, as every other page that shows the board does. `Do`'s error says which answer to give:
+A handler validates, hands the command over and answers 204. The page learns the outcome from its stream, as every other page that shows the board does: every outcome a command reaches, a refusal included, is stored and rendered, so it survives a reconnect. The status code says only that the request reached no outcome: it never arrived, a limit or a check turned it away before any command, the writer failed, or the server is stopping. In those cases the stream cannot help (it may be down for the same reason, and storing the failure would need the writer that failed), so the page shows a plain "that did not go through" next to the form from Datastar's `datastar-fetch` error event. `Do`'s error says which answer to give:
 
 ```go source=site/internal/docs/example/web/server.go
 switch err := s.w.Do(r.Context(), writer.Once(sid+":"+a.Op, act)); {

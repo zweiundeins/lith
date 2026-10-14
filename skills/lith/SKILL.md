@@ -19,7 +19,8 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 
 1. **Only the writer writes.** Every state change is a command:
    `Apply(tx *writer.Tx) error`, or a `writer.Func`. Handlers validate, call
-   `w.Send(cmd)` (no wait) or `w.Do(ctx, cmd)` (waits for the commit) and
+   `w.Do(ctx, cmd)` (waits for the commit: for what a person asked for) or
+   `w.Send(cmd)` (no wait: only for updates the next one replaces) and
    answer 204. The writer drains the queue into one `BEGIN IMMEDIATE`
    transaction with a savepoint per command, in the order the commands
    arrived; `w.Flush(ctx)` returns once everything queued before it is
