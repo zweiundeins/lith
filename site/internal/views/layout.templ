@@ -26,6 +26,9 @@ templ Document(s Shell, body templ.Component) {
 			<meta property="og:image:height" content="630"/>
 			<meta property="og:image:alt" content="A pixel-art stone monolith with a glowing seam, beside the word LITH"/>
 			<meta name="twitter:card" content="summary_large_image"/>
+			if s.JSONLD != "" {
+				@jsonLD(s)
+			}
 			<link rel="preload" href={ s.Assets.Font } as="font" type="font/woff2" crossorigin/>
 			<link rel="stylesheet" href={ s.Assets.CSS }/>
 			// The view transitions' script runs before the first frame, and that

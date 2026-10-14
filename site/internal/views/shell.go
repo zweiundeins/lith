@@ -59,6 +59,8 @@ type Shell struct {
 	Tab    string
 	// Components are the Starbase components' bundles the page loads.
 	Components []Script
+	// JSONLD is the page's structured data, a schema.org @graph as JSON.
+	JSONLD string
 	// Docs is the docs' navigation, for the menu on narrow screens; nil
 	// outside the docs.
 	Docs templ.Component
@@ -108,6 +110,11 @@ func pageSignals(tab string) string {
 func jsString(s string) string {
 	b, _ := json.Marshal(s)
 	return strings.ReplaceAll(string(b), "'", `'`)
+}
+
+// jsonLD is the page's structured data.
+func jsonLD(s Shell) templ.Component {
+	return templ.Raw(`<script type="application/ld+json">` + s.JSONLD + `</script>`)
 }
 
 // importMap is the page's import map, with the request's nonce.

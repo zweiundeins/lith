@@ -171,6 +171,7 @@ const description = "lith is the runtime of the Go, SQLite and Datastar apps of 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sh := s.shell(r, "", description, "/", "")
+	sh.JSONLD = s.graph(s.software())
 	viewer := demo.Viewer{Session: edge.SessionID(ctx), Tab: demo.NewID()}
 	if s.embeds(viewer) != nil {
 		sh.Stream, sh.Tab = "/stream", viewer.Tab
@@ -225,7 +226,9 @@ func (s *Server) homeStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) demoIndex(w http.ResponseWriter, r *http.Request) {
-	sh := s.shell(r, "Demos", "Live demos of lith, from a million checkboxes to a shared pixel canvas: each runs on this server, with its code and how it works beside it.", "/demos", "demos")
+	const about = "Live demos of lith, from a million checkboxes to a shared pixel canvas: each runs on this server, with its code and how it works beside it."
+	sh := s.shell(r, "Demos", about, "/demos", "demos")
+	sh.JSONLD = s.graph(s.webPage("/demos", "Demos", about))
 	s.page(w, r, sh, func(context.Context, *sql.Tx) (templ.Component, error) {
 		return views.DemoIndex(s.cards()), nil
 	})
@@ -258,6 +261,7 @@ func (s *Server) demoPage(w http.ResponseWriter, r *http.Request) {
 	}
 	viewer := demo.Viewer{Session: edge.SessionID(r.Context()), Tab: demo.NewID()}
 	sh := s.shell(r, d.Title, d.Summary, "/demos/"+d.Slug, "demos")
+	sh.JSONLD = s.graph(s.webPage("/demos/"+d.Slug, d.Title, d.Summary))
 	sh.Stream, sh.Tab = "/demos/"+d.Slug+"/stream", viewer.Tab
 	sh.Components = s.components(d.Components...)
 	s.page(w, r, sh, func(ctx context.Context, tx *sql.Tx) (templ.Component, error) {
@@ -354,6 +358,7 @@ func (s *Server) doc(w http.ResponseWriter, r *http.Request) {
 	}
 	sh := s.shell(r, title, p.Description, p.Path, "docs")
 	sh.Headline = p.Headline
+	sh.JSONLD = s.graph(s.article(d, p)...)
 	sh.Docs = views.DocsNav(d, p, false)
 	s.page(w, r, sh, func(context.Context, *sql.Tx) (templ.Component, error) {
 		page := views.DocsPage{Docs: d, Page: p, Edit: s.cfg.Repo + "/blob/main/site/content/docs/" + p.File}
