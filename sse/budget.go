@@ -81,7 +81,10 @@ type BudgetOptions struct {
 //
 // The tiers' sizes were measured with zstd at its fastest level and brotli
 // at quality 3 and 4 (lith's bench/budget), after a session of 142 KB
-// frames, and are rounded up. Other levels and qualities hold more.
+// frames, and are rounded up. Other levels and qualities hold more. A
+// brotli stream flushes its encoder every 16 KiB of a frame at quality 3
+// and every 32 KiB at 4, which keeps it below its tier at any frame size
+// (bench/budget/framesize.csv).
 type Budget struct {
 	limit                int64 // 0: none
 	minWindow, maxWindow int
@@ -176,6 +179,8 @@ const kib = 1 << 10
 
 // The tiers, largest first: the heap of a stream after a session of 142 KB
 // frames (bench/budget/settings.csv, the board), rounded up to 16 KiB.
+// Brotli's were measured before its streams flushed within a frame, and
+// book 12 to 32% more than the streams now hold (bench/budget/framesize.csv).
 // zstd with its full history holds at least 1 MiB of it at any window, so
 // below 2^19 only its low-memory tiers are worth their heap.
 var (

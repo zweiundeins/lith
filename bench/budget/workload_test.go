@@ -23,8 +23,14 @@ import (
 // about 139 KB of HTML each.
 func boardFrames(t testing.TB, n int) [][]byte {
 	t.Helper()
+	return boardRows(t, 200, n)
+}
+
+// boardRows is boardFrames with a board of rows cards.
+func boardRows(t testing.TB, rows, n int) [][]byte {
+	t.Helper()
 	ctx := context.Background()
-	b := loadtest.Board{Rows: 200}
+	b := loadtest.Board{Rows: rows}
 	db, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "board.db"), sqlite.Options{Migrations: b.Migrations()})
 	if err != nil {
 		t.Fatal(err)

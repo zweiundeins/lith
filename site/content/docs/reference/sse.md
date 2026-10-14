@@ -130,7 +130,7 @@ A stream reserves the heap of its encoder when it opens: the largest tier that f
 
 Streams that open while few are open get large tiers, and would keep them as more arrive. So when a stream finds no room, every zstd stream above the fair share of that moment (counting a refused stream as open) moves down at its next write: it ends its zstd frame and begins the next with the smaller tier, which costs one frame without history. Brotli and gzip streams keep their tier until they close, since a brotli body is one stream with one window: brotli steps down as streams open instead, from its quality's windows to quality 3 at 2^16. Once more than 20 streams are open, a brotli stream takes at most its largest tier times twice the share of the limit that is left: the largest tier while half the limit is left, smaller ones as it fills, so that a tier taken early does not spend the room of the streams to come.
 
-The tiers' sizes were measured with zstd at its fastest level and brotli at quality 3 and 4 (lith's bench/budget), after a session of 142 KB frames, and are rounded up. Other levels and qualities hold more.
+The tiers' sizes were measured with zstd at its fastest level and brotli at quality 3 and 4 (lith's bench/budget), after a session of 142 KB frames, and are rounded up. Other levels and qualities hold more. A brotli stream flushes its encoder every 16 KiB of a frame at quality 3 and every 32 KiB at 4, which keeps it below its tier at any frame size (bench/budget/framesize.csv).
 
 #### func NewBudget {#NewBudget}
 

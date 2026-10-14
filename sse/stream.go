@@ -117,6 +117,7 @@ type Stream struct {
 	tier     tier    // what the stream holds of its budget
 	user     bool    // the stream counts in its budget's fair share
 	seen     int64   // the budget's count of streams without room, at the stream's last tier
+	chunk    int     // the most a brotli encoder takes between two flushes
 
 	mu      sync.Mutex
 	writing bool // a write is under way
@@ -186,6 +187,7 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 			q, lgwin = s.tier.quality, s.tier.window
 		}
 		s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: q, LGWin: lgwin})
+		s.chunk = brotliChunk(q)
 	case Gzip:
 		s.enc, err = gzip.NewWriterLevel(&s.buf, gzip.BestSpeed)
 	}
@@ -298,11 +300,8 @@ func (s *Stream) Write(events ...[]byte) error {
 		return s.send(append([][]byte{s.buf.Bytes()}, rawFrame(events, n)...)...)
 	}
 	s.framed = true
-	for _, e := range events {
-		if err != nil {
-			break
-		}
-		_, err = s.enc.Write(e)
+	if err == nil {
+		err = s.compress(events)
 	}
 	if err == nil {
 		err = s.enc.Flush()
@@ -314,6 +313,47 @@ func (s *Stream) Write(events ...[]byte) error {
 		return s.fail(err)
 	}
 	return s.send(s.buf.Bytes())
+}
+
+// brotliChunk is the most a brotli encoder of quality q takes between two
+// flushes: one input block below quality 4, else 32 KiB, which bounds its heap.
+func brotliChunk(q int) int {
+	if q < 4 {
+		return 16 << 10
+	}
+	return 32 << 10
+}
+
+// compress writes events to the encoder, flushing a brotli encoder every
+// s.chunk bytes.
+func (s *Stream) compress(events [][]byte) error {
+	if s.encoding != Brotli {
+		for _, e := range events {
+			if _, err := s.enc.Write(e); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	taken := 0
+	for _, e := range events {
+		for len(e) > 0 {
+			if taken == s.chunk {
+				// Unflushed, brotli extends a copy into the next block without
+				// hashing it, and after a change loses the frame before.
+				if err := s.enc.Flush(); err != nil {
+					return err
+				}
+				taken = 0
+			}
+			n := min(len(e), s.chunk-taken)
+			if _, err := s.enc.Write(e[:n]); err != nil {
+				return err
+			}
+			e, taken = e[n:], taken+n
+		}
+	}
+	return nil
 }
 
 // Close ends the compressed stream cleanly when it is still healthy and
@@ -340,11 +380,8 @@ func (s *Stream) CloseWith(events ...[]byte) error {
 		}
 		if s.enc != nil {
 			s.buf.Reset()
-			for _, e := range events {
-				if _, err = s.enc.Write(e); err != nil {
-					break
-				}
-				s.in += int64(len(e))
+			if err = s.compress(events); err == nil {
+				s.in += int64(n)
 			}
 			if err == nil {
 				err = s.enc.Close()

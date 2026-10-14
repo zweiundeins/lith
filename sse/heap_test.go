@@ -1,8 +1,11 @@
 package sse
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strings"
 	"testing"
@@ -21,10 +24,13 @@ func (d *discard) Flush()                      {}
 
 // frame is a 57 KB page of 500 rows; from one frame to the next, five
 // rows change.
-func frame(i int) []byte {
+func frame(i int) []byte { return table(500, i) }
+
+// table is frame with rows rows, about 114 bytes each.
+func table(rows, i int) []byte {
 	var b strings.Builder
 	b.WriteString(`<main id="app"><table class="board">` + "\n")
-	for r := range 500 {
+	for r := range rows {
 		v := r * 7
 		if r%100 == i%100 {
 			v += i
@@ -89,6 +95,102 @@ func TestHeapPerStream(t *testing.T) {
 			}
 			runtime.KeepAlive(payload)
 		})
+	}
+}
+
+// TestBrotliHeapWithinTier streams frames of 230 KB, larger than those
+// the tiers were measured with, to brotli streams of each tier and checks
+// that they hold no more than the tier books, and that the body decodes.
+func TestBrotliHeapWithinTier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("streams large frames to many streams")
+	}
+	payload := make([][]byte, 20)
+	for i := range payload {
+		payload[i] = table(1300, i)
+	}
+	for _, q := range []int{3, 4} {
+		for _, tr := range brotliTiers[q] {
+			if tr.window > 19 {
+				continue
+			}
+			t.Run(tr.String(), func(t *testing.T) {
+				before := heap()
+				open := make([]*Stream, heapStreams)
+				recs := make([]*httptest.ResponseRecorder, len(open))
+				for i := range open {
+					recs[i] = httptest.NewRecorder()
+					s, err := Open(recs[i], request(t.Context(), Brotli), Options{BrotliQuality: q, BrotliWindow: tr.window})
+					if err != nil {
+						t.Fatal(err)
+					}
+					open[i] = s
+				}
+				for _, f := range payload {
+					for _, s := range open {
+						if err := s.Write(f); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				// The recorders keep the bodies: count what the encoders hold.
+				var bodies int64
+				for _, r := range recs {
+					bodies += int64(r.Body.Cap())
+				}
+				perStream := (heap() - before - bodies) / int64(len(open))
+				t.Logf("%s: %d KiB per stream, %d KiB booked", tr, perStream>>10, tr.heap>>10)
+				if perStream > tr.heap {
+					t.Errorf("%d KiB per stream, more than the %d KiB booked", perStream>>10, tr.heap>>10)
+				}
+				open[0].Close()
+				got, err := io.ReadAll(decoder(t, Brotli, recs[0].Body.Bytes()))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if want := bytes.Join(payload, nil); !bytes.Equal(got, want) {
+					t.Fatalf("decoded %d bytes, want the %d written", len(got), len(want))
+				}
+				for _, s := range open[1:] {
+					s.Close()
+				}
+			})
+		}
+	}
+}
+
+// TestBrotliRefersToTheFrameBefore sends a list of 1,300 rows (230 KB)
+// in which one row changes before each frame: a brotli stream whose window
+// holds the frame before sends each later frame in a few hundred bytes.
+func TestBrotliRefersToTheFrameBefore(t *testing.T) {
+	for _, q := range []int{3, 4} {
+		s, err := Open(&discard{http.Header{}}, request(t.Context(), Brotli), Options{BrotliQuality: q, BrotliWindow: 18})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var first int64
+		const rows, frames = 1300, 40
+		values := make([]int, rows)
+		for i := range frames {
+			values[i*7919%rows] += i
+			var b strings.Builder
+			for r, v := range values {
+				fmt.Fprintf(&b, `<tr id="row-%d" class="row"><td class="name">Item %d</td><td class="value">%d</td><td><button data-on:click="@post('/cmd/inc?id=%d')">+</button></td></tr>`+"\n", r, r, v, r)
+			}
+			if err := s.Write(PatchElements([]byte(b.String()))); err != nil {
+				t.Fatal(err)
+			}
+			if i == 0 {
+				_, first = s.Sent()
+			}
+		}
+		_, wire := s.Sent()
+		perFrame := (wire - first) / (frames - 1)
+		t.Logf("q%d 2^18: %d bytes per later frame", q, perFrame)
+		if perFrame > 500 {
+			t.Errorf("q%d: %d bytes per later frame, want under 500", q, perFrame)
+		}
+		s.Close()
 	}
 }
 

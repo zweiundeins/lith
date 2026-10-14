@@ -75,6 +75,24 @@ zstd with its full history holds 1.6 MiB at every window up to 2^19, so below 2^
 
 `TestFloor` (`floor.csv`, the page) finds what a compressed stream holds whatever its window: zstd with low memory 0.44 MiB at its smallest window, 2^10 (its 256 KiB hash table, 129 KiB of history and its block buffers), brotli at quality 2 or 3 0.60 MiB at windows up to 2^14, gzip 0.79 MiB. Below 0.44 MiB, a stream only goes out uncompressed.
 
+## Large frames and brotli's flushes
+
+`TestFrameSizes` (`framesize.csv`, measured on 2026-10-14) writes frames of about 50, 142 and 230 KB to 64 streams of each tier: the board with 70, 200 and 330 cards; a data table of 690 rows that changes three cells before each frame and scrolls a few rows every tenth; and a list of 1,300 rows of which every hundredth changes in place. zstd holds what its tier books at every size, or at most 40 KiB more.
+
+A brotli encoder that is not flushed codes all it took since its last flush as one metablock, and keeps an output buffer twice its size: its heap grew with the frame. Within a metablock it also extends a copy into the next input block (16 KiB at quality 3, 64 KiB at 4) without hashing that block, so after a change it could find nothing of the frame before and coded the rest of the frame in short pieces of itself. A stream now flushes its brotli encoder every 16 KiB of a frame at quality 3 and every 32 KiB at 4: it parses and hashes every block, and holds the same heap at every frame size, 12 to 32% below its tier. At 2^18, before and after:
+
+| Frame | Setting | Heap | Bytes per frame | CPU per frame |
+| --- | --- | --- | --- | --- |
+| board, 230 KB | quality 3 | 1,554 KiB, now 1,083 | 3,173, now 259 | 559 µs, now 630 |
+| board, 230 KB | quality 4 | 2,370 KiB, now 1,603 | 2,382, now 140 | 625 µs, now 648 |
+| data table, 230 KB | quality 3 | 1,562 KiB, now 1,091 | 5,756, now 227 | 704 µs, now 627 |
+| data table, 230 KB | quality 4 | 2,373 KiB, now 1,611 | 3,450, now 134 | 734 µs, now 637 |
+| list, 230 KB | quality 3 | 1,530 KiB, now 1,063 | 363, now 676 | 511 µs, now 666 |
+| list, 230 KB | quality 4 | 2,346 KiB, now 1,591 | 285, now 406 | 590 µs, now 656 |
+| board, 50 KB | quality 4 | 1,790 KiB, now 1,585 | 34, now 50 | 137 µs, now 141 |
+
+The tiers book 1,312 KiB for quality 3 and 2,192 KiB for quality 4 at 2^18. Each flush costs a metablock header, about 25 bytes when the block holds a change: the list, with its changes spread through every block, pays that and loses what the flushes win elsewhere. A window smaller than the frame gains nothing from them and pays up to 5% more bytes.
+
 ## A budget as streams grow
 
 `TestSimulation` (`simulation.csv`) opens up to 2,000 streams of one workload and, after every ten, adds up the measured heap and bytes per frame of what each stream holds. The budgets are `sse.Budget` with `MinWindow` at the workload's floor (2^18 for the board, 2^17 for the page) and `MaxWindow` 2^19. In all but one policy, every open stream writes after every ten opens, so that tiers shrink and waiting streams take the room that frees up.
@@ -329,4 +347,4 @@ The tests run only with `LITH_BUDGET=1`, and write the CSV files next to them:
 LITH_BUDGET=1 LITH_BUDGET_RUNS=3 taskset -c 0-11 go test ./bench/budget -run Settings -v -timeout 1h
 ```
 
-`-run` picks the test: `Settings`, `Floor`, `Simulation`, `Hibernation`, `WakeCost`, `Loadtest` or `Pressure`. After a run, `go generate ./content` in `site/` draws this page's charts from the new files.
+`-run` picks the test: `Settings`, `Floor`, `FrameSizes`, `Simulation`, `Hibernation`, `WakeCost`, `Loadtest` or `Pressure`. After a run, `go generate ./content` in `site/` draws this page's charts from the new files.
