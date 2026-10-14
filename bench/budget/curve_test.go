@@ -28,12 +28,14 @@ type curveRow struct {
 	mix     string // "br", "zstd" or "mixed" (alternating, zstd first)
 	streams int
 	own     bool // each stream watches a view of its own, else all share one
+	refuse  bool // the budget turns away the streams it has no room for (503)
 }
 
 // curveResult is what the budget held once every stream had opened.
 type curveResult struct {
 	frame                  int
 	opened, held, coded    int // streams opened, at a window that holds their frame, compressed
+	refused                int // with refuse, streams turned away twice
 	firstBare              int // the first stream whose first write went out uncompressed or in raw blocks, 0 for none
 	reserved, frames, heap int64
 	perFrame               float64 // bytes per frame on the wire, the last round, over every stream
@@ -58,13 +60,15 @@ func holdsFrame(tier string, n int) bool {
 // with a tab's table view of its own or a view they share. A stream's
 // first write picks its tier; after every ten opens, and after the last,
 // every view changes and every stream writes, so that zstd streams move
-// and waiting streams take the room that frees up. It returns what the
-// budget books and what the heap and the stacks hold after a collection.
+// and waiting streams take the room that frees up. A stream that a
+// refusing budget turns away tries again once after such a round, as a
+// page would, and else stays away. It returns what the budget books and
+// what the heap and the stacks hold after a collection.
 func curve(t *testing.T, r curveRow) curveResult {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	b := sse.NewBudget(sse.BudgetOptions{Limit: r.mib << 20})
+	b := sse.NewBudget(sse.BudgetOptions{Limit: r.mib << 20, Refuse: r.refuse})
 	h := live.New(live.Options{SSE: sse.Options{Budget: b}, Tick: 2 * time.Millisecond, Heartbeat: time.Hour})
 	ran := make(chan struct{})
 	go func() { h.Run(ctx); close(ran) }()
@@ -97,6 +101,44 @@ func curve(t *testing.T, r curveRow) curveResult {
 		return s["identity"] + s["zstd asleep"]
 	}
 	round := int64(0)
+	next := func() {
+		round++
+		for _, s := range sinks {
+			s.last.Store(0)
+		}
+		version.Add(1)
+		h.Changed([]string{"table"})
+		wait(2 + round)
+	}
+	// open serves the stream and waits for its first frame, or for its 503.
+	open := func(coding string, v live.View) bool {
+		s := &sizeSink{header: http.Header{}}
+		// The new stream's headers, then its first frame, then one frame
+		// a round: every stream has 2 + round flushes once it caught up.
+		s.flushes.Store(round)
+		req := httptest.NewRequestWithContext(ctx, "GET", "/", nil)
+		req.Header.Set("Accept-Encoding", coding)
+		done := make(chan struct{})
+		wg.Go(func() {
+			defer close(done)
+			h.Serve(s, req, live.Spec{Views: []live.View{v}})
+		})
+		for deadline := time.Now().Add(2 * time.Minute); s.flushes.Load() < 2+round; time.Sleep(time.Millisecond) {
+			select {
+			case <-done:
+				if s.code.Load() != http.StatusServiceUnavailable {
+					t.Fatalf("the stream ended with status %d", s.code.Load())
+				}
+				return false
+			default:
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the stream got no first frame")
+			}
+		}
+		sinks = append(sinks, s)
+		return true
+	}
 	for i := range r.streams {
 		coding := sse.Brotli
 		if r.mix == "zstd" || r.mix == "mixed" && i%2 == 0 {
@@ -106,31 +148,23 @@ func curve(t *testing.T, r curveRow) curveResult {
 		if r.own {
 			v = tableView("table:"+strconv.Itoa(i), r.rows, &version)
 		}
-		s := &sizeSink{header: http.Header{}}
-		// The new stream's headers, then its first frame, then one frame
-		// a round: every stream has 2 + round flushes once it caught up.
-		s.flushes.Store(round)
-		sinks = append(sinks, s)
-		req := httptest.NewRequestWithContext(ctx, "GET", "/", nil)
-		req.Header.Set("Accept-Encoding", coding)
 		wasBare := bare()
-		wg.Go(func() { h.Serve(s, req, live.Spec{Views: []live.View{v}}) })
-		wait(2 + round)
-		if res.firstBare == 0 && bare() > wasBare {
+		ok := open(coding, v)
+		if !ok {
+			next()
+			if ok = open(coding, v); !ok {
+				res.refused++
+			}
+		}
+		if ok && res.firstBare == 0 && bare() > wasBare {
 			res.firstBare = i + 1
 		}
 		if (i+1)%10 == 0 || i == r.streams-1 {
-			round++
-			for _, s := range sinks {
-				s.last.Store(0)
-			}
-			version.Add(1)
-			h.Changed([]string{"table"})
-			wait(2 + round)
+			next()
 		}
 	}
 	st := b.Stats()
-	res.opened, res.reserved, res.frames, res.tiers = r.streams, st.Reserved, st.Frames, st.Streams
+	res.opened, res.reserved, res.frames, res.tiers = len(sinks), st.Reserved, st.Frames, st.Streams
 	for k, n := range st.Streams {
 		if k != "identity" && k != "zstd asleep" {
 			res.coded += n
@@ -155,13 +189,14 @@ func curve(t *testing.T, r curveRow) curveResult {
 // the bytes of the last one.
 type sizeSink struct {
 	header  http.Header
+	code    atomic.Int64
 	flushes atomic.Int64
 	pending int64
 	last    atomic.Int64
 }
 
-func (s *sizeSink) Header() http.Header { return s.header }
-func (s *sizeSink) WriteHeader(int)     {}
+func (s *sizeSink) Header() http.Header  { return s.header }
+func (s *sizeSink) WriteHeader(code int) { s.code.Store(int64(code)) }
 func (s *sizeSink) Write(p []byte) (int, error) {
 	s.pending += int64(len(p))
 	return len(p), nil
@@ -177,8 +212,9 @@ func (s *sizeSink) Flush() {
 // all watching one view of a data table of 50, 142 or 230 KB; and 150
 // tabs that each watch a view of their own of 230 KB, in 150 MiB and in
 // the least budget that holds them all at a window that holds their frame,
-// and 200 zstd tabs in 150 MiB. It writes curve.csv, and the docs' table
-// of it to curve.md.
+// and 200 zstd tabs in 150 MiB; and those 150 tabs in budgets of 120 and
+// 150 MiB that refuse the streams they have no room for. It writes
+// curve.csv, and the docs' table of it to curve.md.
 func TestBudgetCurve(t *testing.T) {
 	request(t)
 	var rows []curveRow
@@ -202,13 +238,20 @@ func TestBudgetCurve(t *testing.T) {
 	}{{"br", 200}, {"zstd", 140}, {"mixed", 230}} {
 		rows = append(rows, curveRow{rows: 700, mib: r.mib, mix: r.mix, streams: 150, own: true})
 	}
+	// With Refuse, a tab gets in only with room for a window that holds its
+	// frame.
+	for _, mib := range []int64{120, 150} {
+		for _, mix := range []string{"br", "zstd", "mixed"} {
+			rows = append(rows, curveRow{rows: 700, mib: mib, mix: mix, streams: 150, own: true, refuse: true})
+		}
+	}
 	f, err := os.Create("curve.csv")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
 	c := csv.NewWriter(f)
-	c.Write([]string{"frame_bytes", "views", "limit_mib", "mix", "opened", "holding_frame", "compressed", "first_uncompressed",
+	c.Write([]string{"frame_bytes", "views", "limit_mib", "refuse", "mix", "tried", "opened", "holding_frame", "compressed", "first_uncompressed",
 		"booked_mib", "frames_mib", "heap_mib", "bytes_per_frame", "tiers"})
 	var md strings.Builder
 	md.WriteString("| Frame | Views | Budget | Clients | Opened | Window holds the frame | Compressed | First uncompressed | Booked | Heap | Bytes per frame |\n")
@@ -228,15 +271,20 @@ func TestBudgetCurve(t *testing.T) {
 			first = ordinal(res.firstBare)
 		}
 		mib := func(n int64) string { return strconv.FormatFloat(float64(n)/(1<<20), 'f', 1, 64) }
-		c.Write([]string{strconv.Itoa(res.frame), views, strconv.FormatInt(r.mib, 10), r.mix, strconv.Itoa(res.opened), strconv.Itoa(res.held),
+		c.Write([]string{strconv.Itoa(res.frame), views, strconv.FormatInt(r.mib, 10), strconv.FormatBool(r.refuse), r.mix, strconv.Itoa(r.streams), strconv.Itoa(res.opened), strconv.Itoa(res.held),
 			strconv.Itoa(res.coded), strconv.Itoa(res.firstBare), mib(res.reserved), mib(res.frames), mib(res.heap),
 			strconv.FormatFloat(res.perFrame, 'f', 0, 64), strings.Join(tiers, "; ")})
 		c.Flush()
 		clients := map[string]string{"br": "brotli", "zstd": "zstd", "mixed": "half each"}[r.mix]
-		fmt.Fprintf(&md, "| %d KB | %s | %d MiB | %s | %d | %d | %d | %s | %s MiB | %s MiB | %s |\n",
-			(res.frame+500)/1000, views, r.mib, clients, res.opened, res.held, res.coded, first, mib(res.reserved), mib(res.heap), thousands(int64(res.perFrame+0.5)))
-		t.Logf("%6d B %-8s %3d MiB %-5s %3d opened, %3d hold the frame, %3d compressed, first bare %3d, booked %s MiB (frames %s), heap %s MiB, %.0f B/frame; %s",
-			res.frame, views, r.mib, r.mix, res.opened, res.held, res.coded, res.firstBare, mib(res.reserved), mib(res.frames), mib(res.heap), res.perFrame, strings.Join(tiers, "; "))
+		budget, opened := fmt.Sprintf("%d MiB", r.mib), strconv.Itoa(res.opened)
+		if r.refuse {
+			budget += ", `Refuse`"
+			opened += " of " + strconv.Itoa(r.streams)
+		}
+		fmt.Fprintf(&md, "| %d KB | %s | %s | %s | %s | %d | %d | %s | %s MiB | %s MiB | %s |\n",
+			(res.frame+500)/1000, views, budget, clients, opened, res.held, res.coded, first, mib(res.reserved), mib(res.heap), thousands(int64(res.perFrame+0.5)))
+		t.Logf("%6d B %-8s %3d MiB refuse %-5v %-5s %3d opened, %3d refused, %3d hold the frame, %3d compressed, first bare %3d, booked %s MiB (frames %s), heap %s MiB, %.0f B/frame; %s",
+			res.frame, views, r.mib, r.refuse, r.mix, res.opened, res.refused, res.held, res.coded, res.firstBare, mib(res.reserved), mib(res.frames), mib(res.heap), res.perFrame, strings.Join(tiers, "; "))
 	}
 	if err := c.Error(); err != nil {
 		t.Fatal(err)

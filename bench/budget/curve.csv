@@ -1,35 +1,41 @@
-frame_bytes,views,limit_mib,mix,opened,holding_frame,compressed,first_uncompressed,booked_mib,frames_mib,heap_mib,bytes_per_frame,tiers
-49458,one,64,br,128,70,70,71,65.8,0.1,60.7,22667,br q3 2^16: 45; br q4 2^16: 25; identity: 58
-49458,one,64,zstd,128,89,90,38,64.4,0.1,55.0,15333,zstd 2^15 low memory: 1; zstd 2^16 low memory: 89; zstd asleep: 38
-49458,one,64,mixed,128,81,81,52,64.7,0.1,57.2,18603,br q3 2^16: 28; br q4 2^16: 10; identity: 26; zstd 2^16 low memory: 43; zstd asleep: 21
-49458,one,128,br,256,139,139,140,131.3,0.1,120.4,22937,br q3 2^16: 88; br q4 2^16: 51; identity: 117
-49458,one,128,zstd,256,181,182,75,130.2,0.1,111.6,14603,zstd 2^15 low memory: 1; zstd 2^16 low memory: 181; zstd asleep: 74
-49458,one,128,mixed,256,161,162,102,129.6,0.1,114.8,18492,br q3 2^16: 54; br q4 2^16: 21; identity: 53; zstd 2^15 low memory: 1; zstd 2^16 low memory: 86; zstd asleep: 41
-49458,one,150,br,300,163,163,164,154.0,0.1,140.8,22880,br q3 2^16: 103; br q4 2^16: 60; identity: 137
-49458,one,150,zstd,300,213,213,88,152.5,0.1,130.6,14555,zstd 2^16 low memory: 213; zstd asleep: 87
-49458,one,150,mixed,300,188,190,120,152.2,0.1,134.8,18421,br q3 2^16: 66; br q4 2^16: 25; identity: 59; zstd 2^15 low memory: 2; zstd 2^16 low memory: 97; zstd asleep: 51
-142734,one,64,br,128,48,49,50,66.1,0.1,61.7,88754,br q3 2^16: 1; br q3 2^18: 29; br q4 2^18: 19; identity: 79
-142734,one,64,zstd,128,71,72,38,65.7,0.1,59.9,62994,zstd 2^15 low memory: 1; zstd 2^18 low memory: 71; zstd asleep: 56
-142734,one,64,mixed,128,57,60,44,65.4,0.1,60.2,76574,br q3 2^16: 1; br q3 2^18: 18; br q4 2^18: 9; identity: 36; zstd 2^15 low memory: 2; zstd 2^18 low memory: 30; zstd asleep: 32
-142734,one,128,br,256,97,98,99,132.9,0.1,124.2,89131,br q3 2^16: 1; br q3 2^18: 58; br q4 2^18: 39; identity: 158
-142734,one,128,zstd,256,143,143,75,131.0,0.1,119.1,64748,zstd 2^18 low memory: 143; zstd asleep: 113
-142734,one,128,mixed,256,117,119,87,131.5,0.1,121.2,77787,br q3 2^16: 1; br q3 2^18: 36; br q4 2^18: 19; identity: 72; zstd 2^15 low memory: 1; zstd 2^18 low memory: 62; zstd asleep: 65
-142734,one,150,br,300,114,114,115,155.4,0.1,145.2,89163,br q3 2^18: 68; br q4 2^18: 46; identity: 186
-142734,one,150,zstd,300,168,168,88,153.9,0.1,139.9,63252,zstd 2^18 low memory: 168; zstd asleep: 132
-142734,one,150,mixed,300,139,139,102,154.0,0.1,141.9,77175,br q3 2^18: 42; br q4 2^18: 22; identity: 86; zstd 2^18 low memory: 75; zstd asleep: 75
-232637,one,64,br,128,48,49,50,66.2,0.2,62.3,144803,br q3 2^16: 1; br q3 2^18: 29; br q4 2^18: 19; identity: 79
-232637,one,64,zstd,128,71,71,38,65.2,0.2,60.2,106031,zstd 2^18 low memory: 71; zstd asleep: 57
-232637,one,64,mixed,128,57,60,44,65.4,0.2,60.9,125313,br q3 2^16: 2; br q3 2^18: 17; br q4 2^18: 9; identity: 36; zstd 2^15 low memory: 1; zstd 2^18 low memory: 31; zstd asleep: 32
-232637,one,128,br,256,97,97,98,132.3,0.2,124.4,146277,br q3 2^18: 58; br q4 2^18: 39; identity: 159
-232637,one,128,zstd,256,143,143,75,131.1,0.2,120.5,107002,zstd 2^18 low memory: 143; zstd asleep: 113
-232637,one,128,mixed,256,118,118,86,131.4,0.2,122.3,128340,br q3 2^18: 37; br q4 2^18: 19; identity: 72; zstd 2^18 low memory: 62; zstd asleep: 66
-232637,one,150,br,300,114,114,115,155.5,0.2,146.1,145428,br q3 2^18: 68; br q4 2^18: 46; identity: 186
-232637,one,150,zstd,300,168,168,88,154.0,0.2,141.7,103090,zstd 2^18 low memory: 168; zstd asleep: 132
-232637,one,150,mixed,300,139,139,102,154.1,0.2,143.6,125854,br q3 2^18: 42; br q4 2^18: 22; identity: 86; zstd 2^18 low memory: 75; zstd asleep: 75
-232637,one each,150,br,150,114,114,115,150.6,0.0,144.7,58333,br q3 2^18: 68; br q4 2^18: 46; identity: 36
-232637,one each,150,zstd,150,150,150,88,133.6,0.0,125.1,3016,zstd 2^18 low memory: 150
-232637,one each,150,mixed,150,123,124,102,134.9,0.0,128.0,47700,br q3 2^18: 37; br q4 2^18: 22; identity: 16; zstd 2^15 low memory: 1; zstd 2^18 low memory: 64; zstd asleep: 10
-232637,one each,150,zstd,200,168,168,88,150.6,0.0,140.4,43126,zstd 2^18 low memory: 168; zstd asleep: 32
-232637,one each,200,br,150,150,150,0,197.4,0.0,190.5,3308,br q3 2^18: 88; br q4 2^18: 62
-232637,one each,140,zstd,150,150,150,82,133.6,0.0,125.1,5443,zstd 2^18 low memory: 150
-232637,one each,230,mixed,150,150,150,0,224.9,0.0,217.1,3191,br q3 2^18: 41; br q4 2^18: 34; zstd 2^19: 66; zstd 2^19 low memory: 9
+frame_bytes,views,limit_mib,refuse,mix,tried,opened,holding_frame,compressed,first_uncompressed,booked_mib,frames_mib,heap_mib,bytes_per_frame,tiers
+49458,one,64,false,br,128,128,70,70,71,65.8,0.1,60.6,22667,br q3 2^16: 45; br q4 2^16: 25; identity: 58
+49458,one,64,false,zstd,128,128,88,90,38,64.3,0.1,54.9,15352,zstd 2^15 low memory: 2; zstd 2^16 low memory: 88; zstd asleep: 38
+49458,one,64,false,mixed,128,128,80,81,52,64.5,0.1,57.0,18626,br q3 2^16: 27; br q4 2^16: 10; identity: 27; zstd 2^15 low memory: 1; zstd 2^16 low memory: 43; zstd asleep: 20
+49458,one,128,false,br,256,256,139,139,140,131.3,0.1,120.3,22937,br q3 2^16: 88; br q4 2^16: 51; identity: 117
+49458,one,128,false,zstd,256,256,181,182,75,130.2,0.1,111.5,14603,zstd 2^15 low memory: 1; zstd 2^16 low memory: 181; zstd asleep: 74
+49458,one,128,false,mixed,256,256,161,162,102,129.6,0.1,114.8,18492,br q3 2^16: 54; br q4 2^16: 21; identity: 53; zstd 2^15 low memory: 1; zstd 2^16 low memory: 86; zstd asleep: 41
+49458,one,150,false,br,300,300,163,163,164,154.0,0.1,141.0,22880,br q3 2^16: 103; br q4 2^16: 60; identity: 137
+49458,one,150,false,zstd,300,300,213,213,88,152.5,0.1,130.5,14555,zstd 2^16 low memory: 213; zstd asleep: 87
+49458,one,150,false,mixed,300,300,188,190,120,152.2,0.1,135.0,18421,br q3 2^16: 66; br q4 2^16: 25; identity: 59; zstd 2^15 low memory: 2; zstd 2^16 low memory: 97; zstd asleep: 51
+142734,one,64,false,br,128,128,48,49,50,66.1,0.1,61.7,88754,br q3 2^16: 1; br q3 2^18: 29; br q4 2^18: 19; identity: 79
+142734,one,64,false,zstd,128,128,71,72,38,65.7,0.1,59.9,62994,zstd 2^15 low memory: 1; zstd 2^18 low memory: 71; zstd asleep: 56
+142734,one,64,false,mixed,128,128,58,59,44,65.2,0.1,60.1,77566,br q3 2^18: 19; br q4 2^18: 9; identity: 36; zstd 2^15 low memory: 1; zstd 2^18 low memory: 30; zstd asleep: 33
+142734,one,128,false,br,256,256,97,98,99,132.9,0.1,124.1,89131,br q3 2^16: 1; br q3 2^18: 58; br q4 2^18: 39; identity: 158
+142734,one,128,false,zstd,256,256,143,143,75,131.0,0.1,118.8,64748,zstd 2^18 low memory: 143; zstd asleep: 113
+142734,one,128,false,mixed,256,256,117,119,87,131.6,0.1,121.3,77791,br q3 2^16: 2; br q3 2^18: 36; br q4 2^18: 19; identity: 71; zstd 2^18 low memory: 62; zstd asleep: 66
+142734,one,150,false,br,300,300,114,114,115,155.4,0.1,145.2,89163,br q3 2^18: 68; br q4 2^18: 46; identity: 186
+142734,one,150,false,zstd,300,300,168,168,88,153.9,0.1,139.9,63252,zstd 2^18 low memory: 168; zstd asleep: 132
+142734,one,150,false,mixed,300,300,139,139,102,154.0,0.1,141.9,77175,br q3 2^18: 42; br q4 2^18: 22; identity: 86; zstd 2^18 low memory: 75; zstd asleep: 75
+232637,one,64,false,br,128,128,48,49,50,66.2,0.2,62.4,144803,br q3 2^16: 1; br q3 2^18: 29; br q4 2^18: 19; identity: 79
+232637,one,64,false,zstd,128,128,71,71,38,65.2,0.2,60.2,106040,zstd 2^18 low memory: 71; zstd asleep: 57
+232637,one,64,false,mixed,128,128,58,59,44,65.1,0.2,60.6,126941,br q3 2^18: 18; br q4 2^18: 9; identity: 37; zstd 2^15 low memory: 1; zstd 2^18 low memory: 31; zstd asleep: 32
+232637,one,128,false,br,256,256,97,97,98,132.3,0.2,124.4,146277,br q3 2^18: 58; br q4 2^18: 39; identity: 159
+232637,one,128,false,zstd,256,256,143,143,75,131.1,0.2,120.7,107002,zstd 2^18 low memory: 143; zstd asleep: 113
+232637,one,128,false,mixed,256,256,118,118,86,131.4,0.2,122.3,128340,br q3 2^18: 37; br q4 2^18: 19; identity: 72; zstd 2^18 low memory: 62; zstd asleep: 66
+232637,one,150,false,br,300,300,114,114,115,155.5,0.2,146.4,145428,br q3 2^18: 68; br q4 2^18: 46; identity: 186
+232637,one,150,false,zstd,300,300,168,168,88,154.0,0.2,141.8,103090,zstd 2^18 low memory: 168; zstd asleep: 132
+232637,one,150,false,mixed,300,300,139,139,102,154.1,0.2,143.5,125854,br q3 2^18: 42; br q4 2^18: 22; identity: 86; zstd 2^18 low memory: 75; zstd asleep: 75
+232637,one each,150,false,br,150,150,114,114,115,150.6,0.0,144.7,58333,br q3 2^18: 68; br q4 2^18: 46; identity: 36
+232637,one each,150,false,zstd,150,150,150,150,88,133.6,0.0,125.0,3016,zstd 2^18 low memory: 150
+232637,one each,150,false,mixed,150,150,124,124,102,135.2,0.0,128.2,47582,br q3 2^18: 37; br q4 2^18: 22; identity: 16; zstd 2^18 low memory: 65; zstd asleep: 10
+232637,one each,150,false,zstd,200,200,168,168,88,150.6,0.0,140.4,43147,zstd 2^18 low memory: 168; zstd asleep: 32
+232637,one each,200,false,br,150,150,150,150,0,197.4,0.0,190.5,3308,br q3 2^18: 88; br q4 2^18: 62
+232637,one each,140,false,zstd,150,150,150,150,82,133.6,0.0,125.1,5509,zstd 2^18 low memory: 150
+232637,one each,230,false,mixed,150,150,150,150,0,224.9,0.0,217.0,3191,br q3 2^18: 41; br q4 2^18: 34; zstd 2^19: 66; zstd 2^19 low memory: 9
+232637,one each,120,true,br,150,91,91,91,0,119.5,0.0,115.4,3189,br q3 2^18: 54; br q4 2^18: 37
+232637,one each,120,true,zstd,150,134,134,134,0,119.3,0.0,111.8,3826,zstd 2^18 low memory: 134
+232637,one each,120,true,mixed,150,111,111,111,0,119.4,0.0,113.7,2108,br q3 2^18: 38; br q4 2^18: 17; zstd 2^18 low memory: 56
+232637,one each,150,true,br,150,114,114,114,0,149.5,0.0,144.2,4295,br q3 2^18: 68; br q4 2^18: 46
+232637,one each,150,true,zstd,150,150,150,150,0,133.6,0.0,125.2,3202,zstd 2^18 low memory: 150
+232637,one each,150,true,mixed,150,139,139,139,0,149.9,0.0,142.7,3343,br q3 2^18: 47; br q4 2^18: 22; zstd 2^18 low memory: 70

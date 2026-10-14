@@ -811,199 +811,199 @@ board,"budget, 503",40,40,40,0,0,66.2,69.4,1471,zstd 2^19: 40
 board,"budget, 503",50,50,50,0,0,82.8,86.7,1471,zstd 2^19: 50
 board,"budget, 503",60,60,60,0,0,99.4,104.1,1471,zstd 2^19: 60
 board,"budget, 503",70,70,70,0,0,115.9,121.4,1471,zstd 2^19: 70
-board,"budget, 503",80,74,74,0,6,78.7,84.4,1471,zstd 2^19 low memory: 74
-board,"budget, 503",90,84,84,0,6,89.3,95.8,1471,zstd 2^19 low memory: 84
-board,"budget, 503",100,94,94,0,6,99.9,107.2,1471,zstd 2^19 low memory: 94
-board,"budget, 503",110,104,104,0,6,110.6,118.6,1471,zstd 2^19 low memory: 104
+board,"budget, 503",80,74,74,0,6,78.4,84.2,1488,zstd 2^18 low memory: 1; zstd 2^19 low memory: 73
+board,"budget, 503",90,84,84,0,6,89.0,95.6,1486,zstd 2^18 low memory: 1; zstd 2^19 low memory: 83
+board,"budget, 503",100,94,94,0,6,99.7,107.0,1484,zstd 2^18 low memory: 1; zstd 2^19 low memory: 93
+board,"budget, 503",110,104,104,0,6,110.3,118.4,1483,zstd 2^18 low memory: 1; zstd 2^19 low memory: 103
 board,"budget, 503",120,112,112,0,8,91.1,99.8,2703,zstd 2^18 low memory: 112
 board,"budget, 503",130,122,122,0,8,99.2,108.7,2703,zstd 2^18 low memory: 122
 board,"budget, 503",140,132,132,0,8,107.3,117.6,2703,zstd 2^18 low memory: 132
 board,"budget, 503",150,142,142,0,8,115.4,126.5,2703,zstd 2^18 low memory: 142
-board,"budget, 503",160,144,144,0,16,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",170,144,144,0,26,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",180,144,144,0,36,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",190,144,144,0,46,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",200,144,144,0,56,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",210,144,144,0,66,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",220,144,144,0,76,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",230,144,144,0,86,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",240,144,144,0,96,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",250,144,144,0,106,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",260,144,144,0,116,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",270,144,144,0,126,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",280,144,144,0,136,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",290,144,144,0,146,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",300,144,144,0,156,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",310,144,144,0,166,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",320,144,144,0,176,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",330,144,144,0,186,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",340,144,144,0,196,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",350,144,144,0,206,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",360,144,144,0,216,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",370,144,144,0,226,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",380,144,144,0,236,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",390,144,144,0,246,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",400,144,144,0,256,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",410,144,144,0,266,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",420,144,144,0,276,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",430,144,144,0,286,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",440,144,144,0,296,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",450,144,144,0,306,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",460,144,144,0,316,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",470,144,144,0,326,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",480,144,144,0,336,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",490,144,144,0,346,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",500,144,144,0,356,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",510,144,144,0,366,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",520,144,144,0,376,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",530,144,144,0,386,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",540,144,144,0,396,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",550,144,144,0,406,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",560,144,144,0,416,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",570,144,144,0,426,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",580,144,144,0,436,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",590,144,144,0,446,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",600,144,144,0,456,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",610,144,144,0,466,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",620,144,144,0,476,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",630,144,144,0,486,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",640,144,144,0,496,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",650,144,144,0,506,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",660,144,144,0,516,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",670,144,144,0,526,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",680,144,144,0,536,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",690,144,144,0,546,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",700,144,144,0,556,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",710,144,144,0,566,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",720,144,144,0,576,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",730,144,144,0,586,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",740,144,144,0,596,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",750,144,144,0,606,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",760,144,144,0,616,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",770,144,144,0,626,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",780,144,144,0,636,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",790,144,144,0,646,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",800,144,144,0,656,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",810,144,144,0,666,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",820,144,144,0,676,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",830,144,144,0,686,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",840,144,144,0,696,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",850,144,144,0,706,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",860,144,144,0,716,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",870,144,144,0,726,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",880,144,144,0,736,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",890,144,144,0,746,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",900,144,144,0,756,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",910,144,144,0,766,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",920,144,144,0,776,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",930,144,144,0,786,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",940,144,144,0,796,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",950,144,144,0,806,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",960,144,144,0,816,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",970,144,144,0,826,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",980,144,144,0,836,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",990,144,144,0,846,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1000,144,144,0,856,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1010,144,144,0,866,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1020,144,144,0,876,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1030,144,144,0,886,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1040,144,144,0,896,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1050,144,144,0,906,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1060,144,144,0,916,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1070,144,144,0,926,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1080,144,144,0,936,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1090,144,144,0,946,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1100,144,144,0,956,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1110,144,144,0,966,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1120,144,144,0,976,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1130,144,144,0,986,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1140,144,144,0,996,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1150,144,144,0,1006,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1160,144,144,0,1016,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1170,144,144,0,1026,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1180,144,144,0,1036,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1190,144,144,0,1046,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1200,144,144,0,1056,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1210,144,144,0,1066,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1220,144,144,0,1076,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1230,144,144,0,1086,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1240,144,144,0,1096,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1250,144,144,0,1106,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1260,144,144,0,1116,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1270,144,144,0,1126,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1280,144,144,0,1136,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1290,144,144,0,1146,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1300,144,144,0,1156,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1310,144,144,0,1166,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1320,144,144,0,1176,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1330,144,144,0,1186,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1340,144,144,0,1196,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1350,144,144,0,1206,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1360,144,144,0,1216,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1370,144,144,0,1226,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1380,144,144,0,1236,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1390,144,144,0,1246,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1400,144,144,0,1256,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1410,144,144,0,1266,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1420,144,144,0,1276,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1430,144,144,0,1286,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1440,144,144,0,1296,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1450,144,144,0,1306,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1460,144,144,0,1316,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1470,144,144,0,1326,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1480,144,144,0,1336,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1490,144,144,0,1346,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1500,144,144,0,1356,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1510,144,144,0,1366,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1520,144,144,0,1376,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1530,144,144,0,1386,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1540,144,144,0,1396,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1550,144,144,0,1406,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1560,144,144,0,1416,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1570,144,144,0,1426,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1580,144,144,0,1436,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1590,144,144,0,1446,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1600,144,144,0,1456,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1610,144,144,0,1466,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1620,144,144,0,1476,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1630,144,144,0,1486,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1640,144,144,0,1496,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1650,144,144,0,1506,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1660,144,144,0,1516,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1670,144,144,0,1526,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1680,144,144,0,1536,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1690,144,144,0,1546,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1700,144,144,0,1556,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1710,144,144,0,1566,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1720,144,144,0,1576,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1730,144,144,0,1586,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1740,144,144,0,1596,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1750,144,144,0,1606,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1760,144,144,0,1616,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1770,144,144,0,1626,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1780,144,144,0,1636,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1790,144,144,0,1646,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1800,144,144,0,1656,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1810,144,144,0,1666,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1820,144,144,0,1676,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1830,144,144,0,1686,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1840,144,144,0,1696,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1850,144,144,0,1706,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1860,144,144,0,1716,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1870,144,144,0,1726,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1880,144,144,0,1736,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1890,144,144,0,1746,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1900,144,144,0,1756,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1910,144,144,0,1766,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1920,144,144,0,1776,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1930,144,144,0,1786,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1940,144,144,0,1796,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1950,144,144,0,1806,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1960,144,144,0,1816,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1970,144,144,0,1826,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1980,144,144,0,1836,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",1990,144,144,0,1846,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
-board,"budget, 503",2000,144,144,0,1856,116.8,128.0,2762,zstd 2^15 low memory: 1; zstd 2^18 low memory: 143
+board,"budget, 503",160,143,143,0,17,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",170,143,143,0,27,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",180,143,143,0,37,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",190,143,143,0,47,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",200,143,143,0,57,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",210,143,143,0,67,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",220,143,143,0,77,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",230,143,143,0,87,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",240,143,143,0,97,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",250,143,143,0,107,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",260,143,143,0,117,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",270,143,143,0,127,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",280,143,143,0,137,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",290,143,143,0,147,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",300,143,143,0,157,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",310,143,143,0,167,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",320,143,143,0,177,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",330,143,143,0,187,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",340,143,143,0,197,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",350,143,143,0,207,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",360,143,143,0,217,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",370,143,143,0,227,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",380,143,143,0,237,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",390,143,143,0,247,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",400,143,143,0,257,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",410,143,143,0,267,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",420,143,143,0,277,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",430,143,143,0,287,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",440,143,143,0,297,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",450,143,143,0,307,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",460,143,143,0,317,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",470,143,143,0,327,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",480,143,143,0,337,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",490,143,143,0,347,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",500,143,143,0,357,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",510,143,143,0,367,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",520,143,143,0,377,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",530,143,143,0,387,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",540,143,143,0,397,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",550,143,143,0,407,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",560,143,143,0,417,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",570,143,143,0,427,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",580,143,143,0,437,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",590,143,143,0,447,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",600,143,143,0,457,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",610,143,143,0,467,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",620,143,143,0,477,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",630,143,143,0,487,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",640,143,143,0,497,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",650,143,143,0,507,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",660,143,143,0,517,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",670,143,143,0,527,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",680,143,143,0,537,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",690,143,143,0,547,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",700,143,143,0,557,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",710,143,143,0,567,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",720,143,143,0,577,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",730,143,143,0,587,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",740,143,143,0,597,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",750,143,143,0,607,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",760,143,143,0,617,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",770,143,143,0,627,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",780,143,143,0,637,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",790,143,143,0,647,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",800,143,143,0,657,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",810,143,143,0,667,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",820,143,143,0,677,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",830,143,143,0,687,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",840,143,143,0,697,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",850,143,143,0,707,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",860,143,143,0,717,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",870,143,143,0,727,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",880,143,143,0,737,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",890,143,143,0,747,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",900,143,143,0,757,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",910,143,143,0,767,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",920,143,143,0,777,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",930,143,143,0,787,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",940,143,143,0,797,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",950,143,143,0,807,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",960,143,143,0,817,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",970,143,143,0,827,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",980,143,143,0,837,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",990,143,143,0,847,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1000,143,143,0,857,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1010,143,143,0,867,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1020,143,143,0,877,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1030,143,143,0,887,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1040,143,143,0,897,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1050,143,143,0,907,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1060,143,143,0,917,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1070,143,143,0,927,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1080,143,143,0,937,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1090,143,143,0,947,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1100,143,143,0,957,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1110,143,143,0,967,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1120,143,143,0,977,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1130,143,143,0,987,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1140,143,143,0,997,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1150,143,143,0,1007,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1160,143,143,0,1017,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1170,143,143,0,1027,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1180,143,143,0,1037,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1190,143,143,0,1047,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1200,143,143,0,1057,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1210,143,143,0,1067,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1220,143,143,0,1077,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1230,143,143,0,1087,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1240,143,143,0,1097,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1250,143,143,0,1107,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1260,143,143,0,1117,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1270,143,143,0,1127,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1280,143,143,0,1137,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1290,143,143,0,1147,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1300,143,143,0,1157,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1310,143,143,0,1167,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1320,143,143,0,1177,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1330,143,143,0,1187,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1340,143,143,0,1197,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1350,143,143,0,1207,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1360,143,143,0,1217,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1370,143,143,0,1227,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1380,143,143,0,1237,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1390,143,143,0,1247,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1400,143,143,0,1257,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1410,143,143,0,1267,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1420,143,143,0,1277,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1430,143,143,0,1287,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1440,143,143,0,1297,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1450,143,143,0,1307,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1460,143,143,0,1317,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1470,143,143,0,1327,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1480,143,143,0,1337,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1490,143,143,0,1347,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1500,143,143,0,1357,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1510,143,143,0,1367,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1520,143,143,0,1377,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1530,143,143,0,1387,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1540,143,143,0,1397,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1550,143,143,0,1407,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1560,143,143,0,1417,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1570,143,143,0,1427,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1580,143,143,0,1437,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1590,143,143,0,1447,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1600,143,143,0,1457,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1610,143,143,0,1467,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1620,143,143,0,1477,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1630,143,143,0,1487,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1640,143,143,0,1497,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1650,143,143,0,1507,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1660,143,143,0,1517,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1670,143,143,0,1527,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1680,143,143,0,1537,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1690,143,143,0,1547,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1700,143,143,0,1557,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1710,143,143,0,1567,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1720,143,143,0,1577,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1730,143,143,0,1587,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1740,143,143,0,1597,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1750,143,143,0,1607,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1760,143,143,0,1617,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1770,143,143,0,1627,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1780,143,143,0,1637,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1790,143,143,0,1647,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1800,143,143,0,1657,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1810,143,143,0,1667,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1820,143,143,0,1677,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1830,143,143,0,1687,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1840,143,143,0,1697,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1850,143,143,0,1707,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1860,143,143,0,1717,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1870,143,143,0,1727,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1880,143,143,0,1737,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1890,143,143,0,1747,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1900,143,143,0,1757,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1910,143,143,0,1767,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1920,143,143,0,1777,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1930,143,143,0,1787,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1940,143,143,0,1797,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1950,143,143,0,1807,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1960,143,143,0,1817,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1970,143,143,0,1827,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1980,143,143,0,1837,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",1990,143,143,0,1847,116.3,127.4,2703,zstd 2^18 low memory: 143
+board,"budget, 503",2000,143,143,0,1857,116.3,127.4,2703,zstd 2^18 low memory: 143
 board,budget of 1 GiB,0,0,0,0,0,0.0,0.0,0,
 board,budget of 1 GiB,10,10,10,0,0,16.6,17.3,1471,zstd 2^19: 10
 board,budget of 1 GiB,20,20,20,0,0,33.1,34.7,1471,zstd 2^19: 20
@@ -2021,11 +2021,11 @@ page,"budget, 503",80,74,74,0,6,75.0,84.4,189,zstd 2^19 low memory: 74
 page,"budget, 503",90,84,84,0,6,85.2,95.8,189,zstd 2^19 low memory: 84
 page,"budget, 503",100,94,94,0,6,95.3,107.2,189,zstd 2^19 low memory: 94
 page,"budget, 503",110,104,104,0,6,105.5,118.6,189,zstd 2^19 low memory: 104
-page,"budget, 503",120,112,112,0,8,85.6,99.8,248,zstd 2^18 low memory: 112
-page,"budget, 503",130,122,122,0,8,93.2,108.7,248,zstd 2^18 low memory: 122
-page,"budget, 503",140,132,132,0,8,100.8,117.6,248,zstd 2^18 low memory: 132
-page,"budget, 503",150,142,142,0,8,108.5,126.5,248,zstd 2^18 low memory: 142
-page,"budget, 503",160,144,144,0,16,91.9,110.1,384,zstd 2^15 low memory: 1; zstd 2^17 low memory: 143
+page,"budget, 503",120,112,112,0,8,85.4,99.6,249,zstd 2^17 low memory: 1; zstd 2^18 low memory: 111
+page,"budget, 503",130,122,122,0,8,93.1,108.5,249,zstd 2^17 low memory: 1; zstd 2^18 low memory: 121
+page,"budget, 503",140,132,132,0,8,100.7,117.4,249,zstd 2^17 low memory: 1; zstd 2^18 low memory: 131
+page,"budget, 503",150,142,142,0,8,108.4,126.3,249,zstd 2^17 low memory: 1; zstd 2^18 low memory: 141
+page,"budget, 503",160,144,144,0,16,92.0,110.2,379,zstd 2^17 low memory: 144
 page,"budget, 503",170,154,154,0,16,98.4,117.9,379,zstd 2^17 low memory: 154
 page,"budget, 503",180,164,164,0,16,104.8,125.6,379,zstd 2^17 low memory: 164
 page,"budget, 503",190,167,167,0,23,106.7,127.9,379,zstd 2^17 low memory: 167
