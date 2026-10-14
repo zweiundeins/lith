@@ -38,7 +38,7 @@ TasksMax=256
 # Caddy reaches the socket. The service itself may not reach localhost,
 # where other services listen (Caddy's admin API, databases); DNS goes
 # through systemd-resolved's stub. To listen on a loopback port instead:
-# -addr 127.0.0.1:8080, drop IPAddressDeny, and point the Caddyfile there.
+# -addr 127.0.0.1:8080, drop IPAddressDeny, and point app.caddy there.
 IPAddressDeny=localhost
 IPAddressAllow=127.0.0.53 127.0.0.54
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

@@ -74,7 +74,7 @@ With 200 open streams it held 110 MB resident, 100 MB of them encoders: 115 stre
 
 Caddy terminates TLS and proxies to the socket. The app compresses its pages, files and streams itself, so the block has no `encode`:
 
-```text source=template/deploy/Caddyfile
+```text source=template/deploy/app.caddy
 reverse_proxy unix//run/app/app.sock {
 	# The client's address for the rate limits. app takes it only from
 	# the socket or loopback, the last X-Forwarded-For address before

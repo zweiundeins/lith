@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -44,7 +45,30 @@ func TestWrite(t *testing.T) {
 	if fi, err := os.Stat(filepath.Join(dir, "deploy/visitor-log-deploy")); err != nil || fi.Mode().Perm() != 0o755 {
 		t.Errorf("the deploy script: %v %v", fi, err)
 	}
-	for _, gone := range []string{"template.go", "go.mod.tmpl", "cmd/app", "deploy/app.service"} {
+	const accessLog = "/var/log/caddy/visitor-log-access.log"
+	if s := read(t, dir, "deploy/visitor-log.caddy"); !strings.Contains(s, accessLog) {
+		t.Errorf("the Caddy block:\n%s", s)
+	}
+	if s := read(t, dir, "deploy/observability/visitor-log.targets.yml"); !strings.Contains(s, "service: visitor-log,") {
+		t.Errorf("the probes:\n%s", s)
+	}
+	alloy := read(t, dir, "deploy/observability/visitor-log.alloy")
+	for _, want := range []string{`"SYSLOG_IDENTIFIER=visitor-log"`, `replacement  = "visitor-log"`, `"site" = "visitor-log"`, accessLog} {
+		if !strings.Contains(alloy, want) {
+			t.Errorf("the Alloy file lacks %s", want)
+		}
+	}
+	// Alloy combines every file of its folder: labels are identifiers, and the app's own.
+	labels := alloyLabel.FindAllStringSubmatch(alloy, -1)
+	for _, m := range labels {
+		if !strings.HasPrefix(m[1], "visitor_log_") || !identifier.MatchString(m[1]) {
+			t.Errorf("the Alloy component label %q", m[1])
+		}
+	}
+	if len(labels) < 5 {
+		t.Errorf("the Alloy file has %d components", len(labels))
+	}
+	for _, gone := range []string{"template.go", "go.mod.tmpl", "cmd/app", "deploy/app.service", "deploy/observability/app.alloy"} {
 		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
 			t.Errorf("%s was copied", gone)
 		}
@@ -165,6 +189,11 @@ func TestGenerated(t *testing.T) {
 		}
 	}
 }
+
+var (
+	alloyLabel = regexp.MustCompile(`(?m)^[a-z_.]+ "([^"]*)" \{`)
+	identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+)
 
 func read(t *testing.T, dir, name string) string {
 	t.Helper()

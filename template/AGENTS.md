@@ -11,7 +11,7 @@ app is a Go, SQLite and Datastar application on lith (github.com/zweiundeins/lit
 - `internal/views`: templ components, and the Datastar expressions they use (`expr.go`).
 - `internal/web`: routes, handlers, the live views, static files. `static/vendor` holds Starbase's patched Datastar build; its `VERSION` says which.
 - `migrations`: `NNN_name.sql`, applied in order at startup. Add a file for every schema change, never edit one that has shipped.
-- `deploy`: systemd units, Caddy snippet, deploy script, backups (`deploy/README.md`).
+- `deploy`: systemd units, the Caddy site block, deploy script, backups, and in `deploy/observability` the probes and log shipping a host's Prometheus and Alloy load (`deploy/README.md`).
 - `benchmarks/RESULTS.md`: measured numbers, each with its date, machine and command.
 
 ## Commands

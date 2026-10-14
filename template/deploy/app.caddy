@@ -1,5 +1,6 @@
-# Caddy 2: add this site block to the Caddyfile, with the real domain.
-# app compresses its pages and its streams itself, so there is no `encode`.
+# Caddy 2: the site block, with the real domain, as /etc/caddy/sites/app.caddy
+# (the host's Caddyfile imports that folder). app compresses its pages and its
+# streams itself, so there is no `encode`.
 app.example.com {
 	log {
 		output file /var/log/caddy/app-access.log {

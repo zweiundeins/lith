@@ -95,7 +95,7 @@ A policy that depends on the request, such as one that names the request's own o
 
 `edge.ClientIP(r)` returns the address of the client behind the local reverse proxy. Only a peer on loopback or a Unix socket counts as the proxy; from any other peer, `X-Forwarded-For` and `X-Real-IP` are ignored, since a client can send them itself to dodge its rate limit or to spend someone else's. From the proxy, the address is the last one of `X-Forwarded-For`, and `X-Real-IP` counts only without it: a proxy may pass on an `X-Real-IP` the client sent. The template's Caddy block replaces both:
 
-```text source=template/deploy/Caddyfile
+```text source=template/deploy/app.caddy
 header_up X-Forwarded-For {http.request.remote.host}
 header_up X-Real-IP {http.request.remote.host}
 ```

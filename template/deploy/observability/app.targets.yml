@@ -1,0 +1,6 @@
+# Blackbox probes for app, with the real domain, as /etc/prometheus/targets/app.yml.
+# `module` is one of the host's generic modules; `service` is the access log's site.
+- targets: ['https://app.example.com/']
+  labels: { service: app, module: http_2xx }
+- targets: ['https://app.example.com/healthz']
+  labels: { service: app, module: http_2xx_ok }

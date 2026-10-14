@@ -4,8 +4,10 @@ One binary and one SQLite file on a Linux server, behind Caddy. The files here:
 
 - `app.service`: the systemd unit. It runs as the `app` user, keeps the database in `/var/lib/app`, listens on the Unix socket `/run/app/app.sock`, cannot reach localhost, and is capped at 640 MB of memory.
 - `app-backup.service` and `app-backup.timer`: every six hours, `app backup` copies the database (VACUUM INTO) into `/var/lib/app/backups` and keeps the newest 28 copies.
-- `Caddyfile`: the site block. TLS, `reverse_proxy` to the socket with the client's address in X-Forwarded-For and X-Real-IP, no `encode`, and `flush_interval -1` for the streams.
+- `app.caddy`: the site block. TLS, `reverse_proxy` to the socket with the client's address in X-Forwarded-For and X-Real-IP, the access log in JSON, no `encode`, and `flush_interval -1` for the streams.
 - `app-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
+- `observability/`: the blackbox probes and the Alloy file that ships the journal and the access log to Loki ([Monitoring](#monitoring)).
+- `setup-host.sh`: installs the files in `observability/` into the folders the host's Prometheus and Alloy load, and with a key, the user CI deploys as.
 
 ## One-time setup
 
@@ -21,13 +23,34 @@ app-deploy ./app
 systemctl start app-backup.timer
 ```
 
-Then add the block in `Caddyfile` to Caddy's configuration with the real domain, and reload Caddy. Run as root, `caddy validate` creates the access log owned by root, and the reload then fails; `chown caddy:caddy /var/log/caddy/app-access.log` fixes it.
+Put the real domain into `app.caddy` and `observability/app.targets.yml`, point its DNS records at the host (Caddy asks for the certificate when it loads the block), and install the block where the host's Caddyfile imports it:
+
+```sh
+install -m 0644 app.caddy /etc/caddy/sites/
+caddy validate --config /etc/caddy/Caddyfile
+chown caddy:caddy /var/log/caddy/app-access.log
+systemctl reload caddy
+bash setup-host.sh
+```
+
+Run as root, `caddy validate` creates the access log owned by root, and the reload then fails: the `chown` fixes it. `setup-host.sh` installs the monitoring files (below).
 
 ## Deploying
 
 `app-deploy <binary>` checks that the file is an ELF binary that prints its version (it runs `--version` as the `app` user, without network, for ten seconds at most), keeps the running binary aside, restarts `app` and waits up to 30 seconds for `/healthz` to answer `ok <new version>`. If it does not, the script puts the old binary back and restarts again. `app-deploy rollback` returns to the binary that ran before the last good deploy.
 
-CI can deploy by piping the binary over SSH into `app-deploy -`, as a user whose key may run that one command only: `restrict,command="sudo -n /usr/local/bin/app-deploy -"` in its `authorized_keys`, and a sudoers line that allows exactly that command. `setup-host.sh` creates such a user: run it as root, from a copy of this folder, with the public half of CI's key (`bash setup-host.sh app-deploy-key.pub`). lith's `.github/workflows/deploy-site.yml` is a workflow that deploys this way.
+CI can deploy by piping the binary over SSH into `app-deploy -`, as a user whose key may run that one command only: `restrict,command="sudo -n /usr/local/bin/app-deploy -"` in its `authorized_keys`, and a sudoers line that allows exactly that command. `setup-host.sh` creates such a user when given the public half of CI's key: run it as root, from a copy of this folder (`bash setup-host.sh app-deploy-key.pub`). lith's `.github/workflows/deploy-site.yml` is a workflow that deploys this way.
+
+## Monitoring
+
+A host that runs several apps keeps its own configs for Caddy, Prometheus, Alloy and Grafana, and each loads a folder of files that the apps install. lith's guide [Metrics and monitoring](https://lith.zweiundeins.gmbh/docs/guides/monitoring#drop-in-files-for-a-shared-host) describes the folders and the labels. `setup-host.sh` installs app's:
+
+- `observability/app.targets.yml` as `/etc/prometheus/targets/app.yml`: blackbox probes of `/` and `/healthz` (whose body must start with `ok `), labelled `service: app`. Prometheus watches the folder.
+- `observability/app.alloy` as `/etc/alloy/app.alloy`: the journal as `{job="app"}`, with slog's level as the label `level`, and Caddy's access log as `{job="caddy", site="app"}`. The script reloads Alloy and puts the old file back if Alloy refuses the new one.
+
+Each goes in only where its service is installed; run the script again after changing them.
+
+app serves no metrics. To add them: register `lith/prom` and `lith/dbmetrics/prom` on a registry served on a loopback port (lith's `site/cmd/lith-site` does it at the public port + 100), let Prometheus reach that port (the unit's `IPAddressDeny=localhost` blocks loopback both ways; lith's `site/deploy/lith-site.service` allows localhost and limits the ports it may bind), and add `observability/app.metrics.yml`, a target labelled like lith's `site/deploy/observability/lith-site.metrics.yml`, which `setup-host.sh` installs as `/etc/prometheus/apps/app.yml`. The host's "lith apps" dashboard and alert rules then show app.
 
 ## Backups
 
@@ -35,4 +58,4 @@ The copies stay on the server's disk, so copy `/var/lib/app/backups` off the mac
 
 ## Litestream with two slots
 
-For a continuous replica in object storage, and a rollback that is a cutover instead of a reinstall, libretto and swisscyberguard run two slots of one unit (`app@blue`, `app@green`) on one data directory. Only one slot runs at a time, since Litestream allows one replicator per database. lith's `backup` module restores a missing database before `sqlite.Open` and replicates while the process runs; the database is then opened with `sqlite.CheckpointExternal`. Caddy proxies to both ports with `lb_try_duration` and `health_uri /readyz`, so requests wait through the few seconds of a handoff. The units, the Caddyfile and the deploy script are in those projects' `deploy/` folders.
+For a continuous replica in object storage, and a rollback that is a cutover instead of a reinstall, libretto and swisscyberguard run two slots of one unit (`app@blue`, `app@green`) on one data directory. Only one slot runs at a time, since Litestream allows one replicator per database. lith's `backup` module restores a missing database before `sqlite.Open` and replicates while the process runs; the database is then opened with `sqlite.CheckpointExternal`. Caddy proxies to both ports with `lb_try_duration` and `health_uri /readyz`, so requests wait through the few seconds of a handoff. The units, the Caddy blocks and the deploy script are in those projects' `deploy/` folders.

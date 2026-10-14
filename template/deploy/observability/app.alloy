@@ -1,0 +1,47 @@
+// app's logs for the host's Alloy, as /etc/alloy/app.alloy. Alloy runs on the
+// folder as one config, so every component label here starts with app_.
+
+// The journal as {job="app", level}: the job comes from relabeling, since the
+// source's own labels lose it once relabel_rules is set.
+loki.relabel "app_journal" {
+	forward_to = []
+
+	rule {
+		target_label = "job"
+		replacement  = "app"
+	}
+}
+
+loki.source.journal "app_journal" {
+	forward_to     = [loki.process.app_journal.receiver]
+	relabel_rules  = loki.relabel.app_journal.rules
+	labels         = {job = "app"}
+	matches        = "SYSLOG_IDENTIFIER=app"
+	format_as_json = false
+}
+
+// app logs with slog's text handler (key=value): its level becomes a label, so
+// an error rule is a label match, {job="app", level="ERROR"}.
+loki.process "app_journal" {
+	forward_to = [loki.write.default.receiver]
+
+	stage.logfmt {
+		mapping = {level = ""}
+	}
+
+	stage.labels {
+		values = {level = ""}
+	}
+}
+
+// Caddy's access log (app.caddy) as {job="caddy", site="app"}, through the
+// host's pipeline for access logs.
+local.file_match "app_access" {
+	path_targets = [{"__path__" = "/var/log/caddy/app-access.log", "job" = "caddy", "site" = "app"}]
+}
+
+loki.source.file "app_access" {
+	targets       = local.file_match.app_access.targets
+	forward_to    = [loki.process.caddy_logs.receiver]
+	tail_from_end = true
+}
