@@ -78,6 +78,22 @@
 		view-transition-name: docs-nav-marker;
 	}
 
+	/* The sections on the docs' home page, after its text. */
+	.docs-sections {
+		margin-block-start: var(--lith-space-8);
+
+		& > li {
+			display: grid;
+			align-content: start;
+			gap: var(--lith-space-2);
+		}
+
+		& h2,
+		& p {
+			margin: 0;
+		}
+	}
+
 	.docs-nav__marker--still {
 		view-transition-name: none;
 	}
