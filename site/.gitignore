@@ -3,3 +3,4 @@
 /lith-site
 *.test
 *.out
+/internal/githistory/data/history.json

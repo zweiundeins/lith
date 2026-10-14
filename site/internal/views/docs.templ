@@ -1,6 +1,9 @@
 package views
 
-import "github.com/zweiundeins/lith/site/internal/docs"
+import (
+	"github.com/zweiundeins/lith/site/internal/docs"
+	"github.com/zweiundeins/lith/site/internal/githistory"
+)
 
 // DocsPage is a page of the docs with everything around it.
 type DocsPage struct {
@@ -8,6 +11,10 @@ type DocsPage struct {
 	Page *docs.Page
 	// Edit is the URL of the page's source on GitHub.
 	Edit string
+	// Updated is the page's last commit, nil when the build had no git
+	// history; Commit is its URL on GitHub.
+	Updated *githistory.Commit
+	Commit  string
 }
 
 templ Docs(d DocsPage) {
@@ -52,7 +59,16 @@ templ Docs(d DocsPage) {
 					</a>
 				}
 			</nav>
-			<p class="edit-link"><a href={ safe(d.Edit) }>Edit this page on GitHub</a></p>
+			<footer class="docs-foot">
+				if u := d.Updated; u != nil {
+					<p class="docs-foot__updated">
+						Updated <time datetime={ u.Date.UTC().Format("2006-01-02") }>{ u.Date.UTC().Format("2 January 2006") }</time>
+						<span aria-hidden="true">·</span>
+						<a href={ safe(d.Commit) }>{ u.Subject }</a>
+					</p>
+				}
+				<p class="docs-foot__edit"><a href={ safe(d.Edit) }>Edit this page on GitHub</a></p>
+			</footer>
 		</article>
 		if len(d.Page.Headings) > 0 {
 			<aside class="docs-toc" aria-labelledby="toc-title">

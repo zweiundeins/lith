@@ -272,14 +272,25 @@
 		}
 	}
 
-	.edit-link {
+	/* The page's last commit and its source on GitHub. */
+	.docs-foot {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		gap: var(--lith-space-2) var(--lith-space-6);
 		margin-block-start: var(--lith-space-6);
 		font-family: var(--lith-font-ui);
 		font-size: var(--lith-text-xs);
+		color: var(--lith-text-muted);
 
 		& a {
 			color: var(--lith-text-muted);
 		}
+	}
+
+	.docs-foot__updated {
+		min-inline-size: 0;
+		overflow-wrap: anywhere;
 	}
 
 	/* How far down the page the reader is: a bar under the header, driven

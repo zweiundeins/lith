@@ -26,6 +26,7 @@ import (
 	"github.com/zweiundeins/lith/site/content"
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/docs"
+	"github.com/zweiundeins/lith/site/internal/githistory"
 	"github.com/zweiundeins/lith/site/internal/markdown"
 	"github.com/zweiundeins/lith/site/internal/starbase"
 	"github.com/zweiundeins/lith/site/internal/views"
@@ -57,6 +58,9 @@ type Server struct {
 	starbase *starbase.Set
 	docs     *docs.Docs
 	demos    []site
+	// history is each page's last commit, by its path; empty when the
+	// build had no git history.
+	history map[string]githistory.Commit
 	// commands limits every action of the site per client address.
 	commands *edge.Limiter
 }
@@ -75,6 +79,9 @@ func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.L
 	var err error
 	if s.docs, err = docs.Load(content.Docs, cfg.Dev); err != nil {
 		return nil, fmt.Errorf("docs: %w", err)
+	}
+	if s.history, err = githistory.Load(); err != nil {
+		return nil, err
 	}
 	for _, d := range list {
 		art := d.Art
@@ -343,7 +350,11 @@ func (s *Server) doc(w http.ResponseWriter, r *http.Request) {
 	sh.Headline = p.Headline
 	sh.Docs = views.DocsNav(d, p, false)
 	s.page(w, r, sh, func(context.Context, *sql.Tx) (templ.Component, error) {
-		return views.Docs(views.DocsPage{Docs: d, Page: p, Edit: s.cfg.Repo + "/blob/main/site/content/docs/" + p.File}), nil
+		page := views.DocsPage{Docs: d, Page: p, Edit: s.cfg.Repo + "/blob/main/site/content/docs/" + p.File}
+		if c, ok := s.history[p.Path]; ok {
+			page.Updated, page.Commit = &c, s.cfg.Repo+"/commit/"+c.Hash
+		}
+		return views.Docs(page), nil
 	})
 }
 

@@ -9,6 +9,12 @@ tasks:
     cmds:
       - go tool templ generate
 
+  history:
+    desc: Write each page's last commit (date, hash, subject) from git log to internal/githistory/data/history.json, which the binary embeds
+    deps: [generate]
+    cmds:
+      - go run ./cmd/githistory
+
   docs:
     desc: Write the docs' generated parts, the package reference and the charts of lith's benchmarks (TestUpToDate fails until they are current)
     cmds:
@@ -16,18 +22,19 @@ tasks:
 
   dev:
     desc: Serve on http://127.0.0.1:8097 (metrics on :8197) and rebuild on every change (air)
+    deps: [history]
     cmds:
       - go tool air
 
   run:
     desc: Serve once, in development mode, without rebuilding
-    deps: [generate]
+    deps: [history]
     cmds:
       - go run ./cmd/lith-site -dev -log text
 
   test:
     desc: Vet, check the formatting, run the tests with the race detector (Chromium tests need LITH_CHROME_NO_SANDBOX=1 where there is no sandbox)
-    deps: [generate]
+    deps: [history]
     cmds:
       - go vet ./...
       # Go 1.27's own gofmt: lith uses generic methods, which an older one rejects.
@@ -42,7 +49,7 @@ tasks:
 
   build:
     desc: Build the static binary, everything embedded
-    deps: [generate]
+    deps: [history]
     vars:
       VERSION:
         sh: git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev
