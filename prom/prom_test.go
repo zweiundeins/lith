@@ -50,7 +50,7 @@ app_writer_commands_total 3
 # HELP app_live_streams Streams open now.
 # TYPE app_live_streams gauge
 app_live_streams 0
-# HELP app_sse_budget_limit_bytes The heap the streams' encoders may hold together, 0 for none.
+# HELP app_sse_budget_limit_bytes The memory the streams may hold together, their encoders and the frames kept for them, 0 for none.
 # TYPE app_sse_budget_limit_bytes gauge
 app_sse_budget_limit_bytes 6.7108864e+07
 `

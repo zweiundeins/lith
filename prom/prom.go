@@ -1,6 +1,6 @@
 // Package prom exports a lith app's numbers to Prometheus: the writer's
 // batches and commands, the live hub's ticks, renders and frames, and what
-// the streams' encoders hold of the memory budget. It is a module of its
+// the streams hold of the memory budget. It is a module of its
 // own, so that projects without Prometheus never pull it in. Statement
 // timings come from dbmetrics/prom.
 //
@@ -31,7 +31,7 @@ type collector struct {
 
 	ticks, renders, sent, dropped, overruns, readTxs, streams, views *prometheus.Desc
 
-	limit, reserved, tier, refused *prometheus.Desc
+	limit, reserved, frames, tier, refused, reopened *prometheus.Desc
 }
 
 // New returns a collector of the sources' numbers, named under namespace:
@@ -61,17 +61,19 @@ func New(namespace string, s Sources) prometheus.Collector {
 		readTxs:   d("live", "read_txs_total", "Read transactions the render workers began."),
 		streams:   d("live", "streams", "Streams open now."),
 		views:     d("live", "views", "Views watched now."),
-		limit:     d("sse_budget", "limit_bytes", "The heap the streams' encoders may hold together, 0 for none."),
-		reserved:  d("sse_budget", "reserved_bytes", "The heap the open streams' encoders hold."),
+		limit:     d("sse_budget", "limit_bytes", "The memory the streams may hold together, their encoders and the frames kept for them, 0 for none."),
+		reserved:  d("sse_budget", "reserved_bytes", "The memory the open streams hold: their encoders, 32 KiB each besides, and the frames kept for them."),
+		frames:    d("sse_budget", "frames_bytes", "The memory the frames kept for the streams hold (the hub's views' newest)."),
 		tier:      d("sse_budget", "streams", "Open streams by what their encoder holds.", "setting"),
 		refused:   d("sse_budget", "refused_total", "Streams the budget turned away."),
+		reopened:  d("sse_budget", "reopened_total", "Streams the budget asked to open again for a better tier."),
 	}
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99,
 		c.ticks, c.renders, c.sent, c.dropped, c.overruns, c.readTxs, c.streams, c.views,
-		c.limit, c.reserved, c.tier, c.refused} {
+		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened} {
 		ch <- d
 	}
 }
@@ -108,9 +110,11 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		st := b.Stats()
 		gauge(c.limit, float64(st.Limit))
 		gauge(c.reserved, float64(st.Reserved))
+		gauge(c.frames, float64(st.Frames))
 		for setting, n := range st.Streams {
 			gauge(c.tier, float64(n), setting)
 		}
 		counter(c.refused, float64(st.Refused))
+		counter(c.reopened, float64(st.Reopened))
 	}
 }
