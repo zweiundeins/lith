@@ -2,7 +2,14 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.2.0 (2026-10-14)
+
+Streams are measured by memory: the budget books what each stream holds, sizes its window from its frames, and with `Refuse` caps the streams instead of a count. No API was removed. What to check in an app:
+
+- A budget's `Limit` now covers each stream's encoder, 32 KiB besides and the frames the hub keeps, not only the encoders. The default, half the memory limit, needs no change; a `Limit` sized for encoders alone now lets fewer streams compress.
+- `ZstdWindow` and `BrotliWindow` are the largest window a stream may get: each stream takes the smallest window that holds its frames. `MinWindow` no longer defaults to 18; set it only for pages whose frames refer back further than one write.
+- With `Refuse`, a stream gets in only with room for a window that holds its frame, and its headers go out with its first frame. Open streams with `retry: 'error'` and leave `live.Options.MaxStreams` at its default, as a backstop.
+- A view that one stream watches, such as a tab's own, no longer keeps its frame: a stream that joins it gets a frame rendered in the next tick.
 
 - `sse`: `ReadSignals` reads a request's Datastar signals for any method: the `datastar` query parameter of GET, HEAD and DELETE, the JSON body of the others, `@query`'s QUERY included. It caps the body at 1 MiB (`ReadSignalsLimit` for another cap), takes a request without signals as none, and reads the body to its end, so that over HTTP/1.1 a handler that waits before it answers still notices a client that left. Called after `Open`, it returns `ErrBodyConsumed`.
 - `edge`: `Compress` compresses the answers to QUERY as it does GET's.
