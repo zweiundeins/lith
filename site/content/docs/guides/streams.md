@@ -55,7 +55,7 @@ A budget picks that window for each stream from its largest write ([below](#the-
 
 ## The memory budget
 
-A hub shares a memory budget among its streams, so that the server holds what its memory allows, however many tabs are open. The budget books what each stream holds: its encoder, 32 KiB for the rest of it (the hub's state, the goroutines' stacks, net/http's buffers), and each view's newest frame, once for all the streams that watch it. The default needs no setting:
+A hub shares a memory budget among its streams, so that the server holds what its memory allows, however many tabs are open. The budget books what each stream holds: its encoder, 32 KiB for the rest of it (the hub's state, the goroutines' stacks, net/http's buffers), and the newest frame of each view that two or more streams watch, once for all of them. A tab's own view books nothing: the hub drops its frame once the tab's stream has it, and keeps the frame's length and hash for the unchanged-frame check. The default needs no setting:
 
 - The limit is half the process's memory limit: `GOMEMLIMIT`, else the cgroup's `memory.max` or `memory.high`, whichever is lower. The other half is for the rest of the app and for the garbage between two collections: a render of a 233 KB view allocates about 1 MiB. Without a memory limit the budget only counts, and every stream gets the largest window its options allow.
 - A stream's first write picks its tier. The window must hold the stream's largest write with a sixteenth to spare, or a frame cannot refer to the one before: at 2^18, a 259 KB frame takes 249 bytes and a 266 KB one 29,719.

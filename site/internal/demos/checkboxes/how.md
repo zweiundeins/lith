@@ -63,7 +63,7 @@ func (c SetWindow) Apply(tx *writer.Tx) error {
 }
 ```
 
-`follow` calls `hub.Unwatch` for each chunk the tab left and `hub.Watch` for each chunk of the new window. A chunk another tab watches sends its newest frame at once; one nobody watched renders in the next tick.
+`follow` calls `hub.Unwatch` for each chunk the tab left and `hub.Watch` for each chunk of the new window. A chunk that two or more other tabs watch sends its newest frame at once; any other renders in the next tick, as every chunk does when a tab comes or goes, since it shows how many watch it.
 
 Why a command, and not the stream's own request with the window in its URL: the window is the tab's state, so it outlives a deploy in SQLite; the watches change on the writer's goroutine, in the order the windows were stored, so two windows sent in quick succession can never leave the stream on the older one; and the stream stays open while you scroll, keeping its zstd history.
 

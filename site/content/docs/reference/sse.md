@@ -126,7 +126,7 @@ type Budget struct {
 
 Budget shares a memory limit among the streams that open with it through Options.Budget, so that a server holds what its memory allows, however many tabs are open.
 
-A stream books what it holds from Open to Close: its encoder's tier, and 32 KiB for the rest of it. A live hub books each view's newest frame once, however many streams watch it (Hold). A stream's tier is picked at its first write, from the largest write it has made: a tier's window must hold that frame with a sixteenth to spare, or a frame cannot refer to the one before, and its bytes grow tens of times over. With BudgetOptions.Refuse, Open turns away a stream it has no room for, and every stream it lets in compresses until it closes.
+A stream books what it holds from Open to Close: its encoder's tier, and 32 KiB for the rest of it. A live hub books the frames it keeps, once per view however many streams watch it (Hold). A stream's tier is picked at its first write, from the largest write it has made: a tier's window must hold that frame with a sixteenth to spare, or a frame cannot refer to the one before, and its bytes grow tens of times over. With BudgetOptions.Refuse, Open turns away a stream it has no room for, and every stream it lets in compresses until it closes.
 
 A brotli stream takes the smallest window that holds its frame, since a larger one sends no fewer bytes: at its quality (4) while the budget stays at most half full, else at quality 3, and only when that does not fit what is left, quality 3 at 2^16, which compresses each frame alone. It keeps its tier until it closes. Open reserves quality 3 at 2^16 for it, and a stream that cannot have even that goes out uncompressed, or with Refuse is turned away. A stream that holds less than its frame needs may be asked to open again once room frees up (Stream.Upgrade).
 
@@ -148,7 +148,7 @@ NewBudget returns a budget for streams to share through Options.Budget.
 func (b *Budget) Hold(n int64)
 ```
 
-Hold books n more bytes that the streams hold besides their encoders, or gives back -n: a live hub books each view's newest frame, its length and 8 KiB, once for all the streams that watch it. What Hold books counts against the limit and leaves the encoders less room, but is never refused: once it takes the whole limit, streams go out uncompressed, or with Refuse new ones are turned away while those open keep their smallest tiers.
+Hold books n more bytes that the streams hold besides their encoders, or gives back -n: a live hub books the newest frame of each view that two or more streams watch, its length and 8 KiB, once for all of them. What Hold books counts against the limit and leaves the encoders less room, but is never refused: once it takes the whole limit, streams go out uncompressed, or with Refuse new ones are turned away while those open keep their smallest tiers.
 
 #### func (*Budget) SetLimit {#Budget.SetLimit}
 

@@ -68,8 +68,13 @@ i5-13500 core, 2026-10-12:
 - A live hub shares a memory budget among its streams by default: half the
   process's memory limit (GOMEMLIMIT, else the cgroup's), for each stream's
   encoder, 32 KiB per stream besides (hub state, stacks, net/http buffers) and
-  each view's newest frame (its length + 8 KiB, once per view; a non-[]byte
-  frame by its `Len() int`). The other half is GC headroom: a 230 KB render
+  the frames the hub keeps (its length + 8 KiB, once per view; a non-[]byte
+  frame by its `Len() int`). The hub keeps the newest frame of a view that two
+  or more streams watch, and any non-[]byte frame; of a []byte view one stream
+  watches (a tab's own) it keeps only the length and a hash once the stream
+  has the frame, and a stream that joins it gets a render in the next tick (a
+  join without the frame: 1.2 ms and 1 MiB of garbage for a 233 KB table,
+  against 69 us with it). The other half is GC headroom: a 230 KB render
   allocates about 1 MiB of garbage. zstd takes the largest tier within its
   fair share and shrinks while open, down to its frame's window, then 2^15,
   then raw blocks (never with `Refuse`). brotli keeps its tier: its frame's
@@ -92,8 +97,8 @@ i5-13500 core, 2026-10-12:
   (one stream a second, a tab once a minute; `sse.Stream.Upgrade` outside a
   hub). `hub.Budget().Stats()` tells what the streams hold (`Frames`,
   `Reopened`); `SetLimit` moves the limit at runtime; `Budget.Hold` books
-  frames kept outside a hub. 150 tabs with a 230 KB view each need about 240
-  MiB of budget with brotli, 170 MiB with zstd. Giving an idle stream's
+  frames kept outside a hub. 150 tabs with a 230 KB view each need about 200
+  MiB of budget with brotli, 140 MiB with zstd. Giving an idle stream's
   encoder back is opt-in: `live.Options.Hibernate` (zero, the default, never
   does). bench/budget has the numbers.
 - Never hold a lock or a slot while writing to the network; give every write a

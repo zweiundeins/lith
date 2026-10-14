@@ -291,20 +291,41 @@ Every run held about 19.8 ticks a second. The budget learns the board's 142 KB f
 
 ### What a stream and a view hold
 
-`TestViewCost` (`viewcost.csv`) streams data tables of 0.8, 49, 143 and 233 KB from a live hub to 64 streams that watch a view each or one they share. After a collection a view holds its newest frame rounded up to 8 KiB pages (56, 144 and 232 KiB) and about 1 KiB besides; a stream holds 3 to 7 KiB of heap and 8 to 10 KiB of stack in the hub; net/http holds 14 KiB of heap and 8 KiB of stack per open HTTP/1.1 connection. A render of the 233 KB table allocates 1,046 KiB, which the next collection frees. The budget books each view's frame at its length and 8 KiB, 32 KiB per stream, and the encoder's tier: the most a stream held at it with frames of 50 to 230 KB (`framesize.csv`), rounded up to 16 KiB.
+`TestViewCost` (`viewcost.csv`) streams data tables of 0.8, 49, 143 and 233 KB from a live hub to 64 streams that watch a view each, one view for every two, or one they all share. After a collection a view that two or more streams watch holds its newest frame rounded up to 8 KiB pages (56, 144 and 232 KiB) and about 1 KiB besides; a view that one stream watches holds no frame once the stream has written it (4 KiB of heap a stream at every size); a stream holds 3 to 7 KiB of heap and 8 to 10 KiB of stack in the hub; net/http holds 14 KiB of heap and 9 KiB of stack per open HTTP/1.1 connection. A render of the 233 KB table allocates 1,046 KiB, which the next collection frees. The budget books the frame of each view that two or more streams watch at its length and 8 KiB, 32 KiB per stream, and the encoder's tier: the most a stream held at it with frames of 50 to 230 KB (`framesize.csv`), rounded up to 16 KiB.
 
-`TestBudgetMatchesHeap` in `live`, 12 streams with a view of their own of 146 or 246 KB, on 2026-10-14:
+`TestBudgetMatchesHeap` in `live`, 12 streams with a view of their own of 146 or 246 KB, or one view for every two, on 2026-10-14:
 
-| Frame | Coding | Booked | Live heap and stacks | Measured / booked |
-|---|---|---|---|---|
-| 146 KB | brotli q4 2^18 | 21,585 KiB | 21,362 KiB | 0.99 |
-| 146 KB | zstd 2^19 | 23,121 KiB | 22,179 KiB | 0.96 |
-| 146 KB | none | 2,193 KiB | 2,085 KiB | 0.95 |
-| 246 KB | brotli q4 2^18 | 22,750 KiB | 22,254 KiB | 0.98 |
-| 246 KB | zstd 2^19 | 24,286 KiB | 23,474 KiB | 0.97 |
-| 246 KB | none | 3,358 KiB | 3,101 KiB | 0.92 |
+| Frame | Streams a view | Coding | Booked | Frames booked | Live heap and stacks | Measured / booked |
+|---|---|---|---|---|---|---|
+| 146 KB | 1 | brotli q4 2^18 | 19,776 KiB | 0 KiB | 19,520 KiB | 0.99 |
+| 146 KB | 1 | zstd 2^19 | 21,312 KiB | 0 KiB | 20,517 KiB | 0.96 |
+| 146 KB | 1 | none | 384 KiB | 0 KiB | 256 KiB | 0.67 |
+| 146 KB | 2 | brotli q4 2^18 | 20,680 KiB | 904 KiB | 20,091 KiB | 0.97 |
+| 146 KB | 2 | zstd 2^19 | 22,216 KiB | 904 KiB | 21,336 KiB | 0.96 |
+| 146 KB | 2 | none | 1,288 KiB | 904 KiB | 1,086 KiB | 0.84 |
+| 246 KB | 1 | brotli q4 2^18 | 19,776 KiB | 0 KiB | 19,400 KiB | 0.98 |
+| 246 KB | 1 | zstd 2^19 | 21,312 KiB | 0 KiB | 20,468 KiB | 0.96 |
+| 246 KB | 1 | none | 384 KiB | 0 KiB | 317 KiB | 0.83 |
+| 246 KB | 2 | brotli q4 2^18 | 21,263 KiB | 1,487 KiB | 20,734 KiB | 0.98 |
+| 246 KB | 2 | zstd 2^19 | 22,799 KiB | 1,487 KiB | 21,904 KiB | 0.96 |
+| 246 KB | 2 | none | 1,871 KiB | 1,487 KiB | 1,658 KiB | 0.89 |
 
 The test's streams have no net/http connection, which the 32 KiB per stream include.
+
+`TestViewWithOneStreamKeepsNoFrame` in `live` sends an 8 MiB frame to one stream: once the frame went out, uncompressed, with zstd or with brotli, what the hub holds is within 120 KiB of what it held before; while a second stream watches the view, the hub holds the frame.
+
+`TestJoinCost` (`joincost.csv`) joins 200 streams one after another to a data table's view while one stream watches it, whose frame the hub dropped, or two, whose frame it keeps; the CPU is the median of three runs:
+
+| Frame | Streams watching | Renders per join | CPU per join | Allocated per join | Booked for the frame |
+|---|---|---|---|---|---|
+| 49 KB | 1 | 1 | 347 µs | 167 KiB | none |
+| 49 KB | 2 | 0 | 71 µs | 8 KiB | 56 KiB |
+| 143 KB | 1 | 1 | 716 µs | 562 KiB | none |
+| 143 KB | 2 | 0 | 73 µs | 8 KiB | 147 KiB |
+| 233 KB | 1 | 1 | 1,193 µs | 1,056 KiB | none |
+| 233 KB | 2 | 0 | 69 µs | 8 KiB | 235 KiB |
+
+Hashing a frame for the unchanged-frame check takes 3.5 µs at 49 KB and 15.8 µs at 233 KB.
 
 `TestWindowMargin` (`margin.csv`): at 2^18 brotli refers to the frame before up to a frame of 259 KB, 99% of the window (249 bytes a frame at quality 3), and not at 266 KB (29,719 bytes). The budget wants a window that holds the largest write with a sixteenth to spare.
 
@@ -314,16 +335,17 @@ The test's streams have no net/http connection, which the 32 KiB per stream incl
 
 | Frame | Views | Clients | Opened | Window holds the frame | Compressed | First uncompressed | Booked | Heap |
 |---|---|---|---|---|---|---|---|---|
-| 49 KB | one | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 141.2 MiB |
-| 49 KB | one | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.5 MiB |
-| 233 KB | one | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.4 MiB |
-| 233 KB | one | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.8 MiB |
-| 233 KB | one each | brotli | 150 | 97 | 97 | 98th | 163.7 MiB | 157.8 MiB |
-| 233 KB | one each | zstd | 150 | 133 | 134 | 77th | 154.0 MiB | 146.0 MiB |
-| 233 KB | one each | half each | 150 | 110 | 111 | 88th | 155.5 MiB | 148.4 MiB |
+| 49 KB | one | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 140.8 MiB |
+| 49 KB | one | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.6 MiB |
+| 233 KB | one | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.1 MiB |
+| 233 KB | one | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.7 MiB |
+| 233 KB | one each | brotli | 150 | 114 | 114 | 115th | 150.6 MiB | 144.7 MiB |
+| 233 KB | one each | zstd | 150 | 150 | 150 | 88th | 133.6 MiB | 125.1 MiB |
+| 233 KB | one each | half each | 150 | 123 | 124 | 102nd | 134.9 MiB | 128.0 MiB |
+| 233 KB | one each | zstd | 200 | 168 | 168 | 88th | 150.6 MiB | 140.4 MiB |
 
-150 tabs with a 233 KB view of their own all hold 2^18 in 240 MiB with brotli (233.4 MiB booked, 226.1 MiB of heap), in 170 MiB with zstd (168.0 and 159.0 MiB), and in 260 MiB half each.
+The hub keeps no frame of a view that one stream watches, so the tabs book no frames. 150 tabs with a 233 KB view of their own all hold 2^18 in 200 MiB with brotli (197.4 MiB booked, 190.5 MiB of heap), in 140 MiB with zstd (133.6 and 125.1 MiB), and in 230 MiB half each.
 
 ### What lith adopted
 
-A live hub makes a budget when it is given none: half the process's memory limit, for the streams' encoders, 32 KiB per stream and the views' frames, and no change at all without a memory limit (a stream's own ZstdWindow and BrotliWindow cap what it gets). A stream's first write picks a window that holds its largest write. Brotli takes that window at quality 4 while the budget stays at most half full, at quality 3 after, and 2^16 only when that does not fit; zstd takes the largest tier within its fair share and moves down while open, no further than its frame's window. A brotli stream below its frame's window, or uncompressed, is asked to open again once room frees up. Pages with large frames pass a budget with `Refuse`. Hibernation is opt-in: `live.Options.Hibernate` is zero unless an app sets it.
+A live hub makes a budget when it is given none: half the process's memory limit, for the streams' encoders, 32 KiB per stream and the frames of views that two or more streams watch, and no change at all without a memory limit (a stream's own ZstdWindow and BrotliWindow cap what it gets). A stream's first write picks a window that holds its largest write. Brotli takes that window at quality 4 while the budget stays at most half full, at quality 3 after, and 2^16 only when that does not fit; zstd takes the largest tier within its fair share and moves down while open, no further than its frame's window. A brotli stream below its frame's window, or uncompressed, is asked to open again once room frees up. Pages with large frames pass a budget with `Refuse`. The hub keeps the frame of a view that two or more streams watch, which a join to it would otherwise render again; of a `[]byte` view that one stream watches, only the frame's length and hash. Hibernation is opt-in: `live.Options.Hibernate` is zero unless an app sets it.

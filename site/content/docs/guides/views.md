@@ -37,7 +37,7 @@ The key says who shares the view: every stream that watches `board:1` watches on
 
 A frame is usually `[]byte`: one or more Datastar events, formatted once by `sse.PatchElements` or `sse.PatchSignals`, and the same bytes go to every stream. A frame of another type needs a `Spec.Write` or `Spec.WriteTick` that turns it into events per stream ([below](#tailoring-frames-per-stream)). Once returned, a frame must not change.
 
-When `Render` fails, the hub logs the error and the previous frame stays. A nil frame keeps the previous one as well, and so does a `[]byte` frame equal to it: the streams send nothing. A panic in `Render` is recovered and logged like an error. `Options.RenderTimeout`, 2 s by default, ends the render's context and logs the render; nothing can stop a render that ignores its context, and the tick waits for it.
+When `Render` fails, the hub logs the error and the streams send nothing: the page keeps the frame it has. So they do for a nil frame, and for a `[]byte` frame equal to the one before. A panic in `Render` is recovered and logged like an error. `Options.RenderTimeout`, 2 s by default, ends the render's context and logs the render; nothing can stop a render that ignores its context, and the tick waits for it.
 
 ## Topics
 
@@ -106,7 +106,7 @@ if state.Panel != 0 {
 err = s.hub.Serve(w, r, live.Spec{ID: tab, Views: views, WriteTick: tailor(), Reconnect: StreamID})
 ```
 
-`Serve` sends each view's current frame at once, or its first one when it has none yet, then every new frame. A stream keeps only the newest frame of each view, so a slow client skips frames and holds up no one else. Views that change in the same tick reach the stream together, in the order of `Spec.Views`.
+`Serve` sends each view's newest frame at once when the hub keeps it, else a frame rendered in the next tick, then every new frame. The hub keeps the newest frame of a view that two or more streams watch, such as the board, and of any view whose frame is not `[]byte`. Of a view that one stream watches, such as the tab's, it keeps only the frame's length and hash once the stream has the frame: a render that repeats it still goes to no stream, and a tab's frame costs no memory between its writes ([the measurements](/docs/performance/budget#joining-a-view)). A stream keeps only the newest frame of each view, so a slow client skips frames and holds up no one else. Views that change in the same tick reach the stream together, in the order of `Spec.Views`.
 
 `live.Spec` describes the stream:
 
@@ -249,7 +249,7 @@ func watchdog(b int64) string {
 
 ## How many streams
 
-`Options.MaxStreams`, 2000 by default, caps the open streams: `Serve` answers 503 to the next one and returns `live.ErrFull`. The template sets 200 and this site 300, from their memory: each compressed stream holds its encoder's window for as long as it is open ([Streams and compression](/docs/guides/streams#the-memory-budget)). A stream refused for want of memory gets a 503 too, and a page that opened its stream with `retry: 'error'` asks again. An app whose budget refuses streams (`sse.BudgetOptions.Refuse`) can let memory be the cap: the budget books what each stream holds, its encoder, 32 KiB and its views' frames, and turns away the stream it has no room for, compressed or not. `MaxStreams` then stays at its default as a backstop for a process without a memory limit ([Refusing streams](/docs/guides/streams#refusing-streams)).
+`Options.MaxStreams`, 2000 by default, caps the open streams: `Serve` answers 503 to the next one and returns `live.ErrFull`. The template sets 200 and this site 300, from their memory: each compressed stream holds its encoder's window for as long as it is open ([Streams and compression](/docs/guides/streams#the-memory-budget)). A stream refused for want of memory gets a 503 too, and a page that opened its stream with `retry: 'error'` asks again. An app whose budget refuses streams (`sse.BudgetOptions.Refuse`) can let memory be the cap: the budget books what each stream holds, its encoder, 32 KiB and the frames of the views it shares with other streams, and turns away the stream it has no room for, compressed or not. `MaxStreams` then stays at its default as a backstop for a process without a memory limit ([Refusing streams](/docs/guides/streams#refusing-streams)).
 
 ## The hub's options
 

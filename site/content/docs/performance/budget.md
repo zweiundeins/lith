@@ -97,17 +97,37 @@ A frame refers to the one before while the window holds it. `TestWindowMargin` (
 
 ## What a stream holds besides its encoder
 
-`TestViewCost` (`viewcost.csv`) streams data tables of 0.8, 49, 143 and 233 KB from a live hub to 64 streams, which watch a view each, as tabs with a view of their own do, or one view they share. After a collection:
+`TestViewCost` (`viewcost.csv`) streams data tables of 0.8, 49, 143 and 233 KB from a live hub to 64 streams, which watch a view each, as tabs with a view of their own do, one view for every two streams, or one view they all share. After a collection:
 
-- A view holds its newest frame, rounded up to the heap's pages of 8 KiB: 56 KiB for the 49 KB table, 144 KiB for 143 KB, 232 KiB for 233 KB, and about 1 KiB besides.
-- A stream holds 3 to 7 KiB of heap in the hub, and 8 to 10 KiB of stack. net/http holds 14 KiB of heap and 8 KiB of stack for an open HTTP/1.1 connection.
+- A view that two or more streams watch holds its newest frame, rounded up to the heap's pages of 8 KiB: 56 KiB for the 49 KB table, 144 KiB for 143 KB, 232 KiB for 233 KB, and about 1 KiB besides.
+- A view that one stream watches holds no `[]byte` frame: the hub keeps the frame's length and hash, and the stream drops the frame once it has written it. A stream with a view of its own holds 4 KiB of heap in the hub, whatever the table's size.
+- A stream holds 3 to 7 KiB of heap in the hub, and 8 to 10 KiB of stack. net/http holds 14 KiB of heap and 9 KiB of stack for an open HTTP/1.1 connection.
 - A render of the 233 KB table allocates 1,046 KiB: the buffer it grows, the event it formats, and the formatting. The next collection frees it.
 
-In a hub, a stream with an encoder holds what `TestFrameSizes` measured for it: with the 233 KB table shared, 1,078 KiB a stream at quality 3 and 2^18, 1,605 KiB at quality 4 and 850 KiB with zstd at 2^18 and low memory, the hub's part included.
+In a hub, a stream with an encoder holds what `TestFrameSizes` measured for it: with the 233 KB table, shared or its own, 1,075 to 1,079 KiB a stream at quality 3 and 2^18, 1,602 to 1,605 KiB at quality 4 and 846 to 850 KiB with zstd at 2^18 and low memory, the hub's part included.
 
-So a budget books what stays: each stream's encoder at its tier, the most a stream held at that tier with frames of 50 to 230 KB rounded up to 16 KiB; 32 KiB for each stream; and each view's newest frame at its length and 8 KiB, once for all the streams that watch it. A tab with a 233 KB view of its own at quality 3 and 2^18 books 1,104 + 32 + 235 = 1,371 KiB, the view a sixth of it. `TestBudgetMatchesHeap` in `live` checks the model: for 12 streams with a view of 146 or 246 KB each, what the budget books is what they hold after a collection, within 1 to 4% for brotli and zstd and 5 to 8% uncompressed, where the 32 KiB include net/http's buffers that the test's streams have none of.
+So a budget books what stays: each stream's encoder at its tier, the most a stream held at that tier with frames of 50 to 230 KB rounded up to 16 KiB; 32 KiB for each stream; and the newest frame of each view that two or more streams watch, at its length and 8 KiB, once for all of them. A tab with a 233 KB view of its own at quality 3 and 2^18 books 1,104 + 32 = 1,136 KiB: its frame is garbage once the stream has written it, as the render's buffers are. `TestBudgetMatchesHeap` in `live` checks the model: for 12 streams with a view of 146 or 246 KB each, or one view for every two, what the budget books is what they hold after a collection, within 2 to 4% for brotli and zstd. Uncompressed, where the budget books little but the 32 KiB a stream, which include net/http's buffers that the test's streams have none of, they hold 11 to 33% less.
 
 What a render allocates is garbage: it is not part of what the streams hold, and the budget does not book it. Go's collector lets the heap grow to twice what is live before it collects (GOGC=100), and the budget's default limit, half of GOMEMLIMIT, leaves that half to the garbage and to the rest of the app. A tab that renders its own 233 KB view every tick makes 1 MiB of garbage a tick, and 150 such tabs 150 MiB.
+
+## Joining a view
+
+A stream that starts watching a view gets the view's newest frame at once when the hub keeps it, and else a frame rendered in the next tick. `TestJoinCost` (`joincost.csv`) joins 200 streams to a data table's view, one after another, each until it has its first frame, while one stream watches the view (the hub keeps no frame) or two (it keeps the frame). The CPU is the median of three runs:
+
+| Frame | Streams watching | Renders per join | CPU per join | Allocated per join | Booked for the frame |
+| --- | --- | --- | --- | --- | --- |
+| 0.8 KB | one | 1 | 154 µs | 11 KiB | none |
+| 0.8 KB | two | 0 | 69 µs | 8 KiB | 9 KiB |
+| 49 KB | one | 1 | 347 µs | 167 KiB | none |
+| 49 KB | two | 0 | 71 µs | 8 KiB | 56 KiB |
+| 143 KB | one | 1 | 716 µs | 562 KiB | none |
+| 143 KB | two | 0 | 73 µs | 8 KiB | 147 KiB |
+| 233 KB | one | 1 | 1,193 µs | 1,056 KiB | none |
+| 233 KB | two | 0 | 69 µs | 8 KiB | 235 KiB |
+
+A frame the hub keeps costs its length and 8 KiB once, however many streams watch the view. A join to a view without it costs a render: 1.1 ms of CPU and 1 MiB of garbage more for the 233 KB table, once a tick for all the streams that join in it. A view that many tabs share is joined whenever one opens, and one join a second to it without its frame would make four times the frame's size in garbage every second, so the hub keeps the frame of every view that two or more streams watch. A tab's own view has one stream: another joins it only when a stream with the tab's ID replaces one still open, and the hub keeps none of its frame. A tab that opens its stream again after a deploy, or for a better tier, finds no view to join: the hub forgets a view once its last stream has ended, and renders it for the new stream.
+
+The hub hashes every `[]byte` frame as it renders, for the unchanged-frame check: 16 µs for the 233 KB table, 3.5 µs for 49 KB. A frame of another type has no hash, and the hub keeps it however many streams watch the view.
 
 ## A budget as streams grow
 
@@ -344,7 +364,7 @@ Every run held about 19.8 ticks a second. The budget learned the board's 142 KB 
 
 ## What lith took from it
 
-A hub makes a budget when it is given none: half the process's memory limit, for all that the streams hold, and no change at all without a memory limit. The budget books each stream's encoder, 32 KiB for the rest of the stream, and each view's newest frame. It gives each stream a tier at its first write, from the size of its largest write:
+A hub makes a budget when it is given none: half the process's memory limit, for all that the streams hold, and no change at all without a memory limit. The budget books each stream's encoder, 32 KiB for the rest of the stream, and the newest frame of each view that two or more streams watch. It gives each stream a tier at its first write, from the size of its largest write:
 
 - The window must hold that write with a sixteenth to spare, so that a frame can refer to the one before. `MinWindow` raises it for pages whose frames refer back further than one write.
 - A brotli stream takes the window that holds its frame and no larger one: the 235 KB board takes 140 bytes a frame at quality 4 and 2^18, and 141 at 2^19. It takes quality 4 while the budget stays at most half full, quality 3 after that, and a window below its frame (quality 3 at 2^16, 17,013 bytes a frame for that board) only when quality 3 at its window does not fit what is left. It goes out uncompressed only when even 2^16 does not fit.
@@ -352,48 +372,49 @@ A hub makes a budget when it is given none: half the process's memory limit, for
 - A brotli stream keeps its tier until it closes. A stream with `live.Spec.Reconnect` whose window is below its frame, or that went out uncompressed, ends with `sse.Reconnect` once room frees up for a window that holds its frame, and the page opens it again: one stream a second, and a stream ID once a minute.
 - With `Refuse`, a budget turns away every stream it has no room for, an uncompressed one when its 32 KiB do not fit, and the streams it lets in compress until they close: a zstd stream keeps 2^15 booked while it has no encoder, so it never sends raw blocks. Memory is then the stream cap: `live.Options.MaxStreams` stays at its default, 2000, as a backstop, and pages open their streams with `retry: 'error'`, so that a refused tab comes back once a stream closes.
 
-`TestBudgetCurve` (`curve.csv`) opens streams one by one on a hub with real encoders and frames: data tables of 49, 143 and 233 KB in one view that every stream watches, twice as many streams as the budget has MiB; and 150 tabs that each watch a 233 KB view of their own, in 150 MiB and in the least budget that holds them all at 2^18. After every ten opens every view changes and every stream writes, so that zstd streams move. The first uncompressed stream is the first whose first frame went out uncompressed or in raw blocks: a zstd stream sends raw blocks until the streams above their share have moved down. Booked is what the budget books once every stream is open, heap what the heap and the stacks hold after a collection; the test's streams have no net/http connections, for which the budget books part of its 32 KiB a stream. The bytes per frame are the mean of every stream's last frame, uncompressed ones included.
+`TestBudgetCurve` (`curve.csv`) opens streams one by one on a hub with real encoders and frames: data tables of 49, 143 and 233 KB in one view that every stream watches, twice as many streams as the budget has MiB; and 150 tabs that each watch a 233 KB view of their own, in 150 MiB and in the least budget that holds them all at 2^18, and 200 zstd tabs in 150 MiB. After every ten opens every view changes and every stream writes, so that zstd streams move. The first uncompressed stream is the first whose first frame went out uncompressed or in raw blocks: a zstd stream sends raw blocks until the streams above their share have moved down. Booked is what the budget books once every stream is open, heap what the heap and the stacks hold after a collection; the test's streams have no net/http connections, for which the budget books part of its 32 KiB a stream. The bytes per frame are the mean of every stream's last frame, uncompressed ones included.
 
 <!-- include: bench/budget/curve.md -->
 | Frame | Views | Budget | Clients | Opened | Window holds the frame | Compressed | First uncompressed | Booked | Heap | Bytes per frame |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 49 KB | one | 64 MiB | brotli | 128 | 70 | 70 | 71st | 65.8 MiB | 60.7 MiB | 22,667 |
-| 49 KB | one | 64 MiB | zstd | 128 | 90 | 90 | 38th | 64.5 MiB | 55.1 MiB | 15,312 |
-| 49 KB | one | 64 MiB | half each | 128 | 81 | 81 | 52nd | 64.6 MiB | 57.0 MiB | 18,609 |
-| 49 KB | one | 128 MiB | brotli | 256 | 139 | 139 | 140th | 131.3 MiB | 120.3 MiB | 22,937 |
-| 49 KB | one | 128 MiB | zstd | 256 | 181 | 182 | 75th | 130.2 MiB | 111.5 MiB | 14,603 |
-| 49 KB | one | 128 MiB | half each | 256 | 162 | 162 | 102nd | 129.7 MiB | 114.6 MiB | 18,480 |
-| 49 KB | one | 150 MiB | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 141.2 MiB | 22,880 |
-| 49 KB | one | 150 MiB | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.5 MiB | 14,555 |
-| 49 KB | one | 150 MiB | half each | 300 | 188 | 190 | 120th | 152.2 MiB | 134.9 MiB | 18,421 |
+| 49 KB | one | 64 MiB | zstd | 128 | 89 | 90 | 38th | 64.4 MiB | 55.0 MiB | 15,333 |
+| 49 KB | one | 64 MiB | half each | 128 | 81 | 81 | 52nd | 64.7 MiB | 57.2 MiB | 18,603 |
+| 49 KB | one | 128 MiB | brotli | 256 | 139 | 139 | 140th | 131.3 MiB | 120.4 MiB | 22,937 |
+| 49 KB | one | 128 MiB | zstd | 256 | 181 | 182 | 75th | 130.2 MiB | 111.6 MiB | 14,603 |
+| 49 KB | one | 128 MiB | half each | 256 | 161 | 162 | 102nd | 129.6 MiB | 114.8 MiB | 18,492 |
+| 49 KB | one | 150 MiB | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 140.8 MiB | 22,880 |
+| 49 KB | one | 150 MiB | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.6 MiB | 14,555 |
+| 49 KB | one | 150 MiB | half each | 300 | 188 | 190 | 120th | 152.2 MiB | 134.8 MiB | 18,421 |
 | 143 KB | one | 64 MiB | brotli | 128 | 48 | 49 | 50th | 66.1 MiB | 61.7 MiB | 88,754 |
-| 143 KB | one | 64 MiB | zstd | 128 | 71 | 72 | 38th | 65.7 MiB | 59.9 MiB | 63,012 |
-| 143 KB | one | 64 MiB | half each | 128 | 57 | 60 | 44th | 65.4 MiB | 60.3 MiB | 76,574 |
-| 143 KB | one | 128 MiB | brotli | 256 | 97 | 98 | 99th | 132.9 MiB | 124.1 MiB | 89,131 |
+| 143 KB | one | 64 MiB | zstd | 128 | 71 | 72 | 38th | 65.7 MiB | 59.9 MiB | 62,994 |
+| 143 KB | one | 64 MiB | half each | 128 | 57 | 60 | 44th | 65.4 MiB | 60.2 MiB | 76,574 |
+| 143 KB | one | 128 MiB | brotli | 256 | 97 | 98 | 99th | 132.9 MiB | 124.2 MiB | 89,131 |
 | 143 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.0 MiB | 119.1 MiB | 64,748 |
 | 143 KB | one | 128 MiB | half each | 256 | 117 | 119 | 87th | 131.5 MiB | 121.2 MiB | 77,787 |
-| 143 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.4 MiB | 145.0 MiB | 89,163 |
-| 143 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 153.9 MiB | 139.8 MiB | 63,252 |
-| 143 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.0 MiB | 142.0 MiB | 77,175 |
+| 143 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.4 MiB | 145.2 MiB | 89,163 |
+| 143 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 153.9 MiB | 139.9 MiB | 63,252 |
+| 143 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.0 MiB | 141.9 MiB | 77,175 |
 | 233 KB | one | 64 MiB | brotli | 128 | 48 | 49 | 50th | 66.2 MiB | 62.3 MiB | 144,803 |
 | 233 KB | one | 64 MiB | zstd | 128 | 71 | 71 | 38th | 65.2 MiB | 60.2 MiB | 106,031 |
-| 233 KB | one | 64 MiB | half each | 128 | 58 | 59 | 44th | 65.1 MiB | 60.5 MiB | 126,950 |
-| 233 KB | one | 128 MiB | brotli | 256 | 97 | 97 | 98th | 132.3 MiB | 124.6 MiB | 146,277 |
-| 233 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.1 MiB | 120.6 MiB | 107,002 |
-| 233 KB | one | 128 MiB | half each | 256 | 118 | 118 | 86th | 131.4 MiB | 122.4 MiB | 128,340 |
-| 233 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.5 MiB | 145,428 |
+| 233 KB | one | 64 MiB | half each | 128 | 57 | 60 | 44th | 65.4 MiB | 60.9 MiB | 125,313 |
+| 233 KB | one | 128 MiB | brotli | 256 | 97 | 97 | 98th | 132.3 MiB | 124.4 MiB | 146,277 |
+| 233 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.1 MiB | 120.5 MiB | 107,002 |
+| 233 KB | one | 128 MiB | half each | 256 | 118 | 118 | 86th | 131.4 MiB | 122.3 MiB | 128,340 |
+| 233 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.1 MiB | 145,428 |
 | 233 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.7 MiB | 103,090 |
-| 233 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.1 MiB | 143.5 MiB | 125,854 |
-| 233 KB | one each | 150 MiB | brotli | 150 | 97 | 97 | 98th | 163.7 MiB | 157.8 MiB | 84,310 |
-| 233 KB | one each | 150 MiB | zstd | 150 | 133 | 134 | 77th | 154.0 MiB | 146.0 MiB | 28,092 |
-| 233 KB | one each | 150 MiB | half each | 150 | 110 | 111 | 88th | 155.5 MiB | 148.4 MiB | 64,460 |
-| 233 KB | one each | 240 MiB | brotli | 150 | 150 | 150 | none | 233.4 MiB | 226.1 MiB | 3,293 |
-| 233 KB | one each | 170 MiB | zstd | 150 | 150 | 150 | 88th | 168.0 MiB | 159.0 MiB | 5,465 |
-| 233 KB | one each | 260 MiB | half each | 150 | 150 | 150 | none | 259.4 MiB | 251.1 MiB | 3,191 |
+| 233 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.1 MiB | 143.6 MiB | 125,854 |
+| 233 KB | one each | 150 MiB | brotli | 150 | 114 | 114 | 115th | 150.6 MiB | 144.7 MiB | 58,333 |
+| 233 KB | one each | 150 MiB | zstd | 150 | 150 | 150 | 88th | 133.6 MiB | 125.1 MiB | 3,016 |
+| 233 KB | one each | 150 MiB | half each | 150 | 123 | 124 | 102nd | 134.9 MiB | 128.0 MiB | 47,700 |
+| 233 KB | one each | 150 MiB | zstd | 200 | 168 | 168 | 88th | 150.6 MiB | 140.4 MiB | 43,126 |
+| 233 KB | one each | 200 MiB | brotli | 150 | 150 | 150 | none | 197.4 MiB | 190.5 MiB | 3,308 |
+| 233 KB | one each | 140 MiB | zstd | 150 | 150 | 150 | 82nd | 133.6 MiB | 125.1 MiB | 5,443 |
+| 233 KB | one each | 230 MiB | half each | 150 | 150 | 150 | none | 224.9 MiB | 217.1 MiB | 3,191 |
 <!-- end include -->
 
-- 150 MiB holds 97 brotli tabs with a 233 KB view of their own at 2^18, 133 zstd tabs, and 110 when half are each. Every tab's frame is booked, the uncompressed ones' too: the brotli tabs book 163.7 MiB.
-- All 150 tabs hold 2^18 in 240 MiB with brotli (233.4 MiB booked, 226.1 MiB of heap: 65 at quality 4, 85 at quality 3), in 170 MiB with zstd (168.0 and 159.0 MiB), and in 260 MiB half each, where the zstd tabs take 2^19 while there is room. With the default limit, half of GOMEMLIMIT, 150 brotli tabs need a GOMEMLIMIT of 480 MiB.
+- 150 MiB holds 114 brotli tabs with a 233 KB view of their own at 2^18, 168 zstd tabs, and 123 of 150 when half are each. The hub keeps none of the tabs' frames, which would take 235 KiB each, 34 MiB for 150 tabs.
+- All 150 tabs hold 2^18 in 200 MiB with brotli (197.4 MiB booked, 190.5 MiB of heap: 62 at quality 4, 88 at quality 3), in 140 MiB with zstd (133.6 and 125.1 MiB), and in 230 MiB half each, where the zstd tabs take 2^19 while there is room. With the default limit, half of GOMEMLIMIT, 150 brotli tabs need a GOMEMLIMIT of 400 MiB.
 - With brotli and zstd tabs mixed, the zstd streams that opened first hold large tiers until a stream finds no room and they write again, and brotli streams that open meanwhile go out uncompressed. With `Reconnect`, those come back once the zstd streams have moved down.
 
 [Streams and compression](/docs/guides/streams#the-memory-budget) shows the settings.
@@ -406,4 +427,4 @@ The tests run only with `LITH_BUDGET=1`, and write the CSV files next to them:
 LITH_BUDGET=1 LITH_BUDGET_RUNS=3 taskset -c 0-11 go test ./bench/budget -run Settings -v -timeout 1h
 ```
 
-`-run` picks the test: `Settings`, `Floor`, `FrameSizes`, `WindowMargin`, `ViewCost`, `BudgetCurve`, `Simulation`, `Hibernation`, `WakeCost`, `Loadtest` or `Pressure`. After a run, `go generate ./content` in `site/` draws this page's charts from the new files.
+`-run` picks the test: `Settings`, `Floor`, `FrameSizes`, `WindowMargin`, `ViewCost`, `JoinCost`, `BudgetCurve`, `Simulation`, `Hibernation`, `WakeCost`, `Loadtest` or `Pressure`. After a run, `go generate ./content` in `site/` draws this page's charts from the new files.

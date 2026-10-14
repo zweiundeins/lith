@@ -14,6 +14,8 @@ A view renders in one read transaction, so it agrees with itself. Views rendered
 
 A stream keeps only the newest frame of each view it watches, so a slow client skips frames and holds up no one else. Views that change in the same tick reach a stream together, in the order it watches them.
 
+The hub keeps a view's newest frame while two or more streams watch it, so that a stream that joins gets it at once. Of a view that one stream watches, such as a tab's own, it keeps only the frame's length and hash once the stream has the frame: a render that repeats it goes to no stream, and a stream that joins gets a frame rendered in the next tick. A frame that is not \[]byte has no hash, and the hub keeps it.
+
 ## Variables
 
 ```go
@@ -111,7 +113,7 @@ New returns a hub; Run starts it.
 func (h *Hub) Budget() *sse.Budget
 ```
 
-Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New made. Its Stats tell what the streams hold, the views' frames among it, and SetLimit moves its limit while the hub runs.
+Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New made. Its Stats tell what the streams hold, the frames the hub keeps among it, and SetLimit moves its limit while the hub runs.
 
 #### func (*Hub) Changed {#Hub.Changed}
 
@@ -159,7 +161,7 @@ Run renders views until ctx ends. Then it ends every stream: a write under way f
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error
 ```
 
-Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's current frame (a view without one renders in the next tick), then every new frame. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a failed write ends the stream with its error.
+Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's newest frame when the hub keeps it (View.Render), else a frame rendered in the next tick, then every new frame. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a failed write ends the stream with its error.
 
 #### func (*Hub) Stats {#Hub.Stats}
 
@@ -183,7 +185,7 @@ Unwatch stops the stream with this ID from watching the view: after it returns, 
 func (h *Hub) Watch(streamID string, v View) bool
 ```
 
-Watch makes the open stream with this ID watch v as well: it gets v's current frame at once, or its first one. It reports whether such a stream is open. If none is, as when a page's command arrives before its stream, a stream that opens with the ID within Options.PendingWatch watches v from the start, after the views of its Spec.
+Watch makes the open stream with this ID watch v as well: it gets v's newest frame at once when the hub keeps it (View.Render), else a frame rendered in the next tick. It reports whether such a stream is open. If none is, as when a page's command arrives before its stream, a stream that opens with the ID within Options.PendingWatch watches v from the start, after the views of its Spec.
 
 #### func (*Hub) Watchers {#Hub.Watchers}
 
@@ -249,8 +251,8 @@ type Options struct {
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
-	// process's memory limit for the streams, their encoders and the views'
-	// frames, which the hub books (sse.Budget.Hold); each stream gets a
+	// process's memory limit for the streams, their encoders and the frames
+	// the hub keeps, which it books (sse.Budget.Hold); each stream gets a
 	// window that holds its frames, up to 2^19, and goes out uncompressed
 	// when not even the smallest tier fits; without a memory limit it only
 	// counts. Pass a Budget of your own for another limit, or with Refuse,
@@ -337,11 +339,13 @@ type View struct {
 	// sqlite.QuerierFrom(ctx) runs queries in it on statements the worker
 	// prepared once on its connection. Its frame goes to every stream that
 	// watches the view and must not change afterwards. When Render fails,
-	// the error is logged and the previous frame stays; a nil frame also
-	// keeps the previous one, and so does a []byte frame equal to it. The
-	// hub books the newest frame in the streams' budget, once however many
-	// streams watch it: a []byte frame by its length, another by its
-	// Len() int method, if it has one, each with 8 KiB besides.
+	// the error is logged and the streams send nothing; so they do for a
+	// nil frame, and for a []byte frame equal to the one before (its bytes
+	// while the hub keeps them, else its length and hash). The hub keeps
+	// the newest frame while two or more streams watch the view, or one
+	// does and the frame is not []byte, and books it in the streams' budget
+	// once: a []byte frame by its length, another by its Len() int method,
+	// if it has one, each with 8 KiB besides.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
