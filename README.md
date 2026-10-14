@@ -112,3 +112,7 @@ Inspired by [andersmurphy/hyperlith](https://github.com/andersmurphy/hyperlith) 
 [kanban](https://github.com/zweiundeins/kanban),
 [starbase](https://github.com/zweiundeins/starbase) and
 [Libretto](https://libretto.ch).
+
+## License
+
+[MIT](LICENSE).
