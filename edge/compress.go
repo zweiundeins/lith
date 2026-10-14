@@ -16,7 +16,7 @@ import (
 // about what its headers cost.
 const minSize = 512
 
-// Compress compresses the responses to GET and HEAD with brotli, zstd or
+// Compress compresses the responses to GET, HEAD and QUERY with brotli, zstd or
 // gzip, whichever the request accepts best (in that order when it accepts them
 // equally). It leaves alone a response that sets its own Content-Encoding
 // (precompressed files, streams that compress themselves), event streams,
@@ -28,7 +28,8 @@ const minSize = 512
 // for http.ResponseController, so a stream can still set its deadlines.
 func Compress(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead || r.Header.Get("Upgrade") != "" {
+		read := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == "QUERY"
+		if !read || r.Header.Get("Upgrade") != "" {
 			next.ServeHTTP(w, r)
 			return
 		}

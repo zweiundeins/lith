@@ -76,7 +76,7 @@ ClientKey is ClientIP as a rate-limit key. An IPv6 client counts by its /64, sin
 func Compress(next http.Handler) http.Handler
 ```
 
-Compress compresses the responses to GET and HEAD with brotli, zstd or gzip, whichever the request accepts best (in that order when it accepts them equally). It leaves alone a response that sets its own Content-Encoding (precompressed files, streams that compress themselves), event streams, partial content, types that don't compress, and bodies under 512 bytes. Other methods pass untouched: Datastar's POST streams compress themselves, across frames.
+Compress compresses the responses to GET, HEAD and QUERY with brotli, zstd or gzip, whichever the request accepts best (in that order when it accepts them equally). It leaves alone a response that sets its own Content-Encoding (precompressed files, streams that compress themselves), event streams, partial content, types that don't compress, and bodies under 512 bytes. Other methods pass untouched: Datastar's POST streams compress themselves, across frames.
 
 A Flush sends everything written so far to the client. The writer unwraps for http.ResponseController, so a stream can still set its deadlines.
 

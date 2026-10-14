@@ -129,7 +129,7 @@ Pass `time.Now()` to `Allow`: its monotonic reading keeps a step of the wall clo
 
 ## Compression
 
-`edge.Compress` compresses the answers to GET and HEAD with brotli, zstd or gzip, the one the request accepts best, brotli first when it accepts them equally. It leaves alone event streams, which compress themselves, answers that set their own `Content-Encoding`, partial content, types that do not compress, and bodies under 512 bytes. Other methods pass untouched. Caddy does not compress (`encode` stays out of the site block): the app compresses everything itself.
+`edge.Compress` compresses the answers to GET, HEAD and QUERY (`@query`, a read like GET) with brotli, zstd or gzip, the one the request accepts best, brotli first when it accepts them equally. It leaves alone event streams, which compress themselves, answers that set their own `Content-Encoding`, partial content, types that do not compress, and bodies under 512 bytes. Other methods pass untouched. Caddy does not compress (`encode` stays out of the site block): the app compresses everything itself.
 
 ## Static files
 

@@ -150,6 +150,12 @@ func TestCompressHeaders(t *testing.T) {
 	if w.Header().Get("Content-Encoding") != "br" {
 		t.Errorf("HEAD: %v", w.Header())
 	}
+
+	// QUERY is a read, like GET: @query's answers compress.
+	w = serveCompressed(html(page), "QUERY", "br")
+	if w.Header().Get("Content-Encoding") != "br" || !bytes.Equal(decode(t, "br", w.Body.Bytes()), page) {
+		t.Errorf("QUERY: %v", w.Header())
+	}
 }
 
 func TestCompressPassesThrough(t *testing.T) {
