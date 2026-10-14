@@ -10,7 +10,7 @@ Import path `github.com/zweiundeins/lith/sse`. Generated from the doc comments i
 
 Events are formatted once (PatchElements, PatchSignals, Comment) and the same bytes can go to any number of streams. Each stream compresses them with a window that spans the whole stream, so a frame that repeats much of an earlier one costs little on the wire. The encoders are tuned for many long-lived streams: zstd at its fastest level (Options.ZstdLevel) with a 512 KiB window (about 1.7 MiB of heap per stream, 1 MiB with Options.ZstdLowMemory) when the client accepts it, else brotli at quality 4 with a 256 KiB window (about 2 MiB), else gzip.
 
-A Budget shares a memory limit among the encoders of many streams: a stream gets the largest window its share of the limit allows, and zstd streams move to smaller windows as more streams open. Stream.Hibernate lets an idle zstd stream give its encoder back until its next write.
+A Budget shares a memory limit among the encoders of many streams: a stream gets the largest window its share of the limit allows, zstd streams move to smaller windows as more streams open, and brotli streams open with smaller windows and quality 3 as the limit fills. Stream.Hibernate lets an idle zstd stream give its encoder back until its next write.
 
 Every write has its own deadline, so run the server without a WriteTimeout and let a stream that cannot take a write in time fail alone. Pages open their streams with Datastar's retry: 'error' from an element with an id: a server that ends its streams to restart sends Reconnect last (live does, with Spec.Reconnect), and 'error' carries the page's request through the restart. The default retry reopens neither.
 
@@ -126,9 +126,9 @@ type Budget struct {
 
 Budget shares a memory limit among the encoders of the streams that open with it through Options.Budget, so that a server holds what its memory allows, however many tabs are open: few streams compress with large windows, many with small ones.
 
-A stream reserves the heap of its encoder when it opens: the largest tier that fits both its fair share (the limit divided by the open streams that compress or would, itself included) and what is left of the limit. Tiers are zstd's and brotli's windows from MaxWindow down to MinWindow; zstd's largest keeps its full history. A stream whose fair share is below MinWindow's tier gets that tier while what is left holds it. Close gives the reservation back, and so does a zstd stream that hibernates (Stream.Hibernate): it reserves again on its next write, at the fair share of that moment.
+A stream reserves the heap of its encoder when it opens: the largest tier that fits both its fair share (the limit divided by the open streams that compress or would, itself included) and what is left of the limit. Tiers are zstd's and brotli's windows from MaxWindow down to MinWindow; zstd's largest keeps its full history, and brotli's go on below MinWindow at quality 3, down to 2^16. A stream whose fair share is below its smallest tier gets that tier while what is left holds it. Close gives the reservation back, and so does a zstd stream that hibernates (Stream.Hibernate): it reserves again on its next write, at the fair share of that moment.
 
-Streams that open while few are open get large tiers, and would keep them as more arrive. So when a stream finds no room, every zstd stream above the fair share of that moment (counting a refused stream as open) moves down at its next write: it ends its zstd frame and begins the next with the smaller tier, which costs one frame without history. Brotli and gzip streams keep their tier until they close.
+Streams that open while few are open get large tiers, and would keep them as more arrive. So when a stream finds no room, every zstd stream above the fair share of that moment (counting a refused stream as open) moves down at its next write: it ends its zstd frame and begins the next with the smaller tier, which costs one frame without history. Brotli and gzip streams keep their tier until they close, since a brotli body is one stream with one window: brotli steps down as streams open instead, from its quality's windows to quality 3 at 2^16. Once more than 20 streams are open, a brotli stream takes at most its largest tier times twice the share of the limit that is left: the largest tier while half the limit is left, smaller ones as it fills, so that a tier taken early does not spend the room of the streams to come.
 
 The tiers' sizes were measured with zstd at its fastest level and brotli at quality 3 and 4 (lith's bench/budget), after a session of 142 KB frames, and are rounded up. Other levels and qualities hold more.
 
@@ -171,16 +171,20 @@ type BudgetOptions struct {
 	// Set it to hold the app's largest frame: below that a frame cannot
 	// refer to the one before, and the bytes per frame grow several times
 	// over (a 142 KB board: from 2.7 KB at 2^18 to 10.8 KB at 2^17). A
-	// stream that cannot have it goes out uncompressed (zstd: in raw blocks),
-	// or with Refuse not at all.
+	// zstd stream that cannot have it sends raw blocks until it can. A
+	// brotli stream keeps its tier until it closes, so below MinWindow it
+	// takes quality 3 with smaller windows, down to 2^16 (10 KB for that
+	// board instead of 142 KB uncompressed). A stream that cannot have even
+	// its smallest tier goes out uncompressed, or with Refuse not at all.
 	MinWindow int
 	// MaxWindow is the largest window a stream gets (default 19, the
 	// window of Options' defaults for zstd).
 	MaxWindow int
-	// Refuse turns away a stream that cannot have MinWindow: Open returns
-	// ErrNoRoom. Without it the stream goes out uncompressed, which suits
-	// small, rare frames; large and frequent frames are better refused, for
-	// pages that open their stream with retry 'error' and so come back.
+	// Refuse turns away a stream that cannot have its smallest tier (zstd:
+	// MinWindow's): Open returns ErrNoRoom. Without it the stream goes out
+	// uncompressed, which suits small, rare frames; large and frequent
+	// frames are better refused, for pages that open their stream with
+	// retry 'error' and so come back.
 	Refuse bool
 }
 ```
@@ -278,7 +282,8 @@ type Options struct {
 	// Budget, if set, is shared by streams: it picks each stream's window
 	// within a memory limit. ZstdWindow and BrotliWindow are then the
 	// largest a stream gets, ZstdLowMemory keeps it to low-memory windows,
-	// and BrotliQuality picks the brotli tiers.
+	// and BrotliQuality is the quality of the larger brotli tiers (the
+	// smallest are quality 3).
 	Budget *Budget
 }
 ```

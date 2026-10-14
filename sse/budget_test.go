@@ -3,6 +3,7 @@ package sse
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"math/rand/v2"
@@ -348,6 +349,117 @@ func TestBudgetFull(t *testing.T) {
 	id.Close()
 }
 
+// Brotli streams keep their tier until they close, so they step down as
+// they open. On a quiet server every stream gets the largest tier; then
+// the tiers shrink with what is left, so that a budget that holds 24
+// streams at 2^19 compresses 32, and a stream goes out uncompressed only
+// when the smallest tier does not fit. Every body decodes to what was
+// written.
+func TestBudgetBrotliStepsDown(t *testing.T) {
+	const limit = 64 << 20
+	b := NewBudget(BudgetOptions{Limit: limit})
+	o := Options{Budget: b, BrotliWindow: 19}
+	var open []*Stream
+	var ws []*recorder
+	for {
+		s, w := openWith(t, Brotli, o)
+		if s.Encoding() == "" {
+			if left := limit - b.Stats().Reserved; left >= 912*kib {
+				t.Fatalf("uncompressed with %d bytes left", left)
+			}
+			s.Close()
+			break
+		}
+		if len(open) < quietStreams && label(s.tier, s.encoding) != "br q4 2^19" {
+			t.Fatalf("stream %d of a quiet server: %s", len(open), label(s.tier, s.encoding))
+		}
+		open, ws = append(open, s), append(ws, w)
+	}
+	if got := held(b); len(open) != 32 || got["br q4 2^19"] != 20 || got["br q3 2^16"] == 0 {
+		t.Fatalf("%d streams compressed, want 32: %v", len(open), got)
+	}
+	for i, s := range open {
+		if err := s.Write(frame(i)); err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+		got, err := io.ReadAll(decoder(t, Brotli, ws[i].bytes()))
+		if err != nil || !bytes.Equal(got, frame(i)) {
+			t.Fatalf("stream %d (%s) decodes to %d bytes: %v", i, label(s.tier, s.encoding), len(got), err)
+		}
+	}
+	if st := b.Stats(); st.Reserved != 0 {
+		t.Fatalf("after Close: %+v", st)
+	}
+}
+
+// TestBudgetCurve opens streams one by one against budgets of 64, 128 and
+// 150 MiB, brotli only, zstd only and half each (alternating), with a write
+// to every open stream after every ten opens, as the curve's simulation:
+// go test ./sse -run TestBudgetCurve -v prints how many streams hold the
+// largest tier, how many compress and the first that opened without a
+// tier. A quiet server (20 streams) gives every stream its largest tier.
+func TestBudgetCurve(t *testing.T) {
+	if testing.Short() {
+		t.Skip("opens hundreds of streams")
+	}
+	t.Logf("%-7s %-6s %5s %13s %18s %17s %17s", "budget", "mix", "open", "full at open", "compressed br/zstd", "first br identity", "first zstd asleep")
+	for _, mib := range []int64{64, 128, 150} {
+		for _, mix := range []string{"br", "zstd", "mixed"} {
+			b := NewBudget(BudgetOptions{Limit: mib << 20})
+			o := Options{Budget: b, BrotliWindow: 19}
+			n := int(mib) * 2
+			var open []*Stream
+			full, firstBr, firstZstd := 0, 0, 0
+			for i := range n {
+				coding := Brotli
+				if mix == "zstd" || mix == "mixed" && i%2 == 0 {
+					coding = Zstd
+				}
+				s, _ := openWith(t, coding, o)
+				open = append(open, s)
+				name := label(s.tier, s.encoding)
+				if i < quietStreams && name != "br q4 2^19" && name != "zstd 2^19" {
+					t.Errorf("%d MiB %s: stream %d of a quiet server got %s", mib, mix, i, name)
+				}
+				if name == "br q4 2^19" || name == "zstd 2^19" {
+					full++
+				}
+				if s.tier.coding == "" && coding == Brotli && firstBr == 0 {
+					firstBr = i + 1
+				}
+				if s.tier.coding == "" && coding == Zstd && firstZstd == 0 {
+					firstZstd = i + 1
+				}
+				if i%10 == 9 || i == n-1 {
+					for _, s := range open {
+						if err := s.Write(Comment("x")); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+			}
+			st := b.Stats()
+			if st.Reserved > st.Limit {
+				t.Errorf("%d MiB %s: %d bytes reserved", mib, mix, st.Reserved)
+			}
+			var br, zs int
+			for _, s := range open {
+				switch {
+				case s.tier.coding == Brotli:
+					br++
+				case s.tier.coding == Zstd:
+					zs++
+				}
+			}
+			t.Logf("%-7s %-6s %5d %13d %18s %17d %17d", fmt.Sprintf("%d MiB", mib), mix, n, full, fmt.Sprintf("%d/%d", br, zs), firstBr, firstZstd)
+			for _, s := range open {
+				s.Close()
+			}
+		}
+	}
+}
+
 // failingFlush is a client whose flushes fail.
 type failingFlush struct{ *recorder }
 
@@ -549,7 +661,8 @@ func TestStreamTier(t *testing.T) {
 		}
 	}
 	agree("open")
-	if n, h := open[3].Tier(); n != "br q4 2^18" || h != 2192*kib {
+	// A fair share of 2 MiB: brotli steps down to quality 3.
+	if n, h := open[3].Tier(); n != "br q3 2^18" || h != 1312*kib {
 		t.Errorf("brotli: %s, %d bytes", n, h)
 	}
 	if n, _ := open[5].Tier(); n != "identity" {

@@ -17,7 +17,7 @@ lith's load test sends a board of 139 KB to 200 streams. With zstd, a frame take
 
 An encoder's window is memory, held for as long as its stream is open. zstd at its fastest level with a window of 2^19 bytes holds about 1.7 MiB a stream, and brotli at datastar-go's default window 9.9 MiB: 1,000 open tabs would need about 1.6 GiB with the one and 9.7 GiB with the other.
 
-A hub shares a budget among its streams' encoders: half the process's memory limit, from `GOMEMLIMIT` or the cgroup. A stream gets the largest window its share allows, from 2^19 down to 2^18, and goes out uncompressed when not even that fits. Without a memory limit, the budget only counts. A page with large frames passes a budget with `Refuse`, and a stream that finds no room gets a 503, which the page retries.
+A hub shares a budget among its streams' encoders: half the process's memory limit, from `GOMEMLIMIT` or the cgroup. A stream gets the largest window its share allows, from 2^19 down to 2^18 (brotli, whose streams keep their window until they close, on down to 2^16 at quality 3), and goes out uncompressed when not even that fits. Without a memory limit, the budget only counts. A page with large frames passes a budget with `Refuse`, and a stream that finds no room gets a 503, which the page retries.
 
 The window must hold the largest frame, or a frame cannot refer back to the one before it, and its bytes grow several times over. Measure the largest frame of each page before you set `MinWindow`.
 

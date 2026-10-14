@@ -33,16 +33,20 @@ type BudgetOptions struct {
 	// Set it to hold the app's largest frame: below that a frame cannot
 	// refer to the one before, and the bytes per frame grow several times
 	// over (a 142 KB board: from 2.7 KB at 2^18 to 10.8 KB at 2^17). A
-	// stream that cannot have it goes out uncompressed (zstd: in raw blocks),
-	// or with Refuse not at all.
+	// zstd stream that cannot have it sends raw blocks until it can. A
+	// brotli stream keeps its tier until it closes, so below MinWindow it
+	// takes quality 3 with smaller windows, down to 2^16 (10 KB for that
+	// board instead of 142 KB uncompressed). A stream that cannot have even
+	// its smallest tier goes out uncompressed, or with Refuse not at all.
 	MinWindow int
 	// MaxWindow is the largest window a stream gets (default 19, the
 	// window of Options' defaults for zstd).
 	MaxWindow int
-	// Refuse turns away a stream that cannot have MinWindow: Open returns
-	// ErrNoRoom. Without it the stream goes out uncompressed, which suits
-	// small, rare frames; large and frequent frames are better refused, for
-	// pages that open their stream with retry 'error' and so come back.
+	// Refuse turns away a stream that cannot have its smallest tier (zstd:
+	// MinWindow's): Open returns ErrNoRoom. Without it the stream goes out
+	// uncompressed, which suits small, rare frames; large and frequent
+	// frames are better refused, for pages that open their stream with
+	// retry 'error' and so come back.
 	Refuse bool
 }
 
@@ -55,8 +59,9 @@ type BudgetOptions struct {
 // that fits both its fair share (the limit divided by the open streams that
 // compress or would, itself included) and what is left of the limit. Tiers
 // are zstd's and brotli's windows from MaxWindow down to MinWindow; zstd's
-// largest keeps its full history. A stream whose fair share is below
-// MinWindow's tier gets that tier while what is left holds it. Close gives
+// largest keeps its full history, and brotli's go on below MinWindow at
+// quality 3, down to 2^16. A stream whose fair share is below its smallest
+// tier gets that tier while what is left holds it. Close gives
 // the reservation back, and so does a zstd stream that hibernates
 // (Stream.Hibernate): it reserves again on its next write, at the fair
 // share of that moment.
@@ -66,7 +71,13 @@ type BudgetOptions struct {
 // above the fair share of that moment (counting a refused stream as open)
 // moves down at its next write: it ends its zstd frame and begins the next
 // with the smaller tier, which costs one frame without history. Brotli and
-// gzip streams keep their tier until they close.
+// gzip streams keep their tier until they close, since a brotli body is
+// one stream with one window: brotli steps down as streams open instead,
+// from its quality's windows to quality 3 at 2^16. Once more than 20
+// streams are open, a brotli stream takes at most its largest tier times twice
+// the share of the limit that is left: the largest tier while half the
+// limit is left, smaller ones as it fills, so that a tier taken early does
+// not spend the room of the streams to come.
 //
 // The tiers' sizes were measured with zstd at its fastest level and brotli
 // at quality 3 and 4 (lith's bench/budget), after a session of 142 KB
@@ -199,38 +210,60 @@ var (
 
 // menu lists the tiers a stream of the coding may get, largest first.
 func (b *Budget) menu(coding string, o Options) []tier {
-	var all []tier
 	switch coding {
-	case Zstd:
-		all = zstdTiers
 	case Brotli:
-		all = brotliTiers[4]
-		if o.BrotliQuality == 3 {
-			all = brotliTiers[3]
-		}
+		return b.brotliMenu(o)
 	case Gzip:
 		return []tier{gzipTier}
 	}
 	// The stream's own window is the largest it may get, and lowers the
 	// floor with it, so that a budget without a limit changes nothing.
-	ceil := o.ZstdWindow
-	if coding == Brotli {
-		ceil = o.BrotliWindow
-	}
-	lo, hi := min(b.minWindow, ceil), min(b.maxWindow, ceil)
+	lo, hi := min(b.minWindow, o.ZstdWindow), min(b.maxWindow, o.ZstdWindow)
 	var m []tier
-	for _, t := range all {
-		// ZstdLowMemory narrows zstd's tiers only: a brotli client keeps its.
-		if t.window >= lo && t.window <= hi && (coding != Zstd || t.lowMem || !o.ZstdLowMemory) {
+	for _, t := range zstdTiers {
+		if t.window >= lo && t.window <= hi && (t.lowMem || !o.ZstdLowMemory) {
 			m = append(m, t)
 		}
 	}
 	return m
 }
 
-// pick chooses the largest tier of the coding that fits both the fair
-// share among users and what is left of the limit, or else the smallest
-// one if what is left holds it. b.mu is held.
+// brotliMenu lists a brotli stream's tiers, largest first: its quality's
+// windows from MaxWindow down to MinWindow (qualities other than 3 are
+// costed as 4), then quality 3's that hold less, down to 2^16. A brotli
+// stream keeps its tier until it closes, so a small window beats none.
+func (b *Budget) brotliMenu(o Options) []tier {
+	q := o.BrotliQuality
+	all := brotliTiers[4]
+	if q == 3 {
+		all = brotliTiers[3]
+	}
+	ceil := o.BrotliWindow
+	lo, hi := min(b.minWindow, ceil), min(b.maxWindow, ceil)
+	var m []tier
+	for _, t := range all {
+		if t.window >= lo && t.window <= hi {
+			t.quality = q
+			m = append(m, t)
+		}
+	}
+	for _, t := range brotliTiers[3] {
+		if t.window <= hi && (len(m) == 0 || t.heap < m[len(m)-1].heap && t.window <= m[len(m)-1].window) {
+			m = append(m, t)
+		}
+	}
+	return m
+}
+
+// quietStreams is how many open streams a server may have and still give
+// a brotli stream its largest tier wherever the fair share and what is
+// left allow it (simulated in TestBudgetCurve).
+const quietStreams = 20
+
+// pick chooses the largest tier of the coding that fits the fair share
+// among users and what is left of the limit, and for brotli past
+// quietStreams the curve on what is left (see Budget), or else the
+// smallest one if what is left holds it. b.mu is held.
 func (b *Budget) pick(coding string, o Options, users int) (tier, bool) {
 	m := b.menu(coding, o)
 	if len(m) == 0 {
@@ -241,6 +274,9 @@ func (b *Budget) pick(coding string, o Options, users int) (tier, bool) {
 	}
 	left := b.limit - b.reserved
 	fit := min(left, b.limit/int64(users))
+	if coding == Brotli && users > quietStreams {
+		fit = min(fit, m[0].heap*2*left/b.limit)
+	}
 	for _, t := range m {
 		if t.heap <= fit {
 			return t, true

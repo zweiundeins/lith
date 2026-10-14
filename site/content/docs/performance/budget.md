@@ -309,7 +309,17 @@ Every run held about 19.8 ticks a second. The streams the budget had no room for
 
 ## What lith took from it
 
-Since 2026-10-13, a hub makes a budget when it is given none: half the process's memory limit, windows from 2^19 down to 2^18, streams uncompressed when even 2^18 does not fit, and no change at all without a memory limit. A stream's own `ZstdWindow` and `BrotliWindow` cap what it gets. Pages with large frames pass a budget with `Refuse`, and hibernation is opt-in ([Hibernation](/docs/performance/hibernation)). [Streams and compression](/docs/guides/streams#the-memory-budget) shows the settings.
+Since 2026-10-13, a hub makes a budget when it is given none: half the process's memory limit, windows from 2^19 down to 2^18, streams uncompressed when even 2^18 does not fit, and no change at all without a memory limit. A stream's own `ZstdWindow` and `BrotliWindow` cap what it gets. Pages with large frames pass a budget with `Refuse`, and hibernation is opt-in ([Hibernation](/docs/performance/hibernation)). Brotli streams cannot move down once open, so they step down as they open instead, below `MinWindow` to quality 3 at 2^17 and 2^16. Past 20 open streams, a brotli stream takes at most its largest tier times twice the share of the limit that is left. `TestBudgetCurve` in `sse` opens streams one by one, with a write to each after every ten opens; brotli at 2^19 and quality 4, zstd at 2^19:
+
+| Budget | Streams | Full tier at open | Compressed, br/zstd | First br uncompressed | Before the curve |
+| --- | --- | --- | --- | --- | --- |
+| 64 MiB | 128 br | 20 | 32/0 | 33rd | 24 compressed |
+| 128 MiB | 256 br | 25 | 79/0 | 80th | 49 compressed |
+| 150 MiB | 300 br | 29 | 93/0 | 94th | 57 compressed |
+| 150 MiB | 300 zstd | 90 | 0/181 | none | the same |
+| 150 MiB | 150 br, 150 zstd | 62 | 56/74 | 88th | 38/69 |
+
+zstd streams keep the fair share they had: they move down while open, so the curve would only cost them. [Streams and compression](/docs/guides/streams#the-memory-budget) shows the settings.
 
 ## Measuring again
 

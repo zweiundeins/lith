@@ -11,8 +11,9 @@
 // quality 4 with a 256 KiB window (about 2 MiB), else gzip.
 //
 // A Budget shares a memory limit among the encoders of many streams: a
-// stream gets the largest window its share of the limit allows, and zstd
-// streams move to smaller windows as more streams open. Stream.Hibernate
+// stream gets the largest window its share of the limit allows, zstd
+// streams move to smaller windows as more streams open, and brotli streams
+// open with smaller windows and quality 3 as the limit fills. Stream.Hibernate
 // lets an idle zstd stream give its encoder back until its next write.
 //
 // Every write has its own deadline, so run the server without a
@@ -74,7 +75,8 @@ type Options struct {
 	// Budget, if set, is shared by streams: it picks each stream's window
 	// within a memory limit. ZstdWindow and BrotliWindow are then the
 	// largest a stream gets, ZstdLowMemory keeps it to low-memory windows,
-	// and BrotliQuality picks the brotli tiers.
+	// and BrotliQuality is the quality of the larger brotli tiers (the
+	// smallest are quality 3).
 	Budget *Budget
 }
 
@@ -179,11 +181,11 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 			s.enc, err = s.zstd.encoder(&s.buf)
 		}
 	case Brotli:
-		lgwin := o.BrotliWindow
+		q, lgwin := o.BrotliQuality, o.BrotliWindow
 		if s.tier.coding == Brotli {
-			lgwin = s.tier.window
+			q, lgwin = s.tier.quality, s.tier.window
 		}
-		s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: o.BrotliQuality, LGWin: lgwin})
+		s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: q, LGWin: lgwin})
 	case Gzip:
 		s.enc, err = gzip.NewWriterLevel(&s.buf, gzip.BestSpeed)
 	}

@@ -12,6 +12,7 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 - `sse`: `ReadSignals` reads a request's Datastar signals for any method: the `datastar` query parameter of GET, HEAD and DELETE, the JSON body of the others, `@query`'s QUERY included. It caps the body at 1 MiB (`ReadSignalsLimit` for another cap), takes a request without signals as none, and reads the body to its end, so that over HTTP/1.1 a handler that waits before it answers still notices a client that left. Called after `Open`, it returns `ErrBodyConsumed`.
 - `edge`: `Compress` compresses the answers to QUERY as it does GET's.
+- `sse`: a brotli stream that opens under memory pressure now takes a smaller tier instead of going out uncompressed: its quality's windows down to `MinWindow`, then quality 3 at smaller windows down to 2^16 (912 KiB). A brotli stream keeps its tier until it closes, so past 20 open streams it takes at most its largest tier times twice the share of the limit that is left: a budget of 150 MiB compresses 93 brotli streams instead of 57, and the first 20 still get the largest tier. A brotli stream goes out uncompressed only when even 2^16 does not fit, and `Refuse` turns away only such a stream. The tier's quality now applies to the encoder, and `BudgetStats` names it (`br q3 2^16`).
 
 ## v0.1.1 (2026-10-14)
 
