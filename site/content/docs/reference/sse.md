@@ -26,7 +26,19 @@ const (
 
 The content codings a stream can use, in the server's order of preference.
 
+```go
+const MaxSignals = 1 << 20
+```
+
+MaxSignals is the most bytes of signals ReadSignals takes from a request's body.
+
 ## Variables
+
+```go
+var ErrBodyConsumed = errors.New("sse: the request's body was read before ReadSignals: read the signals before Open")
+```
+
+ErrBodyConsumed is returned by ReadSignals when the request's body was read before it, as net/http does when Open sends the headers.
 
 ```go
 var ErrClosed = errors.New("sse: stream closed")
@@ -73,6 +85,26 @@ func PatchSignals(json []byte, onlyIfMissing bool) []byte
 ```
 
 PatchSignals formats a datastar-patch-signals event with a JSON merge patch. With onlyIfMissing, the page keeps signals it already has.
+
+### func ReadSignals {#ReadSignals}
+
+```go
+func ReadSignals(w http.ResponseWriter, r *http.Request, v any) error
+```
+
+ReadSignals decodes the Datastar signals of r into v. Datastar sends them as the datastar query parameter for GET and DELETE (and ReadSignals reads HEAD like GET), and as a JSON body for every other method, @query's QUERY included. A missing parameter or an empty body is no signals: v stays as it is and the error is nil. A body over MaxSignals bytes fails with an \*http.MaxBytesError, bad JSON with the decoder's error.
+
+ReadSignals reads the body to its end: over HTTP/1.1, net/http notices that a client has left only once the body has been read, or discarded when the response's headers go out. So call it before Open, and before a handler waits on its context with nothing written.
+
+Unlike datastar-go's ReadSignals(r, v), it takes w for http.MaxBytesReader, caps the body and accepts an empty one.
+
+### func ReadSignalsLimit {#ReadSignalsLimit}
+
+```go
+func ReadSignalsLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) error
+```
+
+ReadSignalsLimit is ReadSignals with a limit of its own on the body.
 
 ### func Reconnect {#Reconnect}
 
