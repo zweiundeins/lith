@@ -28,7 +28,7 @@ HTML with templ, and each app keeps its own pages and domain model.
 | [`sqlite`](sqlite) | one write connection and a `query_only` read pool whose connections keep their statements prepared, pragmas, `user_version` migrations, read-only opens, `VACUUM INTO` backups |
 | [`writer`](writer) | the single writer: `Send`, `Do` and `DoValue`, batches with a savepoint per command, prepared statements, `Once` for retried requests, `Exclusive` for work between batches |
 | [`live`](live) | topics mark views dirty; a tick feeds render workers that read one snapshot each and render each changed view once for all its viewers |
-| [`sse`](sse) | Datastar events, formatted once and written to many streams, with zstd, brotli or gzip per stream and a deadline on every write; a memory budget that shrinks the streams' windows as more open |
+| [`sse`](sse) | Datastar events, formatted once and written to many streams, with zstd, brotli or gzip per stream and a deadline on every write; `ReadSignals` for any method; a memory budget that books what each stream holds, sizes its window from its frames, and can cap the streams by memory |
 | [`edge`](edge) | sessions, CSRF, client IP, CSP with a nonce, compression, precompressed static files, rate limiters, health checks |
 | [`tenant`](tenant) | one open database per account, refcounted, evicted at a soft cap |
 | [`dbmetrics`](dbmetrics) | statement timing and a slow-query log through a wrapping driver |
@@ -79,14 +79,18 @@ The recipes, the rules and a review checklist are in the skill.
 
 ## Measured
 
-- **Writer:** 66,688 commands a second at 200 producers with the default
-  `synchronous=NORMAL`, 109 to a transaction; 34,893 with FULL, whose commits
-  survive a power loss ([bench/RESULTS.md](bench/RESULTS.md)). Beside 200
-  streams at 800 commands a second, a command commits in 0.3 to 0.5 ms at p50
-  with NORMAL and in 3 to 11 ms with FULL.
-- **Streams:** 1.0 to 1.7 MiB of heap per open stream with zstd at a 2^19
-  window (low-memory or full history), against 9.9 MiB for brotli at its
-  default window, at the same compression.
+- **Writer:** on the 10-dollar VPS that serves the site (four vCPUs of an AMD
+  EPYC), 80,530 commands a second at 200 producers with the default
+  `synchronous=NORMAL`, 108 to a transaction; 14,480 with FULL, whose commits
+  survive a power loss. On a development machine (i5-13500): 66,688 and 34,893
+  ([bench/RESULTS.md](bench/RESULTS.md)). Beside 200 streams at 800 commands a
+  second, a command commits in 0.3 to 0.5 ms at p50 with NORMAL and in 3 to
+  11 ms with FULL there.
+- **Streams:** each stream takes the smallest window that holds its frames.
+  For a 230 KB page at 2^18: 845 KiB of heap with zstd (low memory) and 4,183
+  bytes a frame; 1,603 KiB with brotli at quality 4 and 140 bytes a frame, at
+  six times the CPU; 32 KiB a stream besides. 120 MiB holds 134 tabs of such a
+  page with zstd ([bench/budget](bench/budget)).
 - **Render loop:** 200 streams on one 139 KB view changing 800 times a second
   render once per tick and drop no frames ([loadtest](loadtest)).
 - **In an app:** kanban on lith commits 14,928 moves a second at 200 people,
@@ -97,13 +101,8 @@ The recipes, the rules and a review checklist are in the skill.
 
 [`skills/lith`](skills/lith) teaches an agent the rules, the recipes, the
 numbers, a review checklist with `rg` patterns, and the Datastar gotchas the
-projects learned. It ships with the code, so its advice matches the version in
-use. Install it in every Claude Code root with a line in claude-config's
-`skills.txt`:
-
-```text
-lith	https://github.com/zweiundeins/lith	skills/lith
-```
+projects learned. It ships with the code: point your agent at `skills/lith` of
+the version you use, and its advice matches it.
 
 ## Credits
 
