@@ -90,10 +90,12 @@ type Options struct {
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
-	// process's memory limit for the encoders, windows from 2^19 down to
-	// 2^18, uncompressed streams when even 2^18 does not fit; without a
-	// memory limit it only counts. Pass a Budget of your own for another
-	// limit or Refuse, or one with Limit -1 to turn it off.
+	// process's memory limit for the streams, their encoders and the views'
+	// frames, which the hub books (sse.Budget.Hold); each stream gets a
+	// window that holds its frames, up to 2^19, and goes out uncompressed
+	// when not even the smallest tier fits; without a memory limit it only
+	// counts. Pass a Budget of your own for another limit or Refuse, or one
+	// with Limit -1 to turn it off.
 	SSE sse.Options
 }
 
@@ -113,7 +115,10 @@ type View struct {
 	// prepared once on its connection. Its frame goes to every stream that
 	// watches the view and must not change afterwards. When Render fails,
 	// the error is logged and the previous frame stays; a nil frame also
-	// keeps the previous one, and so does a []byte frame equal to it.
+	// keeps the previous one, and so does a []byte frame equal to it. The
+	// hub books the newest frame in the streams' budget, once however many
+	// streams watch it: a []byte frame by its length, another by its
+	// Len() int method, if it has one, each with 8 KiB besides.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
@@ -188,6 +193,7 @@ type view struct {
 
 	frame   atomic.Pointer[frame]
 	renders atomic.Int64
+	booked  int64 // what the hub booked for the frame in the budget, guarded by Hub.mu
 
 	// Guarded by Hub.mu.
 	watches   []*watch
@@ -429,8 +435,8 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 func (h *Hub) Done() <-chan struct{} { return h.done.Done() }
 
 // Budget is the budget the hub's streams share: Options.SSE.Budget, or the
-// one New made. Its Stats tell what the encoders hold, and SetLimit moves
-// its limit while the hub runs.
+// one New made. Its Stats tell what the streams hold, the views' frames
+// among it, and SetLimit moves its limit while the hub runs.
 func (h *Hub) Budget() *sse.Budget { return h.sse.Budget }
 
 // Stats reads the counters.
@@ -582,6 +588,8 @@ func (h *Hub) drop(w *watch) bool {
 		return v.presence && h.mark(v)
 	}
 	v.dead = true
+	h.sse.Budget.Hold(-v.booked)
+	v.booked = 0
 	delete(h.views, v.key)
 	for _, t := range v.topics {
 		delete(h.topics[t], v)
@@ -591,6 +599,26 @@ func (h *Hub) drop(w *watch) bool {
 	}
 	delete(h.every, v)
 	return false
+}
+
+// frameSlack is what a kept frame holds besides its bytes: the heap's
+// pages of 8 KiB and the view's own state (bench/budget/viewcost.csv).
+const frameSlack = 8 << 10
+
+// frameHeap is what the hub books for a view's frame: its length and
+// frameSlack, or nothing when the frame has no length.
+func frameHeap(f any) int64 {
+	n := -1
+	switch f := f.(type) {
+	case []byte:
+		n = len(f)
+	case interface{ Len() int }:
+		n = f.Len()
+	}
+	if n < 0 {
+		return 0
+	}
+	return int64(n) + frameSlack
 }
 
 // same reports whether a frame repeats the published one.

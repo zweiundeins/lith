@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -100,5 +102,117 @@ func TestHubMakesABudget(t *testing.T) {
 	b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})
 	if h := New(Options{SSE: sse.Options{Budget: b}}); h.Budget() != b {
 		t.Fatal("the hub replaced the budget it was given")
+	}
+}
+
+// sized is a frame of another type than []byte, with a length.
+type sized struct{ n int }
+
+func (s sized) Len() int { return s.n }
+
+// The hub books each view's newest frame in the budget once, however many
+// streams watch it: its length and 8 KiB. A frame that changes size moves
+// the booking, a frame of another type is booked by its Len method, and a
+// view nobody watches any more gives its booking back.
+func TestHubBooksFrames(t *testing.T) {
+	b := sse.NewBudget(sse.BudgetOptions{Limit: 64 << 20})
+	h := start(t, Options{Tick: time.Millisecond, SSE: sse.Options{Budget: b}})
+	var size atomic.Int64
+	size.Store(1000)
+	shared := View{Key: "shared", Topics: []string{"shared"}, Render: func(context.Context, *sql.Tx) (any, error) {
+		return sse.PatchElements(bytes.Repeat([]byte("x"), int(size.Load()))), nil
+	}}
+	frameLen := func() int64 { return int64(len(sse.PatchElements(bytes.Repeat([]byte("x"), int(size.Load()))))) }
+	frames := func() int64 { return b.Stats().Frames }
+	var cs []*client
+	for i := range 3 {
+		own := View{Key: "own" + strconv.Itoa(i), Render: func(context.Context, *sql.Tx) (any, error) { return sized{5000}, nil }}
+		cs = append(cs, serve(h, Spec{Views: []View{shared, own}, WriteTick: func(*sse.Stream, []Frame) error { return nil }}, ""))
+	}
+	want := frameLen() + frameSlack + 3*(5000+frameSlack)
+	waitFor(t, "the frames booked", func() bool { return frames() == want })
+	size.Store(200 << 10)
+	h.Changed([]string{"shared"})
+	want = frameLen() + frameSlack + 3*(5000+frameSlack)
+	waitFor(t, "the larger frame booked", func() bool { return frames() == want })
+	cs[0].leave(t)
+	want -= 5000 + frameSlack
+	waitFor(t, "a view left", func() bool { return frames() == want })
+	for _, c := range cs[1:] {
+		c.leave(t)
+	}
+	if st := b.Stats(); st.Frames != 0 || st.Reserved != 0 {
+		t.Fatalf("after the streams left: %+v", st)
+	}
+}
+
+// tabView is a tab's own view: a table of rows rows, about 175 bytes each,
+// whose cells change with version.
+func tabView(key string, rows int, version *atomic.Int64) View {
+	return View{Key: key, Topics: []string{"tabs"}, Render: func(context.Context, *sql.Tx) (any, error) {
+		v := version.Load()
+		var buf bytes.Buffer
+		for r := range rows {
+			fmt.Fprintf(&buf, `<tr id="row-%d"><td class="name">Item %d</td><td class="value">%d</td><td><button data-on:click="@post('/cmd/inc?id=%d')">+</button></td></tr>`+"\n", r, r, int64(r*7)+v*int64(r%3), r)
+		}
+		return sse.PatchElements(buf.Bytes()), nil
+	}}
+}
+
+func liveHeap() int64 {
+	runtime.GC()
+	runtime.GC()
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return int64(m.HeapAlloc + m.StackInuse)
+}
+
+// What the budget books for streams that each watch a view of their own,
+// their encoders, their frames and 32 KiB each, is what they hold on the
+// heap and the stacks after a collection, within a tenth or 64 KiB a
+// stream. (The 32 KiB include net/http's buffers for the connection,
+// which these streams have none of.)
+func TestBudgetMatchesHeap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("streams large frames to many streams")
+	}
+	streams := 12
+	if raceEnabled {
+		streams = 4
+	}
+	for _, rows := range []int{900, 1500} {
+		for _, coding := range []string{sse.Brotli, sse.Zstd, "identity"} {
+			b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})
+			h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
+			before := liveHeap()
+			var version atomic.Int64
+			var cs []*client
+			for i := range streams {
+				cs = append(cs, serve(h, Spec{Views: []View{tabView("tab"+strconv.Itoa(i), rows, &version)}}, coding))
+			}
+			for k := range 3 {
+				version.Store(int64(k))
+				h.Changed([]string{"tabs"})
+				waitFor(t, "a frame to every stream", func() bool { return h.Stats().FramesSent >= int64(streams*(k+1)) })
+			}
+			// The streams' clients keep the bodies: count what the hub holds.
+			var bodies int64
+			for _, c := range cs {
+				c.mu.Lock()
+				bodies += int64(c.body.Cap())
+				c.mu.Unlock()
+			}
+			measured := liveHeap() - before - bodies
+			st := b.Stats()
+			ratio := float64(measured) / float64(st.Reserved)
+			t.Logf("%d rows, %s: %d KiB booked (%d KiB of frames), %d KiB measured, %.2f, %v",
+				rows, coding, st.Reserved>>10, st.Frames>>10, measured>>10, ratio, st.Streams)
+			if d := measured - st.Reserved; max(d, -d) > max(st.Reserved/10, int64(streams)*64<<10) {
+				t.Errorf("%d rows, %s: measured %d KiB for %d KiB booked", rows, coding, measured>>10, st.Reserved>>10)
+			}
+			for _, c := range cs {
+				c.leave(t)
+			}
+		}
 	}
 }

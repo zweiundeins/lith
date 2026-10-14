@@ -198,6 +198,7 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 // without a frame that a stream started watching during the tick.
 func (h *Hub) publish(t *tick) {
 	taken := min(int(t.next.Load()), len(t.views))
+	var booked int64
 	h.mu.Lock()
 	for i, v := range t.views[:taken] {
 		joined := v.joined
@@ -211,6 +212,11 @@ func (h *Hub) publish(t *tick) {
 		}
 		nf := &frame{value: f}
 		v.frame.Store(nf)
+		if !v.dead {
+			n := frameHeap(f)
+			booked += n - v.booked
+			v.booked = n
+		}
 		for _, w := range v.watches {
 			t.offers = append(t.offers, offer{w, nf})
 		}
@@ -220,6 +226,7 @@ func (h *Hub) publish(t *tick) {
 		h.mark(v)
 	}
 	h.mu.Unlock()
+	h.sse.Budget.Hold(booked)
 
 	slices.SortFunc(t.offers, func(a, b offer) int { return cmp.Compare(a.w.s.seq, b.w.s.seq) })
 	for i := 0; i < len(t.offers); {
