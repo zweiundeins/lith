@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -18,6 +17,7 @@ import (
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sqlite"
+	"github.com/zweiundeins/lith/sse"
 	"github.com/zweiundeins/lith/writer"
 
 	"github.com/zweiundeins/lith/template/internal/guestbook"
@@ -119,7 +119,7 @@ func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req signRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil || !validID(req.Tab) || !validID(req.Op) {
+	if err := sse.ReadSignalsLimit(w, r, &req, 8<<10); err != nil || !validID(req.Tab) || !validID(req.Op) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}

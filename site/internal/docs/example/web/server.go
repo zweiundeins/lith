@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -142,7 +141,7 @@ func (s *Server) decode(w http.ResponseWriter, r *http.Request, op bool) (action
 		http.Error(w, "too many actions, wait a moment", http.StatusTooManyRequests)
 		return a, false
 	}
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&a)
+	err := sse.ReadSignalsLimit(w, r, &a, 8<<10)
 	if err != nil || !validID(a.Tab) || op && !validID(a.Op) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return a, false
@@ -218,7 +217,7 @@ func (s *Server) compact(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Compact bool `json:"compact"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
+	if err := sse.ReadSignalsLimit(w, r, &req, 1<<10); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -240,7 +239,7 @@ func (s *Server) createBoard(w http.ResponseWriter, r *http.Request) {
 		Op   string `json:"op"`
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || !validID(req.Op) {
+	if err := sse.ReadSignalsLimit(w, r, &req, 1<<10); err != nil || !validID(req.Op) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}

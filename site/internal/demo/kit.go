@@ -125,10 +125,11 @@ func (k *Kit) Fail(w http.ResponseWriter, r *http.Request, err error) {
 	http.Error(w, "Something went wrong.", http.StatusInternalServerError)
 }
 
-// Decode reads an action's JSON body, at most 8 KiB, into v. When it
-// cannot, it answers 400 itself and returns false.
+// Decode reads an action's payload, a JSON body of at most 8 KiB, into v.
+// When it cannot, or the body is empty, it answers 400 itself and returns
+// false.
 func Decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(v); err != nil {
+	if r.ContentLength == 0 || sse.ReadSignalsLimit(w, r, v, 8<<10) != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return false
 	}
