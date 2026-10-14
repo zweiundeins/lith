@@ -99,13 +99,14 @@ func TestStatic(t *testing.T) {
 			t.Errorf("%s: %d %q", m[1], res.StatusCode, res.Header.Get("Cache-Control"))
 		}
 		if strings.Contains(m[1], "site.") && strings.HasSuffix(m[1], ".css") {
-			if !strings.HasPrefix(body, "/*") || !strings.Contains(body, "@layer reset, tokens, theme, base, layout, components, utilities;") {
-				t.Errorf("the bundle does not start with the layers' order")
+			// Minified: no comments, no spaces it can do without.
+			if !strings.HasPrefix(body, "@layer reset,tokens,theme,base,layout,components,utilities;") || strings.Contains(body, "/*") {
+				t.Errorf("the bundle does not start with the layers' order, or is not minified")
 			}
-			if strings.Contains(body, `url("../fonts/`) || !regexp.MustCompile(`url\("/static/fonts/pixelify-sans\.[0-9a-f]+\.woff2"\)`).MatchString(body) {
+			if strings.Contains(body, "../fonts/") || !regexp.MustCompile(`url\("?/static/fonts/pixelify-sans\.[0-9a-f]+\.woff2"?\)`).MatchString(body) {
 				t.Error("the bundle's font URLs are not hashed")
 			}
-			if !strings.Contains(body, `/* demo: guestbook */`) || !strings.Contains(body, `@scope ([data-demo="guestbook"])`) {
+			if !strings.Contains(body, `@scope([data-demo="guestbook"])`) {
 				t.Error("the guestbook's stylesheet is not in the bundle")
 			}
 		}

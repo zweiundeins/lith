@@ -1,15 +1,18 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/tdewolff/minify/v2/css"
+	"github.com/tdewolff/minify/v2/js"
 	"github.com/zweiundeins/lith/edge"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
@@ -20,6 +23,13 @@ import (
 
 //go:embed static
 var staticFiles embed.FS
+
+// StaticFiles are the files under static/, which the site serves under
+// /static/ besides the ones it makes (site.css, art/logo.svg).
+func StaticFiles() fs.FS {
+	files, _ := fs.Sub(staticFiles, "static")
+	return files
+}
 
 // Stylesheets are the site's CSS files, in the order of the bundle. A new
 // file goes here. Demos' stylesheets follow them, each in the components
@@ -67,6 +77,9 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 		return err
 	}
 	s.static.Add("site.css", bundle)
+	if err := minifyScripts(files, s.static); err != nil {
+		return err
+	}
 	s.static.Add("art/logo.svg", []byte(pixelart.Logo()))
 	if s.starbase, err = starbase.Load(files); err != nil {
 		return err
@@ -119,8 +132,21 @@ func (s *Server) components(slugs ...string) []views.Script {
 }
 
 // Bundle joins the stylesheets into one, with font URLs pointing at their
-// hashed names, and appends each demo's stylesheet in the components layer.
+// hashed names, appends each demo's stylesheet in the components layer, and
+// minifies the result.
 func Bundle(files fs.FS, list []demo.Demo, url func(string) string) ([]byte, error) {
+	b, err := bundle(files, list, url)
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := css.Minify(nil, &out, bytes.NewReader(b), nil); err != nil {
+		return nil, fmt.Errorf("minifying the CSS bundle: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+func bundle(files fs.FS, list []demo.Demo, url func(string) string) ([]byte, error) {
 	var b strings.Builder
 	for _, name := range Stylesheets {
 		css, err := fs.ReadFile(files, name)
@@ -141,30 +167,60 @@ func Bundle(files fs.FS, list []demo.Demo, url func(string) string) ([]byte, err
 	return []byte(b.String()), nil
 }
 
-func (s *Server) robots(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "User-agent: *\nAllow: /\nDisallow: /cmd/\n\nSitemap: %s/sitemap.xml\n", s.cfg.Base)
+// minifyScripts serves the site's own scripts, js/*.js, minified in place
+// of the files as written. The vendored ones come minified.
+func minifyScripts(files fs.FS, static *edge.Static) error {
+	names, err := fs.Glob(files, "js/*.js")
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		src, err := fs.ReadFile(files, name)
+		if err != nil {
+			return err
+		}
+		var out bytes.Buffer
+		if err := js.Minify(nil, &out, bytes.NewReader(src), nil); err != nil {
+			return fmt.Errorf("minifying %s: %w", name, err)
+		}
+		static.Add(name, out.Bytes())
+	}
+	return nil
 }
 
-// sitemap lists the pages: the landing page, the docs and the demos.
-func (s *Server) sitemap(w http.ResponseWriter, r *http.Request) {
-	type loc struct {
-		Loc string `xml:"loc"`
+// robots is robots.txt.
+func (s *Server) robots() []byte {
+	return fmt.Appendf(nil, "User-agent: *\nAllow: /\nDisallow: /cmd/\n\nSitemap: %s/sitemap.xml\n", s.cfg.Base)
+}
+
+// sitemap lists the pages, the landing page, the demos and the docs, each
+// with the date of its last commit when the build had the history.
+func (s *Server) sitemap() ([]byte, error) {
+	type url struct {
+		Loc     string `xml:"loc"`
+		LastMod string `xml:"lastmod,omitempty"`
 	}
-	urls := []loc{{s.cfg.Base + "/"}, {s.cfg.Base + "/demos"}}
+	paths := []string{"/", "/demos"}
 	for _, d := range s.demos {
-		urls = append(urls, loc{s.cfg.Base + "/demos/" + d.Slug})
+		paths = append(paths, "/demos/"+d.Slug)
 	}
 	for _, p := range s.docs.Order {
-		urls = append(urls, loc{s.cfg.Base + p.Path})
+		paths = append(paths, p.Path)
 	}
-	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	w.Write([]byte(xml.Header))
-	enc := xml.NewEncoder(w)
-	enc.Indent("", "  ")
-	enc.Encode(struct {
+	urls := make([]url, len(paths))
+	for i, p := range paths {
+		urls[i].Loc = s.cfg.Base + p
+		if c, ok := s.history[p]; ok {
+			urls[i].LastMod = c.Date.UTC().Format(time.RFC3339)
+		}
+	}
+	b, err := xml.MarshalIndent(struct {
 		XMLName xml.Name `xml:"urlset"`
 		NS      string   `xml:"xmlns,attr"`
-		URLs    []loc    `xml:"url"`
-	}{NS: "http://www.sitemaps.org/schemas/sitemap/0.9", URLs: urls})
+		URLs    []url    `xml:"url"`
+	}{NS: "http://www.sitemaps.org/schemas/sitemap/0.9", URLs: urls}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(xml.Header), append(b, '\n')...), nil
 }

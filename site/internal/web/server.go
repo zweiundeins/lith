@@ -58,6 +58,8 @@ type Server struct {
 	starbase *starbase.Set
 	docs     *docs.Docs
 	demos    []site
+	// robotsTxt and sitemapXML are made once, and served precompressed.
+	robotsTxt, sitemapXML []byte
 	// history is each page's last commit, by its path; empty when the
 	// build had no git history.
 	history map[string]githistory.Commit
@@ -106,6 +108,10 @@ func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.L
 	if err := s.loadStatic(list); err != nil {
 		return nil, err
 	}
+	s.robotsTxt = s.robots()
+	if s.sitemapXML, err = s.sitemap(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -126,8 +132,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /favicon.ico", s.file("image/png", iconPNG32))
 	mux.HandleFunc("GET /apple-touch-icon.png", s.file("image/png", iconPNG180))
 	mux.HandleFunc("GET /og.png", s.file("image/png", socialPNG))
-	mux.HandleFunc("GET /robots.txt", s.robots)
-	mux.HandleFunc("GET /sitemap.xml", s.sitemap)
+	mux.HandleFunc("GET /robots.txt", s.file("text/plain; charset=utf-8", s.robotsTxt))
+	mux.HandleFunc("GET /sitemap.xml", s.file("application/xml; charset=utf-8", s.sitemapXML))
 	deps := demo.Deps{DB: s.db, W: s.w, Hub: s.hub, Log: s.log, Commands: s.commands}
 	for _, d := range s.demos {
 		if d.Mount != nil {
