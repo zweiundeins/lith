@@ -1,34 +1,50 @@
 rows,frame_bytes,setting,views,streams,heap_kib_per_stream,stack_kib_per_stream,alloc_kib_per_stream_frame
-0,0,net/http connection,none,200,13.7,7.7,0
-2,813,identity,own,64,5,8.5,3
-2,813,identity,shared,64,3,9.5,0
-2,813,brotli q3 2^18,own,64,828,10.0,31
-2,813,brotli q3 2^18,shared,64,826,9.0,28
-2,813,brotli q4 2^18,own,64,1131,8.5,34
+0,0,net/http connection,none,200,13.7,8.8,0
+2,813,identity,own,64,4,9.0,3
+2,813,identity,pair,64,4,9.5,2
+2,813,identity,shared,64,3,8.5,0
+2,813,brotli q3 2^18,own,64,827,10.0,31
+2,813,brotli q3 2^18,pair,64,827,9.0,30
+2,813,brotli q3 2^18,shared,64,826,8.5,28
+2,813,brotli q4 2^18,own,64,1130,9.0,34
+2,813,brotli q4 2^18,pair,64,1131,9.0,33
 2,813,brotli q4 2^18,shared,64,1130,9.0,31
-2,813,zstd 2^18 low memory,own,64,757,9.0,4
-2,813,zstd 2^18 low memory,shared,64,756,8.0,1
-150,49457,identity,own,64,60,8.5,159
-150,49457,identity,shared,64,4,9.0,3
-150,49457,brotli q3 2^18,own,64,1115,9.5,159
+2,813,zstd 2^18 low memory,own,64,756,8.0,4
+2,813,zstd 2^18 low memory,pair,64,756,8.0,2
+2,813,zstd 2^18 low memory,shared,64,756,7.5,1
+150,49457,identity,own,64,4,8.0,159
+150,49457,identity,pair,64,32,9.0,80
+150,49457,identity,shared,64,4,8.5,3
+150,49457,brotli q3 2^18,own,64,1059,8.0,159
+150,49457,brotli q3 2^18,pair,64,1087,8.0,79
 150,49457,brotli q3 2^18,shared,64,1060,8.5,3
-150,49457,brotli q4 2^18,own,64,1643,8.5,159
-150,49457,brotli q4 2^18,shared,64,1587,10.0,3
-150,49457,zstd 2^18 low memory,own,64,861,7.5,159
+150,49457,brotli q4 2^18,own,64,1586,8.5,159
+150,49457,brotli q4 2^18,pair,64,1615,8.5,79
+150,49457,brotli q4 2^18,shared,64,1587,8.5,3
+150,49457,zstd 2^18 low memory,own,64,805,8.0,159
+150,49457,zstd 2^18 low memory,pair,64,834,7.5,80
 150,49457,zstd 2^18 low memory,shared,64,806,7.5,3
-430,142734,identity,own,64,148,8.0,553
+430,142734,identity,own,64,4,8.0,553
+430,142734,identity,pair,64,76,8.0,276
 430,142734,identity,shared,64,6,8.5,9
-430,142734,brotli q3 2^18,own,64,1209,8.0,552
-430,142734,brotli q3 2^18,shared,64,1067,8.0,9
-430,142734,brotli q4 2^18,own,64,1735,9.0,553
-430,142734,brotli q4 2^18,shared,64,1594,8.0,9
-430,142734,zstd 2^18 low memory,own,64,980,8.0,552
-430,142734,zstd 2^18 low memory,shared,64,838,7.5,9
-700,232636,identity,own,64,236,9.0,1046
-700,232636,identity,shared,64,7,9.0,16
-700,232636,brotli q3 2^18,own,64,1307,8.5,1046
-700,232636,brotli q3 2^18,shared,64,1078,8.5,16
-700,232636,brotli q4 2^18,own,64,1834,8.5,1046
-700,232636,brotli q4 2^18,shared,64,1605,9.0,17
-700,232636,zstd 2^18 low memory,own,64,1079,8.0,1046
-700,232636,zstd 2^18 low memory,shared,64,850,8.0,16
+430,142734,brotli q3 2^18,own,64,1065,7.5,552
+430,142734,brotli q3 2^18,pair,64,1136,8.5,276
+430,142734,brotli q3 2^18,shared,64,1067,9.0,9
+430,142734,brotli q4 2^18,own,64,1591,8.5,553
+430,142734,brotli q4 2^18,pair,64,1663,8.5,276
+430,142734,brotli q4 2^18,shared,64,1593,8.5,9
+430,142734,zstd 2^18 low memory,own,64,836,8.0,552
+430,142734,zstd 2^18 low memory,pair,64,908,7.5,276
+430,142734,zstd 2^18 low memory,shared,64,838,8.5,9
+700,232636,identity,own,64,4,9.0,1046
+700,232636,identity,pair,64,120,8.0,523
+700,232636,identity,shared,64,7,8.5,16
+700,232636,brotli q3 2^18,own,64,1075,9.5,1046
+700,232636,brotli q3 2^18,pair,64,1191,8.0,523
+700,232636,brotli q3 2^18,shared,64,1079,9.0,16
+700,232636,brotli q4 2^18,own,64,1602,8.0,1046
+700,232636,brotli q4 2^18,pair,64,1718,8.0,523
+700,232636,brotli q4 2^18,shared,64,1605,8.5,17
+700,232636,zstd 2^18 low memory,own,64,846,8.0,1046
+700,232636,zstd 2^18 low memory,pair,64,962,8.0,523
+700,232636,zstd 2^18 low memory,shared,64,850,8.5,16

@@ -1,0 +1,9 @@
+rows,frame_bytes,watchers,frame,joins,renders_per_join,cpu_us_per_join,alloc_kib_per_join,frame_kib_booked,hash_us
+2,813,1,dropped,200,1.00,154,11,0,0.1
+2,813,2,kept,200,0.00,69,8,9,0.1
+150,49458,1,dropped,200,1.00,347,167,0,3.5
+150,49458,2,kept,200,0.00,71,8,56,3.5
+430,142734,1,dropped,200,1.00,716,562,0,9.6
+430,142734,2,kept,200,0.00,73,8,147,9.6
+700,232637,1,dropped,200,1.00,1193,1056,0,15.8
+700,232637,2,kept,200,0.00,69,8,235,15.8

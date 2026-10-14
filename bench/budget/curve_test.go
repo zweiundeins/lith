@@ -176,8 +176,9 @@ func (s *sizeSink) Flush() {
 // 150 MiB, as many as twice the MiB, brotli only, zstd only and half each,
 // all watching one view of a data table of 50, 142 or 230 KB; and 150
 // tabs that each watch a view of their own of 230 KB, in 150 MiB and in
-// the least budget that holds them all at a window that holds their frame.
-// It writes curve.csv, and the docs' table of it to curve.md.
+// the least budget that holds them all at a window that holds their frame,
+// and 200 zstd tabs in 150 MiB. It writes curve.csv, and the docs' table
+// of it to curve.md.
 func TestBudgetCurve(t *testing.T) {
 	request(t)
 	var rows []curveRow
@@ -191,12 +192,14 @@ func TestBudgetCurve(t *testing.T) {
 	for _, mix := range []string{"br", "zstd", "mixed"} {
 		rows = append(rows, curveRow{rows: 700, mib: 150, mix: mix, streams: 150, own: true})
 	}
-	// The least of 170, 180, ... MiB that holds every one of those tabs
+	// 150 MiB holds every one of 150 zstd tabs: how many more.
+	rows = append(rows, curveRow{rows: 700, mib: 150, mix: "zstd", streams: 200, own: true})
+	// The least of 130, 140, ... MiB that holds every one of those tabs
 	// at a window that holds its frame.
 	for _, r := range []struct {
 		mix string
 		mib int64
-	}{{"br", 240}, {"zstd", 170}, {"mixed", 260}} {
+	}{{"br", 200}, {"zstd", 140}, {"mixed", 230}} {
 		rows = append(rows, curveRow{rows: 700, mib: r.mib, mix: r.mix, streams: 150, own: true})
 	}
 	f, err := os.Create("curve.csv")

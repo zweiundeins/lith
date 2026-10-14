@@ -64,9 +64,10 @@ type viewCost struct {
 }
 
 // measureViews opens streams streams on a hub, each watching a table view
-// of rows rows (its own, or one they share), writes frames frames to every
-// stream and measures what stays on the heap and the stacks per stream.
-func measureViews(t *testing.T, rows, streams, frames int, own bool, coding string, opt sse.Options) viewCost {
+// of rows rows (its own, one for every per streams, or with per 0 one they
+// all share), writes frames frames to every stream and measures what
+// stays on the heap and the stacks per stream.
+func measureViews(t *testing.T, rows, streams, frames, per int, coding string, opt sse.Options) viewCost {
 	t.Helper()
 	before, stack0 := liveHeap(), stackInUse()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -81,8 +82,8 @@ func measureViews(t *testing.T, rows, streams, frames int, own bool, coding stri
 	for i := range sinks {
 		sinks[i] = &countingSink{header: http.Header{}}
 		v := shared
-		if own {
-			v = tableView("table:"+strconv.Itoa(i), rows, &version)
+		if per > 0 {
+			v = tableView("table:"+strconv.Itoa(i/per), rows, &version)
 		}
 		r := httptest.NewRequestWithContext(ctx, "GET", "/", nil)
 		r.Header.Set("Accept-Encoding", cmpOr(coding, "identity"))
@@ -121,7 +122,7 @@ func measureViews(t *testing.T, rows, streams, frames int, own bool, coding stri
 		frame = len(f.([]byte))
 	}
 	c := viewCost{
-		frame:          frame,
+		frame: frame,
 		heap:  float64(liveHeap()-before) / float64(streams),
 		stack: float64(stackInUse()-stack0) / float64(streams),
 		alloc: float64(m1.TotalAlloc-m0.TotalAlloc) / float64(streams*(frames-1)),
@@ -209,13 +210,14 @@ func measureConns(t *testing.T, n int, h http.Handler) (heap, stack float64) {
 }
 
 // TestViewCost measures what a live hub holds per stream besides the
-// encoder: 64 streams that each watch a view of their own (a tab's view)
-// or one view they share, with data tables of about 50, 142 and 230 KB
-// (and of 0.8 KB, for what a view holds besides its frame), uncompressed
-// and with the encoders the budget hands out. It also measures what
-// net/http holds for an open HTTP/1.1 connection: connections to a
-// handler that holds them open, less the same connections to a listener
-// that accepts them and does nothing. It writes viewcost.csv.
+// encoder: 64 streams that each watch a view of their own (a tab's view),
+// one view for every two streams (whose frame the hub keeps) or one view
+// they all share, with data tables of about 50, 142 and 230 KB (and of 0.8
+// KB, for what a view holds besides its frame), uncompressed and with the
+// encoders the budget hands out. It also measures what net/http holds for
+// an open HTTP/1.1 connection: connections to a handler that holds them
+// open, less the same connections to a listener that accepts them and
+// does nothing. It writes viewcost.csv.
 func TestViewCost(t *testing.T) {
 	request(t)
 	const streams, frames = 64, 20
@@ -238,12 +240,9 @@ func TestViewCost(t *testing.T) {
 	t.Logf("net/http: %.1f KiB heap, %.1f KiB stack per connection", (httpHeap-rawHeap)/1024, (httpStack-rawStack)/1024)
 	for _, rows := range []int{2, 150, 430, 700} {
 		for _, s := range []setting{{}, {coding: sse.Brotli, window: 18, q: 3}, {coding: sse.Brotli, window: 18, q: 4}, {coding: sse.Zstd, window: 18, lowMem: true}} {
-			for _, own := range []bool{true, false} {
-				views := "shared"
-				if own {
-					views = "own"
-				}
-				r := measureViews(t, rows, streams, frames, own, s.coding, s.options())
+			for _, per := range []int{1, 2, 0} {
+				views := map[int]string{1: "own", 2: "pair", 0: "shared"}[per]
+				r := measureViews(t, rows, streams, frames, per, s.coding, s.options())
 				c.Write([]string{strconv.Itoa(rows), strconv.Itoa(r.frame), s.String(), views, strconv.Itoa(streams),
 					strconv.FormatFloat(r.heap/1024, 'f', 0, 64), strconv.FormatFloat(r.stack/1024, 'f', 1, 64), strconv.FormatFloat(r.alloc/1024, 'f', 0, 64)})
 				c.Flush()
