@@ -52,14 +52,16 @@ func (s *Stream) Hibernate() error {
 }
 
 // wake gives a zstd stream without an encoder one from the pool, of the
-// tier its budget allows. It reports false when the budget has no room.
+// tier its budget allows for its frames. It reports false when the budget
+// has no room.
 func (s *Stream) wake() (bool, error) {
 	if b := s.opt.Budget; b != nil {
-		t, ok := b.wake(s.opt, &s.seen)
+		t, ok := b.wake(s.opt, s.frame, &s.seen)
 		if !ok {
 			return false, nil
 		}
-		s.tier = t
+		s.tier, s.freed = t, b.freed.Load()
+		s.low = b.short(t, Zstd, s.opt, s.frame)
 		s.zstd.window, s.zstd.lowMem = t.window, t.lowMem
 	}
 	e, err := s.zstd.encoder(&s.buf)
@@ -70,21 +72,30 @@ func (s *Stream) wake() (bool, error) {
 	return true, nil
 }
 
-// shrink moves a zstd stream to a smaller tier when its budget asks: it
-// ends the frame in s.buf and begins the next one there, with an encoder of
-// the new tier, or with none when the budget, its limit lowered, has no
-// room left: the stream then falls asleep. Write calls it before it
-// compresses.
+// shrink moves a zstd stream to another tier when its budget asks: to a
+// smaller one when a stream found no room, to one that holds its frames
+// when its window is below them and room freed up. It ends the frame in
+// s.buf and begins the next one there, with an encoder of the new tier, or
+// with none when the budget, its limit lowered, has no room left: the
+// stream then falls asleep. Write calls it before it compresses.
 func (s *Stream) shrink() error {
 	b := s.opt.Budget
-	if b == nil || s.tier.coding != Zstd || b.starved.Load() == s.seen {
+	if b == nil || s.tier.coding != Zstd {
 		return nil
 	}
-	t, ok := b.shrink(s.tier, s.opt, &s.seen)
+	var t tier
+	var ok bool
+	switch {
+	case b.starved.Load() != s.seen:
+		t, ok = b.shrink(s.tier, s.opt, s.frame, &s.seen)
+	case s.low && b.freed.Load() != s.freed:
+		t, ok = b.lift(s.tier, s.opt, s.frame, &s.freed)
+	}
 	if !ok {
 		return nil
 	}
 	s.tier = t
+	s.low = b.short(t, Zstd, s.opt, s.frame)
 	old := s.enc.(*zstd.Encoder)
 	if s.framed {
 		if err := old.Close(); err != nil {

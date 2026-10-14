@@ -167,8 +167,15 @@ func TestChromiumDecodesFrames(t *testing.T) {
 		s.CloseWith(last)
 	})
 	mux.HandleFunc("GET /stream/raw", func(w http.ResponseWriter, r *http.Request) {
-		b := NewBudget(BudgetOptions{Limit: 1 << 20, MinWindow: 16, MaxWindow: 16})
-		hog, _ := Open(newRecorder(), request(r.Context(), Zstd), Options{Budget: b})
+		// A stream takes its tier at its first write: the hog writes, and
+		// holds the room.
+		b := NewBudget(BudgetOptions{Limit: 1 << 20, MaxWindow: 16})
+		hold := func() *Stream {
+			s, _ := Open(newRecorder(), request(r.Context(), Zstd), Options{Budget: b})
+			s.Write(chromiumEvent("hog", 0))
+			return s
+		}
+		hog := hold()
 		s, err := Open(w, r, Options{Budget: b})
 		if err != nil || !s.asleep {
 			fail("raw: %v, asleep %v", err, s.asleep)
@@ -181,7 +188,7 @@ func TestChromiumDecodesFrames(t *testing.T) {
 				hog.Close()
 			case 4: // it hibernates, and the room is taken again
 				s.Hibernate()
-				hog, _ = Open(newRecorder(), request(r.Context(), Zstd), Options{Budget: b})
+				hog = hold()
 			}
 			e := chromiumEvent("raw", i)
 			if err := s.Write(e); err != nil || !await("raw", e) {

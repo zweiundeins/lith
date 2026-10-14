@@ -10,11 +10,12 @@
 // Options.ZstdLowMemory) when the client accepts it, else brotli at
 // quality 4 with a 256 KiB window (about 2 MiB), else gzip.
 //
-// A Budget shares a memory limit among the encoders of many streams: a
-// stream gets the largest window its share of the limit allows, zstd
-// streams move to smaller windows as more streams open, and brotli streams
-// open with smaller windows and quality 3 as the limit fills. Stream.Hibernate
-// lets an idle zstd stream give its encoder back until its next write.
+// A Budget shares a memory limit among many streams, their encoders and
+// the frames kept for them: each stream gets a window that holds its
+// frames, zstd streams move to smaller windows as more streams open, and
+// brotli streams take quality 3, then a window below their frames, as the
+// limit fills. Stream.Hibernate lets an idle zstd stream give its encoder
+// back until its next write.
 //
 // Every write has its own deadline, so run the server without a
 // WriteTimeout and let a stream that cannot take a write in time fail
@@ -26,6 +27,7 @@ package sse
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -54,6 +56,8 @@ type Options struct {
 	// compressing, never during the network write.
 	Compress chan struct{}
 	// ZstdWindow is the base 2 logarithm of zstd's window (default 19).
+	// With a Budget that has a limit, it is the largest window the budget
+	// gives, and unset, the budget's MaxWindow.
 	ZstdWindow int
 	// ZstdLevel is zstd's level (default zstd.SpeedFastest). A higher one
 	// sends fewer bytes per frame for more CPU and heap per stream:
@@ -67,16 +71,17 @@ type Options struct {
 	// BrotliQuality is brotli's quality, 1 to 11 (default 4).
 	BrotliQuality int
 	// BrotliWindow is the base 2 logarithm of brotli's window (default 18).
+	// With a Budget that has a limit, it is the largest window the budget
+	// gives, and unset, the budget's MaxWindow.
 	BrotliWindow int
 	// NoCompression sends the stream as it is, whatever the client accepts:
 	// for small, frequent events, where an encoder's heap (0.4 MiB and up
 	// per stream) costs more than it saves.
 	NoCompression bool
 	// Budget, if set, is shared by streams: it picks each stream's window
-	// within a memory limit. ZstdWindow and BrotliWindow are then the
-	// largest a stream gets, ZstdLowMemory keeps it to low-memory windows,
-	// and BrotliQuality is the quality of the larger brotli tiers (the
-	// smallest are quality 3).
+	// within a memory limit, from the size of its writes. ZstdLowMemory
+	// keeps a stream to low-memory windows, and BrotliQuality is the
+	// quality brotli streams take while the budget has room (else 3).
 	Budget *Budget
 }
 
@@ -117,7 +122,12 @@ type Stream struct {
 	tier     tier    // what the stream holds of its budget
 	user     bool    // the stream counts in its budget's fair share
 	seen     int64   // the budget's count of streams without room, at the stream's last tier
+	freed    int64   // the budget's count of times room freed up, at the stream's last look
 	chunk    int     // the most a brotli encoder takes between two flushes
+	frame    int     // the largest write, in bytes of events
+	pick     bool    // a brotli stream whose first write picks its tier
+	low      bool    // a zstd stream whose window is below its frame
+	accepts  string  // the coding the client takes, whatever the budget gave
 
 	mu      sync.Mutex
 	writing bool // a write is under way
@@ -136,27 +146,27 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 	if o.WriteTimeout <= 0 {
 		o.WriteTimeout = 10 * time.Second
 	}
-	if o.ZstdWindow == 0 {
-		o.ZstdWindow = 19
-	}
 	if o.ZstdLevel == 0 {
 		o.ZstdLevel = zstd.SpeedFastest
 	}
 	if o.BrotliQuality == 0 {
 		o.BrotliQuality = 4
 	}
-	if o.BrotliWindow == 0 {
-		o.BrotliWindow = 18
+	if o.Budget == nil {
+		// A budget with a limit takes unset windows as any up to its own
+		// largest, and one without as these.
+		o.ZstdWindow = cmp.Or(o.ZstdWindow, 19)
+		o.BrotliWindow = cmp.Or(o.BrotliWindow, 18)
 	}
 	s := &Stream{
-		w:        w,
-		rc:       http.NewResponseController(w),
-		ctx:      r.Context(),
-		opt:      o,
-		encoding: Negotiate(r.Header.Get("Accept-Encoding")),
+		w:       w,
+		rc:      http.NewResponseController(w),
+		ctx:     r.Context(),
+		opt:     o,
+		accepts: Negotiate(r.Header.Get("Accept-Encoding")),
 	}
-	if o.NoCompression {
-		s.encoding = ""
+	if !o.NoCompression {
+		s.encoding = s.accepts
 	}
 	if b := o.Budget; b != nil {
 		t, user, ok := b.open(s.encoding, o, &s.seen)
@@ -164,6 +174,7 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 			return nil, ErrNoRoom
 		}
 		s.tier, s.user = t, user
+		s.pick = t == brotliFloor
 		if t.coding == "" {
 			s.asleep = s.encoding == Zstd
 			if !s.asleep {
@@ -180,14 +191,13 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 		}
 		if !s.asleep {
 			s.enc, err = s.zstd.encoder(&s.buf)
+		} else if o.ZstdLevel < zstd.SpeedFastest || o.ZstdLevel > zstd.SpeedBestCompression {
+			err = fmt.Errorf("sse: unknown zstd level %d", o.ZstdLevel)
 		}
 	case Brotli:
-		q, lgwin := o.BrotliQuality, o.BrotliWindow
-		if s.tier.coding == Brotli {
-			q, lgwin = s.tier.quality, s.tier.window
+		if !s.pick {
+			s.startBrotli()
 		}
-		s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: q, LGWin: lgwin})
-		s.chunk = brotliChunk(q)
 	case Gzip:
 		s.enc, err = gzip.NewWriterLevel(&s.buf, gzip.BestSpeed)
 	}
@@ -222,10 +232,12 @@ func (s *Stream) Sent() (events, wire int64) { return s.in, s.out }
 
 // Tier names what the stream's encoder holds now, as BudgetStats.Streams
 // counts it: "zstd 2^19", "zstd 2^18 low memory", "br q4 2^18" or "gzip";
-// "zstd asleep" while a zstd stream has no encoder (it hibernates, or its
-// budget has no room for it); "identity" when it goes out uncompressed.
-// heap is what the stream's budget reserves for the encoder: 0 without a
-// budget, and for a stream asleep or uncompressed.
+// "zstd asleep" while a zstd stream has no encoder (before its first
+// write, while it hibernates, or while its budget has no room for it);
+// "identity" when it goes out uncompressed. heap is what the stream's
+// budget reserves for the encoder: 0 without a budget, and for a stream
+// asleep or uncompressed. A brotli stream with a budget holds quality 3 at
+// 2^16 until its first write picks its tier.
 func (s *Stream) Tier() (name string, heap int64) {
 	if s.opt.Budget != nil {
 		return label(s.tier, s.encoding), s.tier.heap
@@ -267,9 +279,16 @@ func (s *Stream) Write(events ...[]byte) error {
 	if s.ctx.Err() != nil {
 		return s.ended()
 	}
+	if n > s.frame {
+		s.grew(n)
+	}
 	if s.encoding == "" {
 		s.in += int64(n)
 		return s.send(events...)
+	}
+	if s.pick {
+		s.tier = s.opt.Budget.first(s.tier, s.opt, s.frame)
+		s.startBrotli()
 	}
 	if s.asleep {
 		ok, err := s.wake()
@@ -314,6 +333,29 @@ func (s *Stream) Write(events ...[]byte) error {
 	}
 	return s.send(s.buf.Bytes())
 }
+
+// grew notes a write of n bytes, larger than any before.
+func (s *Stream) grew(n int) {
+	s.frame = n
+	if s.tier.coding == Zstd && !s.low && s.opt.Budget.short(s.tier, Zstd, s.opt, n) {
+		s.low, s.freed = true, -1
+	}
+}
+
+// startBrotli makes a brotli stream's encoder, of its tier or, without a
+// budget, of its options.
+func (s *Stream) startBrotli() {
+	q, lgwin := s.opt.BrotliQuality, s.opt.BrotliWindow
+	if s.tier.coding == Brotli {
+		q, lgwin = s.tier.quality, s.tier.window
+	}
+	s.enc = brotli.NewWriterOptions(&s.buf, brotli.WriterOptions{Quality: q, LGWin: lgwin})
+	s.chunk = brotliChunk(q)
+	s.pick = false
+}
+
+// emptyBrotli is a brotli stream with a window of 2^16 that holds nothing.
+var emptyBrotli = []byte{0x06}
 
 // brotliChunk is the most a brotli encoder of quality q takes between two
 // flushes: one input block below quality 4, else 32 KiB, which bounds its heap.
@@ -378,7 +420,14 @@ func (s *Stream) CloseWith(events ...[]byte) error {
 		for _, e := range events {
 			n += len(e)
 		}
-		if s.enc != nil {
+		if s.pick && n > 0 {
+			s.frame = max(s.frame, n)
+			s.tier = s.opt.Budget.first(s.tier, s.opt, s.frame)
+			s.startBrotli()
+		}
+		if s.pick {
+			err = s.send(emptyBrotli)
+		} else if s.enc != nil {
 			s.buf.Reset()
 			if err = s.compress(events); err == nil {
 				s.in += int64(n)

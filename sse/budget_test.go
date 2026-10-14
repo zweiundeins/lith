@@ -3,13 +3,13 @@ package sse
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -29,11 +29,29 @@ func openWith(t *testing.T, coding string, o Options) (*Stream, *recorder) {
 // held lists what the open streams of the budget hold, as Stats does.
 func held(b *Budget) map[string]int { return b.Stats().Streams }
 
-// Streams that open and close in any order never reserve more than the
-// limit, and give all of it back.
+// Frames of 17, 87, 228 and 264 KB, which windows of 2^15 (zstd; brotli's
+// smallest is 2^16), 2^17, 2^18 and 2^19 hold.
+var (
+	small = table(100, 0)
+	mid   = frame(0)
+	large = table(1300, 0)
+	huge  = table(1500, 0)
+)
+
+// write writes events to the stream and fails the test on an error.
+func write(t *testing.T, s *Stream, events ...[]byte) {
+	t.Helper()
+	if err := s.Write(events...); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Streams that open, write frames of any size, hibernate and close in any
+// order never take a tier beyond the limit, and give all of it back.
+// Streams that compress nothing may take 32 KiB each beyond it.
 func TestBudgetNeverExceedsLimit(t *testing.T) {
 	const limit = 24 << 20
-	b := NewBudget(BudgetOptions{Limit: limit, MinWindow: 15, MaxWindow: 20})
+	b := NewBudget(BudgetOptions{Limit: limit, MaxWindow: 20})
 	rnd := rand.New(rand.NewPCG(1, 2))
 	codings := []string{Zstd, Brotli, "br;q=1, gzip;q=0.5", Gzip, ""}
 	var open []*Stream
@@ -44,10 +62,9 @@ func TestBudgetNeverExceedsLimit(t *testing.T) {
 			k := rnd.IntN(len(open))
 			open[k].Close()
 			open = append(open[:k], open[k+1:]...)
-		case len(open) > 0 && r < 4: // a write, which may wake or shrink a zstd stream
-			if err := open[rnd.IntN(len(open))].Write(frame(i)); err != nil {
-				t.Fatal(err)
-			}
+		case len(open) > 0 && r < 4: // a write, which may pick, wake, shrink or lift a tier
+			f := [][]byte{small, mid, mid, mid, large}[rnd.IntN(5)]
+			write(t, open[rnd.IntN(len(open))], f)
 		case len(open) > 0 && r < 5:
 			if err := open[rnd.IntN(len(open))].Hibernate(); err != nil {
 				t.Fatal(err)
@@ -57,16 +74,19 @@ func TestBudgetNeverExceedsLimit(t *testing.T) {
 			open = append(open, s)
 		}
 		st := b.Stats()
-		if st.Reserved > limit {
-			t.Fatalf("step %d: %d bytes reserved, over the limit of %d", i, st.Reserved, limit)
-		}
-		n, sum := 0, int64(0)
+		n, sum, bare := 0, int64(0), int64(0)
 		for k, c := range st.Streams {
 			n += c
 			kinds[k] = true
 		}
 		for _, s := range open {
-			sum += s.tier.heap
+			sum += s.tier.heap + streamHeap
+			if s.tier.coding == "" {
+				bare += streamHeap
+			}
+		}
+		if st.Reserved-bare > limit {
+			t.Fatalf("step %d: %d bytes reserved, %d of them by streams without a tier, over the limit of %d", i, st.Reserved, bare, limit)
 		}
 		if n != len(open) || sum != st.Reserved {
 			t.Fatalf("step %d: the budget counts %d streams and %d bytes, the %d open streams hold %d", i, n, st.Reserved, len(open), sum)
@@ -83,17 +103,113 @@ func TestBudgetNeverExceedsLimit(t *testing.T) {
 	}
 }
 
-// A stream gets the largest tier within its fair share and what is left,
-// between MinWindow and MaxWindow. The fair share shrinks as streams open;
-// once it falls below MinWindow's tier, a stream gets that tier for as long
-// as what is left holds it, and none after that.
-func TestBudgetTiers(t *testing.T) {
-	b := NewBudget(BudgetOptions{Limit: 8 << 20, MinWindow: 18, MaxWindow: 19})
+// A brotli stream holds quality 3 at 2^16 until its first write, which
+// picks the smallest window that holds the frame: a larger one sends no
+// fewer bytes. MinWindow raises the window, the stream's BrotliWindow
+// caps it, and a frame no window holds gets the smallest. Without a
+// limit the stream keeps its options. Every body decodes.
+func TestBudgetWindowFromFrames(t *testing.T) {
+	roomy := NewBudget(BudgetOptions{Limit: 1 << 30})
+	for _, c := range []struct {
+		b     *Budget
+		o     Options
+		frame []byte
+		want  string
+	}{
+		{roomy, Options{}, small, "br q4 2^16"},
+		{roomy, Options{}, mid, "br q4 2^17"},
+		{roomy, Options{}, large, "br q4 2^18"},
+		{roomy, Options{}, huge, "br q4 2^19"},
+		{roomy, Options{BrotliQuality: 3}, large, "br q3 2^18"},
+		{roomy, Options{BrotliWindow: 18}, huge, "br q3 2^16"},
+		{NewBudget(BudgetOptions{Limit: 1 << 30, MinWindow: 17}), Options{}, small, "br q4 2^17"},
+		{NewBudget(BudgetOptions{Limit: 1 << 30, MaxWindow: 18}), Options{}, huge, "br q3 2^16"},
+		{NewBudget(BudgetOptions{Limit: -1}), Options{}, small, "br q4 2^18"},
+		{NewBudget(BudgetOptions{Limit: -1}), Options{BrotliWindow: 19}, mid, "br q4 2^19"},
+	} {
+		c.o.Budget = c.b
+		s, w := openWith(t, Brotli, c.o)
+		if n, _ := s.Tier(); c.b.limit > 0 && n != "br q3 2^16" {
+			t.Errorf("before the first write: %s", n)
+		}
+		write(t, s, c.frame)
+		if n, _ := s.Tier(); n != c.want {
+			t.Errorf("%d bytes with %+v: %s, want %s", len(c.frame), c.o, n, c.want)
+		}
+		write(t, s, c.frame)
+		s.Close()
+		got, err := io.ReadAll(decoder(t, Brotli, w.bytes()))
+		if err != nil || !bytes.Equal(got, append(slices.Clone(c.frame), c.frame...)) {
+			t.Fatalf("%s: decodes to %d bytes: %v", c.want, len(got), err)
+		}
+	}
+	if st := roomy.Stats(); st.Reserved != 0 || len(st.Streams) != 0 {
+		t.Fatalf("after Close: %+v", st)
+	}
+}
+
+// A brotli stream steps down in quality before it steps down in window: at
+// quality 4 while the budget stays at most half full, then at quality 3,
+// both with the window its frames need, and only when that does not fit,
+// quality 3 at 2^16, which compresses each frame alone. A stream goes out
+// uncompressed only when even that does not fit, and with Refuse is
+// turned away instead.
+func TestBudgetQualityBeforeWindow(t *testing.T) {
+	// Each stream holds 32 KiB besides its tier: five at quality 4 (1,648
+	// KiB each) fill half of 17,092 KiB, seven at quality 3 (1,136 each)
+	// leave 900 KiB, which holds 2^16 at quality 3 but not 2^18.
+	const limit = 17092 * kib
+	for _, refuse := range []bool{false, true} {
+		b := NewBudget(BudgetOptions{Limit: limit, Refuse: refuse})
+		var got []string
+		var open []*Stream
+		for {
+			w := newRecorder()
+			s, err := Open(w, request(t.Context(), Brotli), Options{Budget: b})
+			if errors.Is(err, ErrNoRoom) {
+				got = append(got, "refused")
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			open = append(open, s)
+			write(t, s, large)
+			n, _ := s.Tier()
+			got = append(got, n)
+			if n == "identity" {
+				if left := limit - b.Stats().Reserved + streamHeap; left >= brotliFloor.heap+streamHeap {
+					t.Fatalf("uncompressed with %d KiB left", left/kib)
+				}
+				break
+			}
+		}
+		last := "identity"
+		if refuse {
+			last = "refused"
+		}
+		want := slices.Concat(slices.Repeat([]string{"br q4 2^18"}, 5), slices.Repeat([]string{"br q3 2^18"}, 7), []string{"br q3 2^16", last})
+		if !slices.Equal(got, want) {
+			t.Errorf("refuse %v:\n got %v\nwant %v", refuse, got, want)
+		}
+		for _, s := range open {
+			s.Close()
+		}
+	}
+}
+
+// A zstd stream takes the largest tier within its fair share and what is
+// left. When a stream finds no room, those above the share move down at
+// their next write, and the stream that waited takes the room that freed
+// up at its own.
+func TestBudgetZstdTiers(t *testing.T) {
+	b := NewBudget(BudgetOptions{Limit: 8 << 20})
 	var open []*Stream
 	var got []string
-	for range 13 {
+	for range 6 {
 		s, _ := openWith(t, Zstd, Options{Budget: b})
 		open = append(open, s)
+		write(t, s, mid)
 		got = append(got, label(s.tier, s.encoding))
 	}
 	defer func() {
@@ -101,79 +217,166 @@ func TestBudgetTiers(t *testing.T) {
 			s.Close()
 		}
 	}()
-	want := strings.Repeat("zstd 2^19, ", 4) + // shares of 8, 4, 2.7 and 2 MiB
-		"zstd 2^19 low memory, " + // 1.6 MiB, with 1.4 MiB left
-		strings.TrimSuffix(strings.Repeat("zstd asleep, ", 8), ", ") // 304 KiB left
+	// Shares of 8, 4, 2.7 and 2 MiB; then 1.6 MiB with 1 MiB left; then
+	// 0.1 MiB left.
+	want := "zstd 2^19, zstd 2^19, zstd 2^19, zstd 2^19, zstd 2^18 low memory, zstd asleep"
 	if strings.Join(got, ", ") != want {
 		t.Fatalf("tiers:\n got %s\nwant %s", strings.Join(got, ", "), want)
 	}
-	if r := b.Stats().Reserved; r != 4*1696*kib+1104*kib {
+	for _, s := range open {
+		write(t, s, mid)
+	}
+	if got := held(b); got["zstd 2^19 low memory"] != 5 || got["zstd 2^18 low memory"] != 1 {
+		t.Fatalf("after a write each: %v", got)
+	}
+	if r := b.Stats().Reserved; r != 6*streamHeap+5*1136*kib+880*kib {
 		t.Fatalf("reserved %d", r)
 	}
-
-	// Four streams leave: a new one's fair share, 8 MiB / 10, is below the
-	// floor, so it gets the floor, and so do the streams that were waiting
-	// as they write, until what is left no longer holds it.
-	for _, s := range open[:4] {
-		s.Close()
-	}
-	open = open[4:]
-	s, _ := openWith(t, Zstd, Options{Budget: b})
-	open = append(open, s)
-	if got := label(s.tier, s.encoding); got != "zstd 2^18 low memory" {
-		t.Fatalf("below the floor: %s", got)
-	}
-	for _, s := range open[1:9] {
-		if err := s.Write(Comment("x")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if got := held(b); got["zstd 2^18 low memory"] != 8 || got["zstd asleep"] != 1 || got["zstd 2^19 low memory"] != 1 {
-		t.Fatalf("after the waiting streams wrote: %v", got)
-	}
-	if r := b.Stats().Reserved; r != 1104*kib+8*848*kib {
-		t.Fatalf("reserved %d", r)
-	}
-
-	// The clamps hold for brotli and without a limit too; the stream's own
-	// BrotliWindow is the largest it gets.
+	// Without a limit a stream keeps its options; with ZstdLowMemory, zstd
+	// gets low-memory tiers only.
 	for _, c := range []struct {
-		o    BudgetOptions
-		opt  Options
+		o    Options
 		want string
 	}{
-		{BudgetOptions{Limit: -1}, Options{}, "br q4 2^18"},
-		{BudgetOptions{Limit: -1}, Options{BrotliWindow: 19}, "br q4 2^19"},
-		{BudgetOptions{Limit: -1, MaxWindow: 18}, Options{}, "br q4 2^18"},
-		{BudgetOptions{Limit: -1, MaxWindow: 18}, Options{BrotliQuality: 3}, "br q3 2^18"},
-		{BudgetOptions{Limit: 1 << 30, MinWindow: 16, MaxWindow: 16}, Options{}, "br q4 2^16"},
-		{BudgetOptions{Limit: 1 << 30, MaxWindow: 16}, Options{}, "br q4 2^18"},
+		{Options{Budget: NewBudget(BudgetOptions{Limit: -1})}, "zstd 2^19"},
+		{Options{Budget: NewBudget(BudgetOptions{Limit: -1}), ZstdLowMemory: true}, "zstd 2^19 low memory"},
+		{Options{Budget: NewBudget(BudgetOptions{Limit: 1 << 30}), ZstdLowMemory: true}, "zstd 2^19 low memory"},
+		{Options{Budget: NewBudget(BudgetOptions{Limit: 1 << 30, MaxWindow: 20})}, "zstd 2^20"},
 	} {
-		s, _ := openWith(t, Brotli, Options{Budget: NewBudget(c.o), BrotliQuality: c.opt.BrotliQuality, BrotliWindow: c.opt.BrotliWindow})
-		if got := label(s.tier, s.encoding); got != c.want {
-			t.Errorf("%+v: got %s, want %s", c.o, got, c.want)
+		s, _ := openWith(t, Zstd, c.o)
+		write(t, s, small)
+		if n, _ := s.Tier(); n != c.want {
+			t.Errorf("%+v: %s, want %s", c.o, n, c.want)
 		}
 		s.Close()
 	}
-	// With ZstdLowMemory, zstd gets low-memory tiers only.
-	s, _ = openWith(t, Zstd, Options{Budget: NewBudget(BudgetOptions{Limit: -1}), ZstdLowMemory: true})
-	if got := label(s.tier, s.encoding); got != "zstd 2^19 low memory" {
-		t.Errorf("with ZstdLowMemory: %s", got)
-	}
-	s.Close()
 	// A brotli client keeps its tiers: ZstdLowMemory is about zstd only.
-	s, _ = openWith(t, Brotli, Options{Budget: NewBudget(BudgetOptions{Limit: 1 << 30}), ZstdLowMemory: true})
-	if got := label(s.tier, s.encoding); got != "br q4 2^18" {
-		t.Errorf("brotli with ZstdLowMemory: %s", got)
+	s, _ := openWith(t, Brotli, Options{Budget: NewBudget(BudgetOptions{Limit: 1 << 30}), ZstdLowMemory: true})
+	write(t, s, large)
+	if n, _ := s.Tier(); n != "br q4 2^18" {
+		t.Errorf("brotli with ZstdLowMemory: %s", n)
 	}
 	s.Close()
+}
+
+// A zstd stream moves down no further than the window its frames need:
+// with frames of 228 KB, 2^18. A stream that finds no room for that
+// window takes the smallest, 2^15, while what is left holds it, else sends
+// raw blocks, and moves up once room frees up. Streams with small frames
+// share the same budget among more.
+func TestBudgetZstdFloor(t *testing.T) {
+	count := func(f []byte) (compressed int, tiers map[string]int) {
+		b := NewBudget(BudgetOptions{Limit: 4 << 20})
+		var open []*Stream
+		defer func() {
+			for _, s := range open {
+				s.Close()
+			}
+		}()
+		for range 8 {
+			s, _ := openWith(t, Zstd, Options{Budget: b})
+			open = append(open, s)
+			for range 2 {
+				for _, s := range open {
+					write(t, s, f)
+				}
+			}
+		}
+		tiers = held(b)
+		return len(open) - tiers["zstd asleep"], tiers
+	}
+	if n, tiers := count(large); n != 4 || tiers["zstd 2^18 low memory"] != 4 {
+		t.Errorf("228 KB frames: %d compressed, %v", n, tiers)
+	}
+	if n, tiers := count(small); n != 6 || tiers["zstd 2^15 low memory"] != 6 {
+		t.Errorf("17 KB frames: %d compressed, %v", n, tiers)
+	}
+
+	// The last resort, and the way back up.
+	b := NewBudget(BudgetOptions{Limit: 2 << 20})
+	b.Hold(2<<20 - streamHeap - 650*kib)
+	s, w := openWith(t, Zstd, Options{Budget: b})
+	write(t, s, large)
+	if n, _ := s.Tier(); n != "zstd 2^15 low memory" {
+		t.Fatalf("with 650 KiB left: %s", n)
+	}
+	b.Hold(-1 << 20)
+	write(t, s, large)
+	if n, _ := s.Tier(); n != "zstd 2^19 low memory" {
+		t.Fatalf("after 1 MiB freed up: %s", n)
+	}
+	s.Close()
+	got, err := io.ReadAll(decoder(t, Zstd, w.bytes()))
+	if err != nil || !bytes.Equal(got, append(slices.Clone(large), large...)) {
+		t.Fatalf("the stream decodes to %d bytes: %v", len(got), err)
+	}
+}
+
+// Hold books memory the streams hold besides their encoders: it counts
+// against the limit and leaves the encoders less room, but is never
+// refused. Once it alone takes the limit, streams go out uncompressed.
+func TestBudgetHold(t *testing.T) {
+	b := NewBudget(BudgetOptions{Limit: 8 << 20})
+	b.Hold(6 << 20)
+	if st := b.Stats(); st.Frames != 6<<20 || st.Reserved != 6<<20 {
+		t.Fatalf("after Hold: %+v", st)
+	}
+	z1, _ := openWith(t, Zstd, Options{Budget: b})
+	write(t, z1, mid)
+	z2, _ := openWith(t, Zstd, Options{Budget: b})
+	write(t, z2, mid)
+	if n1, n2 := label(z1.tier, Zstd), label(z2.tier, Zstd); n1 != "zstd 2^19" || n2 != "zstd asleep" {
+		t.Fatalf("with 2 MiB besides frames: %s, %s", n1, n2)
+	}
+	b.Hold(-2 << 20)
+	write(t, z1, mid)
+	write(t, z2, mid)
+	if got := held(b); got["zstd 2^19"] != 2 {
+		t.Fatalf("after 2 MiB went back: %v", got)
+	}
+	b.Hold(20 << 20)
+	br, w := openWith(t, Brotli, Options{Budget: b})
+	if br.Encoding() != "" || w.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("a brotli stream with frames over the limit: %q", br.Encoding())
+	}
+	write(t, z1, mid)
+	write(t, z2, mid)
+	if got := held(b); got["zstd asleep"] != 2 {
+		t.Fatalf("zstd streams with frames over the limit: %v", got)
+	}
+	for _, s := range []*Stream{z1, z2, br} {
+		s.Close()
+	}
+	b.Hold(-24 << 20)
+	if st := b.Stats(); st.Reserved != 0 || st.Frames != 0 {
+		t.Fatalf("after Close: %+v", st)
+	}
+}
+
+// A brotli stream that closes before its first write ends with an empty
+// brotli body; one that closes with events picks its tier for them.
+func TestBrotliCloseBeforeWriting(t *testing.T) {
+	b := NewBudget(BudgetOptions{Limit: 1 << 30})
+	for _, events := range [][][]byte{nil, {large}} {
+		s, w := openWith(t, Brotli, Options{Budget: b})
+		if err := s.CloseWith(events...); err != nil {
+			t.Fatal(err)
+		}
+		got, err := io.ReadAll(decoder(t, Brotli, w.bytes()))
+		if err != nil || !bytes.Equal(got, bytes.Join(events, nil)) {
+			t.Fatalf("%d events: decodes to %d bytes: %v", len(events), len(got), err)
+		}
+	}
+	if st := b.Stats(); st.Reserved != 0 {
+		t.Fatalf("after Close: %+v", st)
+	}
 }
 
 // Streams that took large tiers while few were open move down at their
 // next write once a stream finds no room, and that stream gets room at its
 // next write. Every body still decodes to what was written.
 func TestBudgetShrinks(t *testing.T) {
-	b := NewBudget(BudgetOptions{Limit: 4 << 20, MinWindow: 17, MaxWindow: 19})
+	b := NewBudget(BudgetOptions{Limit: 4 << 20, MinWindow: 17})
 	type stream struct {
 		s    *Stream
 		w    *recorder
@@ -195,7 +398,7 @@ func TestBudgetShrinks(t *testing.T) {
 		write(x, 0)
 		write(x, 1)
 	}
-	// Shares of 4 and 2 MiB; the third, 1.3 MiB, finds 0.7 MiB left.
+	// Shares of 4 and 2 MiB; the third, 1.3 MiB, finds 0.5 MiB left.
 	if got := held(b); got["zstd 2^19"] != 2 || got["zstd asleep"] != 1 {
 		t.Fatalf("before: %v", got)
 	}
@@ -215,8 +418,9 @@ func TestBudgetShrinks(t *testing.T) {
 	}
 }
 
-// A lower limit moves zstd streams down at their next write, and those
-// it leaves no room for send raw frames; every body still decodes.
+// A lower limit moves zstd streams down at their next write, no lower than
+// their frames' window while the share allows, and those it leaves no room
+// for send raw frames; every body still decodes.
 func TestBudgetSetLimit(t *testing.T) {
 	b := NewBudget(BudgetOptions{Limit: 8 << 20})
 	var ss []*Stream
@@ -246,7 +450,7 @@ func TestBudgetSetLimit(t *testing.T) {
 	}
 	b.SetLimit(2 << 20)
 	round(2)
-	if got, st := held(b), b.Stats(); got["zstd 2^18 low memory"] != 2 || got["zstd asleep"] != 2 || st.Reserved > 2<<20 {
+	if got, st := held(b), b.Stats(); got["zstd 2^17 low memory"] != 2 || got["zstd asleep"] != 2 || st.Reserved > 2<<20 {
 		t.Fatalf("at 2 MiB: %v, %d bytes reserved", got, st.Reserved)
 	}
 	round(3)
@@ -260,18 +464,18 @@ func TestBudgetSetLimit(t *testing.T) {
 }
 
 // A stream that hibernates takes the tier of the fair share of the moment
-// it wakes: here the largest, which it did not get when it opened.
+// it wakes: here the largest, which it did not get when it first wrote.
 func TestBudgetWakeTakesTheShareOfTheMoment(t *testing.T) {
 	b := NewBudget(BudgetOptions{Limit: 3 << 20})
 	first, _ := openWith(t, Zstd, Options{Budget: b})
 	s, w := openWith(t, Zstd, Options{Budget: b})
+	write(t, s, frame(1))
 	if got := label(s.tier, s.encoding); got != "zstd 2^19 low memory" {
-		t.Fatalf("opened with %s", got)
+		t.Fatalf("first wrote with %s", got)
 	}
-	s.Write(frame(1))
 	first.Close()
 	s.Hibernate()
-	s.Write(frame(2))
+	write(t, s, frame(2))
 	if got := label(s.tier, s.encoding); got != "zstd 2^19" {
 		t.Fatalf("woke with %s", got)
 	}
@@ -286,8 +490,9 @@ func TestBudgetWakeTakesTheShareOfTheMoment(t *testing.T) {
 // blocks, so that it can compress once room frees up, brotli and gzip as
 // they are. With Refuse it is turned away, before anything is written.
 func TestBudgetFull(t *testing.T) {
-	b := NewBudget(BudgetOptions{Limit: 1 << 20, MinWindow: 15, MaxWindow: 15})
+	b := NewBudget(BudgetOptions{Limit: 1 << 20, MaxWindow: 15})
 	first, _ := openWith(t, Zstd, Options{Budget: b})
+	write(t, first, frame(0))
 	if got := label(first.tier, first.encoding); got != "zstd 2^15 low memory" {
 		t.Fatalf("the first stream got %s", got)
 	}
@@ -299,25 +504,20 @@ func TestBudgetFull(t *testing.T) {
 	br.Close()
 
 	z, w := openWith(t, Zstd, Options{Budget: b})
-	if z.Encoding() != Zstd || !z.asleep {
-		t.Fatalf("a zstd stream without room: %q, asleep %v", z.Encoding(), z.asleep)
-	}
 	var want []byte
 	for i := range 3 {
-		f := frame(i)
-		if err := z.Write(f); err != nil {
-			t.Fatal(err)
-		}
-		want = append(want, f...)
+		write(t, z, frame(i))
+		want = append(want, frame(i)...)
+	}
+	if !z.asleep {
+		t.Fatalf("a zstd stream without room: %s", label(z.tier, z.encoding))
 	}
 	if _, wire := z.Sent(); wire < int64(len(want)) {
 		t.Fatalf("%d bytes on the wire for %d bytes of events: compressed without room", wire, len(want))
 	}
 	// Room frees up: the next write compresses.
 	first.Close()
-	if err := z.Write(frame(3)); err != nil {
-		t.Fatal(err)
-	}
+	write(t, z, frame(3))
 	want = append(want, frame(3)...)
 	if z.asleep || label(z.tier, z.encoding) != "zstd 2^15 low memory" {
 		t.Fatalf("after room freed up: asleep %v, %s", z.asleep, label(z.tier, z.encoding))
@@ -331,8 +531,9 @@ func TestBudgetFull(t *testing.T) {
 		t.Fatalf("the stream decodes to %d bytes of %d: %v", len(got), len(want), err)
 	}
 
-	refusing := NewBudget(BudgetOptions{Limit: 1 << 20, MinWindow: 15, MaxWindow: 15, Refuse: true})
+	refusing := NewBudget(BudgetOptions{Limit: 1 << 20, MaxWindow: 15, Refuse: true})
 	keep, _ := openWith(t, Zstd, Options{Budget: refusing})
+	write(t, keep, frame(0))
 	defer keep.Close()
 	w = newRecorder()
 	if _, err := Open(w, request(t.Context(), Brotli), Options{Budget: refusing}); !errors.Is(err, ErrNoRoom) {
@@ -347,117 +548,6 @@ func TestBudgetFull(t *testing.T) {
 	// A stream that compresses nothing needs no room.
 	id, _ := openWith(t, "identity", Options{Budget: refusing})
 	id.Close()
-}
-
-// Brotli streams keep their tier until they close, so they step down as
-// they open. On a quiet server every stream gets the largest tier; then
-// the tiers shrink with what is left, so that a budget that holds 24
-// streams at 2^19 compresses 32, and a stream goes out uncompressed only
-// when the smallest tier does not fit. Every body decodes to what was
-// written.
-func TestBudgetBrotliStepsDown(t *testing.T) {
-	const limit = 64 << 20
-	b := NewBudget(BudgetOptions{Limit: limit})
-	o := Options{Budget: b, BrotliWindow: 19}
-	var open []*Stream
-	var ws []*recorder
-	for {
-		s, w := openWith(t, Brotli, o)
-		if s.Encoding() == "" {
-			if left := limit - b.Stats().Reserved; left >= 912*kib {
-				t.Fatalf("uncompressed with %d bytes left", left)
-			}
-			s.Close()
-			break
-		}
-		if len(open) < quietStreams && label(s.tier, s.encoding) != "br q4 2^19" {
-			t.Fatalf("stream %d of a quiet server: %s", len(open), label(s.tier, s.encoding))
-		}
-		open, ws = append(open, s), append(ws, w)
-	}
-	if got := held(b); len(open) != 32 || got["br q4 2^19"] != 20 || got["br q3 2^16"] == 0 {
-		t.Fatalf("%d streams compressed, want 32: %v", len(open), got)
-	}
-	for i, s := range open {
-		if err := s.Write(frame(i)); err != nil {
-			t.Fatal(err)
-		}
-		s.Close()
-		got, err := io.ReadAll(decoder(t, Brotli, ws[i].bytes()))
-		if err != nil || !bytes.Equal(got, frame(i)) {
-			t.Fatalf("stream %d (%s) decodes to %d bytes: %v", i, label(s.tier, s.encoding), len(got), err)
-		}
-	}
-	if st := b.Stats(); st.Reserved != 0 {
-		t.Fatalf("after Close: %+v", st)
-	}
-}
-
-// TestBudgetCurve opens streams one by one against budgets of 64, 128 and
-// 150 MiB, brotli only, zstd only and half each (alternating), with a write
-// to every open stream after every ten opens, as the curve's simulation:
-// go test ./sse -run TestBudgetCurve -v prints how many streams hold the
-// largest tier, how many compress and the first that opened without a
-// tier. A quiet server (20 streams) gives every stream its largest tier.
-func TestBudgetCurve(t *testing.T) {
-	if testing.Short() {
-		t.Skip("opens hundreds of streams")
-	}
-	t.Logf("%-7s %-6s %5s %13s %18s %17s %17s", "budget", "mix", "open", "full at open", "compressed br/zstd", "first br identity", "first zstd asleep")
-	for _, mib := range []int64{64, 128, 150} {
-		for _, mix := range []string{"br", "zstd", "mixed"} {
-			b := NewBudget(BudgetOptions{Limit: mib << 20})
-			o := Options{Budget: b, BrotliWindow: 19}
-			n := int(mib) * 2
-			var open []*Stream
-			full, firstBr, firstZstd := 0, 0, 0
-			for i := range n {
-				coding := Brotli
-				if mix == "zstd" || mix == "mixed" && i%2 == 0 {
-					coding = Zstd
-				}
-				s, _ := openWith(t, coding, o)
-				open = append(open, s)
-				name := label(s.tier, s.encoding)
-				if i < quietStreams && name != "br q4 2^19" && name != "zstd 2^19" {
-					t.Errorf("%d MiB %s: stream %d of a quiet server got %s", mib, mix, i, name)
-				}
-				if name == "br q4 2^19" || name == "zstd 2^19" {
-					full++
-				}
-				if s.tier.coding == "" && coding == Brotli && firstBr == 0 {
-					firstBr = i + 1
-				}
-				if s.tier.coding == "" && coding == Zstd && firstZstd == 0 {
-					firstZstd = i + 1
-				}
-				if i%10 == 9 || i == n-1 {
-					for _, s := range open {
-						if err := s.Write(Comment("x")); err != nil {
-							t.Fatal(err)
-						}
-					}
-				}
-			}
-			st := b.Stats()
-			if st.Reserved > st.Limit {
-				t.Errorf("%d MiB %s: %d bytes reserved", mib, mix, st.Reserved)
-			}
-			var br, zs int
-			for _, s := range open {
-				switch {
-				case s.tier.coding == Brotli:
-					br++
-				case s.tier.coding == Zstd:
-					zs++
-				}
-			}
-			t.Logf("%-7s %-6s %5d %13d %18s %17d %17d", fmt.Sprintf("%d MiB", mib), mix, n, full, fmt.Sprintf("%d/%d", br, zs), firstBr, firstZstd)
-			for _, s := range open {
-				s.Close()
-			}
-		}
-	}
 }
 
 // failingFlush is a client whose flushes fail.
@@ -519,7 +609,7 @@ func TestHibernate(t *testing.T) {
 		if end := w.bytes()[sent:]; !bytes.Equal(end, []byte{1, 0, 0}) {
 			t.Fatalf("hibernating sent %x, want the end of the frame", end)
 		}
-		if s.enc != nil || s.buf.Cap() != 0 || b.Stats().Reserved != 0 || held(b)["zstd asleep"] != 1 {
+		if s.enc != nil || s.buf.Cap() != 0 || b.Stats().Reserved != streamHeap || held(b)["zstd asleep"] != 1 {
 			t.Fatalf("asleep: encoder %v, buffer %d, %+v", s.enc != nil, s.buf.Cap(), b.Stats())
 		}
 		if err := s.Hibernate(); err != nil {
@@ -656,21 +746,32 @@ func TestStreamTier(t *testing.T) {
 			}
 		}
 		st := b.Stats()
-		if !maps.Equal(names, st.Streams) || heap != st.Reserved {
+		if !maps.Equal(names, st.Streams) || heap+int64(len(open))*streamHeap != st.Reserved {
 			t.Fatalf("%s: the streams name %v and hold %d bytes, the budget counts %v and %d", when, names, heap, st.Streams, st.Reserved)
 		}
 	}
 	agree("open")
-	// A fair share of 2 MiB: brotli steps down to quality 3.
-	if n, h := open[3].Tier(); n != "br q3 2^18" || h != 1312*kib {
+	// Before its first write a brotli stream holds the least; then the
+	// window its frames need, at least MinWindow.
+	if n, h := open[3].Tier(); n != "br q3 2^16" || h != 720*kib {
+		t.Errorf("brotli before its first write: %s, %d bytes", n, h)
+	}
+	write(t, open[3], small)
+	if n, h := open[3].Tier(); n != "br q4 2^18" || h != 1616*kib {
 		t.Errorf("brotli: %s, %d bytes", n, h)
 	}
 	if n, _ := open[5].Tier(); n != "identity" {
 		t.Errorf("a stream without a coding: %s", n)
 	}
-	if err := open[0].Write(Comment("x")); err != nil {
-		t.Fatal(err)
+	if n, _ := open[0].Tier(); n != "zstd asleep" {
+		t.Errorf("zstd before its first write: %s", n)
 	}
+	// A fair share of 1.6 MiB among five streams that compress.
+	write(t, open[0], Comment("x"))
+	if n, _ := open[0].Tier(); n != "zstd 2^19 low memory" {
+		t.Errorf("zstd: %s", n)
+	}
+	agree("written")
 	if err := open[0].Hibernate(); err != nil {
 		t.Fatal(err)
 	}
