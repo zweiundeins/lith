@@ -6,7 +6,7 @@ description: One static binary and one SQLite file behind Caddy: the template's 
 order: 11
 ---
 
-A lith app ships as one static binary and keeps its state in one SQLite file. The template's `deploy/` folder holds what runs it on a Linux host: a systemd unit, a Caddy site block, a deploy script, and a timer for backups. This site runs on its own files of the same kind, in `site/deploy`.
+A lith app ships as one static binary and keeps its state in one SQLite file. The template's `deploy/` folder holds what runs it on a Linux host: a systemd unit, a Caddy site block, a deploy script, a timer for backups, and the probes and log shipping for the host's monitoring. This site runs on its own files of the same kind, in `site/deploy`.
 
 ## The binary
 
@@ -72,7 +72,7 @@ With 200 open streams it held 110 MB resident, 100 MB of them encoders: 115 stre
 
 ## Caddy
 
-Caddy terminates TLS and proxies to the socket. The app compresses its pages, files and streams itself, so the block has no `encode`:
+Caddy terminates TLS and proxies to the socket. The block is `deploy/app.caddy`, installed as `/etc/caddy/sites/app.caddy`, a folder the host's Caddyfile imports. The app compresses its pages, files and streams itself, so the block has no `encode`:
 
 ```text source=template/deploy/app.caddy
 reverse_proxy unix//run/app/app.sock {
@@ -139,6 +139,10 @@ return errors.Join(err, w.Close(), db.Close()) // 3. the writer applies what is 
 `TimeoutStopSec=20` covers that: the streams end at once, requests get ten seconds. The new process sends each reconnected page every view's current frame, so a page shows what changed during the restart without a reload. [Pages and Datastar](/docs/guides/pages#reconnecting-after-a-deploy) has the page's side.
 
 The server's base context must not be the signal's context: request contexts would end with the signal, before the hub stops, and the streams would end without `sse.Reconnect`. Chrome takes a stream cut that way for a clean end, so even `retry: 'error'` would not reopen it.
+
+## The host's folders
+
+On a host that runs several apps, each app puts its files into folders that the host's services load, and never edits the host's own configuration: the Caddy block into `/etc/caddy/sites/`, its probes and its metrics target into Prometheus's folders, its log shipping into Alloy's. `setup-host.sh` installs the monitoring files, and [Metrics and monitoring](/docs/guides/monitoring#drop-in-files-for-a-shared-host) lists the folders and the labels.
 
 ## This site's deploy
 

@@ -74,6 +74,7 @@ func TestSkill(t *testing.T) {
 			"Work a transaction cannot hold":    "/docs/guides/migrations-and-jobs#work-a-transaction-cannot-hold",
 			"An event-sourced command":          "/docs/guides/commands#an-event-sourced-command",
 			"Backups":                           "/docs/guides/backups",
+			"Monitoring on a shared host":       "/docs/guides/monitoring#drop-in-files-for-a-shared-host",
 			"Measuring a change":                "/docs/guides/load-testing",
 		},
 		"performance.md": {

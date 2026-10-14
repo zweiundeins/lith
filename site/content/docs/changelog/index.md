@@ -8,6 +8,12 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- Template: the Caddy block is `deploy/app.caddy`, for `/etc/caddy/sites/`, and `deploy/observability` holds the app's blackbox probes and an Alloy file that ships its journal, with slog's level as a label, and its access log to Loki. `deploy/setup-host.sh` installs them into the folders a shared host's Prometheus and Alloy load, each only where that service is installed, and reloads Alloy, putting the old file back if Alloy refuses the new one. The CI deploy key is now optional. The guide Metrics and monitoring lists the folders and the labels; an app made from an earlier template can copy the folder and the script.
+- `lith-new`: `app_` in the template becomes the app's name with `-` as `_`, for identifiers such as Alloy's component labels.
+- The Grafana dashboard and alert rules for lith apps moved from `site/deploy/observability` to `deploy/observability` at the repository's root, with a README on installing them. They no longer filter on a scrape job: they match the metric names and the label `app`, the dashboard also filters by `slot`, and each alert fires for one app and slot.
+
 ## v0.2.0 (2026-10-14)
 
 Streams are measured by memory: the budget books what each stream holds, sizes its window from its frames, and with `Refuse` caps the streams instead of a count. No API was removed. What to check in an app:

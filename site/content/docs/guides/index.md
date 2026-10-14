@@ -19,8 +19,8 @@ The guides follow one app: boards of lanes that hold cards, the domain of lith's
 | [The request edge](/docs/guides/edge) | sessions, CSRF, the CSP and its nonce, client addresses, rate limits, compression, static files, health |
 | [One database per account](/docs/guides/tenants) | `tenant.Pool`, a writer per account, views across accounts, erasure |
 | [Backups](/docs/guides/backups) | `VACUUM INTO` copies, Litestream with the `backup` module, restores |
-| [Metrics and monitoring](/docs/guides/monitoring) | `lith/prom`, `dbmetrics`, the Grafana dashboard, alerts, logs, probes |
-| [Deploying](/docs/guides/deploying) | the systemd unit, Caddy, the deploy script with rollback, memory settings |
+| [Metrics and monitoring](/docs/guides/monitoring) | `lith/prom`, `dbmetrics`, the Grafana dashboard, alerts, logs, probes, the files each app installs on a shared host |
+| [Deploying](/docs/guides/deploying) | the systemd unit, Caddy, the deploy script with rollback, memory settings, the host's folders |
 | [Load testing](/docs/guides/load-testing) | `loadtest.Run` with an app's own views and commands, and how to read its report |
 
 [The first command and view](/docs/getting-started/first-view) builds a smaller feature from scratch, and the [package reference](/docs/reference) has every exported name.

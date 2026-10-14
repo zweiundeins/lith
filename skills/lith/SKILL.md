@@ -92,7 +92,8 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 - `references/recipes.md`: wiring and migrations, a command, op ids that
   keep refusals, query code shared by reads and commands, a view with topics,
   tab state and preferences, a background job, a bulk import, work a
-  transaction cannot hold, an event-sourced command, backups, a new project.
+  transaction cannot hold, an event-sourced command, backups, monitoring on
+  a shared host, a new project.
 - `references/performance.md`: measured numbers, the knobs they set, how to
   measure.
 - `references/review.md`: the checklist with `rg` patterns.
