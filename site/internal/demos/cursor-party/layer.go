@@ -7,8 +7,9 @@ import (
 	"time"
 )
 
-// layer is the party's layer: one <i> for each cursor, with its place in
-// percent of the party's width and height (--x, --y), its colour (data-h)
+// layer is the party's layer: one <i> for each cursor, with its anchor
+// (data-a, none for the floor), its place in percent of the anchor's width
+// and height (--x, --y), its colour (data-h)
 // and its name tag (<b>). The view renders it in every tick with a move,
 // so it is written by hand, about 90 bytes a cursor, and CSS draws the
 // arrow and the trail. A cursor quiet for Idle carries data-idle and
@@ -21,6 +22,10 @@ func layer(list []Cursor, now time.Time) []byte {
 		b = append(b, c.ID...)
 		b = append(b, `" data-h="`...)
 		b = strconv.AppendInt(b, int64(c.Hue), 10)
+		if c.A != floorAnchor {
+			b = append(b, `" data-a="`...)
+			b = append(b, c.A...)
+		}
 		b = append(b, `" style="--x:`...)
 		b = percent(b, c.X)
 		b = append(b, `;--y:`...)
@@ -37,7 +42,7 @@ func layer(list []Cursor, now time.Time) []byte {
 }
 
 // percent writes a fraction as a percentage with one decimal: a tenth of
-// a percent is 1.4 pixels of a 1440 pixel wide party.
+// a percent of an anchor is a pixel or less.
 func percent(b []byte, f float64) []byte {
 	return strconv.AppendFloat(b, math.Round(f*1000)/10, 'f', 1, 64)
 }

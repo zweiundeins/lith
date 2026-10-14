@@ -11,16 +11,16 @@ templ LandingPage(l Landing) {
 			<div class="hero__copy">
 				<p class="eyebrow">Go · SQLite · Datastar</p>
 				<h1 id="hero-title" class="acrostic" aria-label="lith: Linear writes, Immediate mode, Ticks, Hypermedia">
-					<span style="--i: 0" aria-hidden="true"><b>L</b><i>inear writes</i></span>
-					<span style="--i: 1" aria-hidden="true"><b>I</b><i>mmediate mode</i></span>
-					<span style="--i: 2" aria-hidden="true"><b>T</b><i>icks</i></span>
-					<span style="--i: 3" aria-hidden="true"><b>H</b><i>ypermedia</i></span>
+					<span style="--i: 0" aria-hidden="true" data-cp-anchor="L"><b>L</b><i>inear writes</i></span>
+					<span style="--i: 1" aria-hidden="true" data-cp-anchor="I"><b>I</b><i>mmediate mode</i></span>
+					<span style="--i: 2" aria-hidden="true" data-cp-anchor="T"><b>T</b><i>icks</i></span>
+					<span style="--i: 3" aria-hidden="true" data-cp-anchor="H"><b>H</b><i>ypermedia</i></span>
 				</h1>
-				<p class="hero__lede">
+				<p class="hero__lede" data-cp-anchor="lede">
 					lith is the runtime under the Go apps of zwei und eins: one SQLite file, one writer that applies every change in order,
 					views rendered once per tick for everyone who watches them, and HTML streamed to each browser over server-sent events.
 				</p>
-				<div class="cluster hero__actions">
+				<div class="cluster hero__actions" data-cp-anchor="go">
 					<a class="btn btn--primary" href="/docs/getting-started">
 						Get started
 						@Icon("arrow-right")
@@ -33,7 +33,9 @@ templ LandingPage(l Landing) {
 				</div>
 			</div>
 			<div class="hero__art" aria-hidden="true">
-				@Art(heroSVG, "hero__monolith")
+				<div class="hero__stone" data-cp-anchor="art">
+					@Art(heroSVG, "hero__monolith")
+				</div>
 				<div class="embers">
 					for _, e := range embers {
 						<i style={ emberStyle(e.X, e.Delay, e.Dur, e.Drift) }></i>

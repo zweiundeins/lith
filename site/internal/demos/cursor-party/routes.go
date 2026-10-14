@@ -16,6 +16,7 @@ func mount(k *demo.Kit) {
 		edge.Quiet(r) // 15 a second from every pointer: a log line each at Debug only
 		var req struct {
 			Tab  string
+			A    string
 			X, Y float64
 			Seq  int64
 		}
@@ -23,7 +24,7 @@ func mount(k *demo.Kit) {
 			return
 		}
 		v, _ := demo.Who(r, req.Tab)
-		cmd := Move{Viewer: v, X: req.X, Y: req.Y, Seq: req.Seq, At: time.Now()}
+		cmd := Move{Viewer: v, A: req.A, X: req.X, Y: req.Y, Seq: req.Seq, At: time.Now()}
 		if err := cmd.Validate(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

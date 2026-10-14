@@ -84,12 +84,13 @@ func TestCursorParty(t *testing.T) {
 	bob.Wait(t, `getComputedStyle(document.querySelector('#cursor-party-count')).getPropertyValue('--cursor-party-here') === '3'`, 5*time.Second)
 
 	// Ada's pointer crosses the floor from left to right, about ten
-	// moves a second, and rests at 70%, 40%.
+	// moves a second, and rests at 70%, 40%: by the nearest anchor of the
+	// hero, which a demo page puts where the desktop hero has it.
 	glide(t, ada, ".cp__floor", [][2]float64{{0.2, 0.6}, {0.7, 0.4}}, 12)
 	adaID := tabCursor(t, ada)
 	sel := `document.querySelector('#cursor-party-` + adaID + `')`
 	bob.Wait(t, sel, 5*time.Second)
-	bob.Wait(t, sel+`.style.getPropertyValue('--x') === '70.0' && `+sel+`.style.getPropertyValue('--y') === '40.0'`, 5*time.Second)
+	bob.Wait(t, cpTipNear(sel, 0.7, 0.4), 5*time.Second)
 	var seen struct {
 		Display, Name string
 		Floor         [4]float64
@@ -121,7 +122,7 @@ func TestCursorParty(t *testing.T) {
 		t.Errorf("Ada sees her own cursor drawn back: display %q", display)
 	}
 	// The hero behind Cleo's title shows it.
-	cleo.Wait(t, sel+` && getComputedStyle(`+sel+`).display !== 'none' && `+sel+`.style.getPropertyValue('--x') === '70.0'`, 5*time.Second)
+	cleo.Wait(t, sel+` && getComputedStyle(`+sel+`).display !== 'none' && `+sel+`.dataset.a`, 5*time.Second)
 	bob.Wait(t, `getComputedStyle(document.querySelector('#cursor-party-count')).getPropertyValue('--cursor-party-rate') !== '0'`, 5*time.Second)
 	// The counter's sparkline (Starbase's sb-sparkline) holds the last 30
 	// seconds, Ada's moves among them, on both pages.
@@ -132,7 +133,7 @@ func TestCursorParty(t *testing.T) {
 	// Bob moves; Ada sees him, and only him.
 	glide(t, bob, ".cp__floor", [][2]float64{{0.9, 0.9}, {0.3, 0.2}}, 8)
 	bobID := tabCursor(t, bob)
-	ada.Wait(t, `document.querySelector('#cursor-party-`+bobID+`')?.style.getPropertyValue('--x') === '30.0'`, 5*time.Second)
+	ada.Wait(t, cpTipNear(`document.querySelector('#cursor-party-`+bobID+`')`, 0.3, 0.2), 5*time.Second)
 	var shown int
 	ada.Eval(t, `[...document.querySelectorAll('#cursor-party-cursors > i')].filter(c => getComputedStyle(c).display !== 'none').length`, &shown)
 	if shown != 1 {
@@ -147,7 +148,7 @@ func TestCursorParty(t *testing.T) {
 	dee.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
 	drag(t, dee, ".cp__floor", [2]float64{0.2, 0.8}, [2]float64{0.6, 0.3}, 10)
 	deeID := tabCursor(t, dee)
-	bob.Wait(t, `document.querySelector('#cursor-party-`+deeID+`')?.style.getPropertyValue('--x') === '60.0'`, 5*time.Second)
+	bob.Wait(t, cpTipNear(`document.querySelector('#cursor-party-`+deeID+`')`, 0.6, 0.3), 5*time.Second)
 
 	// Reduced motion: no trail, no easing. And in the smooth style the
 	// arrow has straight edges.
@@ -180,6 +181,18 @@ func TestCursorParty(t *testing.T) {
 			t.Errorf("%s: %v", name, errs)
 		}
 	}
+}
+
+// cpTipNear is an expression that is true once the arrow of the cursor
+// (el, an expression) points within 2 pixels of x, y, fractions of the
+// page's floor: a demo page puts the hero's anchors where the desktop hero
+// has them, as fractions of its floor, so every demo page agrees.
+func cpTipNear(el string, x, y float64) string {
+	return fmt.Sprintf(`((c) => {
+		if (!c) return false
+		const b = c.querySelector('b'), r = b.getBoundingClientRect(), a = getComputedStyle(b, '::before'), f = document.querySelector('.cp__floor').getBoundingClientRect()
+		return Math.abs(r.left + parseFloat(a.left) - f.left - %g * f.width) < 2 && Math.abs(r.top + parseFloat(a.top) - f.top - %g * f.height) < 2
+	})(%s)`, x, y, el)
 }
 
 // glide moves the mouse over the element in steps from one point to the

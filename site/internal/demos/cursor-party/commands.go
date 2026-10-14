@@ -11,16 +11,22 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
-// Move puts the viewer's cursor where its pointer is: X and Y are
-// fractions of the party's width and height. Seq is the page's count of
+// Move puts the viewer's cursor where its pointer is: A names the anchor
+// nearest to it (Anchors), and X and Y are fractions of that anchor's
+// width and height, beyond it on the side the pointer is. Seq is the page's count of
 // its moves: requests can overtake each other, and a move older than the
 // one stored changes nothing.
 type Move struct {
 	Viewer demo.Viewer
+	A      string
 	X, Y   float64
 	Seq    int64
 	At     time.Time
 }
+
+// maxFraction bounds a place beside its anchor: the far corners of a wide
+// floor are a few of an anchor's widths away.
+const maxFraction = 20
 
 // maxSeq is the largest integer a page counts to exactly (2^53).
 const maxSeq = 1 << 53
@@ -29,8 +35,12 @@ func (c Move) Validate() error {
 	switch {
 	case !demo.ValidID(c.Viewer.Tab) || c.Viewer.Session == "":
 		return errors.New("a move needs a tab and a session")
-	case !(c.X >= 0 && c.X <= 1 && c.Y >= 0 && c.Y <= 1):
-		return errors.New("a position is a fraction of the party's size, from 0 to 1")
+	case !knownAnchor(c.A):
+		return errors.New("a move names one of the party's anchors")
+	case (c.A == "" || c.A == floorAnchor) && !(c.X >= 0 && c.X <= 1 && c.Y >= 0 && c.Y <= 1):
+		return errors.New("a position on the floor is a fraction of its size, from 0 to 1")
+	case !(c.X >= -maxFraction && c.X <= maxFraction && c.Y >= -maxFraction && c.Y <= maxFraction):
+		return errors.New("a position is a fraction of its anchor's size, from -20 to 20")
 	case c.Seq < 1 || c.Seq > maxSeq:
 		return errors.New("a move's number counts from 1")
 	}
@@ -40,8 +50,11 @@ func (c Move) Validate() error {
 func (c Move) Apply(tx *writer.Tx) error {
 	id, name, hue := Identity(c.Viewer.Tab)
 	at := c.At.UnixMilli()
-	res, err := tx.Exec(`UPDATE cursor_party_cursors SET x = ?, y = ?, seq = ?, at = ? WHERE id = ? AND sid = ? AND seq < ?`,
-		c.X, c.Y, c.Seq, at, id, c.Viewer.Session, c.Seq)
+	if c.A == "" {
+		c.A = floorAnchor
+	}
+	res, err := tx.Exec(`UPDATE cursor_party_cursors SET a = ?, x = ?, y = ?, seq = ?, at = ? WHERE id = ? AND sid = ? AND seq < ?`,
+		c.A, c.X, c.Y, c.Seq, at, id, c.Viewer.Session, c.Seq)
 	if err != nil {
 		return err
 	}
@@ -52,8 +65,8 @@ func (c Move) Apply(tx *writer.Tx) error {
 	if moved == 0 {
 		// The tab's first move, or one that a newer move overtook, or a tab
 		// id from another session: only the first inserts a row.
-		res, err := tx.Exec(`INSERT INTO cursor_party_cursors (id, sid, name, hue, x, y, seq, born, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (id) DO NOTHING`, id, c.Viewer.Session, name, hue, c.X, c.Y, c.Seq, at, at)
+		res, err := tx.Exec(`INSERT INTO cursor_party_cursors (id, sid, name, hue, a, x, y, seq, born, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (id) DO NOTHING`, id, c.Viewer.Session, name, hue, c.A, c.X, c.Y, c.Seq, at, at)
 		if err != nil {
 			return err
 		}

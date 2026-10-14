@@ -81,8 +81,11 @@
 		line-height: 1;
 		letter-spacing: 0.01em;
 
+		/* Each line is as wide as its words: the cursor party places
+		 * cursors by them (data-cp-anchor). */
 		& > span {
 			display: grid;
+			justify-self: start;
 			grid-template-columns: 0.78em auto;
 			align-items: baseline;
 			opacity: 1;

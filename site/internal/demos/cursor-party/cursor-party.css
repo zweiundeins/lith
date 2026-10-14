@@ -291,14 +291,21 @@
 		pointer-events: none;
 	}
 
-	/* A cursor. Its place is --x and --y, in percent of the floor. The <i>
-	 * stays in the floor's corner: its name tag (<b>), which carries the
-	 * arrow, and the two sparks of its trail (::before, ::after) each ease
-	 * there on their own, the sparks more slowly. */
+	/* A cursor. Its place is --x and --y, in percent of its anchor's box
+	 * (data-a), which the floor's script measures on this page
+	 * (--cp-<anchor>-x, -y, -w, -h); without an anchor, of the floor. It
+	 * stays on the floor. The <i> stays in the floor's corner: its name tag
+	 * (<b>), which carries the arrow, and the two sparks of its trail
+	 * (::before, ::after) each ease there on their own, the sparks more
+	 * slowly. */
 	.cp-layer > i {
 		--_c: var(--_h0);
-		--_x: calc(var(--x) * 1cqi);
-		--_y: calc(var(--y) * 1cqb);
+		--_ax: 0px;
+		--_ay: 0px;
+		--_aw: 100cqi;
+		--_ah: 100cqb;
+		--_x: clamp(0px, calc(var(--_ax) + var(--x) * var(--_aw) / 100), 100cqi);
+		--_y: clamp(0px, calc(var(--_ay) + var(--y) * var(--_ah) / 100), 100cqb);
 		position: absolute;
 		inset: 0 auto auto 0;
 		font-style: normal;
@@ -307,6 +314,55 @@
 		/* A cursor that arrives fades in where it is. */
 		@starting-style {
 			opacity: 0;
+		}
+
+		&[data-a="L"] {
+			--_ax: var(--cp-L-x, 0px);
+			--_ay: var(--cp-L-y, 0px);
+			--_aw: var(--cp-L-w, 0px);
+			--_ah: var(--cp-L-h, 0px);
+		}
+
+		&[data-a="I"] {
+			--_ax: var(--cp-I-x, 0px);
+			--_ay: var(--cp-I-y, 0px);
+			--_aw: var(--cp-I-w, 0px);
+			--_ah: var(--cp-I-h, 0px);
+		}
+
+		&[data-a="T"] {
+			--_ax: var(--cp-T-x, 0px);
+			--_ay: var(--cp-T-y, 0px);
+			--_aw: var(--cp-T-w, 0px);
+			--_ah: var(--cp-T-h, 0px);
+		}
+
+		&[data-a="H"] {
+			--_ax: var(--cp-H-x, 0px);
+			--_ay: var(--cp-H-y, 0px);
+			--_aw: var(--cp-H-w, 0px);
+			--_ah: var(--cp-H-h, 0px);
+		}
+
+		&[data-a="art"] {
+			--_ax: var(--cp-art-x, 0px);
+			--_ay: var(--cp-art-y, 0px);
+			--_aw: var(--cp-art-w, 0px);
+			--_ah: var(--cp-art-h, 0px);
+		}
+
+		&[data-a="lede"] {
+			--_ax: var(--cp-lede-x, 0px);
+			--_ay: var(--cp-lede-y, 0px);
+			--_aw: var(--cp-lede-w, 0px);
+			--_ah: var(--cp-lede-h, 0px);
+		}
+
+		&[data-a="go"] {
+			--_ax: var(--cp-go-x, 0px);
+			--_ay: var(--cp-go-y, 0px);
+			--_aw: var(--cp-go-w, 0px);
+			--_ah: var(--cp-go-h, 0px);
 		}
 
 		&[data-h="1"] {
@@ -435,12 +491,12 @@
 	/* A tag flips where it would leave the floor: past --_edge-x percent
 	 * of the floor's width, the share a tag leaves free, which is smaller
 	 * on a narrow floor, and past --_edge-y of its height. */
-	@supports (inline-size: round(down, 1px, 1px)) {
+	@supports (inline-size: calc(sign(1px) * 1px)) {
 		.cp-layer b {
 			--_edge-x: 90;
 			--_edge-y: 92;
-			--_fx: min(1, round(down, var(--x) / var(--_edge-x), 1));
-			--_fy: min(1, round(down, var(--y) / var(--_edge-y), 1));
+			--_fx: max(0, sign(var(--_x) - var(--_edge-x) * 1cqi));
+			--_fy: max(0, sign(var(--_y) - var(--_edge-y) * 1cqb));
 
 			@container party (width < 60rem) {
 				--_edge-x: 82;

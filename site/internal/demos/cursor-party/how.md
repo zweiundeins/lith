@@ -8,18 +8,48 @@ func floor() templ.Attributes {
 		"data-on:pointermove__window__throttle." + ms(Throttle): move,
 		"data-on:pointermove__window__debounce." + ms(Rest):     move,
 		"data-on:pointerdown": move,
+		"data-init":           anchorHomes(),
 	}
 }
 ```
 
-A move is the pointer's place in fractions of the floor, the same on any screen, and the next number of `$_cursorParty.seq`. Moves go out side by side: none cancels the one before, and none is retried.
+The floor's place is not the same on every screen: a phone stacks the hero's words that a desktop lays out side by side. So a move names an anchor, the nearest of the boxes the hero marks with `data-cp-anchor` (a line of the acrostic, the monolith, the lede, the buttons), and gives the pointer's place in fractions of that box. The floor's `data-init` measures the anchors on this page, hands their boxes to CSS as custom properties on the floor, which the stream never patches, and measures again when the floor or an anchor changes size. A page without an anchor, like this one, puts it where the desktop hero has it.
 
 ```go title=expr.go
-const move = `const r = el.getBoundingClientRect(), x = (evt.clientX - r.left) / r.width, y = (evt.clientY - r.top) / r.height;
-evt.isPrimary && x >= 0 && x <= 1 && y >= 0 && y <= 1 && @post('/cmd/cursor-party/move', {
-	payload: {tab: $_tab, x: Math.round(x * 1e4) / 1e4, y: Math.round(y * 1e4) / 1e4, seq: ++$_cursorParty.seq},
-	requestCancellation: 'disabled', retry: 'never', retryMaxCount: 0,
-}).catch(() => {})`
+const measure = `const names = NAMES, homes = HOMES;
+const find = (n) => document.querySelector('[data-cp-anchor="' + n + '"]');
+const run = () => {
+	const f = el.getBoundingClientRect(), at = {};
+	for (const n of names) {
+		const a = find(n), r = a && a.getBoundingClientRect(), h = homes[n];
+		const b = r && r.width && r.height ? [r.left - f.left, r.top - f.top, r.width, r.height] : [h[0] * f.width, h[1] * f.height, h[2] * f.width, h[3] * f.height];
+		at[n] = b;
+		['x', 'y', 'w', 'h'].forEach((k, i) => el.style.setProperty('--cp-' + n + '-' + k, b[i] + 'px'));
+	}
+	el.cpAnchors = at;
+};
+run();
+const ro = new ResizeObserver(run);
+ro.observe(el);
+for (const n of names) { const a = find(n); a && ro.observe(a) }`
+```
+
+A move carries that anchor, the place beside it, and the next number of `$_cursorParty.seq`. Moves go out side by side: none cancels the one before, and none is retried.
+
+```go title=expr.go
+const move = `const f = el.getBoundingClientRect(), px = evt.clientX - f.left, py = evt.clientY - f.top, at = el.cpAnchors;
+if (evt.isPrimary && at && px >= 0 && py >= 0 && px <= f.width && py <= f.height) {
+	let best = '', d = Infinity;
+	for (const n in at) {
+		const b = at[n], dx = Math.max(b[0] - px, 0, px - b[0] - b[2]), dy = Math.max(b[1] - py, 0, py - b[1] - b[3]);
+		if (dx * dx + dy * dy < d) { d = dx * dx + dy * dy; best = n }
+	}
+	const b = at[best], r = (v) => Math.max(-20, Math.min(20, Math.round(v * 1e4) / 1e4));
+	@post('/cmd/cursor-party/move', {
+		payload: {tab: $_tab, a: best, x: r((px - b[0]) / b[2]), y: r((py - b[1]) / b[3]), seq: ++$_cursorParty.seq},
+		requestCancellation: 'disabled', retry: 'never', retryMaxCount: 0,
+	}).catch(() => {})
+}`
 ```
 
 ## The command
@@ -30,8 +60,11 @@ evt.isPrimary && x >= 0 && x <= 1 && y >= 0 && y <= 1 && @post('/cmd/cursor-part
 func (c Move) Apply(tx *writer.Tx) error {
 	id, name, hue := Identity(c.Viewer.Tab)
 	at := c.At.UnixMilli()
-	res, err := tx.Exec(`UPDATE cursor_party_cursors SET x = ?, y = ?, seq = ?, at = ? WHERE id = ? AND sid = ? AND seq < ?`,
-		c.X, c.Y, c.Seq, at, id, c.Viewer.Session, c.Seq)
+	if c.A == "" {
+		c.A = floorAnchor
+	}
+	res, err := tx.Exec(`UPDATE cursor_party_cursors SET a = ?, x = ?, y = ?, seq = ?, at = ? WHERE id = ? AND sid = ? AND seq < ?`,
+		c.A, c.X, c.Y, c.Seq, at, id, c.Viewer.Session, c.Seq)
 	if err != nil {
 		return err
 	}
@@ -42,8 +75,26 @@ func (c Move) Apply(tx *writer.Tx) error {
 	if moved == 0 {
 		// The tab's first move, or one that a newer move overtook, or a tab
 		// id from another session: only the first inserts a row.
-		res, err := tx.Exec(`INSERT INTO cursor_party_cursors (id, sid, name, hue, x, y, seq, born, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (id) DO NOTHING`, id, c.Viewer.Session, name, hue, c.X, c.Y, c.Seq, at, at)
+		res, err := tx.Exec(`INSERT INTO cursor_party_cursors (id, sid, name, hue, a, x, y, seq, born, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (id) DO NOTHING`, id, c.Viewer.Session, name, hue, c.A, c.X, c.Y, c.Seq, at, at)
+		if err != nil {
+			return err
+		}
+		if moved, err = res.RowsAffected(); err != nil || moved == 0 {
+			return err
+		}
+		if err := makeRoom(tx, at); err != nil {
+			return err
+		}
+	}
+	// The counter's moves of each second.
+	if _, err := tx.Exec(`INSERT INTO cursor_party_seconds (second, moves) VALUES (?, 1)
+		ON CONFLICT (second) DO UPDATE SET moves = moves + 1`, c.At.Unix()); err != nil {
+		return err
+	}
+	tx.Touch(Topic)
+	return nil
+}
 ```
 
 A new row makes room as well: the rows of tabs quiet for two minutes go, and the oldest beyond a thousand, so the table stays small between two sweeps whatever tab ids the requests make up.
@@ -87,7 +138,7 @@ The id is 12 hex digits of a SHA-256 of the tab id. Every page sees it, while th
 
 ## The motion
 
-A frame changes `--x` and `--y` of the cursors that moved, in percent of the floor, which is a size container: `calc(var(--x) * 1cqi)` is the place in pixels. Each part of a cursor eases there on its own. The name tag, which carries the arrow, takes 120 ms; the two sparks of the trail take 180 and 260 ms, so in motion they fall behind along the path, and at rest they hide under the arrow.
+A frame changes `--x` and `--y` of the cursors that moved, in percent of their anchor's box (`data-a` picks its custom properties); the place in pixels is the box's corner plus that share of its size, kept on the floor with `clamp()`. Each part of a cursor eases there on its own. The name tag, which carries the arrow, takes 120 ms; the two sparks of the trail take 180 and 260 ms, so in motion they fall behind along the path, and at rest they hide under the arrow.
 
 ```css title=cursor-party.css
 &::before,

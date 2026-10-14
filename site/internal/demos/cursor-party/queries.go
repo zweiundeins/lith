@@ -14,6 +14,7 @@ type Cursor struct {
 	ID   string
 	Name string
 	Hue  int
+	A    string // its anchor (Anchors), or "floor"
 	X, Y float64
 	At   time.Time
 }
@@ -25,7 +26,7 @@ type Cursor struct {
 // order of their ids: a cursor keeps its place in the layer, so a morph
 // never moves an element, which would restart its transitions.
 func cursors(ctx context.Context, q sqlite.Querier, now time.Time) ([]Cursor, error) {
-	rows, err := q.QueryContext(ctx, `SELECT id, name, hue, x, y, at FROM cursor_party_cursors WHERE at >= ? ORDER BY born DESC LIMIT ?`,
+	rows, err := q.QueryContext(ctx, `SELECT id, name, hue, a, x, y, at FROM cursor_party_cursors WHERE at >= ? ORDER BY born DESC LIMIT ?`,
 		now.Add(-Gone).UnixMilli(), Shown)
 	if err != nil {
 		return nil, err
@@ -35,7 +36,7 @@ func cursors(ctx context.Context, q sqlite.Querier, now time.Time) ([]Cursor, er
 	for rows.Next() {
 		var c Cursor
 		var at int64
-		if err := rows.Scan(&c.ID, &c.Name, &c.Hue, &c.X, &c.Y, &at); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Hue, &c.A, &c.X, &c.Y, &at); err != nil {
 			return nil, err
 		}
 		c.At = time.UnixMilli(at)

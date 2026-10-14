@@ -28,7 +28,7 @@ func TestMove(t *testing.T) {
 	e.Do(t, Move{Viewer: ada, X: 0.25, Y: 0.5, Seq: 1, At: t0})
 	id, name, hue := Identity(ada.Tab)
 	list := read(t, e, t0)
-	if len(list) != 1 || list[0] != (Cursor{ID: id, Name: name, Hue: hue, X: 0.25, Y: 0.5, At: t0}) {
+	if len(list) != 1 || list[0] != (Cursor{ID: id, Name: name, Hue: hue, A: floorAnchor, X: 0.25, Y: 0.5, At: t0}) {
 		t.Fatalf("after the first move: %+v", list)
 	}
 	if got := e.Touched(); !slices.Equal(got, []string{Topic}) {
@@ -351,3 +351,25 @@ func rows(t *testing.T, e *demotest.Env) (n int) {
 }
 
 func must(id, _ string, _ int) string { return id }
+
+// A move beside an anchor keeps it, and the layer names it: every page
+// puts the cursor by that anchor's box on its own layout.
+func TestAnchoredMove(t *testing.T) {
+	e := demotest.Open(t, Demo)
+	e.Do(t, Move{Viewer: ada, A: "H", X: 1.5, Y: -0.25, Seq: 1, At: t0})
+	list := read(t, e, t0)
+	if len(list) != 1 || list[0].A != "H" || list[0].X != 1.5 || list[0].Y != -0.25 {
+		t.Fatalf("after the move: %+v", list)
+	}
+	if got := string(layer(list, t0)); !strings.Contains(got, `data-a="H" style="--x:150.0;--y:-25.0"`) {
+		t.Errorf("the layer: %s", got)
+	}
+	for _, m := range []Move{
+		{Viewer: ada, A: "nope", X: 0.5, Y: 0.5, Seq: 2, At: t0},
+		{Viewer: ada, A: "art", X: 21, Y: 0.5, Seq: 2, At: t0},
+	} {
+		if m.Validate() == nil {
+			t.Errorf("%+v passed", m)
+		}
+	}
+}

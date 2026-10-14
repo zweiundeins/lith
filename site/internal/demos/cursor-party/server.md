@@ -1,4 +1,4 @@
-When your pointer moves over the floor, the page posts its place to `/cmd/cursor-party/move`: two fractions, of the floor's width and of its height, with the tab id and the number of the move. Datastar's throttle lets one move through every 67 ms, about 15 a second, and a debounce sends the place where the pointer comes to rest.
+When your pointer moves over the floor, the page posts its place to `/cmd/cursor-party/move`: the nearest anchor of the landing page's hero (a line of the acrostic, the monolith, the lede, the buttons) and two fractions of that anchor's width and height, so the cursor lands by the same words on any screen, with the tab id and the number of the move. Datastar's throttle lets one move through every 67 ms, about 15 a second, and a debounce sends the place where the pointer comes to rest.
 
 The handler checks the rate limits for your address and your session, queues a `Move` command with `w.Send` and answers 204 without waiting for the commit, since the next move replaces this one.
 
