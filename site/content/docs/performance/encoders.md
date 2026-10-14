@@ -64,10 +64,29 @@ cores busy,brotli q4,3.42
 - zstd keeps a history of twice its window, 1 MiB for the 512 KiB window. `ZstdLowMemory` keeps it at the window: 0.62 MiB less per stream, for 40% more CPU per frame here.
 - Datastar's Go SDK, given `WithBrotli` without `WithBrotliLGWin`, keeps brotli's 4 MiB window: 9.9 MiB of heap per stream, measured the same way at quality 5. 1,000 open tabs hold about 9.7 GiB there, against 1.0 GiB with zstd and `ZstdLowMemory`, or 1.6 GiB with lith's default.
 
+## For slow links
+
+A stream to a client on a slow link (`sse.Options.Slow`, which `live.Spec.Slow` sets) takes zstd's default level while its budget has room for it, and brotli's quality 4 where another stream would drop to 3 ([Streams: slow links](/docs/guides/streams#slow-links)). `TestSlowLinks` in `bench/budget` (`slow.csv`) measures both on the budget's workloads, the way the budget's tiers were measured: 64 streams, the heap they keep, the process's CPU per frame. On 2026-10-14 on the development machine, zstd at 2^19, the tier a stream gets while the budget has room:
+
+| Frames | Bytes a frame, fastest | Default level | CPU a frame, fastest | Default level |
+| --- | --- | --- | --- | --- |
+| board of 50 KB, a card changed | 287 | 266 | 18.6 µs | 20.8 µs |
+| board of 142 KB | 1,471 | 1,347 | 61.6 µs | 78.0 µs |
+| board of 230 KB | 2,948 | 2,810 | 103 µs | 127 µs |
+| table of 230 KB, a few cells changed | 4,598 | 4,436 | 122 µs | 178 µs |
+| list of 230 KB, 13 rows of 1,300 changed | 1,738 | 807 | 104 µs | 86.6 µs |
+| a business app's tab, 2 to 37 KB | 189 | 176 | 8.2 µs | 9.9 µs |
+| Game of Life, 45 KB | 601 | 608 | 32.5 µs | 32.7 µs |
+
+- The default level pays where a frame changes in many places: half the bytes on the list. Where it changes in one place it saves 4 to 8%, and on the Game of Life nothing.
+- It holds 1.0 to 1.1 MiB more at every window: up to 2.8 MiB at 2^19, 2.0 MiB at 2^18 with low memory. The budget books those tiers at what they held.
+- Its CPU a frame ranges from 17% less (the list) to 46% more (the table). A slow stream also gets about four frames a second instead of ten or twenty.
+- Brotli at quality 4 instead of 3, at the window that holds the frame, sends 29 to 46% fewer bytes on the boards, the table and the list, 9% on the business app's tab and 3% on the Game of Life, for 0.5 MiB more heap and 3% less to 16% more CPU.
+
 ## Choosing
 
 - Memory is the constraint for most apps: an open tab holds its encoder for as long as it stays open. The [stream budget](/docs/performance/budget) decides the window per stream from the memory there is and the size of the stream's frames.
-- lith's default is zstd's fastest level at 2^19, 1.65 MiB a stream. Where bandwidth costs more than memory, `ZstdLevel: zstd.SpeedDefault` halves the bytes for 1.1 MiB more a stream. The budget's tiers are sized for the fastest level, though: at another level a stream holds more than the budget reserves for it, so leave room under the limit.
+- lith's default is zstd's fastest level at 2^19, 1.65 MiB a stream. Where bandwidth costs more than memory, `ZstdLevel: zstd.SpeedDefault` halves the bytes for 1.1 MiB more a stream. The budget's tiers are sized for the fastest level, though: at another level a stream holds more than the budget reserves for it, so leave room under the limit. A slow stream's default level is booked at its own size.
 - brotli serves the browsers without zstd, Safari before 26.3 among them. Its CPU per frame is eight to nine times zstd's in the table above, and five to seven and a half times on the 142 KB board at the same window ([the stream budget](/docs/performance/budget)).
 
 ## Measuring again
@@ -75,4 +94,5 @@ cores busy,brotli q4,3.42
 ```sh
 taskset -c 0-11 go test ./loadtest -run '^$' -bench BoardZstdLevels -count 3
 go test ./sse -run TestHeapPerStream -v -count 3
+LITH_BUDGET=1 taskset -c 0-11 go test ./bench/budget -run SlowLinks -v -timeout 1h
 ```

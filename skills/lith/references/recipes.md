@@ -295,6 +295,11 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   `Options.HeartbeatSignal: "_ping"` the hub patches `$_ping` every
   Heartbeat (20 s), frames or not, with a number that grows, instead of an
   SSE comment, which Datastar never shows the page.
+- A page on a slow link opens its stream with `net=slow`: the template
+  measures once into `$_slow` (data-signals: navigator.connection's
+  saveData or 2g/3g, else Navigation Timing), sends `Accept-CH:
+  edge.NetworkHints` on documents, and its handler passes
+  `Slow: edge.SlowLink(r)` in the Spec (performance.md).
 
 ## Tab state and preferences
 

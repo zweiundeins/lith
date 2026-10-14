@@ -78,9 +78,9 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 | --- | --- |
 | `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
-| `live` | views and topics, the tick, render workers with prepared read statements, shared frames, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, stats |
-| `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, write deadlines, `ReadSignals` for any method |
-| `edge` | sessions cookie, CSRF, client IP, CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
+| `live` | views and topics, the tick, render workers with prepared read statements, shared frames, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats |
+| `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget, a denser encoder for slow links (`Options.Slow`), write deadlines, `ReadSignals` for any method |
+| `edge` | sessions cookie, CSRF, client IP, slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
 | `prom` | Prometheus collector for `writer.Stats`, `live.Hub.Stats` and the stream budget: `<ns>_writer_*`, `<ns>_live_*`, `<ns>_sse_budget_*` (nested module) |
 | `tenant` | one database file per account: refcounted pool with LRU eviction |

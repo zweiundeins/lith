@@ -15,8 +15,8 @@ The guides follow one app: boards of lanes that hold cards, the domain of lith's
 | [Reads](/docs/guides/reads) | `View` and `ViewValue`, query code shared through `sqlite.Querier`, `WithTx`, the read pool |
 | [Views and the hub](/docs/guides/views) | keys and topics, `Presence`, `Every`, `Watch` and `Unwatch`, `Spec.WriteTick`, the heartbeat signal, `MaxStreams` |
 | [Pages and Datastar](/docs/guides/pages) | the document, the fat morph, tab state in SQLite, op ids and pending, reconnecting after a deploy |
-| [Streams and compression](/docs/guides/streams) | zstd and brotli, windows, the memory budget, hibernation, `NoCompression` |
-| [The request edge](/docs/guides/edge) | sessions, CSRF, the CSP and its nonce, client addresses, rate limits, compression, static files, health |
+| [Streams and compression](/docs/guides/streams) | zstd and brotli, windows, the memory budget, hibernation, `NoCompression`, slow links |
+| [The request edge](/docs/guides/edge) | sessions, CSRF, the CSP and its nonce, client addresses, slow links, rate limits, compression, static files, health |
 | [One database per account](/docs/guides/tenants) | `tenant.Pool`, a writer per account, views across accounts, erasure |
 | [Backups](/docs/guides/backups) | `VACUUM INTO` copies, Litestream with the `backup` module, restores |
 | [Metrics and monitoring](/docs/guides/monitoring) | `lith/prom`, `dbmetrics`, the Grafana dashboard, alerts, logs, probes, the files each app installs on a shared host |

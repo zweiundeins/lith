@@ -22,6 +22,7 @@ Static, Precompress  starbase's precompress package, libretto's content ETags wi
 Limiter              starbase's token bucket, swept as it goes, libretto's rule that a clock step must not reset it, and its five messages in the last hour
 Health, Ready        libretto's and swisscyberguard's liveness and readiness probes, with checks registered by the app
 Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
+SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
 ```
 
 A chain, built from the inside out:
@@ -37,6 +38,12 @@ h = edge.LogRequests(log, h) // around Recover: it logs the 500
 ```
 
 ## Constants
+
+```go
+const NetworkHints = "ECT, RTT, Downlink"
+```
+
+NetworkHints are the client hints SlowLink reads besides Save-Data, for an Accept-CH header on documents: Chromium then sends them with the requests that follow, the page's stream among them. Other browsers send none, and the page's own measurement (net=slow) stands in for them.
 
 ```go
 const NonceSource = "'nonce'"
@@ -153,6 +160,14 @@ func SessionID(ctx context.Context) string
 ```
 
 SessionID returns the session id Sessions.Handler put in ctx, or "".
+
+### func SlowLink {#SlowLink}
+
+```go
+func SlowLink(r *http.Request) bool
+```
+
+SlowLink reports whether r says its client is on a slow link. Any of these does: the query parameter net=slow, which a page adds to its stream's URL from its own measurement (navigator.connection's saveData or an effective type of 2g or 3g, or where that is missing, a document that took over 300 ms to its first byte or came at under 100 KB/s); the header Save-Data: on; Chromium's client hints, after an Accept-CH of NetworkHints: ECT slow-2g, 2g or 3g, RTT over 300 (ms), Downlink under 0.8 (Mbit/s). A client that claims a slow link without one gets fewer frames and an encoder that costs the server more memory, within the budget that guards it (live.Spec.Slow).
 
 ## Types
 

@@ -102,6 +102,10 @@ header_up X-Real-IP {http.request.remote.host}
 
 `edge.ClientKey(r)` is the address as a rate-limit key: an IPv6 client counts by its /64, since one subscriber holds a whole /64 and could rotate through it.
 
+## Slow links
+
+`edge.SlowLink(r)` reports whether a request says its client is on a slow link: the query parameter `net=slow`, which a page adds to its stream's URL from its own measurement, the `Save-Data: on` header, or Chromium's client hints `ECT` (slow-2g, 2g or 3g), `RTT` (over 300 ms) and `Downlink` (under 0.8 Mbit/s). Chromium sends those hints once a document asked for them with `Accept-CH`, whose value is `edge.NetworkHints`. A stream handler passes the answer to `live.Spec.Slow` ([Streams: slow links](/docs/guides/streams#slow-links)).
+
 ## Rate limits
 
 `edge.Limiter` limits what each key may take, in three shapes:

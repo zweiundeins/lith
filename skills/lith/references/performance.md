@@ -132,6 +132,25 @@ HTML, about 4,000 frames a second, i5-13500, 2026-10-14; brotli from
   stream instead of 1.65 MiB, for 40% more CPU per frame with 20 streams
   (`TestHeapPerStream`, `bench/RESULTS.md`).
 
+Slow links: the page measures once into `$_slow` (navigator.connection's
+saveData or 2g/3g; where it is missing, Navigation Timing: first byte over
+300 ms after the request, or under 100 KB/s) and opens its stream with
+`net=slow`. Documents send `Accept-CH: ECT, RTT, Downlink`
+(`edge.NetworkHints`); `edge.SlowLink(r)` reads net=slow, `Save-Data: on`
+and those hints (ECT 2g/3g, RTT over 300, Downlink under 0.8), and the
+handler passes it as `live.Spec.Slow`. A slow stream gets each view's
+newest frame 250 ms apart, about 4 a second (a view's first frame, or one
+of a view quiet for 250 ms, goes at once and takes the waiting frames
+along; heartbeats unchanged), and `sse.Options.Slow`: zstd's default level
+while that tier (1.1 MiB more) fits the fair share, else the fastest;
+brotli q4 while the budget has room, not only while half full. The default
+level at 2^19: 54% fewer bytes where a frame changes in many places, 4 to
+8% where in one, none on a Game of Life, 17% less to 46% more CPU
+(`bench/budget/slow.csv`). On lith's site, a Game of Life tab on a phone
+(CPU 4x, Slow 4G or 3G) went from 89 to 90% of its main thread busy to 54
+to 56%, its stream from 5.2 to 6.2 KB/s to 2.7 to 2.9; the network was
+never the limit.
+
 ## Render loop
 
 - The tick (50 ms by default) bounds the work: N commits in one tick cost one

@@ -10,7 +10,7 @@ Import path `github.com/zweiundeins/lith/sse`. Generated from the doc comments i
 
 Events are formatted once (PatchElements, PatchSignals, Comment) and the same bytes can go to any number of streams. Each stream compresses them with a window that spans the whole stream, so a frame that repeats much of an earlier one costs little on the wire. The encoders are tuned for many long-lived streams: zstd at its fastest level (Options.ZstdLevel) with a 512 KiB window (about 1.7 MiB of heap per stream, 1 MiB with Options.ZstdLowMemory) when the client accepts it, else brotli at quality 4 with a 256 KiB window (about 1.6 MiB), else gzip.
 
-A Budget shares a memory limit among many streams, their encoders and the frames kept for them: each stream gets a window that holds its frames, zstd streams move to smaller windows as more streams open, and brotli streams take quality 3, then a window below their frames, as the limit fills. Stream.Hibernate lets an idle zstd stream give its encoder back until its next write, and Stream.Upgrade tells when a brotli stream would do better on a new connection.
+A Budget shares a memory limit among many streams, their encoders and the frames kept for them: each stream gets a window that holds its frames, zstd streams move to smaller windows as more streams open, and brotli streams take quality 3, then a window below their frames, as the limit fills. Stream.Hibernate lets an idle zstd stream give its encoder back until its next write, and Stream.Upgrade tells when a brotli stream would do better on a new connection. Options.Slow marks a stream to a client on a slow link, which then takes a denser encoder while the budget has room for it.
 
 Every write has its own deadline, so run the server without a WriteTimeout and let a stream that cannot take a write in time fail alone. Pages open their streams with Datastar's retry: 'error' from an element with an id: a server that ends its streams to restart sends Reconnect last (live does, with Spec.Reconnect), and 'error' carries the page's request through the restart. The default retry reopens neither.
 
@@ -132,7 +132,9 @@ A brotli stream takes the smallest window that holds its frame, since a larger o
 
 A zstd stream takes the largest tier within its fair share (what the limit leaves after frames and streams, divided by the streams that compress or would) and what is left, down to the smallest window that holds its frame, since zstd's bytes keep falling as its window grows. A stream whose fair share is below that gets it while what is left holds it, then the smallest window, 2^15, and else none: it sends raw blocks until room frees up. When a stream finds no room for a window that holds its frame, every zstd stream above the fair share of that moment moves down at its next write, but not below its frame's window: it ends its zstd frame and begins the next with the smaller tier, which costs one frame without history. A zstd stream whose window is below its frame moves up the same way once room frees up. Close gives the reservation back, and so does a zstd stream that hibernates (Stream.Hibernate). With Refuse, a zstd stream keeps the smallest tier whose window holds its frame booked from Open to Close, while it has no encoder too, and takes that tier when nothing larger fits: it moves no lower and never sends raw blocks. When the budget turns a stream away, the zstd streams within their fair share move down too, to the window that holds their frame, until what is left would hold the stream turned away.
 
-The tiers' sizes are the most a stream held at each, after sessions of frames of 50 to 230 KB (lith's bench/budget, framesize.csv), rounded up to 16 KiB: zstd at its fastest level, brotli at quality 3 and 4. Other levels and qualities hold more.
+A slow stream (Options.Slow) trades the budget's room for bytes on the wire. A zstd stream takes the tier it would get, at zstd's default level instead of its fastest while that tier (about 1.1 MiB more) fits its fair share and what is left, and moves down as other zstd streams do, to the fastest level at its window first. A brotli stream takes its quality (4) while the budget has room for it, not only while it stays half full. Open lets it in on the same terms as any stream.
+
+The tiers' sizes are the most a stream held at each, after sessions of frames of 50 to 230 KB (lith's bench/budget, framesize.csv and slow.csv), rounded up to 16 KiB: zstd at its fastest and its default level, brotli at quality 3 and 4. Other levels and qualities hold more.
 
 #### func NewBudget {#NewBudget}
 
@@ -224,7 +226,8 @@ type BudgetStats struct {
 	Reserved int64
 	Frames   int64 // booked through Hold: the frames a live hub keeps
 	// Streams counts the open streams by what they hold: a tier such as
-	// "zstd 2^19", "zstd 2^17 low memory" or "br q4 2^18"; "zstd asleep"
+	// "zstd 2^19", "zstd 2^17 low memory", "zstd default 2^19" (a slow
+	// stream's, Options.Slow) or "br q4 2^18"; "zstd asleep"
 	// for zstd streams without an encoder (before their first write,
 	// hibernating, or, without Refuse, waiting for room); "identity" for
 	// streams that go out uncompressed.
@@ -323,6 +326,20 @@ type Options struct {
 	// window that holds such a frame, and picks the stream's tiers for
 	// frames at least that long. Without Refuse it changes nothing.
 	Frame int
+	// Slow marks a stream to a client on a slow link (edge.SlowLink), for
+	// which fewer bytes are worth more of the server's memory. Its zstd
+	// encoder runs at zstd.SpeedDefault, or ZstdLevel if that is higher: at
+	// 2^19, 54% fewer bytes a frame on a list whose rows change all over
+	// it, 4 to 8% fewer where a frame changes a card or a few cells, none
+	// on a Game of Life, for 1.1 MiB more heap and 17% less to 46% more
+	// CPU a frame (bench/budget/slow.csv). A Budget gives it that level
+	// while the denser tier fits its fair share and what is left, and a
+	// brotli stream its quality (4) while the budget has room for it, not
+	// only while it stays half full: 29 to 46% fewer bytes than quality 3
+	// on boards, tables and lists of 50 to 230 KB, 3 to 9% on a page of
+	// small views and on a Game of Life. With Refuse, it gets in on the
+	// same terms as any other stream.
+	Slow bool
 }
 ```
 
@@ -416,7 +433,7 @@ Sent reports the bytes of events written to the stream and the bytes that went o
 func (s *Stream) Tier() (name string, heap int64)
 ```
 
-Tier names what the stream's encoder holds now, as BudgetStats.Streams counts it: "zstd 2^19", "zstd 2^18 low memory", "br q4 2^18" or "gzip"; "zstd asleep" while a zstd stream has no encoder (before its first write, while it hibernates, or while its budget has no room for it); "identity" when it goes out uncompressed. heap is what the stream's budget reserves for the encoder: 0 without a budget, and for a stream asleep or uncompressed, but for an asleep one, with BudgetOptions.Refuse, the heap of the least tier that holds its frame. A brotli stream with a budget holds quality 3 at 2^16 until its first write picks its tier, with Refuse quality 3 at the window that holds its frame.
+Tier names what the stream's encoder holds now, as BudgetStats.Streams counts it: "zstd 2^19", "zstd 2^18 low memory", "zstd default 2^19" (at zstd's default level, for Options.Slow), "br q4 2^18" or "gzip"; "zstd asleep" while a zstd stream has no encoder (before its first write, while it hibernates, or while its budget has no room for it); "identity" when it goes out uncompressed. heap is what the stream's budget reserves for the encoder: 0 without a budget, and for a stream asleep or uncompressed, but for an asleep one, with BudgetOptions.Refuse, the heap of the least tier that holds its frame. A brotli stream with a budget holds quality 3 at 2^16 until its first write picks its tier, with Refuse quality 3 at the window that holds its frame.
 
 #### func (*Stream) Upgrade {#Stream.Upgrade}
 

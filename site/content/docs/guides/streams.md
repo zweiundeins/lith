@@ -31,6 +31,7 @@ Chrome, Firefox and Edge accept zstd; Safari decodes it from version 26.3, and o
 | `ZstdLowMemory` | false | history at the window: 0.65 MiB less per stream, more CPU per frame |
 | `BrotliQuality`, `BrotliWindow` | 4, 18 | brotli's quality and window; with a budget, the largest window it gives |
 | `NoCompression` | false | every stream as it is ([below](#small-frequent-events)) |
+| `Slow` | false | a denser encoder for a client on a slow link, while the budget has room ([below](#slow-links)) |
 | `WriteTimeout` | 10 s | the deadline of each write |
 | `Compress` | half the CPUs, in a hub | a semaphore that bounds how many streams compress at once |
 | `Budget` | half the memory limit, in a hub | the memory the streams share, and the window each gets ([below](#the-memory-budget)) |
@@ -97,6 +98,71 @@ The cost is that first frame after a pause: in lith's simulation of 200 tabs ove
 ## Small, frequent events
 
 An encoder's heap, 0.4 MiB and more per stream, buys little when the events are small: a cursor's position, a counter. `sse.Options.NoCompression` sends every stream as it is, whatever the browser accepts. In a hub it applies to every stream, so an app with one such page and others with large frames gives that page a hub of its own.
+
+## Slow links
+
+A phone on a slow link pays for each frame twice: its bytes on the wire, and the work of its main thread to apply it. A stream that knows its link is slow takes fewer frames and a denser encoder.
+
+**What the page measures.** The page measures once, as it starts, into a local signal, and opens its stream with `net=slow` when the link is slow; its own URL stays as it is. Where the browser has `navigator.connection` (Chromium), the link is slow when the user asked to save data or the browser calls it 2g or 3g. Firefox and Safari have no such API, and there Navigation Timing tells: the document's first byte more than 300 ms after its request, or the document coming at under 100 KB/s. The thresholds sit just past where `navigator.connection` turns from 4g to 3g, a round trip of 270 ms or 700 kbit/s. The template's page puts the measurement in its `data-signals` as `_slow`, and its stream's element reads it:
+
+```go source=template/internal/views/expr.go
+// slowLink is true on a slow link, measured once as the page starts. Where
+// the browser has navigator.connection (Chromium): data saving, or a link
+// it calls 2g or 3g. Elsewhere, from Navigation Timing: the document's
+// first byte more than 300 ms after its request, or under 100 KB/s.
+const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(c.effectiveType) : !!n && n.transferSize > 0 && (n.responseStart - n.requestStart > 300 || n.transferSize < 100 * (n.responseEnd - n.responseStart)))(navigator.connection, performance.getEntriesByType('navigation')[0])`
+
+// openStream opens the tab's stream on the element with id "stream", with
+// net=slow on a slow link (edge.SlowLink). retry 'error' retries through
+// network errors, 502s and 503s and never gives up, but leaves a stream
+// the server ends closed: on a deploy the server ends it with
+// sse.Reconnect, which runs this again.
+const openStream = `@get('/stream?tab=' + $_tab + ($_slow ? '&net=slow' : ''), {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
+```
+
+The measurement is a Datastar expression, so it needs no script beyond the CSP's `'unsafe-eval'`, which Datastar needs anyway. It runs in `data-signals`, not in the stream's `data-init`, which runs again on every reconnect.
+
+**What the server reads.** `edge.SlowLink(r)` reports a slow link for `net=slow`, for the `Save-Data: on` header, and for Chromium's client hints: `ECT` of slow-2g, 2g or 3g, `RTT` over 300 ms, `Downlink` under 0.8 Mbit/s. Chromium sends the hints with every request once a document has asked for them with `Accept-CH: ECT, RTT, Downlink` (`edge.NetworkHints`), the stream's request included, so they cover a page whose own measurement missed. The template's documents send that header, and its stream handler passes the answer on:
+
+```go source=template/internal/web/server.go
+func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
+	tab := r.URL.Query().Get("tab")
+	if !validID(tab) {
+		http.Error(w, "bad tab id", http.StatusBadRequest)
+		return
+	}
+	sid := edge.SessionID(r.Context())
+	spec := live.Spec{ID: tab, Views: []live.View{entriesView(), tabView(sid, tab)}, Reconnect: "stream", Slow: edge.SlowLink(r)}
+	if err := s.hub.Serve(w, r, spec); err != nil {
+		s.log.Debug("stream ended", "tab", tab, "err", err)
+	}
+}
+```
+
+**What a slow stream gets.** With `live.Spec.Slow`:
+
+- Each view's newest frame, 250 ms or more after the last: about four frames a second. The frames between drop, as they do for a stream that falls behind. A view's first frame goes out at once, and so does a frame of a view that sent nothing for 250 ms, such as the tab's outcome after an action; it takes the frames that wait along, so views that change together still arrive together. Heartbeats go out as before.
+- `sse.Options.Slow`, which asks the budget for a denser encoder while it has room: zstd at its default level instead of its fastest, while that tier, about 1.1 MiB more, fits the stream's fair share and what is left, and the fastest level's when it does not; brotli at quality 4 while the budget has room for it, where another stream drops to 3 once the budget is half full. The default level sends half the bytes of the fastest on frames that change in many places and 4 to 8% fewer where a frame changes in one place, and nothing on a Game of Life ([Encoders](/docs/performance/encoders#for-slow-links)).
+
+A client that claims a slow link without one gets fewer frames and costs some memory, within the budget; a slow link the page takes for a fast one gets what every stream gets.
+
+On this site, every demo's stream and the landing page's pass `edge.SlowLink(r)`. Measured on 2026-10-14 on the development machine, in headless Chromium 154 with DevTools' network presets and its CPU four times slower, as on a phone (`TestSlowLinkCost` in `site/internal/app`), with this commit and with the site and lith as of v0.2.0, three runs each, the medians over 10 s with the range in brackets: the stream's KB/s and frames a second, the main thread's share of the time in tasks, and the longest wait of a key press, sent every half second. The Game of Life steps ten times a second; the landing page has five cursors moving behind its title. Unthrottled, both builds send the Game of Life 5.0 to 7.2 KB/s, ten frames a second, and keep the main thread 35 to 43% busy.
+
+| Page, link | Stream | KB/s | Frames a second | Main thread busy | Slowest key |
+| --- | --- | --- | --- | --- | --- |
+| Game of Life, Slow 4G | v0.2.0 | 5.2 (4.4 to 6.6) | 10 | 89% (83 to 92) | 68 ms |
+| | slow | 2.9 (2.3 to 3.2) | 4 | 54% (49 to 61) | 67 ms |
+| Game of Life, 3G | v0.2.0 | 6.2 (5.5 to 6.3) | 10 | 90% (84 to 96) | 71 ms |
+| | slow | 2.7 (2.5 to 3.4) | 4 | 56% (53 to 58) | 52 ms |
+| Landing page, Slow 4G | v0.2.0 | 0.9 | 17 | 75% (64 to 79) | 30 ms |
+| | slow | 0.3 | 6.8 (6.7 to 7.0) | 51% (47 to 52) | 18 ms |
+| Landing page, 3G | v0.2.0 | 0.9 | 17 | 64% (63 to 67) | 15 ms |
+| | slow | 0.3 | 6.8 (6.7 to 6.9) | 49% (45 to 50) | 18 ms |
+
+- The network was not the limit: Slow 4G carries 180 KB/s and 3G 50 KB/s, and the streams took at most 7 KB/s. What a slow phone loses on is its main thread, and fewer frames cut its busy time by a quarter to two fifths.
+- The streams send half the bytes or less: fewer frames, each a few generations or moves apart from the one before, so each is larger (the Game of Life's about 700 bytes instead of 520).
+- Every page stayed interactive: no key press waited more than 71 ms from DevTools sending it to the page taking it, and Chromium's Event Timing measured none over 104 ms, under the 200 ms that counts as a good response.
+- The landing page sends more than four frames a second: its counter and the stream inspector's report change once a second, are due at once, and take the cursors' newest frame along.
 
 ## Streams without the hub
 
