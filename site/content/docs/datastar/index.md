@@ -160,6 +160,22 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Fix.** Actions that must all arrive set `requestCancellation: 'disabled'`. Give each an op id, so a retried one runs once ([Commands](/docs/guides/commands#op-ids-and-retries)).
 
+### Signals arrive in the address or in the body, by verb
+
+**Symptom.** A handler that reads the query string finds no signals in a `@post` or a `@query`, and one that reads the body finds none in a `@get`.
+
+**Cause.** Datastar sends the signals, or the `payload` an action names, as the `datastar` query parameter for `@get` and `@delete`, and as a JSON body for every other verb, `@query` included.
+
+**Fix.** Read them with `sse.ReadSignals(w, r, &v)`, which looks where the method puts them, and call it before `sse.Open`, whose headers discard the body (it then returns `sse.ErrBodyConsumed`). Pick the verb by what the request does: `@get` for streams and for reads whose signals are all `_`, `@query` for reads that send real signals (a search, a filter), `@post` for commands ([Pages](/docs/guides/pages#verbs-and-signals)).
+
+### A stream opened with @query stays open in a hidden tab
+
+**Symptom.** A page whose stream opens with `@query` keeps it, and its encoder on the server, while the tab sits in the background. A page that opens its stream with `@get` drops it there and opens it again when the tab shows.
+
+**Cause.** Datastar's `openWhenHidden` defaults to false for `@get` only, which closes the request while the page is hidden. Every other verb defaults to true.
+
+**Fix.** A stream that opens with `@query` sets `openWhenHidden: false`, unless it should run in the background.
+
 ### Elements patched from an action's answer get overwritten
 
 **Symptom.** An action patches an element in its answer, and the next frame puts the old content back.

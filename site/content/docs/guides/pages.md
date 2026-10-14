@@ -161,3 +161,15 @@ w.Write(sse.PatchSignals(fmt.Appendf(nil, `{"_goto":"/boards/%s"}`, op.Result())
 ```
 
 The page that posts it follows the signal with `data-effect="$_goto && location.assign($_goto)"`.
+
+## Verbs and signals
+
+Datastar sends a request's signals, or the `payload` it names, as the `datastar` query parameter for `@get` and `@delete`, and as a JSON body for every other verb. A lith page picks the verb by what the request does:
+
+- `@get` opens the stream, and makes reads whose signals are all `_` and stay in the browser: the tab's id travels in the address. Datastar closes a `@get` while the tab is hidden and opens it again when the tab shows.
+- `@query`, the HTTP QUERY method, makes a read that sends real signals in its body: a search, a filter, a measurement. It writes nothing, like a GET, and `edge.Compress` compresses its answer as it does a GET's. A `@query` stays open in a hidden tab, so one that opens a stream sets `openWhenHidden: false`.
+- `@post` sends a command.
+
+`sse.ReadSignals(w, r, &v)` reads the signals for any method: the query parameter of GET, HEAD and DELETE, the body of the others, at most 1 MiB (`sse.ReadSignalsLimit` sets another cap). A request without signals leaves `v` as it was; bad JSON and a body over the cap are errors, which a handler answers with 400. It reads the body to its end. Over HTTP/1.1, net/http notices that a client has left only once the body is read, or discarded when the answer's headers go out, so a handler that waits before it answers reads the signals first. Read them before `sse.Open` or `hub.Serve` too: the stream's headers discard the body, and `ReadSignals` then returns `sse.ErrBodyConsumed`.
+
+datastar-go has a `ReadSignals(r, v)` with the same split between the address and the body. lith's takes the `ResponseWriter` as well, for `http.MaxBytesReader`: it caps the body where datastar-go reads any size, and it takes an empty body as no signals where datastar-go returns an error. Both read the body to its end.

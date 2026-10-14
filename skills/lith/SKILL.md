@@ -49,7 +49,11 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
    commands: tab state per tab id, preferences per session. Ephemeral client
    state lives in `_`-prefixed signals. No maps of tabs in memory.
 7. **GET never writes.** Sessions start as a cookie (`edge`); a row appears
-   with the first command that needs one.
+   with the first command that needs one. `@get` for streams and reads whose
+   signals are all `_`; `@query` for reads that send real signals (searches,
+   filters), with `openWhenHidden: false` when it opens a stream; `@post` for
+   commands. Read signals with `sse.ReadSignals` for any method, before
+   `sse.Open`.
 8. **Reads go through the transaction you are given**: the worker's in a
    view, `db.View` for a GET document. A render's ctx carries its
    transaction, so a store that calls `db.View(ctx, fn)` from a render joins
@@ -75,7 +79,7 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 | `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
 | `live` | views and topics, the tick, render workers with prepared read statements, shared frames, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, stats |
-| `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, write deadlines |
+| `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, write deadlines, `ReadSignals` for any method |
 | `edge` | sessions cookie, CSRF, client IP, CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
 | `prom` | Prometheus collector for `writer.Stats`, `live.Hub.Stats` and the stream budget: `<ns>_writer_*`, `<ns>_live_*`, `<ns>_sse_budget_*` (nested module) |

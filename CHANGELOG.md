@@ -2,6 +2,11 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `sse`: `ReadSignals` reads a request's Datastar signals for any method: the `datastar` query parameter of GET, HEAD and DELETE, the JSON body of the others, `@query`'s QUERY included. It caps the body at 1 MiB (`ReadSignalsLimit` for another cap), takes a request without signals as none, and reads the body to its end, so that over HTTP/1.1 a handler that waits before it answers still notices a client that left. Called after `Open`, it returns `ErrBodyConsumed`.
+- `edge`: `Compress` compresses the answers to QUERY as it does GET's.
+
 ## v0.1.1 (2026-10-14)
 
 - `sse`: with `ZstdLowMemory` set and a memory budget (every `live` hub has one), a client that accepts brotli but not zstd, such as Safari, got its stream uncompressed: the low-memory filter dropped the brotli tiers too. It now narrows zstd's tiers only. Apps that set `ZstdLowMemory` should update.

@@ -77,6 +77,16 @@ write-up; look there before changing the behaviour.
   keeps working. Inside the scope nothing takes a press until it ends: it
   goes to what lies beneath. A browser without scoped transitions morphs at
   once. [lith's site]
+- Datastar sends signals (or the `payload`) as the `datastar` query
+  parameter for `@get` and `@delete`, and as a JSON body for every other
+  verb, `@query` included. Read them with `sse.ReadSignals(w, r, &v)` for any
+  method, before `sse.Open` (its headers discard the body:
+  `sse.ErrBodyConsumed`). `@get` for streams and reads whose signals are all
+  `_`, `@query` for reads that send real signals (searches, filters), `@post`
+  for commands. [lith]
+- `openWhenHidden` defaults to false for `@get` only: a `@get` stream closes
+  while its tab is hidden and reopens when it shows, every other verb stays
+  open. A stream opened with `@query` sets `openWhenHidden: false`. [lith]
 - An action's response carries nothing the view needs: the outcome arrives on
   the tab's stream. Patching elements from an action fights the next frame,
   which overwrites them. Signals from an action are fine (validation

@@ -86,7 +86,7 @@ A stream's own `ZstdWindow` and `BrotliWindow` cap what the budget gives it, and
 
 ## Hibernation
 
-Most tabs sit still: a page open in a background tab, a dashboard nobody looks at. With `live.Options.Hibernate` set, a zstd stream that sent no frame for that long ends its zstd frame and gives its encoder back to a pool, and its window back to the budget. Its next frame takes an encoder from the pool and starts without history. Heartbeats go out without waking it.
+Most tabs sit still: a page left open beside the one someone works in, a dashboard nobody looks at. (A tab in the background has no stream at all: Datastar closes a `@get` while its tab is hidden and opens it again when the tab shows.) With `live.Options.Hibernate` set, a zstd stream that sent no frame for that long ends its zstd frame and gives its encoder back to a pool, and its window back to the budget. Its next frame takes an encoder from the pool and starts without history. Heartbeats go out without waking it.
 
 The cost is that first frame after a pause: in lith's simulation of 200 tabs over an hour, hibernating after 30 s cut the heap per tab from 0.64 to 0.11 MiB and added about 45 KB per tab and hour on the wire ([Performance](/docs/performance/hibernation)). Brotli and gzip streams cannot start over without their history, so hibernation applies to zstd only. It is off unless an app sets it; this site sets a minute.
 
