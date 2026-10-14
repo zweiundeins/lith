@@ -13,6 +13,7 @@
 //	Limiter              starbase's token bucket, swept as it goes, libretto's rule that a clock step must not reset it, and its five messages in the last hour
 //	Health, Ready        libretto's and swisscyberguard's liveness and readiness probes, with checks registered by the app
 //	Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
+//	SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
 //
 // A chain, built from the inside out:
 //
