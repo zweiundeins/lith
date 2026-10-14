@@ -191,6 +191,38 @@ func TestViewLeftDuringItsRenderBooksNothing(t *testing.T) {
 	probe.leave(t)
 }
 
+// With Refuse, what the budget books stays within its limit while tabs
+// with a 246 KB view of their own open until one is turned away: the hub
+// books no frame of a view that one stream watches, so no booking comes
+// after Open has let a stream in.
+func TestTabsStayWithinARefusingBudget(t *testing.T) {
+	for _, coding := range []string{sse.Zstd, sse.Brotli, "identity"} {
+		b := sse.NewBudget(sse.BudgetOptions{Limit: 8 << 20, Refuse: true})
+		h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
+		var version atomic.Int64
+		var cs []*client
+		for i := 0; ; i++ {
+			if i == 300 {
+				t.Fatalf("%s: no stream turned away", coding)
+			}
+			c := serve(h, Spec{Views: []View{tabView("tab"+strconv.Itoa(i), 1500, &version)}}, coding)
+			waitFor(t, "the frame or the refusal", func() bool {
+				return h.Stats().FramesSent == int64(len(cs)+1) || c.status() == http.StatusServiceUnavailable
+			})
+			if c.status() == http.StatusServiceUnavailable {
+				break
+			}
+			cs = append(cs, c)
+			if st := b.Stats(); st.Reserved > st.Limit {
+				t.Fatalf("%s, %d streams: %d KiB booked in a limit of %d KiB", coding, len(cs), st.Reserved>>10, st.Limit>>10)
+			}
+		}
+		for _, c := range cs {
+			c.leave(t)
+		}
+	}
+}
+
 // A view that one stream watches keeps no frame once the stream has it:
 // after the write, whatever the coding, the frame's bytes are garbage and
 // the budget books none. A second stream that joins the view gets a frame
