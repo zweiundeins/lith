@@ -8,7 +8,7 @@ order: 4
 
 Import path `github.com/zweiundeins/lith/sse`. Generated from the doc comments in [sse/](https://github.com/zweiundeins/lith/tree/main/sse).
 
-Events are formatted once (PatchElements, PatchSignals, Comment) and the same bytes can go to any number of streams. Each stream compresses them with a window that spans the whole stream, so a frame that repeats much of an earlier one costs little on the wire. The encoders are tuned for many long-lived streams: zstd at its fastest level (Options.ZstdLevel) with a 512 KiB window (about 1.7 MiB of heap per stream, 1 MiB with Options.ZstdLowMemory) when the client accepts it, else brotli at quality 4 with a 256 KiB window (about 2 MiB), else gzip.
+Events are formatted once (PatchElements, PatchSignals, Comment) and the same bytes can go to any number of streams. Each stream compresses them with a window that spans the whole stream, so a frame that repeats much of an earlier one costs little on the wire. The encoders are tuned for many long-lived streams: zstd at its fastest level (Options.ZstdLevel) with a 512 KiB window (about 1.7 MiB of heap per stream, 1 MiB with Options.ZstdLowMemory) when the client accepts it, else brotli at quality 4 with a 256 KiB window (about 1.6 MiB), else gzip.
 
 A Budget shares a memory limit among many streams, their encoders and the frames kept for them: each stream gets a window that holds its frames, zstd streams move to smaller windows as more streams open, and brotli streams take quality 3, then a window below their frames, as the limit fills. Stream.Hibernate lets an idle zstd stream give its encoder back until its next write, and Stream.Upgrade tells when a brotli stream would do better on a new connection.
 
@@ -297,9 +297,9 @@ type Options struct {
 	// bench/RESULTS.md has the trade-off measured on a shared board.
 	ZstdLevel zstd.EncoderLevel
 	// ZstdLowMemory keeps zstd's history at its window: about 1 MiB per
-	// stream instead of 1.65 MiB, for twice the CPU per frame once the
-	// streams no longer fit in the CPU's cache (measured with 200 streams),
-	// since the encoder then shifts its window after every 128 KiB of input.
+	// stream instead of 1.65 MiB, for about 40% more CPU per frame
+	// (TestHeapPerStream), since the encoder then shifts its window after
+	// every 128 KiB of input.
 	ZstdLowMemory bool
 	// BrotliQuality is brotli's quality, 1 to 11 (default 4).
 	BrotliQuality int
