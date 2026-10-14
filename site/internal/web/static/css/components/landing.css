@@ -40,8 +40,24 @@
 			pointer-events: auto;
 		}
 
+		/* Narrow: the monolith stands beside the acrostic, the rest of the
+		 * copy runs under both. */
 		@container hero (width < 46rem) {
-			grid-template-columns: minmax(0, 1fr);
+			grid-template-columns: minmax(0, 1fr) auto;
+			column-gap: var(--lith-space-4);
+			row-gap: 0;
+
+			& > .hero__copy {
+				display: contents;
+			}
+
+			& > .hero__copy > :not(.acrostic) {
+				grid-column: 1 / -1;
+			}
+
+			& > .hero__copy > .acrostic {
+				grid-column: 1;
+			}
 		}
 	}
 
@@ -102,12 +118,22 @@
 		justify-items: center;
 
 		@container hero (width < 46rem) {
+			grid-column: 2;
+			grid-row: 2;
+			align-self: center;
+		}
+
+		@container hero (width < 22rem) {
 			display: none;
 		}
 
 		& svg {
 			inline-size: auto;
 			block-size: clamp(18rem, 34cqi, 30rem);
+
+			@container hero (width < 46rem) {
+				block-size: clamp(9rem, 30cqi, 14rem);
+			}
 			filter: drop-shadow(0 0 calc(var(--lith-seam-glow) * 36px) var(--lith-glow-color));
 			animation: breathe 6s ease-in-out infinite alternate;
 		}
