@@ -209,7 +209,9 @@ type Options struct {
 	// Workers is the number of render workers (default GOMAXPROCS).
 	Workers int
 	// MaxStreams is how many streams may be open at once (default 2000).
-	// Serve answers 503 to more.
+	// Serve answers 503 to more. With a budget that refuses streams
+	// (sse.BudgetOptions.Refuse), memory caps them, and MaxStreams is a
+	// backstop.
 	MaxStreams int
 	// PendingWatch is how long Watch keeps a view for a stream ID that is
 	// not open yet, for the stream that opens with it (default 10s,
@@ -251,8 +253,9 @@ type Options struct {
 	// frames, which the hub books (sse.Budget.Hold); each stream gets a
 	// window that holds its frames, up to 2^19, and goes out uncompressed
 	// when not even the smallest tier fits; without a memory limit it only
-	// counts. Pass a Budget of your own for another limit or Refuse, or one
-	// with Limit -1 to turn it off.
+	// counts. Pass a Budget of your own for another limit, or with Refuse,
+	// which Serve answers with 503 when the budget has no room for a
+	// stream, uncompressed ones too; or one with Limit -1 to turn it off.
 	SSE sse.Options
 }
 ```

@@ -72,14 +72,20 @@ i5-13500 core, 2026-10-12:
   frame by its `Len() int`). The other half is GC headroom: a 230 KB render
   allocates about 1 MiB of garbage. zstd takes the largest tier within its
   fair share and shrinks while open, down to its frame's window, then 2^15,
-  then raw blocks. brotli keeps its tier: its frame's window (no larger) at
-  q4 while the budget is at most half full, q3 after, q3 2^16 only when that
-  does not fit, uncompressed last. Without a memory limit nothing changes.
+  then raw blocks (never with `Refuse`). brotli keeps its tier: its frame's
+  window (no larger) at q4 while the budget is at most half full, q3 after,
+  q3 2^16 only when that does not fit, uncompressed last. Without a memory
+  limit nothing changes.
   Configure it with
   `live.Options{SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{...})}}`:
   `Limit` in bytes (-1: none), `MinWindow` for frames that refer back further
   than one write, `MaxWindow`, and `Refuse` to answer 503 instead of sending
-  uncompressed, for pages with large frames (kanban's board). A stream's own
+  uncompressed, for pages with large frames (kanban's board). With `Refuse`
+  every stream without room is refused, an uncompressed one when its 32 KiB
+  do not fit, and every stream let in compresses until it closes (zstd keeps
+  2^15 booked while asleep, never raw blocks). Memory is then the stream cap:
+  leave `MaxStreams` at its default (2000) as a backstop for a process
+  without a memory limit, and open streams with retry 'error'. A stream's own
   ZstdWindow and BrotliWindow cap what it gets. A brotli stream below its
   frame's window (or uncompressed) with `Spec.Reconnect` set is ended with
   `sse.Reconnect` once room frees up, and the page reopens on a better tier

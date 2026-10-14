@@ -46,11 +46,18 @@ type BudgetOptions struct {
 	MinWindow int
 	// MaxWindow is the largest window a stream gets (default 19).
 	MaxWindow int
-	// Refuse turns away a stream that cannot have its smallest tier: Open
-	// returns ErrNoRoom. Without it the stream goes out uncompressed, which
-	// suits small, rare frames; large and frequent frames are better
+	// Refuse turns away a stream that the budget has no room for: Open
+	// returns ErrNoRoom. A stream whose client accepts a coding needs room
+	// for that coding's smallest tier and 32 KiB, one that compresses
+	// nothing (its client accepts no coding, or Options.NoCompression) for
+	// its 32 KiB. A stream let in never goes out uncompressed for want of
+	// room: a zstd stream keeps its smallest tier booked while it has no
+	// encoder. Without Refuse, a stream without room for a tier goes out
+	// uncompressed, which suits small, rare frames, and one that compresses
+	// nothing is never turned away. Large and frequent frames are better
 	// refused, for pages that open their stream with retry 'error' and so
-	// come back.
+	// come back: the budget then caps the streams by what they hold, and
+	// live's MaxStreams, set high, is only a backstop.
 	Refuse bool
 }
 
@@ -63,16 +70,18 @@ type BudgetOptions struct {
 // once, however many streams watch it (Hold). A stream's tier is picked at
 // its first write, from the largest write it has made: a tier's window
 // must hold that frame with a sixteenth to spare, or a frame cannot refer
-// to the one before, and its bytes grow tens of times over.
+// to the one before, and its bytes grow tens of times over. With
+// BudgetOptions.Refuse, Open turns away a stream it has no room for, and
+// every stream it lets in compresses until it closes.
 //
 // A brotli stream takes the smallest window that holds its frame, since a
 // larger one sends no fewer bytes: at its quality (4) while the budget
 // stays at most half full, else at quality 3, and only when that does not
 // fit what is left, quality 3 at 2^16, which compresses each frame alone.
 // It keeps its tier until it closes. Open reserves quality 3 at 2^16 for
-// it, and a stream that cannot have even that goes out uncompressed. A
-// stream that holds less than its frame needs may be asked to open again
-// once room frees up (Stream.Upgrade).
+// it, and a stream that cannot have even that goes out uncompressed, or
+// with Refuse is turned away. A stream that holds less than its frame
+// needs may be asked to open again once room frees up (Stream.Upgrade).
 //
 // A zstd stream takes the largest tier within its fair share (what the
 // limit leaves after frames and streams, divided by the streams that
@@ -86,7 +95,10 @@ type BudgetOptions struct {
 // zstd frame and begins the next with the smaller tier, which costs one
 // frame without history. A zstd stream whose window is below its frame
 // moves up the same way once room frees up. Close gives the reservation
-// back, and so does a zstd stream that hibernates (Stream.Hibernate).
+// back, and so does a zstd stream that hibernates (Stream.Hibernate). With
+// Refuse, a zstd stream keeps 2^15 booked from Open to Close, while it has
+// no encoder too, and takes that tier when nothing else fits: it never
+// sends raw blocks.
 //
 // The tiers' sizes are the most a stream held at each, after sessions of
 // frames of 50 to 230 KB (lith's bench/budget, framesize.csv), rounded up
@@ -142,8 +154,8 @@ type BudgetStats struct {
 	// Streams counts the open streams by what they hold: a tier such as
 	// "zstd 2^19", "zstd 2^17 low memory" or "br q4 2^18"; "zstd asleep"
 	// for zstd streams without an encoder (before their first write,
-	// hibernating, or waiting for room); "identity" for streams that go
-	// out uncompressed.
+	// hibernating, or, without Refuse, waiting for room); "identity" for
+	// streams that go out uncompressed.
 	Streams  map[string]int
 	Refused  int64 // streams turned away since NewBudget
 	Reopened int64 // streams asked to open again for a better tier (Stream.Upgrade)
@@ -164,8 +176,9 @@ func (b *Budget) Stats() BudgetStats {
 // SetLimit changes the budget's limit in bytes (0 for none), as when the
 // process nears its memory limit. The zstd streams above their fair share
 // under the new limit move down at their next write, or, when it leaves no
-// room for them, send their frames uncompressed until it does. Brotli and
-// gzip streams keep their tiers until they close.
+// room for them, send their frames uncompressed until it does (with
+// Refuse, they take their smallest tier). Brotli and gzip streams keep
+// their tiers until they close.
 func (b *Budget) SetLimit(n int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -178,7 +191,9 @@ func (b *Budget) SetLimit(n int64) {
 // gives back -n: a live hub books each view's newest frame, its length and
 // 8 KiB, once for all the streams that watch it. What Hold books counts
 // against the limit and leaves the encoders less room, but is never
-// refused: once it takes the whole limit, streams go out uncompressed.
+// refused: once it takes the whole limit, streams go out uncompressed, or
+// with Refuse new ones are turned away while those open keep their
+// smallest tiers.
 func (b *Budget) Hold(n int64) {
 	if n == 0 {
 		return
@@ -263,6 +278,9 @@ var (
 	// brotliFloor is what Open reserves for a brotli stream until its
 	// first write: the least it holds, whatever its frames.
 	brotliFloor = brotliTiers[3][4]
+	// zstdFloor is the least a zstd stream holds, which a budget with
+	// Refuse keeps booked for it while it has no encoder.
+	zstdFloor = zstdTiers[len(zstdTiers)-1]
 )
 
 // menu lists the tiers a stream of the coding may get when its largest
@@ -353,8 +371,10 @@ func (b *Budget) share(users int) int64 {
 // pickZstd chooses a zstd stream's tier for frames of n bytes: the largest
 // that holds them within its fair share and what is left, else the
 // smallest that holds them while what is left holds it, else the last
-// resort, or none. own is what the stream holds now, which it gives up.
-// b.mu is held.
+// resort, or none. own is what the stream holds now, which it gives up. A
+// budget with Refuse falls back on zstdFloor, which the stream holds
+// anyway, even when Hold has taken the budget past its limit. b.mu is
+// held.
 func (b *Budget) pickZstd(o Options, n int, own int64) (tier, bool) {
 	fit, last := b.menu(Zstd, o, n)
 	if b.limit == 0 {
@@ -377,6 +397,9 @@ func (b *Budget) pickZstd(o Options, n int, own int64) (tier, bool) {
 	}
 	if last.coding != "" && last.heap <= left {
 		return last, true
+	}
+	if b.refuse && own >= zstdFloor.heap {
+		return zstdFloor, true
 	}
 	return tier{}, false
 }
@@ -421,10 +444,12 @@ func label(t tier, coding string) string {
 // for none, and reserves 32 KiB for it, and its tier: without a limit the
 // largest; with one, gzip's, brotliFloor for a brotli stream until its
 // first write picks its tier, and none for a zstd stream, which takes its
-// tier at its first write. A stream that would not have room for the
-// coding's smallest tier gets none. user reports whether the stream counts
-// in the fair share, ok false that the budget refuses it. seen gets the
-// count of streams that found no room, for shrink.
+// tier at its first write, but with Refuse the heap of zstdFloor. A
+// stream that would not have room for the coding's smallest tier gets
+// none. With Refuse, the budget refuses it instead, and a stream of no
+// coding that would not have room for its 32 KiB. user reports whether
+// the stream counts in the fair share, ok false that the budget refuses
+// it. seen gets the count of streams that found no room, for shrink.
 func (b *Budget) open(coding string, o Options, seen *int64) (t tier, user, ok bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -447,11 +472,17 @@ func (b *Budget) open(coding string, o Options, seen *int64) (t tier, user, ok b
 			t = brotliFloor
 		case coding == Gzip:
 			t = least
+		case b.refuse:
+			t = tier{heap: least.heap} // zstd, asleep until its first write
 		}
 		if t.coding != "" || coding == Zstd {
 			b.users++
 			user = true
 		}
+	} else if b.refuse && b.limit > 0 && streamHeap > b.limit-b.reserved {
+		b.starved.Add(1)
+		b.refused++
+		return tier{}, false, false
 	}
 	if t.coding == "" && coding != Zstd {
 		coding = ""
@@ -476,15 +507,15 @@ func (b *Budget) first(t tier, o Options, n int) tier {
 	return nt
 }
 
-// wake reserves a tier for a zstd stream without one, whose largest write
-// is n bytes, if one fits.
-func (b *Budget) wake(o Options, n int, seen *int64) (tier, bool) {
+// wake reserves a tier for a zstd stream without an encoder, which holds
+// own, whose largest write is n bytes, if one fits.
+func (b *Budget) wake(own tier, o Options, n int, seen *int64) (tier, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	t, ok := b.pickZstd(o, n, 0)
+	t, ok := b.pickZstd(o, n, own.heap)
 	*seen = b.starved.Load()
 	if ok {
-		b.drop(tier{}, Zstd)
+		b.drop(own, Zstd)
 		b.hold(t, Zstd)
 	}
 	return t, ok
@@ -495,9 +526,10 @@ func (b *Budget) wake(o Options, n int, seen *int64) (tier, bool) {
 // when a stream found no room since the stream's last tier (or the limit
 // changed) and the share is smaller than t. When the share is below the
 // smallest such tier, it moves to that tier while what is left holds it,
-// else to the last resort, else to none, and from that tier, nowhere. A
-// budget that refuses streams counts the one it turned away, which is not
-// open. It reports the new tier, or false to keep t.
+// else to the last resort, else to none (with Refuse, zstdFloor), and from
+// that tier, nowhere. A budget that refuses streams counts the one it
+// turned away, which is not open. It reports the new tier, or false to
+// keep t.
 func (b *Budget) shrink(t tier, o Options, n int, seen *int64) (tier, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -528,6 +560,8 @@ func (b *Budget) shrink(t tier, o Options, n int, seen *int64) (tier, bool) {
 				nt = f
 			case last.coding != "" && last.heap <= left:
 				nt = last
+			case b.refuse:
+				nt = zstdFloor
 			}
 			b.hold(nt, Zstd)
 			b.free()
@@ -563,13 +597,19 @@ func (b *Budget) lift(t tier, o Options, n int, seen *int64) (tier, bool) {
 	return nt, true
 }
 
-// sleep gives back the tier of a zstd stream that hibernates.
-func (b *Budget) sleep(t tier) {
+// sleep gives back the tier of a zstd stream that hibernates, but for the
+// heap of zstdFloor with Refuse, and returns what the stream then holds.
+func (b *Budget) sleep(t tier) tier {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	var nt tier
+	if b.refuse && b.limit > 0 {
+		nt.heap = zstdFloor.heap
+	}
 	b.drop(t, Zstd)
-	b.hold(tier{}, Zstd)
+	b.hold(nt, Zstd)
 	b.free()
+	return nt
 }
 
 // close counts out a stream of the coding, "" for none, and gives back its

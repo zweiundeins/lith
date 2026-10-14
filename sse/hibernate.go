@@ -13,10 +13,12 @@ import (
 // stream holds neither. The next write takes an encoder from the pool and
 // starts a new frame, without the history of the frames before; with a
 // budget, of the tier the budget then allows, or in raw blocks while it
-// allows none. A Content-Encoding: zstd body may hold any number of frames
-// one after another, and browsers decode them as one stream. Hibernate
-// does nothing to a stream of another coding: a brotli or gzip body is a
-// single stream, which cannot start over without its history.
+// allows none. A budget with BudgetOptions.Refuse keeps the smallest tier
+// booked for the stream, which its next write takes when no other fits.
+// A Content-Encoding: zstd body may hold any number of frames one after
+// another, and browsers decode them as one stream. Hibernate does nothing
+// to a stream of another coding: a brotli or gzip body is a single
+// stream, which cannot start over without its history.
 func (s *Stream) Hibernate() error {
 	if s.err != nil {
 		return s.err
@@ -38,8 +40,7 @@ func (s *Stream) Hibernate() error {
 	}
 	s.enc, s.asleep, s.framed = nil, true, false
 	if b := s.opt.Budget; b != nil {
-		b.sleep(s.tier)
-		s.tier = tier{}
+		s.tier = b.sleep(s.tier)
 	}
 	if err != nil {
 		return s.fail(err)
@@ -56,7 +57,7 @@ func (s *Stream) Hibernate() error {
 // has no room.
 func (s *Stream) wake() (bool, error) {
 	if b := s.opt.Budget; b != nil {
-		t, ok := b.wake(s.opt, s.frame, &s.seen)
+		t, ok := b.wake(s.tier, s.opt, s.frame, &s.seen)
 		if !ok {
 			return false, nil
 		}
@@ -77,7 +78,8 @@ func (s *Stream) wake() (bool, error) {
 // when its window is below them and room freed up. It ends the frame in
 // s.buf and begins the next one there, with an encoder of the new tier, or
 // with none when the budget, its limit lowered, has no room left: the
-// stream then falls asleep. Write calls it before it compresses.
+// stream then falls asleep (never with BudgetOptions.Refuse). Write calls
+// it before it compresses.
 func (s *Stream) shrink() error {
 	b := s.opt.Budget
 	if b == nil || s.tier.coding != Zstd {

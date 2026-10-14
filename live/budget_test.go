@@ -22,7 +22,8 @@ import (
 
 // The hub's streams share the budget of Options.SSE: each holds a tier
 // while it is open, a stream without room still gets its frames, and every
-// stream gives its tier back when it ends.
+// stream gives its tier back when it ends. With Refuse, a stream without
+// room gets a 503, an uncompressed one too.
 func TestBudgetThroughOptions(t *testing.T) {
 	b := sse.NewBudget(sse.BudgetOptions{Limit: 4 << 20, MinWindow: 17, MaxWindow: 19})
 	h := start(t, Options{SSE: sse.Options{Budget: b}})
@@ -55,6 +56,16 @@ func TestBudgetThroughOptions(t *testing.T) {
 	}
 	if st := b.Stats(); st.Refused != 1 || h.Stats().Streams != 1 {
 		t.Fatalf("after the refusal: %+v, %d streams", st, h.Stats().Streams)
+	}
+	// So is a stream that compresses nothing, once its 32 KiB do not fit.
+	st := b.Stats()
+	b.Hold(st.Limit - st.Reserved - 16<<10)
+	plain := serve(h, Spec{Views: []View{v}}, "identity")
+	if err := plain.returned(t); !errors.Is(err, sse.ErrNoRoom) || plain.status() != http.StatusServiceUnavailable {
+		t.Fatalf("an uncompressed stream without room: %v, status %d", err, plain.status())
+	}
+	if st := b.Stats(); st.Refused != 2 || h.Stats().Streams != 1 {
+		t.Fatalf("after the second refusal: %+v, %d streams", st, h.Stats().Streams)
 	}
 	first.leave(t)
 }

@@ -238,8 +238,9 @@ func (s *Stream) Sent() (events, wire int64) { return s.in, s.out }
 // write, while it hibernates, or while its budget has no room for it);
 // "identity" when it goes out uncompressed. heap is what the stream's
 // budget reserves for the encoder: 0 without a budget, and for a stream
-// asleep or uncompressed. A brotli stream with a budget holds quality 3 at
-// 2^16 until its first write picks its tier.
+// asleep or uncompressed, but for an asleep one the heap of zstd's
+// smallest tier with BudgetOptions.Refuse. A brotli stream with a budget
+// holds quality 3 at 2^16 until its first write picks its tier.
 func (s *Stream) Tier() (name string, heap int64) {
 	if s.opt.Budget != nil {
 		return label(s.tier, s.encoding), s.tier.heap

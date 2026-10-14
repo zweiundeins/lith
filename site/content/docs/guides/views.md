@@ -249,7 +249,7 @@ func watchdog(b int64) string {
 
 ## How many streams
 
-`Options.MaxStreams`, 2000 by default, caps the open streams: `Serve` answers 503 to the next one and returns `live.ErrFull`. The template sets 200 and this site 300, from their memory: each compressed stream holds its encoder's window for as long as it is open ([Streams and compression](/docs/guides/streams#the-memory-budget)). A stream refused for want of memory gets a 503 too, and a page that opened its stream with `retry: 'error'` asks again.
+`Options.MaxStreams`, 2000 by default, caps the open streams: `Serve` answers 503 to the next one and returns `live.ErrFull`. The template sets 200 and this site 300, from their memory: each compressed stream holds its encoder's window for as long as it is open ([Streams and compression](/docs/guides/streams#the-memory-budget)). A stream refused for want of memory gets a 503 too, and a page that opened its stream with `retry: 'error'` asks again. An app whose budget refuses streams (`sse.BudgetOptions.Refuse`) can let memory be the cap: the budget books what each stream holds, its encoder, 32 KiB and its views' frames, and turns away the stream it has no room for, compressed or not. `MaxStreams` then stays at its default as a backstop for a process without a memory limit ([Refusing streams](/docs/guides/streams#refusing-streams)).
 
 ## The hub's options
 
