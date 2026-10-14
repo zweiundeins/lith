@@ -414,6 +414,15 @@ func TestBudgetUpgrade(t *testing.T) {
 	if !asked(below[0]) || asked(below[1]) || asked(below[2]) || asked(id) {
 		t.Fatal("after 600 KiB freed up, the first stream is not the one asked")
 	}
+	// A stream that writes on before its handler ends it is not listed
+	// again: its channel is closed once.
+	write(t, below[0], huge)
+	b.mu.Lock()
+	again := slices.Contains(b.movers, below[0].up)
+	b.mu.Unlock()
+	if again {
+		t.Fatal("a stream asked to open again is listed again")
+	}
 	below[0].Close()
 	// Room for all: one more every reopenEvery.
 	b.Hold(-fill + 600*kib)
