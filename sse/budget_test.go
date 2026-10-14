@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // openWith opens a stream on a new recorder for a client that accepts
@@ -351,6 +352,109 @@ func TestBudgetHold(t *testing.T) {
 	if st := b.Stats(); st.Reserved != 0 || st.Frames != 0 {
 		t.Fatalf("after Close: %+v", st)
 	}
+}
+
+// A brotli stream whose window is below its frames, or that went out
+// uncompressed for want of room, learns through Upgrade when a new stream
+// would get a window that holds them: the budget closes its channel once
+// room frees up, in the order the streams called Upgrade, one every
+// reopenEvery. Streams whose window holds their frames, zstd streams and
+// streams without a budget are never asked.
+func TestBudgetUpgrade(t *testing.T) {
+	asked := func(s *Stream) bool {
+		select {
+		case <-s.Upgrade():
+			return true
+		default:
+			return false
+		}
+	}
+	eventually := func(s *Stream) time.Time {
+		t.Helper()
+		select {
+		case <-s.Upgrade():
+			return time.Now()
+		case <-time.After(5 * time.Second):
+			t.Fatal("not asked within 5 s")
+		}
+		return time.Time{}
+	}
+	const every = 50 * time.Millisecond
+	b := NewBudget(BudgetOptions{Limit: 8 << 20})
+	b.reopenEvery = every
+	// After three streams at 2^16, 200 KiB are left: not enough for 2^18
+	// at quality 3, nor for a fourth stream.
+	fill := int64(8<<20 - 3*(brotliFloor.heap+streamHeap) - 200*kib)
+	b.Hold(fill)
+	var below []*Stream
+	for range 3 {
+		s, _ := openWith(t, Brotli, Options{Budget: b})
+		below = append(below, s)
+	}
+	id, _ := openWith(t, Brotli, Options{Budget: b})
+	z, _ := openWith(t, Zstd, Options{Budget: b})
+	for _, s := range append(below, id, z) {
+		write(t, s, large)
+	}
+	for _, s := range below {
+		if n, _ := s.Tier(); n != "br q3 2^16" {
+			t.Fatalf("a stream that found no room for 2^18: %s", n)
+		}
+	}
+	if n, _ := id.Tier(); n != "identity" {
+		t.Fatalf("a stream without room: %s", n)
+	}
+	for _, s := range append(below, id, z) {
+		if asked(s) {
+			t.Fatal("asked to open again without room")
+		}
+	}
+	// Room for one better tier: the first is asked, at once.
+	b.Hold(-600 * kib)
+	if !asked(below[0]) || asked(below[1]) || asked(below[2]) || asked(id) {
+		t.Fatal("after 600 KiB freed up, the first stream is not the one asked")
+	}
+	below[0].Close()
+	// Room for all: one more every reopenEvery.
+	b.Hold(-fill + 600*kib)
+	if asked(below[1]) {
+		t.Fatal("a second stream asked within reopenEvery")
+	}
+	var at []time.Time
+	for _, s := range []*Stream{below[1], below[2], id} {
+		at = append(at, eventually(s))
+	}
+	for i := 1; i < len(at); i++ {
+		if d := at[i].Sub(at[i-1]); d < every*9/10 {
+			t.Errorf("asked %v after the one before", d)
+		}
+	}
+	if st := b.Stats(); st.Reopened != 4 {
+		t.Fatalf("reopened %d, want 4", st.Reopened)
+	}
+	// A stream whose window holds its frames is not asked, however much
+	// room there is, and neither is a zstd stream.
+	ok, _ := openWith(t, Brotli, Options{Budget: b})
+	write(t, ok, large)
+	time.Sleep(2 * every)
+	if asked(ok) || asked(z) {
+		t.Fatal("a stream at 2^18 or a zstd stream asked")
+	}
+	for _, s := range append(below[1:], id, z, ok) {
+		s.Close()
+	}
+	b.mu.Lock()
+	movers := len(b.movers)
+	b.mu.Unlock()
+	if st := b.Stats(); st.Reserved != 0 || movers != 0 {
+		t.Fatalf("after Close: %+v, %d movers", st, movers)
+	}
+	s, _ := openWith(t, Brotli, Options{})
+	write(t, s, large)
+	if asked(s) {
+		t.Fatal("a stream without a budget asked")
+	}
+	s.Close()
 }
 
 // A brotli stream that closes before its first write ends with an empty

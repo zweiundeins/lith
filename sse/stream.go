@@ -15,7 +15,8 @@
 // frames, zstd streams move to smaller windows as more streams open, and
 // brotli streams take quality 3, then a window below their frames, as the
 // limit fills. Stream.Hibernate lets an idle zstd stream give its encoder
-// back until its next write.
+// back until its next write, and Stream.Upgrade tells when a brotli
+// stream would do better on a new connection.
 //
 // Every write has its own deadline, so run the server without a
 // WriteTimeout and let a stream that cannot take a write in time fail
@@ -128,6 +129,7 @@ type Stream struct {
 	pick     bool    // a brotli stream whose first write picks its tier
 	low      bool    // a zstd stream whose window is below its frame
 	accepts  string  // the coding the client takes, whatever the budget gave
+	up       *mover  // the stream's place among its budget's movers, from Upgrade
 
 	mu      sync.Mutex
 	writing bool // a write is under way
@@ -203,7 +205,7 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 	}
 	if err != nil {
 		if o.Budget != nil {
-			o.Budget.close(s.tier, s.encoding, s.user)
+			o.Budget.close(s.tier, s.encoding, s.user, nil)
 		}
 		return nil, err
 	}
@@ -289,6 +291,7 @@ func (s *Stream) Write(events ...[]byte) error {
 	if s.pick {
 		s.tier = s.opt.Budget.first(s.tier, s.opt, s.frame)
 		s.startBrotli()
+		s.moved()
 	}
 	if s.asleep {
 		ok, err := s.wake()
@@ -340,6 +343,15 @@ func (s *Stream) grew(n int) {
 	if s.tier.coding == Zstd && !s.low && s.opt.Budget.short(s.tier, Zstd, s.opt, n) {
 		s.low, s.freed = true, -1
 	}
+	s.moved()
+}
+
+// moved tells the stream's budget, if the stream is a mover, what it holds
+// and its largest write.
+func (s *Stream) moved() {
+	if s.up != nil {
+		s.opt.Budget.update(s.up, s.tier, s.frame)
+	}
 }
 
 // startBrotli makes a brotli stream's encoder, of its tier or, without a
@@ -356,6 +368,32 @@ func (s *Stream) startBrotli() {
 
 // emptyBrotli is a brotli stream with a window of 2^16 that holds nothing.
 var emptyBrotli = []byte{0x06}
+
+// Upgrade returns a channel that the stream's budget closes when a stream
+// opened now would get a tier whose window holds this stream's frames, and
+// this one's does not: a brotli stream whose window is below its frames,
+// or one that went out uncompressed for want of room. A brotli stream
+// keeps its tier while it is open, so it gets the better one only by
+// opening again. The budget closes the channel of at most one stream a
+// second. A handler that can have the page open its stream again ends the
+// stream then, with Reconnect: live's does for a stream with
+// Spec.Reconnect, but not twice within a minute for the same Spec.ID.
+// Without a budget, and for streams that move while open (zstd) or never
+// would (gzip), the channel stays open.
+func (s *Stream) Upgrade() <-chan struct{} {
+	if s.up != nil {
+		return s.up.ch
+	}
+	if s.opt.Budget == nil || s.accepts != Brotli || s.opt.NoCompression || s.stop == nil {
+		return never
+	}
+	s.up = &mover{ch: make(chan struct{}), opt: s.opt}
+	s.moved()
+	return s.up.ch
+}
+
+// never is a channel that nothing closes.
+var never = make(chan struct{})
 
 // brotliChunk is the most a brotli encoder of quality q takes between two
 // flushes: one input block below quality 4, else 32 KiB, which bounds its heap.
@@ -452,7 +490,7 @@ func (s *Stream) CloseWith(events ...[]byte) error {
 		s.zstd.put(e)
 	}
 	if s.opt.Budget != nil {
-		s.opt.Budget.close(s.tier, s.encoding, s.user)
+		s.opt.Budget.close(s.tier, s.encoding, s.user, s.up)
 	}
 	s.stop()
 	s.stop = nil

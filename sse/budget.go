@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ErrNoRoom is returned by Open when the budget has no room for the
@@ -69,7 +70,9 @@ type BudgetOptions struct {
 // stays at most half full, else at quality 3, and only when that does not
 // fit what is left, quality 3 at 2^16, which compresses each frame alone.
 // It keeps its tier until it closes. Open reserves quality 3 at 2^16 for
-// it, and a stream that cannot have even that goes out uncompressed.
+// it, and a stream that cannot have even that goes out uncompressed. A
+// stream that holds less than its frame needs may be asked to open again
+// once room frees up (Stream.Upgrade).
 //
 // A zstd stream takes the largest tier within its fair share (what the
 // limit leaves after frames and streams, divided by the streams that
@@ -93,6 +96,7 @@ type Budget struct {
 	limit                int64 // 0: none
 	minWindow, maxWindow int
 	refuse               bool
+	reopenEvery          time.Duration // the least time between two streams asked to open again
 
 	mu       sync.Mutex
 	reserved int64          // tiers, streams and what Hold booked
@@ -101,6 +105,11 @@ type Budget struct {
 	users    int            // open streams that compress or would
 	streams  map[string]int // open streams by what they hold
 	refused  int64
+	reopened int64
+	movers   []*mover  // streams a new connection would serve better, oldest first
+	asked    time.Time // when a stream was last asked to open again
+	timer    *time.Timer
+	timerAt  time.Time
 	starved  atomic.Int64 // counts the times a stream found no room for its frame's window; changed with mu held
 	freed    atomic.Int64 // counts the times room freed up; changed with mu held
 }
@@ -114,11 +123,12 @@ func NewBudget(o BudgetOptions) *Budget {
 		o.MaxWindow = 19
 	}
 	return &Budget{
-		limit:     max(0, o.Limit),
-		minWindow: max(0, o.MinWindow),
-		maxWindow: max(o.MinWindow, o.MaxWindow),
-		refuse:    o.Refuse,
-		streams:   map[string]int{},
+		limit:       max(0, o.Limit),
+		minWindow:   max(0, o.MinWindow),
+		maxWindow:   max(o.MinWindow, o.MaxWindow),
+		refuse:      o.Refuse,
+		reopenEvery: time.Second,
+		streams:     map[string]int{},
 	}
 }
 
@@ -134,15 +144,16 @@ type BudgetStats struct {
 	// for zstd streams without an encoder (before their first write,
 	// hibernating, or waiting for room); "identity" for streams that go
 	// out uncompressed.
-	Streams map[string]int
-	Refused int64 // streams turned away since NewBudget
+	Streams  map[string]int
+	Refused  int64 // streams turned away since NewBudget
+	Reopened int64 // streams asked to open again for a better tier (Stream.Upgrade)
 }
 
 // Stats reads the budget.
 func (b *Budget) Stats() BudgetStats {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	s := BudgetStats{Limit: b.limit, Reserved: b.reserved, Frames: b.held, Refused: b.refused,
+	s := BudgetStats{Limit: b.limit, Reserved: b.reserved, Frames: b.held, Refused: b.refused, Reopened: b.reopened,
 		Streams: make(map[string]int, len(b.streams))}
 	for k, n := range b.streams {
 		s.Streams[k] = n
@@ -562,8 +573,8 @@ func (b *Budget) sleep(t tier) {
 }
 
 // close counts out a stream of the coding, "" for none, and gives back its
-// tier.
-func (b *Budget) close(t tier, coding string, user bool) {
+// tier, and takes its mover, if any, off the list.
+func (b *Budget) close(t tier, coding string, user bool, m *mover) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.drop(t, coding)
@@ -571,6 +582,10 @@ func (b *Budget) close(t tier, coding string, user bool) {
 	b.reserved -= streamHeap
 	if user {
 		b.users--
+	}
+	if m != nil && m.listed {
+		m.listed = false
+		b.movers = slices.DeleteFunc(b.movers, func(x *mover) bool { return x == m })
 	}
 	b.free()
 }
@@ -587,6 +602,38 @@ func (b *Budget) drop(t tier, coding string) {
 		delete(b.streams, k)
 	}
 	b.reserved -= t.heap
+}
+
+// mover is a stream that its budget may ask to open again, by closing ch:
+// a brotli stream whose window is below what its frame needs, or one that
+// went out uncompressed although its client takes brotli, while a new
+// stream would get a window that holds the frame. Its fields are guarded
+// by Budget.mu.
+type mover struct {
+	ch     chan struct{}
+	frame  int  // the stream's largest write
+	tier   tier // what it holds
+	opt    Options
+	listed bool // in Budget.movers
+}
+
+// update tells the budget what a mover holds and its largest write, and
+// lists it among the movers while its window is below what that frame
+// needs and some window would hold it.
+func (b *Budget) update(m *mover, t tier, frame int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	m.tier, m.frame = t, frame
+	want := m.frame > 0 && b.shortOf(t, Brotli, m.opt, m.frame)
+	switch {
+	case want && !m.listed:
+		m.listed = true
+		b.movers = append(b.movers, m)
+		b.promote()
+	case !want && m.listed:
+		m.listed = false
+		b.movers = slices.DeleteFunc(b.movers, func(x *mover) bool { return x == m })
+	}
 }
 
 // short reports whether a stream of the coding that holds t, whose
@@ -607,10 +654,56 @@ func (b *Budget) shortOf(t tier, coding string, o Options, n int) bool {
 	return len(fit) > 0 && (t.coding == "" || t.window < fit[len(fit)-1].window)
 }
 
-// free notes that room freed up, for the zstd streams that wait for it.
-// b.mu is held.
+// free notes that room freed up, for the zstd streams that wait for it
+// and for the movers. b.mu is held.
 func (b *Budget) free() {
 	b.freed.Add(1)
+	b.promote()
+}
+
+// promote asks the mover listed first that a new stream would serve with
+// a window that holds its frame to open again: at most one every
+// reopenEvery. When one could go later, a timer looks again then. b.mu is
+// held.
+func (b *Budget) promote() {
+	if len(b.movers) == 0 || b.limit == 0 {
+		return
+	}
+	now := time.Now()
+	var next time.Time
+	for i, m := range b.movers {
+		fit, _ := b.menu(Brotli, m.opt, m.frame)
+		if len(fit) == 0 || b.reserved-m.tier.heap+fit[len(fit)-1].heap > b.limit {
+			continue
+		}
+		if at := b.asked.Add(b.reopenEvery); at.After(now) {
+			next = at
+			break
+		}
+		m.listed = false
+		b.movers = slices.Delete(b.movers, i, i+1)
+		close(m.ch)
+		b.asked = now
+		b.reopened++
+		next = time.Time{}
+		if len(b.movers) > 0 {
+			next = now.Add(b.reopenEvery)
+		}
+		break
+	}
+	if next.IsZero() || b.timer != nil && !next.Before(b.timerAt) {
+		return
+	}
+	if b.timer != nil {
+		b.timer.Stop()
+	}
+	b.timerAt = next
+	b.timer = time.AfterFunc(next.Sub(now), func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.timer = nil
+		b.promote()
+	})
 }
 
 // memoryLimit is the process's memory limit in bytes: GOMEMLIMIT (or
