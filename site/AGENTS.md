@@ -141,7 +141,7 @@ To add a component: put its slug in `pins.json` (or move `catalog` to a newer sn
 
 ## Monitoring
 
-`/metrics` listens on 127.0.0.1 at the public port + 100, never on the public listener. It serves `lith_site_http_requests_total{route,code}` and `lith_site_http_request_duration_seconds{route}` (the route is the ServeMux pattern, so keep patterns fixed: never a raw path in a label), lith's `lith_site_writer_*`, `lith_site_live_*` and `lith_site_sse_budget_*`, the statements' `lith_site_db_*`, `go_*` and `process_*`. `../deploy/observability`, at lith's root, has the Grafana dashboard for lith apps and their alert rules; `TestDashboard` fails when they read a metric the site does not export. Logs are slog JSON on stdout.
+`/metrics` listens on 127.0.0.1 at the public port + 100, never on the public listener. It serves `lith_site_http_requests_total{route,code}` and `lith_site_http_request_duration_seconds{route}` (the route is the ServeMux pattern, so keep patterns fixed: never a raw path in a label), lith's `lith_site_writer_*`, `lith_site_live_*` and `lith_site_sse_budget_*`, the statements' `lith_site_db_*`, `go_*` and `process_*`. `../deploy/observability`, at lith's root, has the Grafana dashboard for lith apps and their alert rules; `TestDashboard` fails when they read a metric the site does not export. Logs are slog JSON on stdout. `deploy/observability` holds the site's scrape target, probes and Alloy file for the host's drop-in folders, which `deploy/setup-host.sh` installs.
 
 ## The docs
 

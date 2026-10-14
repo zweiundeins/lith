@@ -1,7 +1,8 @@
 # Blackbox probes for lith-site, installed as /etc/prometheus/targets/lith-site.yml.
-# `module` picks the blackbox module: http_2xx_lith, from blackbox-module.yml.
-# `service` is the access log's site (lith), so the Services dashboard pairs them.
+# `module` is one of the host's generic modules; `service` is the access log's site.
 - targets: ['https://lith.zweiundeins.gmbh/']
-  labels: { service: lith, module: http_2xx_lith }
+  labels: { service: lith, module: http_2xx }
 - targets: ['https://lith.zweiundeins.gmbh/docs']
-  labels: { service: lith, module: http_2xx_lith }
+  labels: { service: lith, module: http_2xx }
+- targets: ['https://lith.zweiundeins.gmbh/healthz']
+  labels: { service: lith, module: http_2xx_ok }

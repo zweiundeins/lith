@@ -1,6 +1,5 @@
-# lith-site's metrics listener, for the host's Prometheus. It is one more
-# target of the go_runtime job (each app's second listener on 127.0.0.1 at
-# its main port + 100): add it under that job's static_configs.
+# lith-site's metrics listener for the host's Prometheus, installed as
+# /etc/prometheus/apps/lith-site.yml, which the host's `apps` job reads.
 #
 # What it serves (lith-site's internal/app, Namespace "lith_site"):
 #   lith_site_http_requests_total{route,code}         requests by ServeMux pattern and status
@@ -13,5 +12,5 @@
 #   lith_site_db_slow_queries_total{op}
 #   lith_site_build_info{version}
 #   go_*, process_*                                   the Go runtime and the process
-      - targets: ['127.0.0.1:8197']
-        labels: { app: lith-site, slot: prod }
+- targets: ['127.0.0.1:8197']
+  labels: { app: lith-site, slot: prod }

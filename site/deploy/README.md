@@ -6,8 +6,8 @@ lith's website (lith.zweiundeins.gmbh) is one binary and one SQLite file, behind
 - `lith-site.env.example`: optional settings, installed as `/etc/lith-site/lith-site.env`.
 - `lith-site.caddy`: the site block. TLS, `reverse_proxy` to the loopback port with the client's address in X-Forwarded-For and X-Real-IP, the access log in JSON at `/var/log/caddy/lith-access.log`, no `encode`, and `flush_interval -1` for the streams.
 - `lith-site-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
-- `setup-host.sh`: creates the user that CI deploys as, whose key may run `lith-site-deploy -` and nothing else.
-- `observability/`: the blackbox probes, the Prometheus target and the Alloy block (below). The Grafana dashboard for lith apps and their alert rules are in `deploy/observability` at lith's root.
+- `observability/`: the Prometheus target, the blackbox probes and the Alloy file, for the folders the host's Prometheus and Alloy load ([Monitoring](#monitoring)). The Grafana dashboard for lith apps and their alert rules are in `deploy/observability` at lith's root.
+- `setup-host.sh`: installs the files in `observability/`, and with a key, creates the user that CI deploys as, whose key may run `lith-site-deploy -` and nothing else.
 
 The database holds the demos' data only, which the sweep keeps small: it needs no backup.
 
@@ -32,11 +32,12 @@ install -m 0644 lith-site.caddy /etc/caddy/sites/
 caddy validate --config /etc/caddy/Caddyfile
 sh -c 'chown caddy:caddy /var/log/caddy/*.log'
 systemctl reload caddy
+bash setup-host.sh
 ```
 
-Run as root, `caddy validate` creates the access log owned by root and the reload then fails: the `chown` fixes it.
+Run as root, `caddy validate` creates the access log owned by root and the reload then fails: the `chown` fixes it. `setup-host.sh` installs the monitoring files ([Monitoring](#monitoring)).
 
-`-base` in the unit is the public URL: canonical links, the Open Graph image and the sitemap start with it. A move to another domain changes it, the Caddy block, the probe targets and the URL in the deploy workflow together. Another port changes `-addr`, `SocketBindAllow`, the Caddy block, `HEALTH` in `lith-site-deploy` and the Prometheus target; the metrics follow at the port + 100.
+`-base` in the unit is the public URL: canonical links, the Open Graph image and the sitemap start with it. A move to another domain changes it, the Caddy block, the probe targets and the URL in the deploy workflow together. Another port changes `-addr`, `SocketBindAllow`, the Caddy block, `HEALTH` in `lith-site-deploy` and `observability/lith-site.metrics.yml`; the metrics follow at the port + 100.
 
 ### Deploys from CI
 
@@ -54,7 +55,7 @@ The deploy workflow logs in as `lith-site-deploy`, a user whose key runs `sudo -
    bash setup-host.sh lith-site-deploy-key.pub
    ```
 
-   It installs `lith-site-deploy`, creates the user with that key and its sudoers line, and ends with `>> ready: CI can deploy as lith-site-deploy@…`. Running it again with another key replaces the old one.
+   It installs `lith-site-deploy`, creates the user with that key and its sudoers line, says `>> ready: CI can deploy as lith-site-deploy@…`, and installs the monitoring files. Running it again with another key replaces the old one.
 
 3. Give GitHub the key and the host. The job's `if` runs before the environment's variables load, so the host and its host key are repository variables. The private key is a secret of the `production` environment, which only `main` may use:
 
@@ -82,9 +83,11 @@ On a restart every open page reconnects: the streams end with `sse.Reconnect`, a
 
 ## Monitoring
 
-- **Metrics:** Prometheus scrapes `127.0.0.1:8197`, never public. Add the target in `observability/prometheus-scrape.yml` to the `go_runtime` job; it lists the metrics: `lith_site_http_requests_total{route,code}`, `lith_site_http_request_duration_seconds{route}`, `lith_site_writer_*`, `lith_site_live_*`, `lith_site_sse_budget_*`, `lith_site_db_*`, `go_*` and `process_*`.
-- **Probes:** `observability/lith-site.targets.yml` goes to `/etc/prometheus/targets/lith-site.yml`, and the `http_2xx_lith` module in `observability/blackbox-module.yml` into the blackbox exporter's `blackbox.yml`. The targets' `service` label is `lith`, the site's name in the access log's stream, so the host's Services dashboard shows the probes and the log under one name.
+The host keeps its own configs for Caddy, Prometheus, Alloy and Grafana, each of which loads a folder of files the apps install: lith's guide [Metrics and monitoring](https://lith.zweiundeins.gmbh/docs/guides/monitoring#drop-in-files-for-a-shared-host) has the folders and the labels. `setup-host.sh` installs the site's, each only where its service is installed, and reloads Alloy; run it again after changing them.
+
+- **Metrics:** `observability/lith-site.metrics.yml` goes to `/etc/prometheus/apps/lith-site.yml`: Prometheus scrapes `127.0.0.1:8197`, never public, as `{app="lith-site", slot="prod"}`. The file lists the metrics: `lith_site_http_requests_total{route,code}`, `lith_site_http_request_duration_seconds{route}`, `lith_site_writer_*`, `lith_site_live_*`, `lith_site_sse_budget_*`, `lith_site_db_*`, `go_*` and `process_*`.
+- **Probes:** `observability/lith-site.targets.yml` goes to `/etc/prometheus/targets/lith-site.yml`: `/` and `/docs` with the host's `http_2xx` module, `/healthz` with `http_2xx_ok`, whose body must start with `ok `. The targets' `service` label is `lith`, the site's name in the access log's stream, so the host's Services dashboard shows the probes and the log under one name.
 - **Dashboard:** [`deploy/observability/lith-apps.json`](../../deploy/observability) at lith's root, which the host installs once for every lith app. It shows any lith app: pick its metric namespace (`lith_site`), then the app and the slot.
-- **Alerts:** `rules-lith-apps.yaml`, beside the dashboard: a 5xx ratio above 2%, tick overruns, dropped frames, writer failures and refused streams, for every app that runs lith's writer. A site that stops answering trips the host's rule on every blackbox probe. Hand-written to the host's format: import, check and export them over the file before relying on them.
-- **Logs:** slog JSON on stdout, one object per line, into the journal. `observability/lith-site.alloy` is the block for the host's Alloy config that ships them to Loki as `{job="lith-site"}`, with `level` as a label like the other apps. Caddy's access log reaches Loki as `{job="caddy", site="lith"}`, from a path target in the same config.
+- **Alerts:** `rules-lith-apps.yaml`, beside the dashboard: a 5xx ratio above 2%, tick overruns, dropped frames, writer failures and refused streams, for every app that runs lith's writer. A site that stops answering trips the host's rule on every blackbox probe. Hand-written to Grafana's format: import, check and export them over the file before relying on them.
+- **Logs:** slog JSON on stdout, one object per line, into the journal. `observability/lith-site.alloy` goes to `/etc/alloy/lith-site.alloy` and ships them to Loki as `{job="lith-site"}`, with `level` as a label like the other apps, and Caddy's access log as `{job="caddy", site="lith"}`, through the host's pipeline for access logs.
 - **Health:** `/healthz` answers `ok <version>` while the process serves; `/readyz` answers 200 while the database answers and the writer and the hub run, else 503 naming what failed.

@@ -1,13 +1,11 @@
-// lith-site's journal, for the host's Alloy config: the shape of its libretto
-// source, `job` pinned by relabeling and `level` a label. The access log is a
-// path target of the host's caddy_logs, with "site" = "lith".
-// Unverified on the box: check `journalctl -u lith-site -o json | head`.
+// lith-site's logs for the host's Alloy, as /etc/alloy/lith-site.alloy. Alloy
+// runs on the folder as one config, so every component label starts with lith_site.
 
+// The journal as {job="lith-site", level}: the job comes from relabeling, since
+// the source's own labels lose it once relabel_rules is set.
 loki.relabel "lith_site_job" {
 	forward_to = []
 
-	// The job from relabeling, so that it survives relabel_rules (see the
-	// libretto source's note on why `labels` alone is replaced).
 	rule {
 		target_label = "job"
 		replacement  = "lith-site"
@@ -22,11 +20,11 @@ loki.source.journal "lith_site" {
 	format_as_json = false
 }
 
+// lith-site logs slog's JSON: its level becomes a label, so an error rule is a
+// label match, {job="lith-site", level="ERROR"}.
 loki.process "lith_site_logs" {
 	forward_to = [loki.write.default.receiver]
 
-	// slog's level as a label, so an error rule is a label match:
-	// {job="lith-site", level="ERROR"}.
 	stage.json {
 		expressions = {level = "level"}
 	}
@@ -34,4 +32,16 @@ loki.process "lith_site_logs" {
 	stage.labels {
 		values = {level = "level"}
 	}
+}
+
+// Caddy's access log (lith-site.caddy) as {job="caddy", site="lith"}, through
+// the host's pipeline for access logs.
+local.file_match "lith_site_access" {
+	path_targets = [{"__path__" = "/var/log/caddy/lith-access.log", "job" = "caddy", "site" = "lith"}]
+}
+
+loki.source.file "lith_site_access" {
+	targets       = local.file_match.lith_site_access.targets
+	forward_to    = [loki.process.caddy_logs.receiver]
+	tail_from_end = true
 }
