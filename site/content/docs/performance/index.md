@@ -16,7 +16,7 @@ On a development machine (below), unless a row says otherwise:
 | One producer alone | 13,049 a second with NORMAL; 526 with FULL, one fsync each | [The writer](/docs/performance/writer) |
 | A command's commit, beside 200 streams | 0.30 to 0.54 ms at p50 with NORMAL, 3.4 to 11.0 ms with FULL | [The shared board](/docs/performance/render-loop) |
 | 200 streams on one 139 KB view, 800 commands a second | one render a tick, no dropped frames, 1.59 cores with zstd, 3.31 with brotli | [The shared board](/docs/performance/render-loop) |
-| Bytes per frame of that board | 2,205 with zstd, 955 with brotli | [Encoders](/docs/performance/encoders) |
+| Bytes per frame of that board, 142,067 bytes of HTML | 2,205 with zstd (64 to 1), 955 with brotli (149 to 1) | [Encoders](/docs/performance/encoders) |
 | Heap per open stream | 1.65 MiB with zstd at 2^19, 1.0 MiB with its low-memory history, 2.0 MiB with brotli at quality 4 | [Encoders](/docs/performance/encoders) |
 | The window a 142 KB frame needs | 2^18: at 2^17 a frame takes four times the bytes | [The stream budget](/docs/performance/budget) |
 | An idle tab, hibernating after 30 s | 0.11 MiB of heap instead of 0.64, for about 45 KB more on the wire an hour | [Hibernation](/docs/performance/hibernation) |
@@ -30,7 +30,7 @@ lith.zweiundeins.gmbh runs on a VPS for about 10 dollars a month: four vCPUs of 
 | Commands a second, 200 producers waiting with `Do` | 80,530 with NORMAL, 14,480 with FULL |
 | One producer alone | 13,436 a second with NORMAL; 143 with FULL, where an fsync takes about 7 ms |
 | A command's commit, beside 200 streams, NORMAL | 0.42 ms at p50 |
-| 200 streams on one 139 KB view, 800 commands a second, zstd | one render a tick, 0.55 of a core, 2,188 bytes a frame |
+| 200 streams on one 139 KB view, 800 commands a second, zstd | one render a tick, 0.55 of a core, 2,188 bytes a frame of 142,067 bytes of HTML (65 to 1) |
 
 The writer does more with NORMAL on the VPS than on the development machine, and less with FULL, where it waits for a slower disk. In one of the three board runs the neighbours held a tick for 252 ms, and the streams skipped to the newest frame. `bench/RESULTS.md` has every row and the commands.
 

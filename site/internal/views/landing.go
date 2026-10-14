@@ -106,7 +106,7 @@ var stats = []stat{
 	{"80,530", "commands a second through one writer", "200 producers, 108 commands to a transaction, synchronous=NORMAL"},
 	{"0.42 ms", "from a command's arrival to its commit, at p50", "beside 200 open streams and 800 commands a second"},
 	{"1", "render per tick for 200 streams of one board", "a 139 KB view changing 800 times a second, on 0.55 of a core"},
-	{"2,188", "bytes on the wire for each frame of that board", "zstd, every stream compressed on its own"},
+	{"2,188", "bytes on the wire for each frame of that board", "of 142,067 bytes of HTML, 65 times smaller: zstd, every stream compressed on its own"},
 	{"14,480", "commands a second with synchronous=FULL", "200 producers sharing each 7 ms fsync, 108 to a transaction"},
 	{"1.7 MiB", "of heap for an open stream", "zstd with a 2^19 window; with low memory 1.0 MiB, brotli at its default window 9.9 MiB"},
 }
