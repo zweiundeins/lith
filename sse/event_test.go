@@ -1,6 +1,10 @@
 package sse
 
-import "testing"
+import (
+	"bytes"
+	"slices"
+	"testing"
+)
 
 func TestPatchElements(t *testing.T) {
 	for _, c := range []struct {
@@ -77,5 +81,40 @@ func TestReconnect(t *testing.T) {
 		`data: elements <div data-init="el.remove(); document.getElementById(&#34;stream&#34;)?.replaceWith(document.getElementById(&#34;stream&#34;).cloneNode(true))"></div>` + "\n\n"
 	if got := string(Reconnect("stream")); got != want {
 		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+// TestLines splits as an event's data lines need, with or without CRs.
+func TestLines(t *testing.T) {
+	for in, want := range map[string][]string{
+		"":              {""},
+		"a":             {"a"},
+		"a\n":           {"a", ""},
+		"a\nb":          {"a", "b"},
+		"\n\n":          {"", "", ""},
+		"a\r\nb\rc\nd":  {"a", "b", "c", "d"},
+		"a\r":           {"a", ""},
+		"<p>x</p>\n<p>": {"<p>x</p>", "<p>"},
+	} {
+		var got []string
+		for l := range lines([]byte(in)) {
+			got = append(got, string(l))
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("lines(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// BenchmarkPatchElementsLarge is a 230 KB page in a patch, as a data
+// table's frame.
+func BenchmarkPatchElementsLarge(b *testing.B) {
+	row := []byte(`<tr><td class="num">1,234</td><td>Alpha Centauri</td><td>G2V</td><td class="num">4.37</td></tr>`)
+	page := bytes.Repeat(row, 230<<10/len(row))
+	page = append(page, '\n')
+	b.SetBytes(int64(len(page)))
+	b.ReportAllocs()
+	for b.Loop() {
+		PatchElements(page)
 	}
 }

@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"bytes"
 	"html"
 	"iter"
 	"strconv"
@@ -157,6 +158,20 @@ func format(event string, opts []line, prefix string, body []byte) []byte {
 // line early.
 func lines(b []byte) iter.Seq[[]byte] {
 	return func(yield func([]byte) bool) {
+		if bytes.IndexByte(b, '\r') < 0 {
+			// Without a CR, IndexByte jumps from line to line far faster than a loop.
+			for rest := b; ; {
+				i := bytes.IndexByte(rest, '\n')
+				if i < 0 {
+					yield(rest)
+					return
+				}
+				if !yield(rest[:i]) {
+					return
+				}
+				rest = rest[i+1:]
+			}
+		}
 		start := 0
 		for i := 0; i < len(b); i++ {
 			if c := b[i]; c == '\n' || c == '\r' {
