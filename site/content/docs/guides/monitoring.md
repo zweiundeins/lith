@@ -166,7 +166,7 @@ scrape_configs:
     file_sd_configs:
       - files: ['/etc/prometheus/apps/*.yml']
 
-  - job_name: blackbox
+  - job_name: blackbox_service # `blackbox` is the exporter's own scrape
     metrics_path: /probe
     file_sd_configs:
       - files: ['/etc/prometheus/targets/*.yml']
@@ -195,10 +195,10 @@ modules:
     prober: http
     timeout: 5s
     http: { <<: *http_2xx, fail_if_body_not_matches_regexp: ['^ok '] }
-  http_2xx_redirect:
+  http_redirect:
     prober: http
     timeout: 5s
-    http: { valid_status_codes: [301, 302, 303, 307, 308], no_follow_redirects: true, preferred_ip_protocol: ip4 }
+    http: { valid_status_codes: [301, 302, 303, 308], method: GET, no_follow_redirects: true }
 ```
 
 Alloy runs on the folder, `alloy run /etc/alloy` (on Debian, `CONFIG_FILE="/etc/alloy"` in `/etc/default/alloy`), and combines every `.alloy` file in it, without subfolders, into one configuration. A component's label must therefore be unique across the files: an app's start with its name as an identifier (`lith_site` for this site), which lith-new writes from the template's `app_`. The host's own `config.alloy` defines the two components that the drop-ins send to: `loki.write "default"`, for the journal's lines, and `loki.process "caddy_logs"`, which takes Caddy's JSON access logs, labels them by status class and forwards them to Loki. Alloy's user reads the journal (the group `systemd-journal`) and `/var/log/caddy`. This site's access log:
