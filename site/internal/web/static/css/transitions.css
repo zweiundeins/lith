@@ -174,7 +174,7 @@
 		view-transition-class: demo;
 	}
 
-	[data-demo-card] h3,
+	[data-demo-card] .demo-card__title,
 	.demo-head h1 {
 		view-transition-class: demo-title;
 	}

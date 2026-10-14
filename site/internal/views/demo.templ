@@ -19,7 +19,8 @@ templ Demo(d DemoPage) {
 			<p class="lede">{ d.Card.Summary }</p>
 		</header>
 		<div class="demo-body">
-			<section class="demo-stage" aria-label="The demo">
+			<section class="demo-stage" aria-labelledby="demo-stage-title">
+				<h2 id="demo-stage-title" class="visually-hidden">The demo</h2>
 				<p class="live-badge" data-class:is-live="$_live" data-text="$_live ? 'live' : 'connecting'">live</p>
 				@d.Stage
 			</section>
@@ -45,7 +46,7 @@ templ DemoIndex(cards []Card) {
 			<h1 class="page-title">Demos</h1>
 			<p>Each demo runs on this server, on lith. Open one in two windows to see the other's changes arrive.</p>
 		</header>
-		@CardGrid(cards)
+		@CardGrid(cards, 2)
 	</div>
 }
 

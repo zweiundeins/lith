@@ -71,7 +71,7 @@
 		gap: var(--lith-space-2);
 		padding: var(--lith-space-5);
 
-		& h3 {
+		& .demo-card__title {
 			font-family: var(--lith-font-display);
 			font-size: var(--lith-text-xl);
 			font-weight: 600;

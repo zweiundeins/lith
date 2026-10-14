@@ -118,7 +118,7 @@ templ LandingPage(l Landing) {
 				<h2 id="demos-title">Demos</h2>
 				<p>Each demo runs on this server, on lith, with the code that does it beside it.</p>
 			</header>
-			@CardGrid(l.Cards)
+			@CardGrid(l.Cards, 3)
 		</section>
 	}
 	<section class="wrap section" aria-labelledby="credits-title">
@@ -142,8 +142,10 @@ templ LandingPage(l Landing) {
 	</section>
 }
 
-// CardGrid lists demos as cards that morph into their page's head.
-templ CardGrid(cards []Card) {
+// CardGrid lists demos as cards that morph into their page's head. The
+// cards' titles are headings of level: 2 on a page of their own, 3 in a
+// section.
+templ CardGrid(cards []Card, level int) {
 	<ul class="card-grid" role="list">
 		for _, c := range cards {
 			<li class="demo-card reveal" data-demo-card={ c.Slug }>
@@ -153,7 +155,11 @@ templ CardGrid(cards []Card) {
 					</div>
 				</div>
 				<div class="demo-card__body">
-					<h3><a href={ safe("/demos/" + c.Slug) }>{ c.Title }</a></h3>
+					if level == 2 {
+						<h2 class="demo-card__title"><a href={ safe("/demos/" + c.Slug) }>{ c.Title }</a></h2>
+					} else {
+						<h3 class="demo-card__title"><a href={ safe("/demos/" + c.Slug) }>{ c.Title }</a></h3>
+					}
 					<p>{ c.Summary }</p>
 					<span class="demo-card__go" aria-hidden="true">
 						Open the demo

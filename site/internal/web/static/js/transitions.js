@@ -54,7 +54,7 @@
 		const card = document.querySelector(`[data-demo-card="${slug}"]`)
 		if (!card) return false
 		name(card, `demo-${slug}`)
-		name(card.querySelector('h3'), `demo-${slug}-title`)
+		name(card.querySelector('.demo-card__title'), `demo-${slug}-title`)
 		name(card.querySelector('.demo-card__art'), `demo-${slug}-art`)
 		return true
 	}
