@@ -381,6 +381,11 @@
 		aspect-ratio: var(--w) / var(--h);
 	}
 
+	/* The turn arrow: two pixels a cell, so its head stays sharp. */
+	.life__icon--turn {
+		block-size: 18px;
+	}
+
 	.life__colours {
 		display: flex;
 		flex-wrap: wrap;

@@ -312,7 +312,7 @@ func Stage(b Board, here, colour int, now time.Time) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\"><svg class=\"life__icon\" viewBox=\"0 0 8 8\" style=\"--w: 8; --h: 8\" fill=\"currentColor\" shape-rendering=\"crispEdges\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M2 0h4v1h1v1h1v3H7v1H6V2H2v1H1V1h1zM0 3h3v1H2v1H1v1H0zM6 6v1H5v1H2V7H1V6h1v1h3V6z\"></path></svg> <span>Turn</span></button></div><div class=\"life__colours\" role=\"group\" aria-labelledby=\"life-colour-label\"><span id=\"life-colour-label\" class=\"life__label\">Your colour</span> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\"><svg class=\"life__icon life__icon--turn\" viewBox=\"0 0 10 9\" style=\"--w: 10; --h: 9\" fill=\"currentColor\" shape-rendering=\"crispEdges\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M5 0h1v1h-1zM5 1h2v1h-2zM2 2h6v1h-6zM1 3h1v1h-1zM5 3h2v1h-2zM0 4h1v1h-1zM5 4h1v1h-1zM0 5h1v1h-1zM0 6h1v1h-1zM8 6h1v1h-1zM1 7h1v1h-1zM7 7h1v1h-1zM2 8h5v1h-5z\"></path></svg> <span>Turn</span></button></div><div class=\"life__colours\" role=\"group\" aria-labelledby=\"life-colour-label\"><span id=\"life-colour-label\" class=\"life__label\">Your colour</span> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
