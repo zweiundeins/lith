@@ -36,7 +36,7 @@ lith.zweiundeins.gmbh runs on a VPS for about 10 dollars a month: four vCPUs of 
 
 The writer does more with NORMAL on the VPS than on the development machine, and less with FULL, where it waits for a slower disk. In one of the three board runs the neighbours held a tick for 252 ms, and the streams skipped to the newest frame. `bench/RESULTS.md` has every row and the commands.
 
-kanban runs on lith. On the development machine on 2026-10-14, kanban on lith v0.2.0 committed 15,341 moves a second at 200 people in its writer benchmark; in its load test with 200 tabs, its server answered a move in 12.1 ms at p95 with brotli, and needed half the CPU with zstd that it needed with brotli.
+kanban runs on lith. On the development machine on 2026-10-14, kanban on lith v0.2.0 committed about 14,500 moves a second at 200 people in its writer benchmark (15,341 on v0.2.0 and 13,767 on v0.1.0 in the same session, with the same writer); in its load test with 200 tabs, its server answered a move in 12.1 ms at p95 with brotli, and needed half the CPU with zstd that it needed with brotli.
 
 ## The development machine
 

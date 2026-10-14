@@ -93,9 +93,9 @@ The recipes, the rules and a review checklist are in the skill.
   page with zstd ([bench/budget](bench/budget)).
 - **Render loop:** 200 streams on one 139 KB view changing 800 times a second
   render once per tick and drop no frames ([loadtest](loadtest)).
-- **In an app:** kanban on lith v0.2.0 commits 15,341 moves a second at 200
-  people, answers a move in 12.1 ms at p95, and with zstd needs half the server
-  CPU it needs with brotli.
+- **In an app:** kanban on lith v0.2.0 commits about 14,500 moves a second at
+  200 people, answers a move in 12.1 ms at p95, and with zstd needs half the
+  server CPU it needs with brotli.
 
 ## The skill
 
