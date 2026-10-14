@@ -69,11 +69,12 @@ const reopenAfter = time.Minute
 var errReopen = errors.New("live: the budget has a better tier for the stream")
 
 // Serve streams the views of spec to the client until it leaves or the
-// hub stops, and then returns nil. It sends each view's current frame (a
-// view without one renders in the next tick), then every new frame. When
-// the hub is full or stopped, or the streams' budget refuses the stream,
-// it answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a
-// failed write ends the stream with its error.
+// hub stops, and then returns nil. It sends each view's newest frame when
+// the hub keeps it (View.Render), else a frame rendered in the next tick,
+// then every new frame. When the hub is full or stopped, or the streams'
+// budget refuses the stream, it answers 503 and returns ErrFull,
+// ErrStopped or sse.ErrNoRoom; a failed write ends the stream with its
+// error.
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	for _, v := range spec.Views {
 		check(v)

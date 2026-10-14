@@ -7,6 +7,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"runtime/debug"
 	"slices"
 	"sync"
@@ -137,6 +138,7 @@ type tick struct {
 	ctx    context.Context
 	views  []*view
 	frames []any
+	sums   []uint64 // the hashes of the []byte frames
 	errs   []error
 	next   atomic.Int64 // the queue: index of the next view to render
 	wg     sync.WaitGroup
@@ -175,6 +177,7 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	}
 
 	t.frames = slices.Grow(t.frames[:0], len(t.views))[:len(t.views)]
+	t.sums = slices.Grow(t.sums[:0], len(t.views))[:len(t.views)]
 	t.errs = slices.Grow(t.errs[:0], len(t.views))[:len(t.views)]
 	t.next.Store(0)
 	k := min(len(ws), len(t.views))
@@ -188,14 +191,16 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	clear(t.views)
 	clear(t.frames)
 	clear(t.errs)
+	clear(t.sums)
 	return true
 }
 
-// publish stores the new frames and offers them to their streams. A
+// publish offers the new frames to their streams, and a frame that
+// repeats the one before to the streams that joined without it. A
 // stream gets all of its offers of the tick at once, so the views that
 // changed together go out together. Views that no worker took from the
-// queue are dirty again, for the next tick, and so is a view still
-// without a frame that a stream started watching during the tick.
+// queue are dirty again, for the next tick, and so is a view without a
+// frame for a stream that started watching it during the tick.
 func (h *Hub) publish(t *tick) {
 	taken := min(int(t.next.Load()), len(t.views))
 	var booked int64
@@ -204,22 +209,31 @@ func (h *Hub) publish(t *tick) {
 		joined := v.joined
 		v.rendering, v.joined = false, false
 		f := t.frames[i]
-		if t.errs[i] != nil || f == nil || same(v.frame.Load(), f) {
+		if t.errs[i] != nil || f == nil {
 			if joined {
 				h.mark(v)
 			}
 			continue
 		}
+		same := v.unchanged(f, t.sums[i])
+		if same && !v.owed {
+			continue
+		}
 		nf := &frame{value: f}
-		v.frame.Store(nf)
-		if !v.dead {
-			n := frameHeap(f)
-			booked += n - v.booked
-			v.booked = n
+		if !same {
+			v.frame, v.size, v.sum = nil, -1, t.sums[i]
+			if b, ok := f.([]byte); ok {
+				v.size = len(b)
+			}
 		}
 		for _, w := range v.watches {
-			t.offers = append(t.offers, offer{w, nf})
+			if !same || w.owed {
+				w.owed = false
+				t.offers = append(t.offers, offer{w, nf})
+			}
 		}
+		v.owed = false
+		booked += h.keep(v, nf)
 	}
 	for _, v := range t.views[taken:] {
 		v.rendering, v.joined = false, false
@@ -298,6 +312,9 @@ func (w *worker) render(t *tick) {
 			break
 		}
 		t.frames[i], t.errs[i] = w.h.render(ctx, t.views[i], tx)
+		if b, ok := t.frames[i].([]byte); ok {
+			t.sums[i] = maphash.Bytes(w.h.seed, b)
+		}
 		if q != nil {
 			q.release(false)
 		}

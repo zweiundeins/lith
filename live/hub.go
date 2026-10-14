@@ -19,6 +19,13 @@
 // A stream keeps only the newest frame of each view it watches, so a slow
 // client skips frames and holds up no one else. Views that change in the
 // same tick reach a stream together, in the order it watches them.
+//
+// The hub keeps a view's newest frame while two or more streams watch
+// it, so that a stream that joins gets it at once. Of a view that one
+// stream watches, such as a tab's own, it keeps only the frame's length
+// and hash once the stream has the frame: a render that repeats it goes
+// to no stream, and a stream that joins gets a frame rendered in the next
+// tick. A frame that is not []byte has no hash, and the hub keeps it.
 package live
 
 import (
@@ -27,6 +34,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"hash/maphash"
 	"log/slog"
 	"runtime"
 	"slices"
@@ -92,8 +100,8 @@ type Options struct {
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
-	// process's memory limit for the streams, their encoders and the views'
-	// frames, which the hub books (sse.Budget.Hold); each stream gets a
+	// process's memory limit for the streams, their encoders and the frames
+	// the hub keeps, which it books (sse.Budget.Hold); each stream gets a
 	// window that holds its frames, up to 2^19, and goes out uncompressed
 	// when not even the smallest tier fits; without a memory limit it only
 	// counts. Pass a Budget of your own for another limit, or with Refuse,
@@ -117,11 +125,13 @@ type View struct {
 	// sqlite.QuerierFrom(ctx) runs queries in it on statements the worker
 	// prepared once on its connection. Its frame goes to every stream that
 	// watches the view and must not change afterwards. When Render fails,
-	// the error is logged and the previous frame stays; a nil frame also
-	// keeps the previous one, and so does a []byte frame equal to it. The
-	// hub books the newest frame in the streams' budget, once however many
-	// streams watch it: a []byte frame by its length, another by its
-	// Len() int method, if it has one, each with 8 KiB besides.
+	// the error is logged and the streams send nothing; so they do for a
+	// nil frame, and for a []byte frame equal to the one before (its bytes
+	// while the hub keeps them, else its length and hash). The hub keeps
+	// the newest frame while two or more streams watch the view, or one
+	// does and the frame is not []byte, and books it in the streams' budget
+	// once: a []byte frame by its length, another by its Len() int method,
+	// if it has one, each with 8 KiB besides.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
@@ -158,6 +168,7 @@ type Hub struct {
 	hibernate     time.Duration
 	ping          []byte       // the heartbeat signal's patch up to its number, nil for none
 	pings         atomic.Int64 // the heartbeat signal's last number
+	seed          maphash.Seed // hashes []byte frames for the unchanged-frame check
 	renderTimeout time.Duration
 	log           *slog.Logger
 	onTick        func(time.Duration)
@@ -195,16 +206,19 @@ type view struct {
 	every    time.Duration
 	presence bool
 
-	frame   atomic.Pointer[frame]
 	renders atomic.Int64
-	booked  int64 // what the hub booked for the frame in the budget, guarded by Hub.mu
 
 	// Guarded by Hub.mu.
+	frame     *frame // the newest frame while two or more streams watch the view, else nil
+	size      int    // the newest frame's length, -1 when it is not []byte or there is none
+	sum       uint64 // its hash, for the unchanged-frame check once the hub drops its bytes
+	booked    int64  // what the hub booked for frame in the budget
 	watches   []*watch
 	dirty     bool
 	dead      bool      // no longer watched
 	rendering bool      // in the tick under way
-	joined    bool      // a stream started watching it during that tick, before its first frame
+	joined    bool      // a stream started watching it during that tick, without a frame
+	owed      bool      // a watch lacks the newest frame (watch.owed)
 	due       time.Time // when Every renders it again
 }
 
@@ -217,6 +231,7 @@ type watch struct {
 	s    *stream
 	v    *view
 	i    int    // index in v.watches, guarded by Hub.mu
+	owed bool   // joined while the hub kept no frame, until a render brings one; guarded by Hub.mu
 	next *frame // the newest frame not sent yet, guarded by s.mu
 	gone bool   // unwatched, guarded by s.mu
 }
@@ -280,6 +295,7 @@ func New(o Options) *Hub {
 		heartbeat:     o.Heartbeat,
 		hibernate:     max(0, o.Hibernate),
 		ping:          ping,
+		seed:          maphash.MakeSeed(),
 		renderTimeout: o.RenderTimeout,
 		log:           o.Log,
 		onTick:        o.OnTick,
@@ -373,10 +389,11 @@ func (h *Hub) Watchers(key string) []string {
 }
 
 // Watch makes the open stream with this ID watch v as well: it gets v's
-// current frame at once, or its first one. It reports whether such a
-// stream is open. If none is, as when a page's command arrives before its
-// stream, a stream that opens with the ID within Options.PendingWatch
-// watches v from the start, after the views of its Spec.
+// newest frame at once when the hub keeps it (View.Render), else a frame
+// rendered in the next tick. It reports whether such a stream is open. If
+// none is, as when a page's command arrives before its stream, a stream
+// that opens with the ID within Options.PendingWatch watches v from the
+// start, after the views of its Spec.
 func (h *Hub) Watch(streamID string, v View) bool {
 	check(v)
 	if streamID == "" {
@@ -441,8 +458,8 @@ func (h *Hub) Unwatch(streamID, key string) bool {
 func (h *Hub) Done() <-chan struct{} { return h.done.Done() }
 
 // Budget is the budget the hub's streams share: Options.SSE.Budget, or the
-// one New made. Its Stats tell what the streams hold, the views' frames
-// among it, and SetLimit moves its limit while the hub runs.
+// one New made. Its Stats tell what the streams hold, the frames the hub
+// keeps among it, and SetLimit moves its limit while the hub runs.
 func (h *Hub) Budget() *sse.Budget { return h.sse.Budget }
 
 // Stats reads the counters.
@@ -543,7 +560,7 @@ func (h *Hub) watch(s *stream, def View) bool {
 	marked := false
 	v := h.views[def.Key]
 	if v == nil {
-		v = &view{key: def.Key, topics: slices.Clone(def.Topics), render: def.Render, every: def.Every, presence: def.Presence}
+		v = &view{key: def.Key, topics: slices.Clone(def.Topics), render: def.Render, every: def.Every, presence: def.Presence, size: -1}
 		h.views[v.key] = v
 		for _, t := range v.topics {
 			m := h.topics[t]
@@ -559,7 +576,7 @@ func (h *Hub) watch(s *stream, def View) bool {
 		marked = h.mark(v)
 	} else if v.presence {
 		marked = h.mark(v)
-	} else if v.frame.Load() == nil {
+	} else if v.frame == nil {
 		// A render under way publishes to every watch, this one too.
 		if v.rendering {
 			v.joined = true
@@ -569,7 +586,10 @@ func (h *Hub) watch(s *stream, def View) bool {
 	}
 	w := &watch{s: s, v: v, i: len(v.watches)}
 	v.watches = append(v.watches, w)
-	f := v.frame.Load()
+	f := v.frame
+	if f == nil {
+		w.owed, v.owed = true, true
+	}
 	s.mu.Lock()
 	s.watches = append(s.watches, w)
 	w.next = f
@@ -591,11 +611,13 @@ func (h *Hub) drop(w *watch) bool {
 	v.watches[len(v.watches)-1] = nil
 	v.watches = v.watches[:len(v.watches)-1]
 	if len(v.watches) > 0 {
+		// One stream left has the frame, which v may drop.
+		h.sse.Budget.Hold(h.keep(v, nil))
 		return v.presence && h.mark(v)
 	}
 	v.dead = true
 	h.sse.Budget.Hold(-v.booked)
-	v.booked = 0
+	v.frame, v.booked = nil, 0
 	delete(h.views, v.key)
 	for _, t := range v.topics {
 		delete(h.topics[t], v)
@@ -605,6 +627,28 @@ func (h *Hub) drop(w *watch) bool {
 	}
 	delete(h.every, v)
 	return false
+}
+
+// keep keeps nf as v's frame, or the frame it keeps already, which nf
+// repeats: while two or more streams watch v, or one does and the frame
+// is not []byte, which has no hash and would go to that stream again if a
+// join rendered it. Else the stream that watches v has the frame in its
+// pending slot or wrote it, and v keeps none. It returns the change in
+// what the hub books for v. Hub.mu is held.
+func (h *Hub) keep(v *view, nf *frame) int64 {
+	switch {
+	case len(v.watches) == 0, len(v.watches) == 1 && v.size >= 0:
+		v.frame = nil
+	case v.frame == nil:
+		v.frame = nf
+	}
+	var n int64
+	if v.frame != nil {
+		n = frameHeap(v.frame.value)
+	}
+	d := n - v.booked
+	v.booked = n
+	return d
 }
 
 // frameSlack is what a kept frame holds besides its bytes: the heap's
@@ -627,12 +671,17 @@ func frameHeap(f any) int64 {
 	return int64(n) + frameSlack
 }
 
-// same reports whether a frame repeats the published one.
-func same(old *frame, f any) bool {
-	if old == nil {
+// unchanged reports whether f, whose hash is sum when it is []byte,
+// repeats v's newest frame: the same bytes while v keeps them, else the
+// same length and hash. Hub.mu is held.
+func (v *view) unchanged(f any, sum uint64) bool {
+	b, ok := f.([]byte)
+	if !ok || v.size != len(b) || v.sum != sum {
 		return false
 	}
-	a, ok := old.value.([]byte)
-	b, ok2 := f.([]byte)
-	return ok && ok2 && bytes.Equal(a, b)
+	if v.frame == nil {
+		return true
+	}
+	a, ok := v.frame.value.([]byte)
+	return ok && bytes.Equal(a, b)
 }

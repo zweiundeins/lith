@@ -63,7 +63,7 @@ func New(namespace string, s Sources) prometheus.Collector {
 		views:     d("live", "views", "Views watched now."),
 		limit:     d("sse_budget", "limit_bytes", "The memory the streams may hold together, their encoders and the frames kept for them, 0 for none."),
 		reserved:  d("sse_budget", "reserved_bytes", "The memory the open streams hold: their encoders, 32 KiB each besides, and the frames kept for them."),
-		frames:    d("sse_budget", "frames_bytes", "The memory the frames kept for the streams hold (the hub's views' newest)."),
+		frames:    d("sse_budget", "frames_bytes", "The memory the frames kept for the streams hold (the newest of the hub's views that two or more streams watch)."),
 		tier:      d("sse_budget", "streams", "Open streams by what their encoder holds.", "setting"),
 		refused:   d("sse_budget", "refused_total", "Streams the budget turned away."),
 		reopened:  d("sse_budget", "reopened_total", "Streams the budget asked to open again for a better tier."),

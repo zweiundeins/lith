@@ -66,9 +66,9 @@ type BudgetOptions struct {
 // however many tabs are open.
 //
 // A stream books what it holds from Open to Close: its encoder's tier, and
-// 32 KiB for the rest of it. A live hub books each view's newest frame
-// once, however many streams watch it (Hold). A stream's tier is picked at
-// its first write, from the largest write it has made: a tier's window
+// 32 KiB for the rest of it. A live hub books the frames it keeps, once
+// per view however many streams watch it (Hold). A stream's tier is picked
+// at its first write, from the largest write it has made: a tier's window
 // must hold that frame with a sixteenth to spare, or a frame cannot refer
 // to the one before, and its bytes grow tens of times over. With
 // BudgetOptions.Refuse, Open turns away a stream it has no room for, and
@@ -188,12 +188,12 @@ func (b *Budget) SetLimit(n int64) {
 }
 
 // Hold books n more bytes that the streams hold besides their encoders, or
-// gives back -n: a live hub books each view's newest frame, its length and
-// 8 KiB, once for all the streams that watch it. What Hold books counts
-// against the limit and leaves the encoders less room, but is never
-// refused: once it takes the whole limit, streams go out uncompressed, or
-// with Refuse new ones are turned away while those open keep their
-// smallest tiers.
+// gives back -n: a live hub books the newest frame of each view that two
+// or more streams watch, its length and 8 KiB, once for all of them. What
+// Hold books counts against the limit and leaves the encoders less room,
+// but is never refused: once it takes the whole limit, streams go out
+// uncompressed, or with Refuse new ones are turned away while those open
+// keep their smallest tiers.
 func (b *Budget) Hold(n int64) {
 	if n == 0 {
 		return

@@ -1038,17 +1038,81 @@ func TestJoinDuringFirstRender(t *testing.T) {
 	}
 }
 
+// A render that repeats the frame before goes to no stream: compared by
+// its bytes when the hub keeps the frame (two streams watch the view),
+// and by its length and hash when it does not (one stream).
 func TestUnchangedFrameIsNotSent(t *testing.T) {
-	h := start(t, Options{Tick: 5 * time.Millisecond})
-	v := text("v", []string{"t"}, func(context.Context, *sql.Tx) (string, error) { return "same", nil })
-	c := serve(h, Spec{Views: []View{v}}, "")
-	waitFor(t, "the first frame", func() bool { return c.has(`<p id="v">same</p>`) })
-	for range 3 {
-		h.Changed([]string{"t"})
-		time.Sleep(20 * time.Millisecond)
+	for _, streams := range []int{1, 2} {
+		h := start(t, Options{Tick: 5 * time.Millisecond})
+		v := text("v", []string{"t"}, func(context.Context, *sql.Tx) (string, error) { return "same", nil })
+		var cs []*client
+		for range streams {
+			c := serve(h, Spec{Views: []View{v}}, "")
+			waitFor(t, "the first frame", func() bool { return c.has(`<p id="v">same</p>`) })
+			cs = append(cs, c)
+		}
+		renders := h.Stats().Renders
+		for range 3 {
+			h.Changed([]string{"t"})
+			time.Sleep(20 * time.Millisecond)
+		}
+		if s := h.Stats(); s.Renders != renders+3 || s.FramesSent != int64(streams) {
+			t.Fatalf("%d streams: stats %+v", streams, s)
+		}
+		for _, c := range cs {
+			if p := c.patches(); len(p) != 1 {
+				t.Fatalf("%d streams: patches %q", streams, p)
+			}
+		}
 	}
-	if s := h.Stats(); s.Renders != 4 || s.FramesSent != 1 || len(c.patches()) != 1 {
-		t.Fatalf("stats %+v, patches %q", s, c.patches())
+}
+
+// Of a view that one stream watches the hub keeps no frame: a stream that
+// joins it gets one rendered in the next tick. When it repeats the frame
+// before, it goes to the new stream only; when the view changed meanwhile,
+// to both.
+func TestJoinRendersViewWithOneStream(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	var n atomic.Int64
+	v := text("v", []string{"t"}, func(context.Context, *sql.Tx) (string, error) { return strconv.Itoa(int(n.Load())), nil })
+	a := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the first frame", func() bool { return a.has(`<p id="v">0</p>`) })
+	ticks := h.Stats().Ticks
+	b := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the second stream's frame", func() bool { return b.has(`<p id="v">0</p>`) })
+	if s := h.Stats(); s.Ticks != ticks+1 || s.Renders != 2 || s.FramesSent != 2 {
+		t.Fatalf("after the join: %+v", s)
+	}
+	b.leave(t)
+	// A change that has not marked the view yet: the join's render shows it.
+	n.Store(1)
+	c := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the third stream's frame", func() bool { return c.has(`<p id="v">1</p>`) })
+	waitFor(t, "the changed frame", func() bool { return a.has(`<p id="v">1</p>`) })
+	if p := a.patches(); len(p) != 2 {
+		t.Fatalf("the first stream got %q", p)
+	}
+}
+
+// A stream that joins a view that two streams watch gets its newest frame
+// at once, without a render.
+func TestJoinGetsTheKeptFrame(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	v := text("v", []string{"t"}, func(context.Context, *sql.Tx) (string, error) { return "v", nil })
+	a := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the first frame", func() bool { return a.has(`<p id="v">v</p>`) })
+	b := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the second stream's frame", func() bool { return b.has(`<p id="v">v</p>`) })
+	renders := h.Stats().Renders
+	c := serve(h, Spec{Views: []View{v}}, "")
+	waitFor(t, "the third stream's frame", func() bool { return c.has(`<p id="v">v</p>`) })
+	if s := h.Stats(); s.Renders != renders {
+		t.Fatalf("the join rendered: %+v", s)
+	}
+	for _, x := range []*client{a, b, c} {
+		if p := x.patches(); len(p) != 1 {
+			t.Fatalf("patches %q", p)
+		}
 	}
 }
 
@@ -1180,6 +1244,9 @@ func newBlockingWrite(first string) *blockingWrite {
 }
 
 func (b *blockingWrite) write(_ *sse.Stream, key string, frame any) error {
+	if p, ok := frame.([]byte); ok {
+		frame = string(p)
+	}
 	f := fmt.Sprint(key, frame)
 	b.mu.Lock()
 	b.got = append(b.got, f)
@@ -1206,33 +1273,47 @@ func numbers(n *atomic.Int64, keys ...string) []View {
 	return vs
 }
 
+// byteNumbers is numbers with []byte frames, which the hub does not keep
+// for a view that one stream watches.
+func byteNumbers(n *atomic.Int64, keys ...string) []View {
+	vs := numbers(n, keys...)
+	for i := range vs {
+		vs[i].Render = func(context.Context, *sql.Tx) (any, error) { return strconv.AppendInt(nil, n.Load(), 10), nil }
+	}
+	return vs
+}
+
 // While a stream's Write blocks, the frames of later ticks wait: each
 // tick's frames go out together and in the stream's order, and a frame
-// that a newer one replaced before it went out counts as dropped.
+// that a newer one replaced before it went out counts as dropped. So it
+// goes with []byte frames too, of which the hub keeps none: a stream's
+// pending frames are its own.
 func TestBlockedWriteKeepsTicksTogether(t *testing.T) {
-	h := start(t, Options{Tick: 2 * time.Millisecond})
-	var n atomic.Int64
-	n.Store(1)
-	b := newBlockingWrite("a1")
-	serve(h, Spec{Views: numbers(&n, "a", "b"), Write: b.write}, "")
-	<-b.entered
-	for i := int64(2); i <= 3; i++ {
-		n.Store(i)
-		h.Changed([]string{"t"})
-		waitFor(t, "the tick", func() bool { return h.Stats().Ticks == i })
-	}
-	waitFor(t, "the third tick's frames", func() bool { return h.Stats().FramesDropped == 2 })
-	close(b.release)
-	waitFor(t, "the last frames", func() bool {
-		got := b.sent()
-		return slices.Contains(got, "a3") && slices.Contains(got, "b3")
-	})
-	if got, want := b.sent(), []string{"a1", "b1", "a3", "b3"}; !slices.Equal(got, want) {
-		t.Fatalf("sent %v, want %v", got, want)
-	}
-	waitFor(t, "the count", func() bool { return h.Stats().FramesSent == 4 })
-	if s := h.Stats(); s.FramesDropped != 2 {
-		t.Fatalf("stats %+v", s)
+	for name, views := range map[string]func(*atomic.Int64, ...string) []View{"int": numbers, "[]byte": byteNumbers} {
+		h := start(t, Options{Tick: 2 * time.Millisecond})
+		var n atomic.Int64
+		n.Store(1)
+		b := newBlockingWrite("a1")
+		serve(h, Spec{Views: views(&n, "a", "b"), Write: b.write}, "")
+		<-b.entered
+		for i := int64(2); i <= 3; i++ {
+			n.Store(i)
+			h.Changed([]string{"t"})
+			waitFor(t, "the tick", func() bool { return h.Stats().Ticks == i })
+		}
+		waitFor(t, "the third tick's frames", func() bool { return h.Stats().FramesDropped == 2 })
+		close(b.release)
+		waitFor(t, "the last frames", func() bool {
+			got := b.sent()
+			return slices.Contains(got, "a3") && slices.Contains(got, "b3")
+		})
+		if got, want := b.sent(), []string{"a1", "b1", "a3", "b3"}; !slices.Equal(got, want) {
+			t.Fatalf("%s: sent %v, want %v", name, got, want)
+		}
+		waitFor(t, "the count", func() bool { return h.Stats().FramesSent == 4 })
+		if s := h.Stats(); s.FramesDropped != 2 {
+			t.Fatalf("%s: stats %+v", name, s)
+		}
 	}
 }
 

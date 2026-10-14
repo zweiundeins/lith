@@ -124,10 +124,12 @@ type sized struct{ n int }
 
 func (s sized) Len() int { return s.n }
 
-// The hub books each view's newest frame in the budget once, however many
-// streams watch it: its length and 8 KiB. A frame that changes size moves
-// the booking, a frame of another type is booked by its Len method, and a
-// view nobody watches any more gives its booking back.
+// The hub books each frame it keeps in the budget once, however many
+// streams watch it: its length and 8 KiB. It keeps the newest frame of a
+// view that two or more streams watch, and of one whose frame is not
+// []byte, booked by its Len method; of a []byte view that one stream
+// watches, none. A frame that changes size moves the booking, and a view
+// that falls to one stream, or to none, gives it back.
 func TestHubBooksFrames(t *testing.T) {
 	b := sse.NewBudget(sse.BudgetOptions{Limit: 64 << 20})
 	h := start(t, Options{Tick: time.Millisecond, SSE: sse.Options{Budget: b}})
@@ -141,10 +143,13 @@ func TestHubBooksFrames(t *testing.T) {
 	var cs []*client
 	for i := range 3 {
 		own := View{Key: "own" + strconv.Itoa(i), Render: func(context.Context, *sql.Tx) (any, error) { return sized{5000}, nil }}
-		cs = append(cs, serve(h, Spec{Views: []View{shared, own}, WriteTick: func(*sse.Stream, []Frame) error { return nil }}, ""))
+		tab := View{Key: "tab" + strconv.Itoa(i), Render: func(context.Context, *sql.Tx) (any, error) {
+			return sse.PatchElements(bytes.Repeat([]byte("t"), 100<<10)), nil
+		}}
+		cs = append(cs, serve(h, Spec{Views: []View{shared, own, tab}, WriteTick: func(*sse.Stream, []Frame) error { return nil }}, ""))
 	}
 	want := frameLen() + frameSlack + 3*(5000+frameSlack)
-	waitFor(t, "the frames booked", func() bool { return frames() == want })
+	waitFor(t, "the frames booked", func() bool { return frames() == want && h.Stats().FramesSent == 9 })
 	size.Store(200 << 10)
 	h.Changed([]string{"shared"})
 	want = frameLen() + frameSlack + 3*(5000+frameSlack)
@@ -152,11 +157,97 @@ func TestHubBooksFrames(t *testing.T) {
 	cs[0].leave(t)
 	want -= 5000 + frameSlack
 	waitFor(t, "a view left", func() bool { return frames() == want })
-	for _, c := range cs[1:] {
-		c.leave(t)
-	}
+	cs[1].leave(t)
+	want -= 5000 + frameSlack + frameLen() + frameSlack
+	waitFor(t, "the shared view down to one stream", func() bool { return frames() == want })
+	cs[2].leave(t)
 	if st := b.Stats(); st.Frames != 0 || st.Reserved != 0 {
 		t.Fatalf("after the streams left: %+v", st)
+	}
+}
+
+// A view whose last stream leaves while it renders keeps and books no
+// frame from that render, even one that is not []byte.
+func TestViewLeftDuringItsRenderBooksNothing(t *testing.T) {
+	b := sse.NewBudget(sse.BudgetOptions{Limit: 64 << 20})
+	h := start(t, Options{Tick: time.Millisecond, SSE: sse.Options{Budget: b}})
+	entered, release := make(chan struct{}), make(chan struct{})
+	v := View{Key: "v", Render: func(context.Context, *sql.Tx) (any, error) {
+		close(entered)
+		<-release
+		return sized{5000}, nil
+	}}
+	c := serve(h, Spec{Views: []View{v}, WriteTick: func(*sse.Stream, []Frame) error { return nil }}, "")
+	<-entered
+	c.leave(t)
+	close(release)
+	// The probe's frame comes in a later tick than that render's.
+	p := text("probe", nil, func(context.Context, *sql.Tx) (string, error) { return "p", nil })
+	probe := serve(h, Spec{Views: []View{p}}, "")
+	waitFor(t, "the probe", func() bool { return probe.has(`<p id="probe">p</p>`) })
+	if st := b.Stats(); st.Frames != 0 {
+		t.Fatalf("%d bytes of frames booked for a view nobody watches", st.Frames)
+	}
+	probe.leave(t)
+}
+
+// A view that one stream watches keeps no frame once the stream has it:
+// after the write, whatever the coding, the frame's bytes are garbage and
+// the budget books none. A second stream that joins the view gets a frame
+// rendered in the next tick, which the view keeps, booked once, while
+// both watch it; when one leaves, the view drops it.
+func TestViewWithOneStreamKeepsNoFrame(t *testing.T) {
+	const size = 8 << 20
+	frame := int64(len(sse.PatchElements(bytes.Repeat([]byte("x"), size))))
+	for _, coding := range []string{"identity", sse.Zstd, sse.Brotli} {
+		b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})
+		h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
+		v := View{Key: "tab", Render: func(context.Context, *sql.Tx) (any, error) {
+			return sse.PatchElements(bytes.Repeat([]byte("x"), size)), nil
+		}}
+		// What the hub holds: the heap and the stacks, less the bodies the
+		// clients keep and the encoders the budget books.
+		before := liveHeap()
+		var cs []*client
+		held := func() int64 {
+			var bodies int64
+			for _, c := range cs {
+				c.mu.Lock()
+				bodies += int64(c.body.Cap())
+				c.mu.Unlock()
+			}
+			st := b.Stats()
+			return liveHeap() - before - bodies - (st.Reserved - st.Frames)
+		}
+		cs = append(cs, serve(h, Spec{Views: []View{v}}, coding))
+		waitFor(t, "the frame", func() bool { return h.Stats().FramesSent == 1 })
+		one := held()
+		if one > size/8 {
+			t.Errorf("%s: one stream: the hub holds %d KiB after the frame went out", coding, one>>10)
+		}
+		if st := b.Stats(); st.Frames != 0 {
+			t.Errorf("%s: one stream: %d bytes of frames booked", coding, st.Frames)
+		}
+		cs = append(cs, serve(h, Spec{Views: []View{v}}, coding))
+		waitFor(t, "the second stream's frame", func() bool { return h.Stats().FramesSent == 2 })
+		two := held()
+		if two < size*7/8 || two > size+size/8 {
+			t.Errorf("%s: two streams: the hub holds %d KiB, the frame is %d KiB", coding, two>>10, frame>>10)
+		}
+		if st, r := b.Stats(), h.Stats(); st.Frames != frame+frameSlack || r.Renders != 2 {
+			t.Errorf("%s: two streams: %d bytes of frames booked, %d renders", coding, st.Frames, r.Renders)
+		}
+		cs[1].leave(t)
+		again := held()
+		if again > size/8 {
+			t.Errorf("%s: one stream again: the hub holds %d KiB", coding, again>>10)
+		}
+		t.Logf("%s, a frame of %d KiB: the hub holds %d KiB with one stream, %d with two, %d with one again",
+			coding, frame>>10, one>>10, two>>10, again>>10)
+		if st := b.Stats(); st.Frames != 0 {
+			t.Errorf("%s: one stream again: %d bytes of frames booked", coding, st.Frames)
+		}
+		cs[0].leave(t)
 	}
 }
 
@@ -182,10 +273,11 @@ func liveHeap() int64 {
 }
 
 // What the budget books for streams that each watch a view of their own,
-// their encoders, their frames and 32 KiB each, is what they hold on the
-// heap and the stacks after a collection, within a tenth or 64 KiB a
-// stream. (The 32 KiB include net/http's buffers for the connection,
-// which these streams have none of.)
+// or one view for every two, is what they hold on the heap and the stacks
+// after a collection, within a tenth or 64 KiB a stream: their encoders,
+// 32 KiB each, and the frames of the views two streams watch. (The 32 KiB
+// include net/http's buffers for the connection, which these streams have
+// none of.)
 func TestBudgetMatchesHeap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("streams large frames to many streams")
@@ -195,39 +287,48 @@ func TestBudgetMatchesHeap(t *testing.T) {
 		streams = 4
 	}
 	for _, rows := range []int{900, 1500} {
-		for _, coding := range []string{sse.Brotli, sse.Zstd, "identity"} {
-			b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})
-			h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
-			before := liveHeap()
-			var version atomic.Int64
-			var cs []*client
-			for i := range streams {
-				cs = append(cs, serve(h, Spec{Views: []View{tabView("tab"+strconv.Itoa(i), rows, &version)}}, coding))
-			}
-			for k := range 3 {
-				version.Store(int64(k))
-				h.Changed([]string{"tabs"})
-				waitFor(t, "a frame to every stream", func() bool { return h.Stats().FramesSent >= int64(streams*(k+1)) })
-			}
-			// The streams' clients keep the bodies: count what the hub holds.
-			var bodies int64
-			for _, c := range cs {
-				c.mu.Lock()
-				bodies += int64(c.body.Cap())
-				c.mu.Unlock()
-			}
-			measured := liveHeap() - before - bodies
-			st := b.Stats()
-			ratio := float64(measured) / float64(st.Reserved)
-			t.Logf("%d rows, %s: %d KiB booked (%d KiB of frames), %d KiB measured, %.2f, %v",
-				rows, coding, st.Reserved>>10, st.Frames>>10, measured>>10, ratio, st.Streams)
-			if d := measured - st.Reserved; max(d, -d) > max(st.Reserved/10, int64(streams)*64<<10) {
-				t.Errorf("%d rows, %s: measured %d KiB for %d KiB booked", rows, coding, measured>>10, st.Reserved>>10)
-			}
-			for _, c := range cs {
-				c.leave(t)
+		for _, per := range []int{1, 2} {
+			for _, coding := range []string{sse.Brotli, sse.Zstd, "identity"} {
+				matchHeap(t, rows, streams, per, coding)
 			}
 		}
+	}
+}
+
+// matchHeap opens streams streams, per of them on each view, and compares
+// what the budget books with what the heap and the stacks hold.
+func matchHeap(t *testing.T, rows, streams, per int, coding string) {
+	t.Helper()
+	b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})
+	h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
+	before := liveHeap()
+	var version atomic.Int64
+	var cs []*client
+	for i := range streams {
+		cs = append(cs, serve(h, Spec{Views: []View{tabView("tab"+strconv.Itoa(i/per), rows, &version)}}, coding))
+	}
+	for k := range 3 {
+		version.Store(int64(k))
+		h.Changed([]string{"tabs"})
+		waitFor(t, "a frame to every stream", func() bool { return h.Stats().FramesSent >= int64(streams*(k+1)) })
+	}
+	// The streams' clients keep the bodies: count what the hub holds.
+	var bodies int64
+	for _, c := range cs {
+		c.mu.Lock()
+		bodies += int64(c.body.Cap())
+		c.mu.Unlock()
+	}
+	measured := liveHeap() - before - bodies
+	st := b.Stats()
+	ratio := float64(measured) / float64(st.Reserved)
+	t.Logf("%d rows, %d streams a view, %s: %d KiB booked (%d KiB of frames), %d KiB measured, %.2f, %v",
+		rows, per, coding, st.Reserved>>10, st.Frames>>10, measured>>10, ratio, st.Streams)
+	if d := measured - st.Reserved; max(d, -d) > max(st.Reserved/10, int64(streams)*64<<10) {
+		t.Errorf("%d rows, %d streams a view, %s: measured %d KiB for %d KiB booked", rows, per, coding, measured>>10, st.Reserved>>10)
+	}
+	for _, c := range cs {
+		c.leave(t)
 	}
 }
 
@@ -241,11 +342,10 @@ func TestReconnectForABetterTier(t *testing.T) {
 	h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
 	var version atomic.Int64
 	view := tabView("tab", 1300, &version)
-	f, _ := view.Render(t.Context(), nil)
-	booked := int64(len(f.([]byte))) + frameSlack
-	// What is left after the stream's view and its 2^16 at quality 3 (752
-	// KiB with the stream's own): 200 KiB, too little for 2^18.
-	fill := int64(8<<20) - 752<<10 - booked - 200<<10
+	// What is left after the stream's 2^16 at quality 3 (752 KiB with the
+	// stream's own): 200 KiB, too little for 2^18. The hub keeps no frame of
+	// a view that one stream watches.
+	fill := int64(8<<20) - 752<<10 - 200<<10
 	below := func(id string) *client {
 		t.Helper()
 		b.Hold(fill)
