@@ -378,7 +378,7 @@ func LandingPage(l Landing) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<section class=\"wrap section\" aria-labelledby=\"credits-title\"><header class=\"section__head reveal\"><h2 id=\"credits-title\">Credits</h2></header><div class=\"credits reveal\"><article><h3><a href=\"https://github.com/andersmurphy/hyperlith\">hyperlith</a></h3><p>The Clojure framework on Datastar that lith is inspired by.</p></article><article><h3><a href=\"https://github.com/zangster300/northstar\">northstar</a></h3><p>The Go starter for Datastar apps that lith is inspired by.</p></article><article><h3><a href=\"https://data-star.dev\">Datastar</a></h3><p>The hypermedia framework in the browser: signals, morphs and the events every lith stream speaks.</p></article></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<section class=\"wrap section\" aria-labelledby=\"credits-title\"><header class=\"section__head reveal\"><h2 id=\"credits-title\">Credits</h2></header><div class=\"credits reveal\"><article><h3><a href=\"https://github.com/andersmurphy/hyperlith\">andersmurphy/hyperlith</a></h3><p>The Clojure framework on Datastar that lith is inspired by.</p></article><article><h3><a href=\"https://github.com/zangster300/northstar\">zangster300/northstar</a></h3><p>The Go starter for Datastar apps that lith is inspired by.</p></article><article><h3><a href=\"https://data-star.dev\">Datastar</a></h3><p>The hypermedia framework in the browser: signals, morphs and the events every lith stream speaks.</p></article></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

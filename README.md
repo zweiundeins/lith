@@ -107,8 +107,8 @@ lith	https://github.com/zweiundeins/lith	skills/lith
 
 ## Credits
 
-Inspired by [hyperlith](https://github.com/andersmurphy/hyperlith) and
-[northstar](https://github.com/zangster300/northstar). The code started in
+Inspired by [andersmurphy/hyperlith](https://github.com/andersmurphy/hyperlith) and
+[zangster300/northstar](https://github.com/zangster300/northstar). The code started in
 [kanban](https://github.com/zweiundeins/kanban),
 [starbase](https://github.com/zweiundeins/starbase) and
 [Libretto](https://libretto.ch).
