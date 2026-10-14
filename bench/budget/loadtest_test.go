@@ -45,7 +45,7 @@ func TestLoadtest(t *testing.T) {
 				case "static low memory":
 					opt = sse.Options{ZstdWindow: 18, ZstdLowMemory: true}
 				case "budget":
-					b = sse.NewBudget(sse.BudgetOptions{Limit: 128 << 20, MinWindow: 18, MaxWindow: 19})
+					b = sse.NewBudget(sse.BudgetOptions{Limit: 128 << 20})
 					opt.Budget = b
 				}
 				// The budget's streams by tier, last seen with every stream open.

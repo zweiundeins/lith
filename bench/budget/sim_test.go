@@ -54,11 +54,12 @@ func readSettings(t *testing.T) map[string]map[string]measured {
 // measured (settings.csv). Without a budget every stream has the same
 // setting: lith's default, or a static low-memory window at the workload's
 // floor. The budgets of 128 MiB are sse.Budget itself, with MinWindow at
-// the workload's floor: "budget at open" only opens the streams, "budget"
-// also has every open stream write after every ten opens, so that tiers
-// shrink and waiting streams take room as it frees up, and "budget, 503"
-// turns away the streams it has no room for. A budget of 1 GiB shows the
-// tiers over a wider range. It writes simulation.csv.
+// the workload's floor: in "budget at first write" each stream writes once,
+// when it opens, which picks its tier; in "budget" every open stream also
+// writes after every ten opens, so that tiers shrink and waiting streams
+// take room as it frees up, and "budget, 503" turns away the streams it has
+// no room for. A budget of 1 GiB shows the tiers over a wider range. It
+// writes simulation.csv.
 func TestSimulation(t *testing.T) {
 	request(t)
 	m := readSettings(t)
@@ -79,10 +80,10 @@ func TestSimulation(t *testing.T) {
 		{"page", 17, "zstd 2^17 low memory"},
 	} {
 		plain := m[w.name]["identity"].perFrame
-		for _, policy := range []string{"lith default", "static low memory", "budget at open", "budget", "budget, 503", "budget of 1 GiB"} {
+		for _, policy := range []string{"lith default", "static low memory", "budget at first write", "budget", "budget, 503", "budget of 1 GiB"} {
 			var b *sse.Budget
 			switch policy {
-			case "budget at open", "budget":
+			case "budget at first write", "budget":
 				b = sse.NewBudget(sse.BudgetOptions{Limit: limit, MinWindow: w.floor, MaxWindow: 19})
 			case "budget, 503":
 				b = sse.NewBudget(sse.BudgetOptions{Limit: limit, MinWindow: w.floor, MaxWindow: 19, Refuse: true})
@@ -109,9 +110,12 @@ func TestSimulation(t *testing.T) {
 							refused++
 							continue
 						}
+						if err := s.Write(sse.Comment("x")); err != nil {
+							t.Fatal(err)
+						}
 						open = append(open, s)
 					}
-					if policy != "budget at open" {
+					if policy != "budget at first write" {
 						for _, s := range open {
 							if err := s.Write(sse.Comment("x")); err != nil {
 								t.Fatal(err)

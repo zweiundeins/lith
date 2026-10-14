@@ -25,7 +25,7 @@ func TestPressure(t *testing.T) {
 	request(t)
 	const streams = 500
 	frames := boardFrames(t, 5)
-	b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30, MinWindow: 18, MaxWindow: 19})
+	b := sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})
 	before := liveHeap()
 	sinks := make([]*sink, streams)
 	open := make([]*sse.Stream, streams)
