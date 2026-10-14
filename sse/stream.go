@@ -338,13 +338,16 @@ func (s *Stream) Write(events ...[]byte) error {
 	return s.send(s.buf.Bytes())
 }
 
-// grew notes a write of n bytes, larger than any before.
+// grew notes a write of n bytes, larger than any before. A brotli stream
+// that has yet to pick its tier tells its budget once it has.
 func (s *Stream) grew(n int) {
 	s.frame = n
 	if s.tier.coding == Zstd && !s.low && s.opt.Budget.short(s.tier, Zstd, s.opt, n) {
 		s.low, s.freed = true, -1
 	}
-	s.moved()
+	if !s.pick {
+		s.moved()
+	}
 }
 
 // moved tells the stream's budget, if the stream is a mover, what it holds

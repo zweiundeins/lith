@@ -469,6 +469,16 @@ func TestBudgetUpgrade(t *testing.T) {
 	if asked(ok) || asked(z) {
 		t.Fatal("a stream at 2^18 or a zstd stream asked")
 	}
+	// Nor is a stream that listens before its first write, as a hub's
+	// does: that write picks its tier before the budget hears of its frame.
+	fresh := NewBudget(BudgetOptions{Limit: 8 << 20})
+	early, _ := openWith(t, Brotli, Options{Budget: fresh})
+	early.Upgrade()
+	write(t, early, large)
+	if asked(early) || fresh.Stats().Reopened != 0 {
+		t.Fatalf("a stream that listened before its first write asked: %+v", fresh.Stats())
+	}
+	early.Close()
 	for _, s := range append(below[1:], id, z, ok) {
 		s.Close()
 	}

@@ -252,7 +252,9 @@ func TestReconnectForABetterTier(t *testing.T) {
 		v := view
 		v.Key += id
 		c := serve(h, Spec{ID: id, Views: []View{v}, Reconnect: "stream"}, sse.Brotli)
-		waitFor(t, "the first frame", func() bool { return b.Stats().Streams["br q3 2^16"] == 1 })
+		// A brotli stream holds q3 2^16 from Open: the frame on the wire
+		// shows that its first write picked it.
+		waitFor(t, "the first frame", func() bool { return len(c.bytes()) > 0 && b.Stats().Streams["br q3 2^16"] == 1 })
 		return c
 	}
 	c := below("tab1")
