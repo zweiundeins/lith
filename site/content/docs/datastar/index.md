@@ -1,6 +1,8 @@
 ---
 title: Datastar notes
+headline: Datastar 1.0.4 notes: symptoms, causes and fixes
 summary: The Datastar behaviours that cost the lith projects time, each with what you see, why it happens, and what to do. Written against Datastar 1.0.4, the version the template and this site vendor.
+description: Datastar 1.0.4 behaviours that cost the lith projects time, in attributes, signals and morphs: what you see, why it happens, and what to do about it.
 order: 4
 ---
 

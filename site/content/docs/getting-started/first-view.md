@@ -1,6 +1,7 @@
 ---
 title: The first command and view
 nav: First command and view
+headline: Your first command and live view in lith
 summary: Add a feature the lith way: a command that changes state, a handler that answers 204, a view that renders it for everyone, and the stream that brings it.
 order: 2
 ---

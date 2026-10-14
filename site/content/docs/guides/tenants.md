@@ -1,6 +1,7 @@
 ---
 title: One database per account
 nav: Tenants
+headline: One SQLite database per account with tenant.Pool
 summary: Keep each account's data in a file of its own with tenant.Pool, a writer per account and one hub for every account's views, and erase an account for good.
 order: 8
 ---

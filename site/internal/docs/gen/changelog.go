@@ -22,6 +22,6 @@ func Changelog(root string) (map[string][]byte, error) {
 	if !ok {
 		return nil, errors.New("gen: CHANGELOG.md does not start with \"# Changelog\"")
 	}
-	page := "---\ntitle: Changelog\nsummary: What each release of lith changed.\norder: 9\n---\n" + body
+	page := frontMatter("Changelog", "", "What each release of lith changed.", changelogMeta, 9) + "\n" + body
 	return map[string][]byte{changelogPage: []byte(page)}, nil
 }

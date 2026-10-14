@@ -1,7 +1,9 @@
 ---
 title: Package reference
 nav: Packages
+headline: Package reference: every exported name of lith
 summary: Every exported name of lith's packages, with its signature and its doc comment.
+description: Every exported name of lith's packages, from sqlite and writer to live, sse and edge, with its signature and doc comment, generated from the code.
 order: 6
 ---
 

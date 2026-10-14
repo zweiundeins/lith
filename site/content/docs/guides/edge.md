@@ -1,7 +1,9 @@
 ---
 title: The request edge
 nav: The edge
+headline: The request edge: sessions, CSRF, CSP and limits
 summary: What happens to a request before its handler runs and after it has written: sessions, CSRF, security headers with a CSP nonce, client addresses, rate limits, compression, static files and health probes.
+description: What happens around a handler: sessions, CSRF checks, security headers with a CSP nonce, client addresses, rate limits, compression and static files.
 order: 7
 ---
 

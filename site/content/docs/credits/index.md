@@ -1,6 +1,8 @@
 ---
 title: Credits
+headline: Credits: what lith learned from and builds on
 summary: The projects lith learned from and builds on, and what this site is made of.
+description: The projects lith learned from (hyperlith, northstar), what it builds on (Datastar, modernc SQLite, zstd and brotli), and what makes up this site.
 order: 8
 ---
 

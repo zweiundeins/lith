@@ -1,6 +1,8 @@
 ---
 title: Changelog
+headline: Changelog: what each lith release changed
 summary: What each release of lith changed.
+description: What each release of lith changed, from v0.1.0 on: new packages and functions, changed behaviour, and what an app has to change to upgrade.
 order: 9
 ---
 

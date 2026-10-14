@@ -1,5 +1,6 @@
 ---
 title: Load testing
+headline: Load testing a lith app in process with loadtest
 summary: Run an app's own views and commands under load, in process, with lith/loadtest, read its report, and compare runs before and after a change.
 order: 12
 ---

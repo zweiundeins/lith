@@ -1,6 +1,8 @@
 ---
 title: Encoders
+headline: zstd against brotli: bytes, CPU and heap per stream
 summary: zstd at three levels against brotli on the shared board, and the heap each encoder holds per stream: the bytes on the wire, the CPU and the memory each setting trades.
+description: zstd at three levels against brotli on the shared board: bytes on the wire per frame, CPU per frame, and the heap each encoder holds for every stream.
 order: 3
 ---
 

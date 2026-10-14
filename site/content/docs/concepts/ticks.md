@@ -1,6 +1,8 @@
 ---
 title: Ticks
+headline: Ticks: one render a tick for every viewer
 summary: Commits mark views dirty, and once per tick each dirty view renders once, for every stream that watches it.
+description: Commits touch topics, topics mark views dirty, and once per tick each dirty view renders once, in one read transaction, for every stream that watches it.
 order: 3
 ---
 

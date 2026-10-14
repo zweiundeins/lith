@@ -36,7 +36,10 @@ type Script struct {
 type Shell struct {
 	// Title is the page's own title; the document's is "<Title> · lith",
 	// or just "lith" when it is empty (the landing page).
-	Title       string
+	Title string
+	// Headline, when set, takes Title's place in the document's title
+	// and og:title: a longer one for search results and shares.
+	Headline    string
 	Description string
 	// Path is the page's canonical path, Base the site's public URL.
 	Path, Base string
@@ -63,7 +66,10 @@ type Shell struct {
 
 // DocumentTitle is the <title> of the page.
 func (s Shell) DocumentTitle() string {
-	if s.Title == "" {
+	switch {
+	case s.Headline != "":
+		return s.Headline + " · lith"
+	case s.Title == "":
 		return "lith: Linear writes, Immediate mode, Ticks, Hypermedia"
 	}
 	return s.Title + " · lith"

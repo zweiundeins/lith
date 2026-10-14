@@ -1,6 +1,8 @@
 ---
 title: Review checklist
+headline: Review checklist for lith apps, with rg commands
 summary: What to check in a lith app before a release, and on every change to the database, a stream or a handler. Each check names the mistake, what it does in production, and an rg command that finds it.
+description: What to check in a lith app before a release and on every change: each check names the mistake, what it does in production, and an rg command to find it.
 order: 7
 ---
 

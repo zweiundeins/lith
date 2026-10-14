@@ -25,6 +25,42 @@ const refDir = Docs + "/reference"
 // the root, in the order of its navigation.
 var Packages = []string{"sqlite", "writer", "live", "sse", "edge", "tenant", "dbmetrics", "loadtest", "backup", "prom", "dbmetrics/prom"}
 
+// Meta is what a generated page shows in search results and shares: the
+// head's title and its meta description.
+type Meta struct{ Headline, Description string }
+
+// PackageMeta holds each package's Meta, by its directory. A package in
+// Packages needs one.
+var PackageMeta = map[string]Meta{
+	"sqlite":         {"lith/sqlite: one write connection and a read pool", "Reference for lith/sqlite: open a SQLite file with one write connection and a pool of read-only ones, run migrations, and read in one snapshot."},
+	"writer":         {"lith/writer: the single writer of a SQLite database", "Reference for lith/writer: the one writer of a SQLite database, which applies commands in batches of one transaction with a savepoint each."},
+	"live":           {"lith/live: views rendered once a tick, streamed", "Reference for lith/live: views keyed by topics, rendered once per tick in a read transaction, and streamed to every page that watches them."},
+	"sse":            {"lith/sse: Datastar events, compressed per stream", "Reference for lith/sse: Datastar's server-sent events, formatted once and compressed per stream with zstd, brotli or gzip within a memory budget."},
+	"edge":           {"lith/edge: sessions, CSRF, compression, static files", "Reference for lith/edge: sessions, CSRF checks, a CSP with a nonce, client addresses, rate limits, compression and precompressed static files."},
+	"tenant":         {"lith/tenant: one open SQLite database per account", "Reference for lith/tenant: a pool that keeps one open value per key, usually a SQLite database per account, refcounted and closed at a soft cap."},
+	"dbmetrics":      {"lith/dbmetrics: statement timings and slow queries", "Reference for lith/dbmetrics: wrap a database/sql driver to time every query and exec, and log the slow ones with their SQL but never their arguments."},
+	"loadtest":       {"lith/loadtest: an app's views and commands under load", "Reference for lith/loadtest: measure an app's views and commands in process, with a writer, a live hub, and streams that need no network."},
+	"backup":         {"lith/backup: Litestream replication to S3", "Reference for lith/backup: replicate SQLite databases to S3-compatible storage with Litestream, embedded in the process, in a module of its own."},
+	"prom":           {"lith/prom: Prometheus metrics for a lith app", "Reference for lith/prom: export the writer's batches and commands, the live hub's ticks, renders and frames, and the stream budget to Prometheus."},
+	"dbmetrics/prom": {"lith/dbmetrics/prom: statement timings in Prometheus", "Reference for lith/dbmetrics/prom: a dbmetrics Observer that records query and exec durations and slow statements as Prometheus histograms and counters."},
+}
+
+// indexMeta and changelogMeta are the reference's index's and the
+// changelog's.
+var (
+	indexMeta     = Meta{"Package reference: every exported name of lith", "Every exported name of lith's packages, from sqlite and writer to live, sse and edge, with its signature and doc comment, generated from the code."}
+	changelogMeta = Meta{"Changelog: what each lith release changed", "What each release of lith changed, from v0.1.0 on: new packages and functions, changed behaviour, and what an app has to change to upgrade."}
+)
+
+// frontMatter is a generated page's front matter.
+func frontMatter(title, nav, summary string, m Meta, order int) string {
+	s := "---\ntitle: " + title + "\n"
+	if nav != "" {
+		s += "nav: " + nav + "\n"
+	}
+	return s + fmt.Sprintf("headline: %s\nsummary: %s\ndescription: %s\norder: %d\n---", m.Headline, summary, m.Description, order)
+}
+
 // Slug is a package's page name: dbmetrics/prom is dbmetrics-prom.
 func Slug(dir string) string { return strings.ReplaceAll(dir, "/", "-") }
 
@@ -38,7 +74,11 @@ func Reference(root string) (map[string][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		files[refDir+"/"+Slug(dir)+".md"] = p.page(i + 1)
+		m, ok := PackageMeta[dir]
+		if !ok {
+			return nil, fmt.Errorf("gen: %s has no PackageMeta", dir)
+		}
+		files[refDir+"/"+Slug(dir)+".md"] = p.page(i+1, m)
 		rows = append(rows, fmt.Sprintf("| [%s](/docs/reference/%s) | %s |", dir, Slug(dir), escapeCell(p.synopsis())))
 	}
 	files[refDir+"/index.md"] = index(rows)
@@ -49,12 +89,8 @@ func escapeCell(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
 
 func index(rows []string) []byte {
 	var b bytes.Buffer
-	b.WriteString(`---
-title: Package reference
-nav: Packages
-summary: Every exported name of lith's packages, with its signature and its doc comment.
-order: 6
----
+	b.WriteString(frontMatter("Package reference", "Packages", "Every exported name of lith's packages, with its signature and its doc comment.", indexMeta, 6))
+	b.WriteString(`
 
 These pages are generated from the Go doc comments of lith's packages, at the commit this site was built from: ` + "`go generate ./content`" + ` in ` + "`site/`" + ` writes them, and ` + "`TestUpToDate`" + ` fails when they differ from the code. To change a page, change the doc comment and generate again.
 
@@ -155,9 +191,9 @@ func (p *pkg) withoutSynopsis() string {
 
 // page renders the package's page: blocks of Markdown, one blank line
 // between each two.
-func (p *pkg) page(order int) []byte {
+func (p *pkg) page(order int, m Meta) []byte {
 	var b blocks
-	b.add(fmt.Sprintf("---\ntitle: %s\nsummary: %s\norder: %d\n---", p.dir, p.synopsis(), order))
+	b.add(frontMatter(p.dir, "", p.synopsis(), m, order))
 	note := fmt.Sprintf("Import path `%s`", p.doc.ImportPath)
 	if p.module {
 		note += fmt.Sprintf(", a module of its own: `go get %s`", p.doc.ImportPath)

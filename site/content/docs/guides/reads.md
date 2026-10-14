@@ -1,6 +1,8 @@
 ---
 title: Reads
+headline: Reads: one read transaction per document or render
 summary: Every read runs in a read transaction of the pool, the one it is given: a document's, a render's or a command's. Query code takes a sqlite.Querier, so one function serves all three.
+description: Every read runs in a read transaction from the pool: a document's, a render's or a command's. Query code takes a sqlite.Querier and serves all three.
 order: 3
 ---
 

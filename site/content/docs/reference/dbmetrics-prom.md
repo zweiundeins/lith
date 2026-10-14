@@ -1,6 +1,8 @@
 ---
 title: dbmetrics/prom
+headline: lith/dbmetrics/prom: statement timings in Prometheus
 summary: Records dbmetrics observations in Prometheus.
+description: Reference for lith/dbmetrics/prom: a dbmetrics Observer that records query and exec durations and slow statements as Prometheus histograms and counters.
 order: 11
 ---
 

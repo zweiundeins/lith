@@ -1,7 +1,9 @@
 ---
 title: Streams and compression
 nav: Streams
+headline: Streams: compression per stream within a budget
 summary: Each stream compresses its frames with an encoder of its own. Pick the window by the largest frame, share memory through the budget, let idle streams hibernate, and leave small events uncompressed.
+description: Each SSE stream compresses with its own encoder: pick the window by the largest frame, share memory through the budget, and let idle streams hibernate.
 order: 6
 ---
 

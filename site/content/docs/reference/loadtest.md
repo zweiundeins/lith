@@ -1,6 +1,8 @@
 ---
 title: loadtest
+headline: lith/loadtest: an app's views and commands under load
 summary: Measures a project's views and commands under load, in process: a writer and a live hub on one database, streams without a network, and producers that send commands on a fixed schedule.
+description: Reference for lith/loadtest: measure an app's views and commands in process, with a writer, a live hub, and streams that need no network.
 order: 8
 ---
 

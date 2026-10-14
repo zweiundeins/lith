@@ -1,7 +1,9 @@
 ---
 title: Concepts
 nav: The four ideas
+headline: The four ideas of lith: writes, views, ticks, HTML
 summary: Linear writes, Immediate mode, Ticks, Hypermedia: what each idea means, and the package that keeps it.
+description: Linear writes, Immediate mode, Ticks and Hypermedia: what each of lith's four ideas means, how a click travels through them, and the package behind each.
 order: 2
 ---
 

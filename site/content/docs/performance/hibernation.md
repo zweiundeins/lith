@@ -1,6 +1,8 @@
 ---
 title: Hibernation
+headline: Hibernation: idle SSE streams give back their encoder
 summary: An hour of 200 tabs, simulated second by second: what an idle zstd stream saves when it gives its encoder back, what its next frame costs, and what browsers make of it.
+description: An hour of 200 tabs, simulated second by second: what an idle zstd stream saves by giving its encoder back, and what its next frame costs.
 order: 5
 ---
 

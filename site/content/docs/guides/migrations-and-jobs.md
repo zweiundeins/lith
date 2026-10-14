@@ -1,6 +1,7 @@
 ---
 title: Migrations, jobs and imports
 nav: Migrations and jobs
+headline: Migrations, background jobs, imports and sweeps
 summary: The schema as numbered SQL files, work that a command's transaction cannot hold, large imports, background jobs, sweeps, and who checkpoints the WAL.
 order: 2
 ---

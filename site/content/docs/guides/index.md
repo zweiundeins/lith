@@ -1,6 +1,8 @@
 ---
 title: Guides
+headline: lith guides: one task per page, with real code
 summary: One task per page, each with code that compiles against the lith of this site's commit and runs in its tests.
+description: One task per page, from commands and reads to streams, backups and deploys, each with code that compiles against this site's lith and runs in its tests.
 order: 3
 ---
 

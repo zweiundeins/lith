@@ -13,7 +13,10 @@
 //
 // title and summary are required; order sorts a section's pages (and, in a
 // section's index.md, the sections); nav is a shorter title for the
-// navigation; draft: true keeps a page out unless drafts are shown (-dev).
+// navigation; headline is a longer title for the document's <title> and
+// og:title, the title by default; description is the page's meta
+// description, the summary by default; draft: true keeps a page out
+// unless drafts are shown (-dev).
 // A section is a directory with an index.md, the section's first page.
 package docs
 
@@ -33,16 +36,21 @@ import (
 
 // Page is one page of the docs.
 type Page struct {
-	Path     string // URL path: /docs, /docs/concepts, /docs/concepts/ticks
-	File     string // the file, relative to the docs directory
-	Title    string
-	Nav      string // the navigation's label
+	Path  string // URL path: /docs, /docs/concepts, /docs/concepts/ticks
+	File  string // the file, relative to the docs directory
+	Title string
+	Nav   string // the navigation's label
+	// Headline is the title for search results and shares, the head's
+	// <title> and og:title; Title by default.
+	Headline string
 	Summary  string
-	Order    int
-	Draft    bool
-	Section  *Section // nil for /docs itself
-	HTML     string
-	Headings []markdown.Heading
+	// Description is the head's meta description; Summary by default.
+	Description string
+	Order       int
+	Draft       bool
+	Section     *Section // nil for /docs itself
+	HTML        string
+	Headings    []markdown.Heading
 	// IDs are the ids of all its headings, the table of contents' and
 	// the deeper ones.
 	IDs []string
@@ -174,6 +182,10 @@ func readPage(fsys fs.FS, file, urlPath string) (*Page, error) {
 			p.Summary = v
 		case "nav":
 			p.Nav = v
+		case "headline":
+			p.Headline = v
+		case "description":
+			p.Description = v
 		case "order":
 			if p.Order, err = strconv.Atoi(v); err != nil {
 				return nil, fmt.Errorf("order %q is not a number", v)
@@ -189,6 +201,12 @@ func readPage(fsys fs.FS, file, urlPath string) (*Page, error) {
 	}
 	if p.Nav == "" {
 		p.Nav = p.Title
+	}
+	if p.Headline == "" {
+		p.Headline = p.Title
+	}
+	if p.Description == "" {
+		p.Description = p.Summary
 	}
 	doc, err := markdown.Render(body)
 	if err != nil {

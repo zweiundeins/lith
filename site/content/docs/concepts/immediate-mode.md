@@ -1,5 +1,6 @@
 ---
 title: Immediate mode
+headline: Immediate mode: view = f(state), rendered whole
 summary: A region of a page is view = f(state): rendered whole from the database, morphed into the page by Datastar, with nothing in the browser that guesses ahead.
 order: 2
 ---

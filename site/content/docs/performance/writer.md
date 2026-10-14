@@ -1,5 +1,6 @@
 ---
 title: The writer
+headline: Writer benchmarks: commands a second, FULL and NORMAL
 summary: Commands a second with synchronous FULL and NORMAL, at 1, 50 and 200 producers, what a transaction costs, and what checkpoints do to the slowest commits.
 order: 1
 ---

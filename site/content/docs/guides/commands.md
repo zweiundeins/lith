@@ -1,6 +1,7 @@
 ---
 title: Commands and the writer
 nav: Commands
+headline: Commands: every change through the one writer
 summary: Every change is a command that the one writer applies in a batch. How to write a command, hand it over, refuse, survive a retry and act after the commit.
 order: 1
 ---

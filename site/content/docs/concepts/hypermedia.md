@@ -1,5 +1,6 @@
 ---
 title: Hypermedia
+headline: Hypermedia: Datastar events over compressed SSE
 summary: Frames go to the browser as Datastar events over server-sent events, each stream compressed with a window of its own, within a memory budget.
 order: 4
 ---

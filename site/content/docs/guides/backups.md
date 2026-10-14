@@ -1,6 +1,8 @@
 ---
 title: Backups
+headline: Backups: VACUUM INTO copies and Litestream to S3
 summary: A consistent copy with VACUUM INTO on a timer, or continuous replication to S3 with Litestream and lith's backup module. How to wire each, check a copy, and restore.
+description: A consistent SQLite copy with VACUUM INTO on a timer, or continuous replication to S3 with Litestream: how to wire each, check a copy, and restore.
 order: 9
 ---
 

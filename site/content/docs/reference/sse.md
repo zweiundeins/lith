@@ -1,6 +1,8 @@
 ---
 title: sse
+headline: lith/sse: Datastar events, compressed per stream
 summary: Writes Datastar server-sent events through a compressor of its own per stream.
+description: Reference for lith/sse: Datastar's server-sent events, formatted once and compressed per stream with zstd, brotli or gzip within a memory budget.
 order: 4
 ---
 

@@ -1,6 +1,8 @@
 ---
 title: backup
+headline: lith/backup: Litestream replication to S3
 summary: Replicates SQLite databases to S3-compatible storage with Litestream, embedded in the process.
+description: Reference for lith/backup: replicate SQLite databases to S3-compatible storage with Litestream, embedded in the process, in a module of its own.
 order: 9
 ---
 

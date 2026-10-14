@@ -1,7 +1,9 @@
 ---
 title: Pages and Datastar
 nav: Pages
+headline: Pages with Datastar: regions, tab state, op ids
 summary: The document a GET renders, regions morphed whole, a tab's state in SQLite, an action that stays pending until its op id comes back, and a page that reconnects by itself after a deploy.
+description: The document a GET renders, regions morphed whole, tab state in SQLite, actions pending until their op id returns, and reconnecting after a deploy.
 order: 5
 ---
 

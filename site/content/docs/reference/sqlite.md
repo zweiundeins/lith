@@ -1,6 +1,8 @@
 ---
 title: sqlite
+headline: lith/sqlite: one write connection and a read pool
 summary: Opens one SQLite database file the way the projects use it: a single write connection, for migrations and the writer, and a pool of read-only connections for everything else.
+description: Reference for lith/sqlite: open a SQLite file with one write connection and a pool of read-only ones, run migrations, and read in one snapshot.
 order: 1
 ---
 

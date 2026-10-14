@@ -1,6 +1,8 @@
 ---
 title: Deploying
+headline: Deploy a lith app: one binary, SQLite and Caddy
 summary: One static binary and one SQLite file behind Caddy. The template's systemd unit, Caddy block and deploy script with a health check and rollback, the memory settings to change together, and what a restart does to open pages.
+description: One static binary and one SQLite file behind Caddy: the template's systemd unit, a deploy script with health check and rollback, and the memory settings.
 order: 11
 ---
 

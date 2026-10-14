@@ -1,7 +1,9 @@
 ---
 title: Getting started
 nav: Start a project
+headline: Start a lith project from its template
 summary: Make a project from lith's template, run it, and find your way around it.
+description: Make a project from lith's template with lith-new and Go 1.27, run it with live reload on port 8080, and find your way around the guestbook it holds.
 order: 1
 ---
 

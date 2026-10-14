@@ -1,6 +1,8 @@
 ---
 title: dbmetrics
+headline: lith/dbmetrics: statement timings and slow queries
 summary: Times the statements a database/sql driver runs and logs the slow ones.
+description: Reference for lith/dbmetrics: wrap a database/sql driver to time every query and exec, and log the slow ones with their SQL but never their arguments.
 order: 7
 ---
 

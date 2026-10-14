@@ -1,6 +1,8 @@
 ---
 title: Performance
+headline: lith performance: the numbers to plan an app with
 summary: The numbers to plan a lith app with, measured in process on a development machine and on the 10-dollar VPS that serves this site, the settings they led to, and the commands that measure them again.
+description: Writer throughput, stream memory and compression, measured in process on a development machine and on the 10-dollar VPS that serves this site.
 order: 5
 ---
 

@@ -1,7 +1,9 @@
 ---
 title: Metrics and monitoring
 nav: Monitoring
+headline: Monitoring lith with Prometheus and Grafana
 summary: The writer's, the hub's and the budget's numbers in Prometheus with lith/prom, statement timings with dbmetrics, the Grafana dashboard and alert rules this site ships, the log lines worth reading, and the probes.
+description: The writer's, the hub's and the budget's numbers in Prometheus, statement timings with dbmetrics, the Grafana dashboard and alert rules, logs and probes.
 order: 10
 ---
 

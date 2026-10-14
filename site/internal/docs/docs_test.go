@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"unicode/utf8"
 
 	"github.com/zweiundeins/lith/site/content"
 	"github.com/zweiundeins/lith/site/internal/docs"
@@ -107,5 +108,26 @@ func TestFrontMatter(t *testing.T) {
 	d, err := docs.Load(page("---\ntitle: A\nsummary: S.\ndraft: true\n---\n\nText.\n"), false)
 	if err != nil || len(d.Sections) != 0 {
 		t.Errorf("a draft section on the public site: %v %v", err, d)
+	}
+}
+
+// TestHeadMeta checks what search results and shares show of each page:
+// a meta description of 70 to 160 characters, and a headline that keeps
+// the document's title, "<headline> · lith", within 60.
+func TestHeadMeta(t *testing.T) {
+	d, err := docs.Load(content.Docs, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range d.Order {
+		if n := utf8.RuneCountInString(p.Description); n < 70 || n > 160 {
+			t.Errorf("%s: a description of %d characters, not 70 to 160: %q", p.Path, n, p.Description)
+		}
+		if n := utf8.RuneCountInString(p.Headline + " · lith"); n > 60 {
+			t.Errorf("%s: a title of %d characters, over 60: %q", p.Path, n, p.Headline)
+		}
+		if p.Headline == p.Title {
+			t.Errorf("%s: no headline: give it one that says what the page is about", p.Path)
+		}
 	}
 }

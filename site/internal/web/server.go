@@ -212,7 +212,7 @@ func (s *Server) homeStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) demoIndex(w http.ResponseWriter, r *http.Request) {
-	sh := s.shell(r, "Demos", "Live demos of lith: each runs on this server, with the code beside it.", "/demos", "demos")
+	sh := s.shell(r, "Demos", "Live demos of lith, from a million checkboxes to a shared pixel canvas: each runs on this server, with its code and how it works beside it.", "/demos", "demos")
 	s.page(w, r, sh, func(context.Context, *sql.Tx) (templ.Component, error) {
 		return views.DemoIndex(s.cards()), nil
 	})
@@ -339,7 +339,8 @@ func (s *Server) doc(w http.ResponseWriter, r *http.Request) {
 	if p == d.Home {
 		title = "Docs"
 	}
-	sh := s.shell(r, title, p.Summary, p.Path, "docs")
+	sh := s.shell(r, title, p.Description, p.Path, "docs")
+	sh.Headline = p.Headline
 	sh.Docs = views.DocsNav(d, p, false)
 	s.page(w, r, sh, func(context.Context, *sql.Tx) (templ.Component, error) {
 		return views.Docs(views.DocsPage{Docs: d, Page: p, Edit: s.cfg.Repo + "/blob/main/site/content/docs/" + p.File}), nil

@@ -1,7 +1,9 @@
 ---
 title: The stream budget
 nav: The budget
+headline: The stream budget: encoder memory as streams grow
 summary: What each window and encoder setting costs on two workloads, what a stream holds at the least, how budgets behave as up to 2,000 streams open, and the defaults lith took from it.
+description: What each window and encoder setting costs on two workloads, the least a stream holds, and how budgets behave as up to 2,000 streams open.
 order: 4
 ---
 

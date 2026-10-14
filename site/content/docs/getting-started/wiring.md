@@ -1,6 +1,8 @@
 ---
 title: Wiring
+headline: Wiring a lith app: database, writer, hub and edge
 summary: Open the database, start the writer and the hub, put the edge around the routes, and stop them in the right order.
+description: Open the SQLite database, start the writer and the live hub, put the edge around the routes, and stop them in the right order when the process ends.
 order: 1
 ---
 

@@ -1,6 +1,8 @@
 ---
 title: writer
+headline: lith/writer: the single writer of a SQLite database
 summary: The single writer of a SQLite database.
+description: Reference for lith/writer: the one writer of a SQLite database, which applies commands in batches of one transaction with a savepoint each.
 order: 2
 ---
 

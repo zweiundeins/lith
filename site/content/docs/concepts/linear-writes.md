@@ -1,6 +1,8 @@
 ---
 title: Linear writes
+headline: Linear writes: one writer applies every change
 summary: One writer applies every change, in the order the changes arrive, many to a transaction with a savepoint each.
+description: One writer applies every change in arrival order, many commands to a transaction with a savepoint each, so a failed command undoes only its own changes.
 order: 1
 ---
 

@@ -1,6 +1,7 @@
 ---
 title: The shared board
 nav: The render loop
+headline: 200 streams on one board: the render loop measured
 summary: 200 streams on one 139 KB board that changes 800 times a second, in process: one render a tick, no dropped frames, and where the CPU goes.
 order: 2
 ---

@@ -1,7 +1,9 @@
 ---
 title: Documentation
 nav: Overview
+headline: lith docs: Go, SQLite and Datastar apps
 summary: How lith works, how to start a project on it, and the rules its apps follow.
+description: How lith works, how to start a project on its template, a guide for each task, the measured numbers, and the rules every lith app follows.
 order: 0
 ---
 
