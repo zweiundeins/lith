@@ -44,6 +44,17 @@ type Spec struct {
 	// the stream just ends, as it does when a newer stream with its ID
 	// replaces it.
 	Reconnect string
+	// Slow marks a stream to a client on a slow link (edge.SlowLink tells
+	// one). It sends the newest frame of a view 250 ms or more after the
+	// last, four a second, and the frames in between drop, as for a stream
+	// that falls behind (Stats.FramesDropped). A frame is due at once when
+	// it is its view's first, or its view sent nothing for 250 ms, and it
+	// takes the frames that wait along: views that change together still
+	// arrive together, and a view that changes now and then is not held
+	// up, for one frame more of the others with each of its own.
+	// Heartbeats go out as before. Serve opens the stream with
+	// sse.Options.Slow, for a denser encoder while the budget has room.
+	Slow bool
 }
 
 // Frame is a view's new frame, for Spec.WriteTick.
@@ -67,6 +78,10 @@ const reopenAfter = time.Minute
 
 // errReopen ends a stream that its budget asked to open again.
 var errReopen = errors.New("live: the budget has a better tier for the stream")
+
+// slowEvery is the least time between two frames of a view on a stream
+// with Spec.Slow: four frames a second.
+const slowEvery = 250 * time.Millisecond
 
 // Serve streams the views of spec to the client until it leaves or the
 // hub stops, and then returns nil. It sends each view's newest frame when
@@ -106,9 +121,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	if spec.Reconnect != "" {
 		s.upgrade = h.upgradeAfter(spec.ID)
 	}
+	if spec.Slow {
+		s.every = slowEvery
+	}
 	published := h.attach(s, spec.Views)
 	o := h.sse
 	o.Frame = h.first(ctx, s, published)
+	o.Slow = o.Slow || spec.Slow
 	st, err := sse.Open(w, r.WithContext(ctx), o)
 	if err != nil {
 		h.detach(s, errors.Is(err, sse.ErrNoRoom), spec.Views)
@@ -283,6 +302,32 @@ func (s *stream) offered() (n int, all bool) {
 	return n, all
 }
 
+// hold is how long the stream's new frames wait at now: until one of them
+// is due, a view's first or one whose view sent nothing for s.every. It is
+// 0 when one is due, or when there is none. s.mu is held.
+func (s *stream) hold(now time.Time) time.Duration {
+	if s.every <= 0 {
+		return 0
+	}
+	wait := time.Duration(-1)
+	for _, w := range s.watches {
+		if w.next == nil {
+			continue
+		}
+		if w.sent.IsZero() {
+			return 0
+		}
+		left := s.every - now.Sub(w.sent)
+		if left <= 0 {
+			return 0
+		}
+		if wait < 0 || left < wait {
+			wait = left
+		}
+	}
+	return max(wait, 0)
+}
+
 // unwatched reports whether the stream stopped watching w's view.
 func (s *stream) unwatched(w *watch) bool {
 	s.mu.Lock()
@@ -290,13 +335,20 @@ func (s *stream) unwatched(w *watch) bool {
 	return w.gone
 }
 
-// pump sends the stream's new frames as they come, and a heartbeat when
-// it has been silent for h.heartbeat, or every h.heartbeat with a
-// heartbeat signal. It returns errReopen when the stream's budget asks it
-// to open again (s.upgrade).
+// pump sends the stream's new frames as they come, or with Spec.Slow when
+// one is due (s.hold), and a heartbeat when it has been silent for
+// h.heartbeat, or every h.heartbeat with a heartbeat signal. It returns
+// errReopen when the stream's budget asks it to open again (s.upgrade).
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
+	var due <-chan time.Time // fires when a frame that waits is due
+	var dueTimer *time.Timer
+	if s.every > 0 {
+		dueTimer = time.NewTimer(time.Hour)
+		dueTimer.Stop()
+		defer dueTimer.Stop()
+	}
 	var upgrade <-chan struct{} // closed when the budget asks the stream to open again
 	var listen <-chan time.Time // fires when the stream starts to listen for that
 	if s.upgrade == 0 {
@@ -318,14 +370,26 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	var parts [][]byte
 	var frames []Frame
 	for {
+		var now time.Time
+		if s.every > 0 {
+			now = time.Now()
+		}
 		s.mu.Lock()
-		for _, w := range s.watches {
-			if w.next != nil {
-				batch = append(batch, offer{w, w.next})
-				w.next = nil
+		wait := s.hold(now)
+		if wait == 0 {
+			for _, w := range s.watches {
+				if w.next != nil {
+					batch = append(batch, offer{w, w.next})
+					w.next, w.sent = nil, now
+				}
 			}
 		}
 		s.mu.Unlock()
+		due = nil
+		if wait > 0 {
+			dueTimer.Reset(wait)
+			due = dueTimer.C
+		}
 
 		_, wire := st.Sent()
 		for _, o := range batch {
@@ -386,6 +450,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		case <-ctx.Done():
 			return nil
 		case <-s.wake:
+		case <-due:
 		case <-idle.C:
 			if err := st.Write(h.beat()); err != nil {
 				return err

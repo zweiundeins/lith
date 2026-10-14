@@ -18,7 +18,10 @@
 //
 // A stream keeps only the newest frame of each view it watches, so a slow
 // client skips frames and holds up no one else. Views that change in the
-// same tick reach a stream together, in the order it watches them.
+// same tick reach a stream together, in the order it watches them. A
+// stream to a client on a slow link (Spec.Slow) takes a view's frames
+// about four times a second, and a denser encoder while the budget has
+// room.
 //
 // The hub keeps a view's newest frame while two or more streams watch
 // it, so that a stream that joins gets it at once. Of a view that one
@@ -232,10 +235,11 @@ type frame struct {
 type watch struct {
 	s    *stream
 	v    *view
-	i    int    // index in v.watches, guarded by Hub.mu
-	owed bool   // joined while the hub kept no frame, until a render brings one; guarded by Hub.mu
-	next *frame // the newest frame not sent yet, guarded by s.mu
-	gone bool   // unwatched, guarded by s.mu
+	i    int       // index in v.watches, guarded by Hub.mu
+	owed bool      // joined while the hub kept no frame, until a render brings one; guarded by Hub.mu
+	next *frame    // the newest frame not sent yet, guarded by s.mu
+	gone bool      // unwatched, guarded by s.mu
+	sent time.Time // when the stream last took a frame of the view, with Spec.Slow; guarded by s.mu
 }
 
 type stream struct {
@@ -246,6 +250,7 @@ type stream struct {
 	cancel    context.CancelFunc
 	wake      chan struct{}
 	upgrade   time.Duration // when it listens for a better tier (sse.Stream.Upgrade); negative: never
+	every     time.Duration // the least time between two frames of a view (Spec.Slow), 0 for none
 
 	mu sync.Mutex
 	// The views the stream watches, in the order it started watching
