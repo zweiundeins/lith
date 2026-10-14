@@ -15,9 +15,9 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/tdewolff/minify/v2 v2.24.19
 	github.com/yuin/goldmark v1.8.6
-	github.com/zweiundeins/lith v0.1.0
+	github.com/zweiundeins/lith v0.2.0
 	github.com/zweiundeins/lith/dbmetrics/prom v0.1.0
-	github.com/zweiundeins/lith/prom v0.1.0
+	github.com/zweiundeins/lith/prom v0.2.0
 	modernc.org/sqlite v1.60.1
 )
 
