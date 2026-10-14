@@ -12,12 +12,11 @@ import (
 	"github.com/zweiundeins/lith/writer"
 )
 
-// HubOptions are the board's hub settings. The board's largest frame, a
-// full board of 150 cards with long titles, is about 51 KB, which a
-// window of 2^17 holds with room to spare: the budget gives no stream
-// less. A stream that cannot have 2^17 gets a 503, and the page's retry
-// 'error' asks again, instead of a stream that sends every frame
-// uncompressed.
+// HubOptions are the board's hub settings. The budget gives each stream
+// the window its largest frame needs: a full board of 150 cards with long
+// titles is about 51 KB, which 2^16 holds. A stream that cannot have even
+// the smallest tier gets a 503, and the page's retry 'error' asks again,
+// instead of a stream that sends every frame uncompressed.
 func HubOptions(db *sqlite.DB, log *slog.Logger) live.Options {
 	return live.Options{
 		Read:            db.R,
@@ -25,10 +24,7 @@ func HubOptions(db *sqlite.DB, log *slog.Logger) live.Options {
 		HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
 		Hibernate:       time.Minute, // an idle tab gives its zstd encoder back
 		Log:             log,
-		SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{
-			MinWindow: 17,
-			Refuse:    true,
-		})},
+		SSE:             sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{Refuse: true})},
 	}
 }
 

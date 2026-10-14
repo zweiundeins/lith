@@ -2,12 +2,12 @@
 title: The stream budget
 nav: The budget
 headline: The stream budget: encoder memory as streams grow
-summary: What each window and encoder setting costs on two workloads, what a stream holds at the least, how budgets behave as up to 2,000 streams open, and the defaults lith took from it.
-description: What each window and encoder setting costs on two workloads, the least a stream holds, and how budgets behave as up to 2,000 streams open.
+summary: What each window and encoder setting costs, what a stream and a view hold besides the encoder, how budgets behave as streams open, and the defaults lith took from it.
+description: What each window and encoder setting costs, what streams and views hold besides their encoders, and how budgets behave as streams open.
 order: 4
 ---
 
-The tests in `bench/budget` measured what a stream's encoder costs under each setting, on two workloads, and simulated memory budgets as streams open. Their CSV files are the source of the charts on this page. Measured on 2026-10-13 with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, pinned to the performance cores.
+The tests in `bench/budget` measured what a stream's encoder costs under each setting, what a stream and a view hold besides it, and how memory budgets behave as streams open. Their CSV files are the source of the charts and tables on this page. Measured on 2026-10-13 and 2026-10-14 with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, pinned to the performance cores.
 
 The two workloads:
 
@@ -91,11 +91,27 @@ A brotli encoder that is not flushed codes all it took since its last flush as o
 | list, 230 KB | quality 4 | 2,346 KiB, now 1,591 | 285, now 406 | 590 µs, now 656 |
 | board, 50 KB | quality 4 | 1,790 KiB, now 1,585 | 34, now 50 | 137 µs, now 141 |
 
-The tiers book 1,312 KiB for quality 3 and 2,192 KiB for quality 4 at 2^18. Each flush costs a metablock header, about 25 bytes when the block holds a change: the list, with its changes spread through every block, pays that and loses what the flushes win elsewhere. A window smaller than the frame gains nothing from them and pays up to 5% more bytes.
+Each flush costs a metablock header, about 25 bytes when the block holds a change: the list, with its changes spread through every block, pays that and loses what the flushes win elsewhere. A window smaller than the frame gains nothing from them and pays up to 5% more bytes.
+
+A frame refers to the one before while the window holds it. `TestWindowMargin` (`margin.csv`) writes data tables of 206 to 266 KB at 2^18: at 259 KB, 99% of the window, brotli at quality 3 still takes 249 bytes a frame, and at 266 KB 29,719. zstd with low memory takes 5,232 bytes at 206 KB, 7,742 at 259 KB and 29,510 at 266 KB: it finds less of the frame before as the window fills.
+
+## What a stream holds besides its encoder
+
+`TestViewCost` (`viewcost.csv`) streams data tables of 0.8, 49, 143 and 233 KB from a live hub to 64 streams, which watch a view each, as tabs with a view of their own do, or one view they share. After a collection:
+
+- A view holds its newest frame, rounded up to the heap's pages of 8 KiB: 56 KiB for the 49 KB table, 144 KiB for 143 KB, 232 KiB for 233 KB, and about 1 KiB besides.
+- A stream holds 3 to 7 KiB of heap in the hub, and 8 to 10 KiB of stack. net/http holds 14 KiB of heap and 8 KiB of stack for an open HTTP/1.1 connection.
+- A render of the 233 KB table allocates 1,046 KiB: the buffer it grows, the event it formats, and the formatting. The next collection frees it.
+
+In a hub, a stream with an encoder holds what `TestFrameSizes` measured for it: with the 233 KB table shared, 1,078 KiB a stream at quality 3 and 2^18, 1,605 KiB at quality 4 and 850 KiB with zstd at 2^18 and low memory, the hub's part included.
+
+So a budget books what stays: each stream's encoder at its tier, the most a stream held at that tier with frames of 50 to 230 KB rounded up to 16 KiB; 32 KiB for each stream; and each view's newest frame at its length and 8 KiB, once for all the streams that watch it. A tab with a 233 KB view of its own at quality 3 and 2^18 books 1,104 + 32 + 235 = 1,371 KiB, the view a sixth of it. `TestBudgetMatchesHeap` in `live` checks the model: for 12 streams with a view of 146 or 246 KB each, what the budget books is what they hold after a collection, within 1 to 4% for brotli and zstd and 5 to 8% uncompressed, where the 32 KiB include net/http's buffers that the test's streams have none of.
+
+What a render allocates is garbage: it is not part of what the streams hold, and the budget does not book it. Go's collector lets the heap grow to twice what is live before it collects (GOGC=100), and the budget's default limit, half of GOMEMLIMIT, leaves that half to the garbage and to the rest of the app. A tab that renders its own 233 KB view every tick makes 1 MiB of garbage a tick, and 150 such tabs 150 MiB.
 
 ## A budget as streams grow
 
-`TestSimulation` (`simulation.csv`) opens up to 2,000 streams of one workload and, after every ten, adds up the measured heap and bytes per frame of what each stream holds. The budgets are `sse.Budget` with `MinWindow` at the workload's floor (2^18 for the board, 2^17 for the page) and `MaxWindow` 2^19. In all but one policy, every open stream writes after every ten opens, so that tiers shrink and waiting streams take the room that frees up.
+`TestSimulation` (`simulation.csv`) opens up to 2,000 streams of one workload and, after every ten, adds up the measured heap and bytes per frame of what each stream holds. The budgets are `sse.Budget` with `MaxWindow` 2^19, and with `MinWindow` at the workload's floor (2^18 for the board, 2^17 for the page), since the simulated writes are small. Each stream writes once when it opens, which picks its tier; in all but one policy every open stream also writes after every ten opens, so that tiers shrink and waiting streams take the room that frees up.
 
 ```chart
 kind: lines
@@ -156,42 +172,42 @@ budget of 1 GiB,200,331.2
 budget of 1 GiB,300,496.8
 budget of 1 GiB,400,662.4
 budget of 1 GiB,500,828.0
-budget of 1 GiB,600,993.6
+budget of 1 GiB,600,637.3
 budget of 1 GiB,700,744.1
 budget of 1 GiB,800,850.4
-budget of 1 GiB,900,956.7
+budget of 1 GiB,900,731.4
 budget of 1 GiB,1000,813.0
 budget of 1 GiB,1100,894.3
-budget of 1 GiB,1200,975.6
-budget of 1 GiB,1300,1004.9
-budget of 1 GiB,1400,1005.0
-budget of 1 GiB,1500,1005.1
-budget of 1 GiB,1600,1005.2
-budget of 1 GiB,1700,1005.3
-budget of 1 GiB,1800,1005.4
-budget of 1 GiB,1900,1005.5
-budget of 1 GiB,2000,1005.6
+budget of 1 GiB,1200,934.7
+budget of 1 GiB,1300,934.8
+budget of 1 GiB,1400,934.9
+budget of 1 GiB,1500,935.0
+budget of 1 GiB,1600,935.1
+budget of 1 GiB,1700,935.2
+budget of 1 GiB,1800,935.3
+budget of 1 GiB,1900,935.4
+budget of 1 GiB,2000,935.5
 budget of 128 MiB,0,0.0
 budget of 128 MiB,100,106.3
-budget of 128 MiB,200,125.2
-budget of 128 MiB,300,125.3
-budget of 128 MiB,400,125.4
-budget of 128 MiB,500,125.5
-budget of 128 MiB,600,125.6
-budget of 128 MiB,700,125.7
-budget of 128 MiB,800,125.8
-budget of 128 MiB,900,125.9
-budget of 128 MiB,1000,126.0
-budget of 128 MiB,1100,126.1
-budget of 128 MiB,1200,126.2
-budget of 128 MiB,1300,126.3
-budget of 128 MiB,1400,126.4
-budget of 128 MiB,1500,126.5
-budget of 128 MiB,1600,126.6
-budget of 128 MiB,1700,126.7
-budget of 128 MiB,1800,126.8
-budget of 128 MiB,1900,126.9
-budget of 128 MiB,2000,127.0
+budget of 128 MiB,200,116.8
+budget of 128 MiB,300,116.9
+budget of 128 MiB,400,117.0
+budget of 128 MiB,500,117.1
+budget of 128 MiB,600,117.2
+budget of 128 MiB,700,117.3
+budget of 128 MiB,800,117.4
+budget of 128 MiB,900,117.5
+budget of 128 MiB,1000,117.6
+budget of 128 MiB,1100,117.7
+budget of 128 MiB,1200,117.8
+budget of 128 MiB,1300,117.9
+budget of 128 MiB,1400,118.0
+budget of 128 MiB,1500,118.1
+budget of 128 MiB,1600,118.2
+budget of 128 MiB,1700,118.3
+budget of 128 MiB,1800,118.4
+budget of 128 MiB,1900,118.5
+budget of 128 MiB,2000,118.6
 ```
 
 ```chart
@@ -202,7 +218,7 @@ y: compressed streams
 source: bench/budget/simulation.csv
 columns: policy, open, compressed
 where: workload=board
-series: no limit, zstd 2^19=lith default; budget of 1 GiB=budget of 1 GiB; budget of 128 MiB=budget; budget of 128 MiB, at open only=budget at open
+series: no limit, zstd 2^19=lith default; budget of 1 GiB=budget of 1 GiB; budget of 128 MiB=budget; budget of 128 MiB, first write only=budget at first write
 step: 100
 ---
 "no limit, zstd 2^19",0,0
@@ -238,57 +254,57 @@ budget of 1 GiB,800,800
 budget of 1 GiB,900,900
 budget of 1 GiB,1000,1000
 budget of 1 GiB,1100,1100
-budget of 1 GiB,1200,1200
-budget of 1 GiB,1300,1236
-budget of 1 GiB,1400,1236
-budget of 1 GiB,1500,1236
-budget of 1 GiB,1600,1236
-budget of 1 GiB,1700,1236
-budget of 1 GiB,1800,1236
-budget of 1 GiB,1900,1236
-budget of 1 GiB,2000,1236
+budget of 1 GiB,1200,1150
+budget of 1 GiB,1300,1150
+budget of 1 GiB,1400,1150
+budget of 1 GiB,1500,1150
+budget of 1 GiB,1600,1150
+budget of 1 GiB,1700,1150
+budget of 1 GiB,1800,1150
+budget of 1 GiB,1900,1150
+budget of 1 GiB,2000,1150
 budget of 128 MiB,0,0
 budget of 128 MiB,100,100
-budget of 128 MiB,200,154
-budget of 128 MiB,300,154
-budget of 128 MiB,400,154
-budget of 128 MiB,500,154
-budget of 128 MiB,600,154
-budget of 128 MiB,700,154
-budget of 128 MiB,800,154
-budget of 128 MiB,900,154
-budget of 128 MiB,1000,154
-budget of 128 MiB,1100,154
-budget of 128 MiB,1200,154
-budget of 128 MiB,1300,154
-budget of 128 MiB,1400,154
-budget of 128 MiB,1500,154
-budget of 128 MiB,1600,154
-budget of 128 MiB,1700,154
-budget of 128 MiB,1800,154
-budget of 128 MiB,1900,154
-budget of 128 MiB,2000,154
-"budget of 128 MiB, at open only",0,0
-"budget of 128 MiB, at open only",100,77
-"budget of 128 MiB, at open only",200,77
-"budget of 128 MiB, at open only",300,77
-"budget of 128 MiB, at open only",400,77
-"budget of 128 MiB, at open only",500,77
-"budget of 128 MiB, at open only",600,77
-"budget of 128 MiB, at open only",700,77
-"budget of 128 MiB, at open only",800,77
-"budget of 128 MiB, at open only",900,77
-"budget of 128 MiB, at open only",1000,77
-"budget of 128 MiB, at open only",1100,77
-"budget of 128 MiB, at open only",1200,77
-"budget of 128 MiB, at open only",1300,77
-"budget of 128 MiB, at open only",1400,77
-"budget of 128 MiB, at open only",1500,77
-"budget of 128 MiB, at open only",1600,77
-"budget of 128 MiB, at open only",1700,77
-"budget of 128 MiB, at open only",1800,77
-"budget of 128 MiB, at open only",1900,77
-"budget of 128 MiB, at open only",2000,77
+budget of 128 MiB,200,144
+budget of 128 MiB,300,144
+budget of 128 MiB,400,144
+budget of 128 MiB,500,144
+budget of 128 MiB,600,144
+budget of 128 MiB,700,144
+budget of 128 MiB,800,144
+budget of 128 MiB,900,144
+budget of 128 MiB,1000,144
+budget of 128 MiB,1100,144
+budget of 128 MiB,1200,144
+budget of 128 MiB,1300,144
+budget of 128 MiB,1400,144
+budget of 128 MiB,1500,144
+budget of 128 MiB,1600,144
+budget of 128 MiB,1700,144
+budget of 128 MiB,1800,144
+budget of 128 MiB,1900,144
+budget of 128 MiB,2000,144
+"budget of 128 MiB, first write only",0,0
+"budget of 128 MiB, first write only",100,74
+"budget of 128 MiB, first write only",200,74
+"budget of 128 MiB, first write only",300,74
+"budget of 128 MiB, first write only",400,74
+"budget of 128 MiB, first write only",500,74
+"budget of 128 MiB, first write only",600,74
+"budget of 128 MiB, first write only",700,74
+"budget of 128 MiB, first write only",800,74
+"budget of 128 MiB, first write only",900,74
+"budget of 128 MiB, first write only",1000,74
+"budget of 128 MiB, first write only",1100,74
+"budget of 128 MiB, first write only",1200,74
+"budget of 128 MiB, first write only",1300,74
+"budget of 128 MiB, first write only",1400,74
+"budget of 128 MiB, first write only",1500,74
+"budget of 128 MiB, first write only",1600,74
+"budget of 128 MiB, first write only",1700,74
+"budget of 128 MiB, first write only",1800,74
+"budget of 128 MiB, first write only",1900,74
+"budget of 128 MiB, first write only",2000,74
 ```
 
 At 2,000 streams:
@@ -297,14 +313,15 @@ At 2,000 streams:
 | --- | --- | --- | --- | --- | --- | --- |
 | no limit, zstd 2^19 | 2,000 | 3,312 MiB | 1,471 | 2,000 | 3,294 MiB | 189 |
 | zstd at the floor, low memory | 2,000 | 1,626 MiB | 2,703 | 2,000 | 1,278 MiB | 379 |
-| budget of 128 MiB, at open only | 77 | 129 MiB | 136,654 | 77 | 129 MiB | 13,183 |
-| budget of 128 MiB | 154 | 127 MiB | 131,336 | 182 | 118 MiB | 12,491 |
-| budget of 128 MiB, 503 | 154, 1,846 refused | 125 MiB | 2,703 | 182, 1,818 refused | 116 MiB | 379 |
-| budget of 1 GiB | 1,236 | 1,006 MiB | 55,940 | 1,456 | 931 MiB | 4,003 |
+| budget of 128 MiB, first write only | 74 | 124 MiB | 136,865 | 74 | 123 MiB | 13,203 |
+| budget of 128 MiB | 144 | 119 MiB | 132,037 | 167 | 109 MiB | 12,590 |
+| budget of 128 MiB, 503 | 144, 1,856 refused | 117 MiB | 2,762 | 167, 1,833 refused | 107 MiB | 379 |
+| budget of 1 GiB | 1,150 | 936 MiB | 61,937 | 1,337 | 855 MiB | 4,796 |
 
-- At open only, the first 77 streams take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor.
-- A budget of 1 GiB gives the board's streams zstd 2^19 up to about 600 streams, 2^19 with low memory up to about 950, 2^18 with low memory up to 1,236, and nothing beyond.
-- With `Refuse`, the streams beyond the floor's room get a 503 instead of every frame uncompressed: the bytes per frame of the streams that run stay those of the floor.
+- When each stream writes only its first frame, the first 73 take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor.
+- A budget of 1 GiB gives the board's streams zstd 2^19 up to about 550 streams, 2^19 with low memory up to about 850, 2^18 with low memory up to 1,150, and nothing beyond. A stream that finds room for 2^15 but not for 2^18 takes 2^15, which compresses each frame alone: one stream at a time.
+- The budget books 32 KiB for every open stream, compressed or not: 62 MiB at 2,000 streams, beyond the limit when the streams cannot be turned away.
+- With `Refuse`, the streams beyond the floor's room get a 503 instead of every frame uncompressed: the bytes per frame of the streams that run stay near those of the floor.
 
 ## The board with and without a budget
 
@@ -312,32 +329,73 @@ At 2,000 streams:
 
 | Streams | Policy | Cores busy | Bytes per frame | Heap | Frames dropped |
 | --- | --- | --- | --- | --- | --- |
-| 200 | lith's default | 1.55, 1.63 | 2,177, 2,239 | 334 MiB | 0 |
-| 200 | zstd 2^18, low memory | 1.81, 1.89 | 3,984, 3,881 | 164 MiB | 0 |
-| 200 | budget of 128 MiB: 154 at zstd 2^18 low memory, 46 raw | 1.48, 1.47 | 35,718, 35,864 | 126 MiB | 0 |
-| 1,000 | lith's default | 4.06, 4.13 | 2,226, 2,171 | 1,660 MiB | 0 |
-| 1,000 | zstd 2^18, low memory | 4.52, 4.38 | 4,040, 3,996 | 816 MiB | 0 |
-| 1,000 | budget of 128 MiB: 154 compressed, 846 raw | 2.11, 1.95 | 121,272, 121,288 | 129 MiB | 0 |
+| 200 | lith's default | 1.74, 1.65 | 2,285, 2,199 | 334 MiB | 0 |
+| 200 | zstd 2^18, low memory | 1.89, 1.89 | 3,908, 3,990 | 164 MiB | 0 |
+| 200 | budget of 128 MiB: 141 at zstd 2^18 low memory, 59 raw | 1.64, 1.81 | 44,776, 44,789 | 116 MiB | 0 |
+| 1,000 | lith's default | 3.80, 3.77 | 2,198, 2,221 | 1,668 MiB | 0 |
+| 1,000 | zstd 2^18, low memory | 4.30, 4.32 | 3,984, 3,984 | 816 MiB | 0 |
+| 1,000 | budget of 128 MiB: 124 and 123 compressed, the rest raw | 1.85, 1.82 | 125,434, 125,572 | 104 MiB | 0 |
 
-Every run held about 19.8 ticks a second. The streams the budget had no room for sent 142 KB per frame, 20 frames a second: with `Refuse` they would have been answered 503 instead.
+Every run held about 19.8 ticks a second. The budget learned the board's 142 KB frame from the streams' first writes and gave no stream less than 2^18. With 1,000 streams, the 32 KiB it books for each take 31 MiB of the 128. The streams it had no room for sent 142 KB per frame, 20 frames a second: with `Refuse` they would have been answered 503 instead.
 
 ## Lowering the limit
 
-`TestPressure` (`pressure.csv`): 500 board streams hold zstd 2^19 in a budget of 1 GiB, 828 MiB. After `SetLimit(512 << 20)`, each moves to 2^18 with low memory at its next frame: 414 MiB reserved, and 407 MiB of live heap after a collection, from 828. That frame starts without history and takes 10,925 bytes.
+`TestPressure` (`pressure.csv`): 500 board streams hold zstd 2^19 in a budget of 1 GiB: 867 MiB booked, 828 MiB of live heap. After `SetLimit(512 << 20)`, each moves to 2^18 with low memory at its next frame: 445 MiB booked, and 407 MiB of live heap after a collection. That frame starts without history and takes 10,925 bytes.
 
 ## What lith took from it
 
-Since 2026-10-13, a hub makes a budget when it is given none: half the process's memory limit, windows from 2^19 down to 2^18, streams uncompressed when even 2^18 does not fit, and no change at all without a memory limit. A stream's own `ZstdWindow` and `BrotliWindow` cap what it gets. Pages with large frames pass a budget with `Refuse`, and hibernation is opt-in ([Hibernation](/docs/performance/hibernation)). Brotli streams cannot move down once open, so they step down as they open instead, below `MinWindow` to quality 3 at 2^17 and 2^16. Past 20 open streams, a brotli stream takes at most its largest tier times twice the share of the limit that is left. `TestBudgetCurve` in `sse` opens streams one by one, with a write to each after every ten opens; brotli at 2^19 and quality 4, zstd at 2^19:
+A hub makes a budget when it is given none: half the process's memory limit, for all that the streams hold, and no change at all without a memory limit. The budget books each stream's encoder, 32 KiB for the rest of the stream, and each view's newest frame. It gives each stream a tier at its first write, from the size of its largest write:
 
-| Budget | Streams | Full tier at open | Compressed, br/zstd | First br uncompressed | Before the curve |
-| --- | --- | --- | --- | --- | --- |
-| 64 MiB | 128 br | 20 | 32/0 | 33rd | 24 compressed |
-| 128 MiB | 256 br | 25 | 79/0 | 80th | 49 compressed |
-| 150 MiB | 300 br | 29 | 93/0 | 94th | 57 compressed |
-| 150 MiB | 300 zstd | 90 | 0/181 | none | the same |
-| 150 MiB | 150 br, 150 zstd | 62 | 56/74 | 88th | 38/69 |
+- The window must hold that write with a sixteenth to spare, so that a frame can refer to the one before. `MinWindow` raises it for pages whose frames refer back further than one write.
+- A brotli stream takes the window that holds its frame and no larger one: the 235 KB board takes 140 bytes a frame at quality 4 and 2^18, and 141 at 2^19. It takes quality 4 while the budget stays at most half full, quality 3 after that, and a window below its frame (quality 3 at 2^16, 17,013 bytes a frame for that board) only when quality 3 at its window does not fit what is left. It goes out uncompressed only when even 2^16 does not fit.
+- A zstd stream takes the largest tier within its fair share, since its bytes keep falling as its window grows: the 235 KB board takes 4,183 bytes a frame at 2^18 with low memory, 2,948 at 2^19 and 1,715 at 2^20; the 49 KB board 1,180 at 2^16 and 287 at 2^19. As streams open it moves down to the window that holds its frame and no further, takes 2^15 only when that window does not fit, and moves up again at a write once room frees up.
+- A brotli stream keeps its tier until it closes. A stream with `live.Spec.Reconnect` whose window is below its frame, or that went out uncompressed, ends with `sse.Reconnect` once room frees up for a window that holds its frame, and the page opens it again: one stream a second, and a stream ID once a minute.
 
-zstd streams keep the fair share they had: they move down while open, so the curve would only cost them. [Streams and compression](/docs/guides/streams#the-memory-budget) shows the settings.
+`TestBudgetCurve` (`curve.csv`) opens streams one by one on a hub with real encoders and frames: data tables of 49, 143 and 233 KB in one view that every stream watches, twice as many streams as the budget has MiB; and 150 tabs that each watch a 233 KB view of their own, in 150 MiB and in the least budget that holds them all at 2^18. After every ten opens every view changes and every stream writes, so that zstd streams move. The first uncompressed stream is the first whose first frame went out uncompressed or in raw blocks: a zstd stream sends raw blocks until the streams above their share have moved down. Booked is what the budget books once every stream is open, heap what the heap and the stacks hold after a collection; the test's streams have no net/http connections, for which the budget books part of its 32 KiB a stream. The bytes per frame are the mean of every stream's last frame, uncompressed ones included.
+
+<!-- include: bench/budget/curve.md -->
+| Frame | Views | Budget | Clients | Opened | Window holds the frame | Compressed | First uncompressed | Booked | Heap | Bytes per frame |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 49 KB | one | 64 MiB | brotli | 128 | 70 | 70 | 71st | 65.8 MiB | 60.7 MiB | 22,667 |
+| 49 KB | one | 64 MiB | zstd | 128 | 90 | 90 | 38th | 64.5 MiB | 55.1 MiB | 15,312 |
+| 49 KB | one | 64 MiB | half each | 128 | 81 | 81 | 52nd | 64.6 MiB | 57.0 MiB | 18,609 |
+| 49 KB | one | 128 MiB | brotli | 256 | 139 | 139 | 140th | 131.3 MiB | 120.3 MiB | 22,937 |
+| 49 KB | one | 128 MiB | zstd | 256 | 181 | 182 | 75th | 130.2 MiB | 111.5 MiB | 14,603 |
+| 49 KB | one | 128 MiB | half each | 256 | 162 | 162 | 102nd | 129.7 MiB | 114.6 MiB | 18,480 |
+| 49 KB | one | 150 MiB | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 141.2 MiB | 22,880 |
+| 49 KB | one | 150 MiB | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.5 MiB | 14,555 |
+| 49 KB | one | 150 MiB | half each | 300 | 188 | 190 | 120th | 152.2 MiB | 134.9 MiB | 18,421 |
+| 143 KB | one | 64 MiB | brotli | 128 | 48 | 49 | 50th | 66.1 MiB | 61.7 MiB | 88,754 |
+| 143 KB | one | 64 MiB | zstd | 128 | 71 | 72 | 38th | 65.7 MiB | 59.9 MiB | 63,012 |
+| 143 KB | one | 64 MiB | half each | 128 | 57 | 60 | 44th | 65.4 MiB | 60.3 MiB | 76,574 |
+| 143 KB | one | 128 MiB | brotli | 256 | 97 | 98 | 99th | 132.9 MiB | 124.1 MiB | 89,131 |
+| 143 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.0 MiB | 119.1 MiB | 64,748 |
+| 143 KB | one | 128 MiB | half each | 256 | 117 | 119 | 87th | 131.5 MiB | 121.2 MiB | 77,787 |
+| 143 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.4 MiB | 145.0 MiB | 89,163 |
+| 143 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 153.9 MiB | 139.8 MiB | 63,252 |
+| 143 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.0 MiB | 142.0 MiB | 77,175 |
+| 233 KB | one | 64 MiB | brotli | 128 | 48 | 49 | 50th | 66.2 MiB | 62.3 MiB | 144,803 |
+| 233 KB | one | 64 MiB | zstd | 128 | 71 | 71 | 38th | 65.2 MiB | 60.2 MiB | 106,031 |
+| 233 KB | one | 64 MiB | half each | 128 | 58 | 59 | 44th | 65.1 MiB | 60.5 MiB | 126,950 |
+| 233 KB | one | 128 MiB | brotli | 256 | 97 | 97 | 98th | 132.3 MiB | 124.6 MiB | 146,277 |
+| 233 KB | one | 128 MiB | zstd | 256 | 143 | 143 | 75th | 131.1 MiB | 120.6 MiB | 107,002 |
+| 233 KB | one | 128 MiB | half each | 256 | 118 | 118 | 86th | 131.4 MiB | 122.4 MiB | 128,340 |
+| 233 KB | one | 150 MiB | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.5 MiB | 145,428 |
+| 233 KB | one | 150 MiB | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.7 MiB | 103,090 |
+| 233 KB | one | 150 MiB | half each | 300 | 139 | 139 | 102nd | 154.1 MiB | 143.5 MiB | 125,854 |
+| 233 KB | one each | 150 MiB | brotli | 150 | 97 | 97 | 98th | 163.7 MiB | 157.8 MiB | 84,310 |
+| 233 KB | one each | 150 MiB | zstd | 150 | 133 | 134 | 77th | 154.0 MiB | 146.0 MiB | 28,092 |
+| 233 KB | one each | 150 MiB | half each | 150 | 110 | 111 | 88th | 155.5 MiB | 148.4 MiB | 64,460 |
+| 233 KB | one each | 240 MiB | brotli | 150 | 150 | 150 | none | 233.4 MiB | 226.1 MiB | 3,293 |
+| 233 KB | one each | 170 MiB | zstd | 150 | 150 | 150 | 88th | 168.0 MiB | 159.0 MiB | 5,465 |
+| 233 KB | one each | 260 MiB | half each | 150 | 150 | 150 | none | 259.4 MiB | 251.1 MiB | 3,191 |
+<!-- end include -->
+
+- 150 MiB holds 97 brotli tabs with a 233 KB view of their own at 2^18, 133 zstd tabs, and 110 when half are each. Every tab's frame is booked, the uncompressed ones' too: the brotli tabs book 163.7 MiB.
+- All 150 tabs hold 2^18 in 240 MiB with brotli (233.4 MiB booked, 226.1 MiB of heap: 65 at quality 4, 85 at quality 3), in 170 MiB with zstd (168.0 and 159.0 MiB), and in 260 MiB half each, where the zstd tabs take 2^19 while there is room. With the default limit, half of GOMEMLIMIT, 150 brotli tabs need a GOMEMLIMIT of 480 MiB.
+- With brotli and zstd tabs mixed, the zstd streams that opened first hold large tiers until a stream finds no room and they write again, and brotli streams that open meanwhile go out uncompressed. With `Reconnect`, those come back once the zstd streams have moved down.
+
+[Streams and compression](/docs/guides/streams#the-memory-budget) shows the settings.
 
 ## Measuring again
 
@@ -347,4 +405,4 @@ The tests run only with `LITH_BUDGET=1`, and write the CSV files next to them:
 LITH_BUDGET=1 LITH_BUDGET_RUNS=3 taskset -c 0-11 go test ./bench/budget -run Settings -v -timeout 1h
 ```
 
-`-run` picks the test: `Settings`, `Floor`, `FrameSizes`, `Simulation`, `Hibernation`, `WakeCost`, `Loadtest` or `Pressure`. After a run, `go generate ./content` in `site/` draws this page's charts from the new files.
+`-run` picks the test: `Settings`, `Floor`, `FrameSizes`, `WindowMargin`, `ViewCost`, `BudgetCurve`, `Simulation`, `Hibernation`, `WakeCost`, `Loadtest` or `Pressure`. After a run, `go generate ./content` in `site/` draws this page's charts from the new files.

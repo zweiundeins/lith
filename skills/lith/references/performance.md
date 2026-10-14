@@ -52,33 +52,44 @@ i5-13500 core, 2026-10-12:
 - Plan memory per open tab, not per request: 1,000 tabs at the default brotli
   window hold about 9.7 GiB, at zstd 2^19 about 1.0 GiB with `ZstdLowMemory`
   and 1.6 GiB with lith's default, which keeps twice the window as history.
-- The window must be larger than one frame, or a frame cannot refer back to
-  the previous one. Measure the largest frame of each page, and size the
-  window to it rather than keep the default: libretto's frames (2 to 37 KB)
-  need 2^17 with `ZstdLowMemory`, 0.65 MiB per stream for 9% more bytes than
-  2^19; at 2^16 a 37 KB render and a modal no longer fit and bytes rose 19%.
-  kanban's 139 KB board needs 2^19. (datastar-go's brotli q3 held 8.5 MiB per
-  libretto tab after the first render.)
+- The window must hold the frame, or a frame cannot refer back to the
+  previous one (at 2^18: a 259 KB frame 249 bytes on the wire, a 266 KB one
+  29,719). With a budget that has a limit, each stream's first write picks a
+  window that holds its largest write with a sixteenth to spare. Without one,
+  measure the largest frame of each page and size the window to it. A page
+  that sends one view after another on one stream refers back further than a
+  frame: libretto's frames (2 to 37 KB) cost 9% more bytes at 2^17 than at
+  2^19 and 19% more at 2^16; set `MinWindow` for such pages. kanban's 139 KB
+  board needs 2^18. (datastar-go's brotli q3 held 8.5 MiB per libretto tab
+  after the first render.)
 - Once renders are shared, compression is the main CPU cost: in kanban's
   200-tab run most of 4.9 cores went into brotli. Safari decodes zstd from 26.3
   (on OS 26.3 and later); older browsers get brotli.
-- A live hub shares a memory budget among its streams' encoders by default:
-  half the process's memory limit (GOMEMLIMIT, else the cgroup's), windows
-  from 2^19 down to 2^18 (brotli on down to quality 3 at 2^16, since a brotli
-  stream keeps its tier until it closes), and streams go out uncompressed when
-  even the smallest tier does not fit; past 20 open streams a brotli stream
-  takes at most its largest tier times twice the share of the limit left, so
-  early streams do not spend the room of later ones (150 MiB: 93 brotli streams
-  compressed instead of 57); without a memory limit nothing changes. Configure it with
+- A live hub shares a memory budget among its streams by default: half the
+  process's memory limit (GOMEMLIMIT, else the cgroup's), for each stream's
+  encoder, 32 KiB per stream besides (hub state, stacks, net/http buffers) and
+  each view's newest frame (its length + 8 KiB, once per view; a non-[]byte
+  frame by its `Len() int`). The other half is GC headroom: a 230 KB render
+  allocates about 1 MiB of garbage. zstd takes the largest tier within its
+  fair share and shrinks while open, down to its frame's window, then 2^15,
+  then raw blocks. brotli keeps its tier: its frame's window (no larger) at
+  q4 while the budget is at most half full, q3 after, q3 2^16 only when that
+  does not fit, uncompressed last. Without a memory limit nothing changes.
+  Configure it with
   `live.Options{SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{...})}}`:
-  `Limit` in bytes (-1: none), `MinWindow` at the window that holds the
-  largest frame, `MaxWindow`, and `Refuse` to answer 503 instead of sending
+  `Limit` in bytes (-1: none), `MinWindow` for frames that refer back further
+  than one write, `MaxWindow`, and `Refuse` to answer 503 instead of sending
   uncompressed, for pages with large frames (kanban's board). A stream's own
-  ZstdWindow and BrotliWindow cap what it gets. `hub.Budget().Stats()` tells
-  what the encoders hold; `SetLimit` moves the limit at runtime. Streams
-  outside a hub share one by passing the same budget in `sse.Options`.
-  Giving an idle stream's encoder back is opt-in: `live.Options.Hibernate`
-  (zero, the default, never does). bench/RESULTS.md has the numbers.
+  ZstdWindow and BrotliWindow cap what it gets. A brotli stream below its
+  frame's window (or uncompressed) with `Spec.Reconnect` set is ended with
+  `sse.Reconnect` once room frees up, and the page reopens on a better tier
+  (one stream a second, a tab once a minute; `sse.Stream.Upgrade` outside a
+  hub). `hub.Budget().Stats()` tells what the streams hold (`Frames`,
+  `Reopened`); `SetLimit` moves the limit at runtime; `Budget.Hold` books
+  frames kept outside a hub. 150 tabs with a 230 KB view each need about 240
+  MiB of budget with brotli, 170 MiB with zstd. Giving an idle stream's
+  encoder back is opt-in: `live.Options.Hibernate` (zero, the default, never
+  does). bench/budget has the numbers.
 - Never hold a lock or a slot while writing to the network; give every write a
   deadline.
 

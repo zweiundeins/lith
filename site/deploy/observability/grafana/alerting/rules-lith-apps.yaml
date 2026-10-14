@@ -227,7 +227,7 @@ groups:
         - uid: lith-apps-budget-refusals
           title: 'lith app: streams refused'
           # Only an app whose budget sets Refuse turns streams away (503); the
-          # pages retry. Raise the memory, or lower MinWindow.
+          # pages retry. Raise the memory, or lower MinWindow if the app sets it.
           condition: C
           data:
             - refId: A

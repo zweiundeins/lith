@@ -127,9 +127,9 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		// An idle tab gives its zstd encoder back after a minute: most tabs
 		// on a public site sit still, and an encoder holds 1 MiB or more.
 		Hibernate: time.Minute,
-		// Windows down to 2^17 hold the largest run of frames a page refers
-		// back to (the checkbox grid's twelve tiles, 104 KB), and let about
-		// 136 streams compress in half of GOMEMLIMIT instead of 116 at 2^18.
+		// No window below 2^17, whatever a stream's largest write: the
+		// checkbox grid sends its twelve tiles in turn, and a tile refers
+		// back to its own last frame, 104 KB back.
 		SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{MinWindow: 17})},
 		Log: cfg.Log,
 	})

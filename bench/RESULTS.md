@@ -195,7 +195,7 @@ The `memmove` in zstd's `addBlock` comes from its history: the encoder keeps twi
 
 ## Stream budget and hibernation
 
-Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:
+Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:
 
     LITH_BUDGET=1 LITH_BUDGET_RUNS=3 taskset -c 0-11 go test ./bench/budget -run Settings -v -timeout 1h
 
@@ -257,18 +257,18 @@ Headless Chromium 154 (`TestChromiumDecodesFrames` in `sse`) decodes a zstd body
 
 ### A budget as streams grow
 
-`TestSimulation` (`simulation.csv`) opens up to 2,000 streams of one workload and, after every ten, adds up the measured heap and bytes per frame of what each stream holds. The budgets are `sse.Budget` with MinWindow at the workload's floor (2^18 for the board, 2^17 for the page) and MaxWindow 2^19. "At open only" opens the streams; in the others every open stream writes after every ten opens, so that tiers shrink and waiting streams take the room that frees up. At 2,000 streams:
+`TestSimulation` (`simulation.csv`) opens up to 2,000 streams of one workload and, after every ten, adds up the measured heap and bytes per frame of what each stream holds. The budgets are `sse.Budget` with MaxWindow 2^19 and MinWindow at the workload's floor (2^18 for the board, 2^17 for the page), since the simulated writes are small. Each stream writes once when it opens, which picks its tier; in all but "first write only" every open stream also writes after every ten opens, so that tiers shrink and waiting streams take the room that frees up. At 2,000 streams:
 
 | Policy | Board: compressed | heap | bytes per frame | Page: compressed | heap | bytes per frame |
 |---|---|---|---|---|---|---|
 | lith's default, zstd 2^19 | 2,000 | 3,312 MiB | 1,471 | 2,000 | 3,294 MiB | 189 |
 | zstd at the floor, low memory | 2,000 | 1,626 MiB | 2,703 | 2,000 | 1,278 MiB | 379 |
-| budget of 128 MiB, at open only | 77 | 129 MiB | 136,654 | 77 | 129 MiB | 13,183 |
-| budget of 128 MiB | 154 | 127 MiB | 131,336 | 182 | 118 MiB | 12,491 |
-| budget of 128 MiB, 503 | 154, 1,846 refused | 125 MiB | 2,703 | 182, 1,818 refused | 116 MiB | 379 |
-| budget of 1 GiB | 1,236 | 1,006 MiB | 55,940 | 1,456 | 931 MiB | 4,003 |
+| budget of 128 MiB, first write only | 74 | 124 MiB | 136,865 | 74 | 123 MiB | 13,203 |
+| budget of 128 MiB | 144 | 119 MiB | 132,037 | 167 | 109 MiB | 12,590 |
+| budget of 128 MiB, 503 | 144, 1,856 refused | 117 MiB | 2,762 | 167, 1,833 refused | 107 MiB | 379 |
+| budget of 1 GiB | 1,150 | 936 MiB | 61,937 | 1,337 | 855 MiB | 4,796 |
 
-At open only, the first 77 streams take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor. A budget of 1 GiB gives the board's streams zstd 2^19 up to about 600 streams, 2^19 with low memory up to about 950, 2^18 with low memory up to 1,236, and nothing beyond.
+When each stream writes only its first frame, the first 73 take zstd 2^19 and leave no room for the rest. When streams that find no room make the others shrink, the budget holds as many streams as fit at the floor. A budget of 1 GiB gives the board's streams zstd 2^19 up to about 550 streams, 2^19 with low memory up to about 850, 2^18 with low memory up to 1,150, and nothing beyond. The budget books 32 KiB for every open stream, 62 MiB at 2,000.
 
 ### The board with and without a budget
 
@@ -276,19 +276,54 @@ At open only, the first 77 streams take zstd 2^19 and leave no room for the rest
 
 | Streams | Policy | Cores busy | Bytes per frame | Heap | Frames dropped |
 |---|---|---|---|---|---|
-| 200 | lith's default | 1.55, 1.63 | 2,177, 2,239 | 334 MiB | 0 |
-| 200 | zstd 2^18, low memory | 1.81, 1.89 | 3,984, 3,881 | 164 MiB | 0 |
-| 200 | budget of 128 MiB: 154 at zstd 2^18 low memory, 46 raw | 1.48, 1.47 | 35,718, 35,864 | 126 MiB | 0 |
-| 1,000 | lith's default | 4.06, 4.13 | 2,226, 2,171 | 1,660 MiB | 0 |
-| 1,000 | zstd 2^18, low memory | 4.52, 4.38 | 4,040, 3,996 | 816 MiB | 0 |
-| 1,000 | budget of 128 MiB: 154 compressed, 846 raw | 2.11, 1.95 | 121,272, 121,288 | 129 MiB | 0 |
+| 200 | lith's default | 1.74, 1.65 | 2,285, 2,199 | 334 MiB | 0 |
+| 200 | zstd 2^18, low memory | 1.89, 1.89 | 3,908, 3,990 | 164 MiB | 0 |
+| 200 | budget of 128 MiB: 141 at zstd 2^18 low memory, 59 raw | 1.64, 1.81 | 44,776, 44,789 | 116 MiB | 0 |
+| 1,000 | lith's default | 3.80, 3.77 | 2,198, 2,221 | 1,668 MiB | 0 |
+| 1,000 | zstd 2^18, low memory | 4.30, 4.32 | 3,984, 3,984 | 816 MiB | 0 |
+| 1,000 | budget of 128 MiB: 124 and 123 compressed, the rest raw | 1.85, 1.82 | 125,434, 125,572 | 104 MiB | 0 |
 
-Every run held about 19.8 ticks a second. The streams the budget has no room for send 142 KB per frame, 20 frames a second: with `Refuse` they would be answered 503 instead.
+Every run held about 19.8 ticks a second. The budget learns the board's 142 KB frame from the streams' first writes and gives no stream less than 2^18; with 1,000 streams, the 32 KiB it books for each take 31 MiB of the 128. The streams the budget has no room for send 142 KB per frame, 20 frames a second: with `Refuse` they would be answered 503 instead.
 
 ### Lowering the limit
 
-`TestPressure` (`pressure.csv`): 500 board streams hold zstd 2^19 in a budget of 1 GiB, 828 MiB. After `SetLimit(512 << 20)` each moves to 2^18 with low memory at its next frame: 414 MiB reserved, and 407 MiB of live heap after a collection, from 828. That frame starts without history and takes 10,925 bytes.
+`TestPressure` (`pressure.csv`): 500 board streams hold zstd 2^19 in a budget of 1 GiB: 867 MiB booked, 828 MiB of live heap. After `SetLimit(512 << 20)` each moves to 2^18 with low memory at its next frame: 445 MiB booked, and 407 MiB of live heap after a collection. That frame starts without history and takes 10,925 bytes.
+
+### What a stream and a view hold
+
+`TestViewCost` (`viewcost.csv`) streams data tables of 0.8, 49, 143 and 233 KB from a live hub to 64 streams that watch a view each or one they share. After a collection a view holds its newest frame rounded up to 8 KiB pages (56, 144 and 232 KiB) and about 1 KiB besides; a stream holds 3 to 7 KiB of heap and 8 to 10 KiB of stack in the hub; net/http holds 14 KiB of heap and 8 KiB of stack per open HTTP/1.1 connection. A render of the 233 KB table allocates 1,046 KiB, which the next collection frees. The budget books each view's frame at its length and 8 KiB, 32 KiB per stream, and the encoder's tier: the most a stream held at it with frames of 50 to 230 KB (`framesize.csv`), rounded up to 16 KiB.
+
+`TestBudgetMatchesHeap` in `live`, 12 streams with a view of their own of 146 or 246 KB, on 2026-10-14:
+
+| Frame | Coding | Booked | Live heap and stacks | Measured / booked |
+|---|---|---|---|---|
+| 146 KB | brotli q4 2^18 | 21,585 KiB | 21,362 KiB | 0.99 |
+| 146 KB | zstd 2^19 | 23,121 KiB | 22,179 KiB | 0.96 |
+| 146 KB | none | 2,193 KiB | 2,085 KiB | 0.95 |
+| 246 KB | brotli q4 2^18 | 22,750 KiB | 22,254 KiB | 0.98 |
+| 246 KB | zstd 2^19 | 24,286 KiB | 23,474 KiB | 0.97 |
+| 246 KB | none | 3,358 KiB | 3,101 KiB | 0.92 |
+
+The test's streams have no net/http connection, which the 32 KiB per stream include.
+
+`TestWindowMargin` (`margin.csv`): at 2^18 brotli refers to the frame before up to a frame of 259 KB, 99% of the window (249 bytes a frame at quality 3), and not at 266 KB (29,719 bytes). The budget wants a window that holds the largest write with a sixteenth to spare.
+
+### The curve with real frames
+
+`TestBudgetCurve` (`curve.csv`, and `curve.md`, the table on the docs' budget page) opens streams one by one on a hub with real encoders and frames, with a write to every stream after every ten opens. At 150 MiB:
+
+| Frame | Views | Clients | Opened | Window holds the frame | Compressed | First uncompressed | Booked | Heap |
+|---|---|---|---|---|---|---|---|---|
+| 49 KB | one | brotli | 300 | 163 | 163 | 164th | 154.0 MiB | 141.2 MiB |
+| 49 KB | one | zstd | 300 | 213 | 213 | 88th | 152.5 MiB | 130.5 MiB |
+| 233 KB | one | brotli | 300 | 114 | 114 | 115th | 155.5 MiB | 146.4 MiB |
+| 233 KB | one | zstd | 300 | 168 | 168 | 88th | 154.0 MiB | 141.8 MiB |
+| 233 KB | one each | brotli | 150 | 97 | 97 | 98th | 163.7 MiB | 157.8 MiB |
+| 233 KB | one each | zstd | 150 | 133 | 134 | 77th | 154.0 MiB | 146.0 MiB |
+| 233 KB | one each | half each | 150 | 110 | 111 | 88th | 155.5 MiB | 148.4 MiB |
+
+150 tabs with a 233 KB view of their own all hold 2^18 in 240 MiB with brotli (233.4 MiB booked, 226.1 MiB of heap), in 170 MiB with zstd (168.0 and 159.0 MiB), and in 260 MiB half each.
 
 ### What lith adopted
 
-Since 2026-10-13 a live hub makes a budget when it is given none: half the process's memory limit, windows from 2^19 down to 2^18, uncompressed streams when even 2^18 does not fit, and no change at all without a memory limit (a stream's own ZstdWindow and BrotliWindow cap what it gets). Pages with large frames pass a budget with `Refuse`. Hibernation is opt-in: `live.Options.Hibernate` is zero unless an app sets it.
+A live hub makes a budget when it is given none: half the process's memory limit, for the streams' encoders, 32 KiB per stream and the views' frames, and no change at all without a memory limit (a stream's own ZstdWindow and BrotliWindow cap what it gets). A stream's first write picks a window that holds its largest write. Brotli takes that window at quality 4 while the budget stays at most half full, at quality 3 after, and 2^16 only when that does not fit; zstd takes the largest tier within its fair share and moves down while open, no further than its frame's window. A brotli stream below its frame's window, or uncompressed, is asked to open again once room frees up. Pages with large frames pass a budget with `Refuse`. Hibernation is opt-in: `live.Options.Hibernate` is zero unless an app sets it.

@@ -27,13 +27,13 @@ Chrome, Firefox and Edge accept zstd; Safari decodes it from version 26.3, and o
 | `sse.Options` | Default | What it does |
 | --- | --- | --- |
 | `ZstdLevel` | `zstd.SpeedFastest` | `SpeedDefault` halves the bytes for no more CPU, at 1.1 MiB more per stream |
-| `ZstdWindow` | 19 | zstd's window, as a base 2 logarithm |
+| `ZstdWindow` | 19 | zstd's window, as a base 2 logarithm; with a budget, the largest it gives |
 | `ZstdLowMemory` | false | history at the window: 0.65 MiB less per stream, more CPU per frame |
-| `BrotliQuality`, `BrotliWindow` | 4, 18 | brotli's quality and window |
+| `BrotliQuality`, `BrotliWindow` | 4, 18 | brotli's quality and window; with a budget, the largest window it gives |
 | `NoCompression` | false | every stream as it is ([below](#small-frequent-events)) |
 | `WriteTimeout` | 10 s | the deadline of each write |
 | `Compress` | half the CPUs, in a hub | a semaphore that bounds how many streams compress at once |
-| `Budget` | half the memory limit, in a hub | the memory the encoders share ([below](#the-memory-budget)) |
+| `Budget` | half the memory limit, in a hub | the memory the streams share, and the window each gets ([below](#the-memory-budget)) |
 
 ## Every write has a deadline
 
@@ -49,41 +49,36 @@ A frame can refer back only as far as the window reaches. When the window is sma
 | 2^18 (256 KiB) | 2,703 |
 | 2^19 (512 KiB) | 1,471 |
 
-So measure the largest frame of each page, the full board, the longest list, and pick the smallest window that holds it with room to spare. The board app's largest frame, three lanes of 50 cards with long titles, is 51 KB: 2^17 holds it. libretto's frames, 2 to 37 KB, cost 9% more bytes at 2^17 than at 2^19 and 19% more at 2^16. The [budget's table](/docs/performance/budget#settings) has every window for two workloads.
+A budget picks that window for each stream from its largest write ([below](#the-memory-budget)). Without a budget, or with one without a limit, measure the largest frame of each page, the full board, the longest list, and pick the smallest window that holds it with room to spare. The board app's largest frame, three lanes of 50 cards with long titles, is 51 KB: 2^16 holds it. A page that sends one view after another on the same stream refers back further than one frame: libretto's frames, 2 to 37 KB, cost 9% more bytes at 2^17 than at 2^19 and 19% more at 2^16. The [budget's table](/docs/performance/budget#settings) has every window for two workloads.
 
 `Stream.Sent()` returns the bytes of events a stream was given and the bytes it sent, compressed. A test that renders the largest state of a page and checks the frame's length catches a page that outgrows its window.
 
 ## The memory budget
 
-A hub shares a memory budget among its streams' encoders, so that the server holds what its memory allows, however many tabs are open. The default needs no setting:
+A hub shares a memory budget among its streams, so that the server holds what its memory allows, however many tabs are open. The budget books what each stream holds: its encoder, 32 KiB for the rest of it (the hub's state, the goroutines' stacks, net/http's buffers), and each view's newest frame, once for all the streams that watch it. The default needs no setting:
 
-- The limit is half the process's memory limit: `GOMEMLIMIT`, else the cgroup's `memory.max` or `memory.high`, whichever is lower. Without a memory limit the budget only counts, and every stream gets the largest window.
-- A stream that opens gets the largest window that fits both its fair share (the limit divided by the open streams) and what is left: from 2^19 down to 2^18.
-- When a stream finds no room, every zstd stream above the fair share of that moment moves to a smaller window at its next frame. That frame starts without history, once.
-- A brotli body is one stream with one window, so a brotli stream keeps its tier until it closes. Instead it steps down as it opens: below 2^18 it takes quality 3 at 2^17 and 2^16 (912 KiB), which sends the board in 10 KB a frame instead of 142 KB.
-- A stream that cannot have even its smallest tier (2^18 for zstd, 2^16 for brotli) goes out uncompressed: a zstd stream until room frees up at one of its later frames, a brotli or gzip stream for as long as it is open.
+- The limit is half the process's memory limit: `GOMEMLIMIT`, else the cgroup's `memory.max` or `memory.high`, whichever is lower. The other half is for the rest of the app and for the garbage between two collections: a render of a 233 KB view allocates about 1 MiB. Without a memory limit the budget only counts, and every stream gets the largest window its options allow.
+- A stream's first write picks its tier. The window must hold the stream's largest write with a sixteenth to spare, or a frame cannot refer to the one before: at 2^18, a 259 KB frame takes 249 bytes and a 266 KB one 29,719.
+- A zstd stream takes the largest window that fits both its fair share (what the limit leaves after the frames and the streams, divided by the streams that compress) and what is left. When a stream finds no room, every zstd stream above the fair share of that moment moves to a smaller window at its next frame, down to the window its frame needs. That frame starts without history, once. A zstd stream without room sends raw blocks, and compresses again at a later frame once room frees up.
+- A brotli body is one stream with one window, so a brotli stream keeps its tier until it closes. It takes the window its frame needs and no larger one, which would send no fewer bytes: at quality 4 while the budget stays at most half full, then at quality 3, and only when that does not fit, quality 3 at 2^16 (720 KiB), which compresses each frame alone: 17 KB for a 235 KB board instead of 259 bytes. When not even that fits, it goes out uncompressed.
+- A brotli stream that took 2^16 for a larger frame, or went out uncompressed, comes back on a better tier: once room frees up, the hub ends the stream with `sse.Reconnect` and the page opens it again, as after a deploy. It needs `live.Spec.Reconnect`. The budget asks one stream a second, and the hub the same tab once a minute.
 
-Because brotli streams cannot move down, a tier taken early would spend the room of the streams to come. So while up to 20 streams are open, a brotli stream gets the largest tier its fair share allows; past that, at most its largest tier times twice the share of the limit that is left: the largest tier while half the limit is left, then smaller ones as it fills. A budget of 150 MiB compresses 93 brotli streams at 2^19 and below, where taking 2^19 while it fit compressed 57 ([the simulation](/docs/performance/budget#what-lith-took-from-it)).
-
-For pages with large, frequent frames, an uncompressed stream sends every frame whole: the board's 142 KB twenty times a second. Such an app sets the budget's floor to its largest frame and refuses the streams that do not fit:
+For pages with large, frequent frames, an uncompressed stream sends every frame whole: the board's 142 KB twenty times a second. Such an app refuses the streams that do not fit:
 
 ```go source=site/internal/docs/example/web/hub.go
-SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{
-	MinWindow: 17,
-	Refuse:    true,
-})},
+SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{Refuse: true})},
 ```
 
 A refused stream gets a 503, and a page that opens its stream with `retry: 'error'` asks again, with Datastar's backoff, until a stream closes and makes room.
 
 | `sse.BudgetOptions` | Default | What it does |
 | --- | --- | --- |
-| `Limit` | half the memory limit | bytes the encoders may hold together; -1 for no limit |
-| `MinWindow` | 18 | the smallest window a stream compresses with |
+| `Limit` | half the memory limit | bytes the streams may hold together, encoders and frames; -1 for no limit |
+| `MinWindow` | none | the smallest window a stream's frames need, for pages whose frames refer back further than one write |
 | `MaxWindow` | 19 | the largest window a stream gets |
 | `Refuse` | false | 503 for a stream that cannot have its smallest tier, instead of no compression |
 
-A stream's own `ZstdWindow` and `BrotliWindow` cap what the budget gives it, and `ZstdLowMemory` keeps it to the low-memory tiers. `hub.Budget().Stats()` says what the encoders hold now: the limit, the bytes reserved, the streams by tier (`zstd 2^19`, `zstd 2^18 low memory`, `br q4 2^18`, `br q3 2^16`, `identity`) and the streams refused. `SetLimit` moves the limit while the hub runs, and the zstd streams above their new share move down at their next frame. Streams outside a hub share a budget by passing the same `*sse.Budget` in their `sse.Options`.
+A stream's own `ZstdWindow` and `BrotliWindow` cap what the budget gives it, and `ZstdLowMemory` keeps it to the low-memory tiers. `hub.Budget().Stats()` says what the streams hold now: the limit, the bytes reserved and the frames among them, the streams by tier (`zstd 2^19`, `zstd 2^18 low memory`, `br q4 2^18`, `br q3 2^16`, `identity`), the streams refused, and those asked to open again. `SetLimit` moves the limit while the hub runs, and the zstd streams above their new share move down at their next frame. Streams outside a hub share a budget by passing the same `*sse.Budget` in their `sse.Options`; a frame they keep for several streams, they book with `Budget.Hold`.
 
 [The budget's measurements](/docs/performance/budget) show the policies side by side, up to 2,000 streams.
 

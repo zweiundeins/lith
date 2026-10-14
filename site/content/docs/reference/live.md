@@ -111,7 +111,7 @@ New returns a hub; Run starts it.
 func (h *Hub) Budget() *sse.Budget
 ```
 
-Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New made. Its Stats tell what the encoders hold, and SetLimit moves its limit while the hub runs.
+Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New made. Its Stats tell what the streams hold, the views' frames among it, and SetLimit moves its limit while the hub runs.
 
 #### func (*Hub) Changed {#Hub.Changed}
 
@@ -247,10 +247,12 @@ type Options struct {
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
-	// process's memory limit for the encoders, windows from 2^19 down to
-	// 2^18, uncompressed streams when even 2^18 does not fit; without a
-	// memory limit it only counts. Pass a Budget of your own for another
-	// limit or Refuse, or one with Limit -1 to turn it off.
+	// process's memory limit for the streams, their encoders and the views'
+	// frames, which the hub books (sse.Budget.Hold); each stream gets a
+	// window that holds its frames, up to 2^19, and goes out uncompressed
+	// when not even the smallest tier fits; without a memory limit it only
+	// counts. Pass a Budget of your own for another limit or Refuse, or one
+	// with Limit -1 to turn it off.
 	SSE sse.Options
 }
 ```
@@ -283,8 +285,12 @@ type Spec struct {
 	// Reconnect is the id of the page's element whose data-init opens this
 	// stream with retry 'error'. When the hub stops (a deploy), the stream
 	// ends with sse.Reconnect, so the page opens it again on the next
-	// process. Empty: the stream just ends, as it does when a newer stream
-	// with its ID replaces it.
+	// process. So it does when the streams' budget has room for a better
+	// tier than the stream holds, which a brotli stream takes only on a new
+	// connection (sse.Stream.Upgrade): once a minute at most for the same
+	// ID, and for a stream without an ID only after a minute open. Empty:
+	// the stream just ends, as it does when a newer stream with its ID
+	// replaces it.
 	Reconnect string
 }
 ```
@@ -329,7 +335,10 @@ type View struct {
 	// prepared once on its connection. Its frame goes to every stream that
 	// watches the view and must not change afterwards. When Render fails,
 	// the error is logged and the previous frame stays; a nil frame also
-	// keeps the previous one, and so does a []byte frame equal to it.
+	// keeps the previous one, and so does a []byte frame equal to it. The
+	// hub books the newest frame in the streams' budget, once however many
+	// streams watch it: a []byte frame by its length, another by its
+	// Len() int method, if it has one, each with 8 KiB besides.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).

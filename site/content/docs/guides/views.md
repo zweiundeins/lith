@@ -275,10 +275,7 @@ return live.Options{
 	HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
 	Hibernate:       time.Minute, // an idle tab gives its zstd encoder back
 	Log:             log,
-	SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{
-		MinWindow: 17,
-		Refuse:    true,
-	})},
+	SSE:             sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{Refuse: true})},
 }
 ```
 

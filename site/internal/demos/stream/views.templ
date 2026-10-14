@@ -77,7 +77,7 @@ templ Stage(st TabState, p Payload) {
 				<h3 id="stream-site-title" class="sx-eyebrow">The site</h3>
 				<p class="sx-streams"><b data-text="$_stream.streams">0</b> <span data-text="$_stream.streams === 1 ? 'stream open on this site' : 'streams open on this site'">streams open on this site</span></p>
 			</header>
-			<sb-meter class="sx-meter" label="Budget for the encoders" unit="%" segments="24" value="0" data-attr:value="Math.max(0, $_stream.budget)" data-preserve-attr="value" data-show="$_stream.budget >= 0" style="display: none"></sb-meter>
+			<sb-meter class="sx-meter" label="Budget for the streams" unit="%" segments="24" value="0" data-attr:value="Math.max(0, $_stream.budget)" data-preserve-attr="value" data-show="$_stream.budget >= 0" style="display: none"></sb-meter>
 			<p class="sx-budget">
 				<b data-text="$_stream.reserved || 'nothing'">nothing</b> reserved
 				<span data-show="$_stream.budget >= 0" style="display: none">of a limit of <b data-text="$_stream.limit"></b></span>

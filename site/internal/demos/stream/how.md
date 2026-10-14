@@ -22,20 +22,22 @@ func read(st *sse.Stream, m *demo.Meter, now time.Time) Reading {
 
 ## The setting from the budget
 
-The hub shares a memory budget among its streams' encoders: half the process's memory limit. This site runs with `GOMEMLIMIT=192MiB`, so the encoders share 96 MiB. A stream gets the largest setting that fits both its fair share, the limit divided by the open streams, and what is left of the limit:
+The hub shares a memory budget among its streams: half the process's memory limit. This site runs with `GOMEMLIMIT=192MiB`, so the streams share 96 MiB: their encoders, 32 KiB for each stream besides, and the frames the hub keeps for the views. Your stream's first frame picks its setting. Its window must hold your largest frame, and here no less than 2^17. A zstd stream gets the largest setting that fits both its fair share, what the limit leaves after the frames and the streams divided by the streams that compress, and what is left of the limit:
 
 | Setting | Window | Reserved |
 | --- | --- | --- |
-| `zstd 2^19` | 512 KiB, with twice that as history | 1.66 MiB |
-| `zstd 2^19 low memory` | 512 KiB | 1.08 MiB |
-| `zstd 2^18 low memory` | 256 KiB | 848 KiB |
-| `br q4 2^18` | 256 KiB | 2.14 MiB |
+| `zstd 2^19` | 512 KiB, with twice that as history | 1.70 MiB |
+| `zstd 2^19 low memory` | 512 KiB | 1.11 MiB |
+| `zstd 2^18 low memory` | 256 KiB | 880 KiB |
+| `zstd 2^17 low memory` | 128 KiB | 752 KiB |
+| `br q4 2^17` | 128 KiB | 1.33 MiB |
+| `br q3 2^17` | 128 KiB | 848 KiB |
 
-The window is how far back the encoder looks for what a frame repeats. Low memory keeps zstd's history at the window, for more CPU per frame. When a new stream finds no room, every zstd stream above the new fair share moves down at its next write, so your setting can change while you watch; when not even 2^18 fits, a stream goes out uncompressed. `zstd asleep` is a zstd stream that holds no encoder: after a hibernation, or while the budget has no room for it, when its frames go out in raw blocks.
+The window is how far back the encoder looks for what a frame repeats. Low memory keeps zstd's history at the window, for more CPU per frame. When a new stream finds no room, every zstd stream above the new fair share moves down at its next write, so your setting can change while you watch. A brotli stream keeps its setting until it closes: the window its frames need, at quality 4 while the budget is at most half full and at 3 after that. When not even the smallest fits, a stream goes out uncompressed. `zstd asleep` is a zstd stream that holds no encoder: before its first frame, after a hibernation, or while the budget has no room for it, when its frames go out in raw blocks.
 
 ## Reserved for your encoder
 
-The heap that the budget reserves for your setting: what lith measured an encoder of that setting to hold after a session of 142 KB frames, rounded up. The budget adds up these reservations; it does not measure the heap.
+The heap that the budget reserves for your setting: the most lith measured an encoder of that setting to hold after sessions of 50 to 230 KB frames, rounded up. The budget adds up these reservations; it does not measure the heap.
 
 ## Events and the wire
 
@@ -61,7 +63,7 @@ After a minute without a frame, the hub hibernates the stream (`live.Options.Hib
 
 ## The site's streams and the budget
 
-Every stream of the hub opens through the budget, which counts them by what they hold: that gives the number of open streams and the list under the meter. The meter is the reserved heap against the limit. With 200 open streams this site measured 110 MB resident, 100 MB of it the encoders' budget, with 115 streams at zstd 2^18 with low memory and the rest uncompressed.
+Every stream of the hub opens through the budget, which counts them by what they hold: that gives the number of open streams and the list under the meter. The meter is what the budget reserves, the frames and the streams' own 32 KiB included, against the limit. With 200 open streams and windows down to 2^18, this site measured 110 MB resident, 100 MB of it encoders, with 115 streams at zstd 2^18 with low memory and the rest uncompressed.
 
 ## The payload
 

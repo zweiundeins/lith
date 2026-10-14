@@ -22,9 +22,11 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 | | `FramesSent`, `FramesDropped` | frames written to streams, and frames a newer one replaced before their stream sent them: slow clients |
 | | `Streams`, `Views` | open streams, watched views |
 | | `RendersByKey` | renders per view: a view that renders more often than its topics change listens to too much |
-| `sse.BudgetStats` | `Limit`, `Reserved` | what the encoders may hold and hold now |
+| `sse.BudgetStats` | `Limit`, `Reserved` | what the streams may hold and hold now: encoders, 32 KiB a stream, frames |
+| | `Frames` | the frames the hub keeps for the views, part of `Reserved` |
 | | `Streams` | open streams by encoder setting, uncompressed ones as `identity` |
 | | `Refused` | streams turned away for want of memory |
+| | `Reopened` | brotli streams asked to open again for a window that holds their frames |
 
 ## Prometheus
 

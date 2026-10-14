@@ -68,7 +68,7 @@ TasksMax=128
 CPUWeight=50
 ```
 
-Measured with 200 open streams and the budget's windows down to 2^18, it held 110 MB resident, 100 MB of them the encoders' budget: 115 streams at zstd 2^18 with low memory, the rest uncompressed. With windows down to 2^17, as the site runs now, the same budget compresses about 136.
+With 200 open streams it held 110 MB resident, 100 MB of them encoders: 115 streams at zstd 2^18 with low memory, the rest uncompressed (measured with windows down to 2^18). The budget's 96 MiB cover the encoders, 32 KiB for each stream and the frames the hub keeps for the views.
 
 ## Caddy
 

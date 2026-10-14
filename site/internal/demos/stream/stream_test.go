@@ -252,10 +252,12 @@ func TestReport(t *testing.T) {
 		t.Fatalf("%d reports for two frames", len(c.got))
 	}
 	first, second := c.page(t, 0), c.page(t, 1)
-	if first.N != 0 || first.Coding != "zstd" || first.Tier != "zstd 2^19" || first.Heap != "1.66 MiB" || first.Events != "0 B" || first.Streams != 1 || first.Budget != 3 || first.Limit != "64 MiB" {
+	// The first report describes the stream before its first frame, which
+	// picks its tier.
+	if first.N != 0 || first.Coding != "zstd" || first.Tier != "zstd asleep" || first.Heap != "none" || first.Events != "0 B" || first.Streams != 1 || first.Reserved != "32 KiB" || first.Limit != "64 MiB" {
 		t.Errorf("the first report: %+v", first)
 	}
-	if second.N != 1 || second.FE == "" || second.FW <= 0 || second.FR < 10 || second.Tiers != "zstd 2^19 (1)" || second.Reserved != "1.66 MiB" {
+	if second.N != 1 || second.FE == "" || second.FW <= 0 || second.FR < 10 || second.Tier != "zstd 2^19" || second.Heap != "1.7 MiB" || second.Tiers != "zstd 2^19 (1)" || second.Reserved != "1.73 MiB" || second.Budget != 3 {
 		t.Errorf("the second report: %+v", second)
 	}
 	// The same frame again costs little: its ratio is far above the first's.

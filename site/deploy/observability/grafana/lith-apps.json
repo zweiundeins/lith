@@ -861,7 +861,7 @@
     {
       "id": 19,
       "title": "Budget reserved against its limit",
-      "description": "The heap the open streams' encoders hold, and the limit: half of GOMEMLIMIT (or the cgroup's) unless the app sets one. 0 for the limit means none.",
+      "description": "What the open streams hold, their encoders, 32 KiB each besides and the frames the hub keeps for their views, and the limit: half of GOMEMLIMIT (or the cgroup's) unless the app sets one. 0 for the limit means none.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -918,7 +918,7 @@
     {
       "id": 20,
       "title": "Streams by encoder setting",
-      "description": "Open streams by what their encoder holds: a zstd or brotli tier such as \"zstd 2^19\", \"zstd asleep\" (hibernating or waiting for room), \"identity\" (uncompressed).",
+      "description": "Open streams by what their encoder holds: a zstd or brotli tier such as \"zstd 2^19\", \"zstd asleep\" (before the first frame, hibernating or waiting for room), \"identity\" (uncompressed).",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",

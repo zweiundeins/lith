@@ -86,7 +86,7 @@ type PageReport struct {
 	N        int64   `json:"n"`        // frames before this one
 	Coding   string  `json:"coding"`   // "zstd", "brotli", "gzip", "none"
 	Tier     string  `json:"tier"`     // "zstd 2^19", "uncompressed"
-	Heap     string  `json:"heap"`     // "1.66 MiB"
+	Heap     string  `json:"heap"`     // "1.7 MiB"
 	Events   string  `json:"events"`   // bytes of events so far
 	Wire     string  `json:"wire"`     // bytes on the wire so far
 	Total    string  `json:"total"`    // their ratio, "69:1"
@@ -99,7 +99,7 @@ type PageReport struct {
 	FPS      string  `json:"fps"`      // "4.0"
 	Beats    int64   `json:"beats"`    // heartbeats
 	Streams  int     `json:"streams"`  // open on the site
-	Reserved string  `json:"reserved"` // by the budget for their encoders
+	Reserved string  `json:"reserved"` // by the budget for the streams: encoders, frames, 32 KiB each
 	Limit    string  `json:"limit"`    // the budget's limit, "none"
 	Budget   int     `json:"budget"`   // reserved in percent of the limit, -1 without one
 	Tiers    string  `json:"tiers"`    // what the open streams hold
