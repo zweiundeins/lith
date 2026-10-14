@@ -37,8 +37,12 @@ type Spec struct {
 	// Reconnect is the id of the page's element whose data-init opens this
 	// stream with retry 'error'. When the hub stops (a deploy), the stream
 	// ends with sse.Reconnect, so the page opens it again on the next
-	// process. Empty: the stream just ends, as it does when a newer stream
-	// with its ID replaces it.
+	// process. So it does when the streams' budget has room for a better
+	// tier than the stream holds, which a brotli stream takes only on a new
+	// connection (sse.Stream.Upgrade): once a minute at most for the same
+	// ID, and for a stream without an ID only after a minute open. Empty:
+	// the stream just ends, as it does when a newer stream with its ID
+	// replaces it.
 	Reconnect string
 }
 
@@ -56,6 +60,13 @@ var (
 )
 
 var heartbeat = sse.Comment("")
+
+// reopenAfter is how long a stream ID waits after the budget last asked
+// its stream to open again before its next stream may be asked.
+const reopenAfter = time.Minute
+
+// errReopen ends a stream that its budget asked to open again.
+var errReopen = errors.New("live: the budget has a better tier for the stream")
 
 // Serve streams the views of spec to the client until it leaves or the
 // hub stops, and then returns nil. It sends each view's current frame (a
@@ -105,17 +116,49 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	}
 	var last [][]byte
 	defer func() { st.CloseWith(last...) }()
-	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1)}
+	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1), upgrade: -1}
+	if spec.Reconnect != "" {
+		s.upgrade = h.upgradeAfter(spec.ID)
+	}
 	h.attach(s, spec.Views)
 	defer h.detach(s)
 	err = h.pump(ctx, s, st)
-	if h.done.Err() != nil && spec.Reconnect != "" && r.Context().Err() == nil {
+	if (h.done.Err() != nil || errors.Is(err, errReopen)) && spec.Reconnect != "" && r.Context().Err() == nil {
 		last = append(last, sse.Reconnect(spec.Reconnect))
 	}
-	if errors.Is(err, context.Canceled) || h.done.Err() != nil {
+	if errors.Is(err, context.Canceled) || errors.Is(err, errReopen) || h.done.Err() != nil {
 		return nil
 	}
 	return err
+}
+
+// upgradeAfter is how long a stream with the ID waits before its budget
+// may ask it to open again: none, unless the budget asked a stream with
+// that ID within reopenAfter, or the stream has no ID.
+func (h *Hub) upgradeAfter(id string) time.Duration {
+	if id == "" {
+		return reopenAfter
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return max(0, reopenAfter-time.Since(h.asked[id]))
+}
+
+// reopened notes that the budget asked the stream with the ID to open
+// again, and forgets the IDs asked longer ago than reopenAfter.
+func (h *Hub) reopened(id string) {
+	if id == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := time.Now()
+	for k, t := range h.asked {
+		if now.Sub(t) >= reopenAfter {
+			delete(h.asked, k)
+		}
+	}
+	h.asked[id] = now
 }
 
 func (h *Hub) attach(s *stream, views []View) {
@@ -179,10 +222,20 @@ func (s *stream) unwatched(w *watch) bool {
 
 // pump sends the stream's new frames as they come, and a heartbeat when
 // it has been silent for h.heartbeat, or every h.heartbeat with a
-// heartbeat signal.
+// heartbeat signal. It returns errReopen when the stream's budget asks it
+// to open again (s.upgrade).
 func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
+	var upgrade <-chan struct{} // closed when the budget asks the stream to open again
+	var listen <-chan time.Time // fires when the stream starts to listen for that
+	if s.upgrade == 0 {
+		upgrade = st.Upgrade()
+	} else if s.upgrade > 0 {
+		t := time.NewTimer(s.upgrade)
+		defer t.Stop()
+		listen = t.C
+	}
 	var rest <-chan time.Time // fires when the stream should hibernate
 	var restTimer *time.Timer
 	asleep := false
@@ -278,6 +331,11 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 				return err
 			}
 			asleep = true
+		case <-listen:
+			upgrade = st.Upgrade()
+		case <-upgrade:
+			h.reopened(s.id)
+			return errReopen
 		}
 	}
 }

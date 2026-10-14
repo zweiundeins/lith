@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/andybalholm/brotli"
 
 	"github.com/zweiundeins/lith/sse"
 )
@@ -214,5 +217,59 @@ func TestBudgetMatchesHeap(t *testing.T) {
 				c.leave(t)
 			}
 		}
+	}
+}
+
+// A stream with Spec.Reconnect whose budget has room for a better tier
+// than it holds ends with sse.Reconnect, so that the page opens it again:
+// a brotli stream that took 2^16 for a frame that needs 2^18. A stream
+// with the same ID is not asked again within a minute, nor one without an
+// ID in its first minute.
+func TestReconnectForABetterTier(t *testing.T) {
+	b := sse.NewBudget(sse.BudgetOptions{Limit: 8 << 20})
+	h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
+	var version atomic.Int64
+	view := tabView("tab", 1300, &version)
+	f, _ := view.Render(t.Context(), nil)
+	booked := int64(len(f.([]byte))) + frameSlack
+	// What is left after the stream's view and its 2^16 at quality 3 (752
+	// KiB with the stream's own): 200 KiB, too little for 2^18.
+	fill := int64(8<<20) - 752<<10 - booked - 200<<10
+	below := func(id string) *client {
+		t.Helper()
+		b.Hold(fill)
+		v := view
+		v.Key += id
+		c := serve(h, Spec{ID: id, Views: []View{v}, Reconnect: "stream"}, sse.Brotli)
+		waitFor(t, "the first frame", func() bool { return b.Stats().Streams["br q3 2^16"] == 1 })
+		return c
+	}
+	c := below("tab1")
+	b.Hold(-fill)
+	if err := c.returned(t); err != nil {
+		t.Fatalf("Serve returned %v", err)
+	}
+	body, err := io.ReadAll(brotli.NewReader(bytes.NewReader(c.bytes())))
+	if err != nil || !bytes.HasSuffix(body, sse.Reconnect("stream")) {
+		t.Fatalf("the stream ended without Reconnect: %v, %q", err, body[max(0, len(body)-200):])
+	}
+	if st := b.Stats(); st.Reopened != 1 {
+		t.Fatalf("reopened %d", st.Reopened)
+	}
+	// The same tab, below again: not asked within a minute; nor a stream
+	// without an ID.
+	for _, id := range []string{"tab1", ""} {
+		c = below(id)
+		b.Hold(-fill)
+		time.Sleep(50 * time.Millisecond)
+		select {
+		case err := <-c.done:
+			t.Fatalf("the stream %q ended: %v", id, err)
+		default:
+		}
+		c.leave(t)
+	}
+	if st := b.Stats(); st.Reopened != 1 {
+		t.Fatalf("reopened %d", st.Reopened)
 	}
 }

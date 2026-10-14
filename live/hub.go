@@ -176,6 +176,7 @@ type Hub struct {
 	streams int
 	pending map[string][]pendingView // by stream ID, in the order of Watch
 	sweepAt time.Time                // when pending is next swept
+	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
 
 	ticks, renders, sent, dropped, overruns, readTxs atomic.Int64
 
@@ -224,6 +225,7 @@ type stream struct {
 	writeTick func(*sse.Stream, []Frame) error
 	cancel    context.CancelFunc
 	wake      chan struct{}
+	upgrade   time.Duration // when it listens for a better tier (sse.Stream.Upgrade); negative: never
 
 	mu sync.Mutex
 	// The views the stream watches, in the order it started watching
@@ -288,6 +290,7 @@ func New(o Options) *Hub {
 		every:         map[*view]struct{}{},
 		byID:          map[string]*stream{},
 		pending:       map[string][]pendingView{},
+		asked:         map[string]time.Time{},
 	}
 	// From the clock, so a page that reconnects to a new process still
 	// sees the number grow.
