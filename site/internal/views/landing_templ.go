@@ -241,7 +241,7 @@ func LandingPage(l Landing) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></section><section class=\"band\" aria-labelledby=\"numbers-title\"><div class=\"wrap section\"><header class=\"section__head reveal\"><h2 id=\"numbers-title\">Measured</h2><p>In process, on an Intel i5-13500 under Linux, in October 2026. With <span class=\"tip\" tabindex=\"0\">synchronous=NORMAL<span class=\"tip__bubble\" role=\"tooltip\">SQLite syncs the log only at checkpoints: a power loss can undo up to about 35 s of commits, a crash of the process none. FULL syncs every batch.</span></span> unless it says otherwise.</p></header><dl class=\"stats reveal\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></section><section class=\"band\" aria-labelledby=\"numbers-title\"><div class=\"wrap section\"><header class=\"section__head reveal\"><h2 id=\"numbers-title\">Measured</h2><p>On the server this site runs on, a VPS for about 10 dollars a month: four vCPUs of an AMD EPYC and 4 GB of memory, shared with other apps. In process, on 14 October 2026. With <span class=\"tip\" tabindex=\"0\">synchronous=NORMAL<span class=\"tip__bubble\" role=\"tooltip\">SQLite syncs the log only at checkpoints: a power loss can undo up to about 35 s of commits, a crash of the process none. FULL syncs every batch.</span></span> unless it says otherwise.</p></header><dl class=\"stats reveal\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -303,7 +303,7 @@ func LandingPage(l Landing) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\">bench/RESULTS.md</a>. The kanban numbers come from kanban's own load tool.</p></div></section><section class=\"wrap section\" aria-labelledby=\"start-title\"><header class=\"section__head reveal\"><h2 id=\"start-title\">Start a project</h2></header><div class=\"quickstart reveal\"><ol><li>lith-new copies the template into a new module: a guestbook with tests, CI, a systemd unit, a Caddy block and a deploy script with rollback.</li><li>Run it and open two tabs. Sign in one; the other shows the entry in the next tick.</li><li>Replace the guestbook with your first feature and keep the wiring. <a href=\"/docs/getting-started\">Getting started</a> walks through it.</li></ol><sb-tabs class=\"starts\" labels=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\">bench/RESULTS.md</a>. The same benchmarks on a development machine, an Intel i5-13500, are there too.</p></div></section><section class=\"wrap section\" aria-labelledby=\"start-title\"><header class=\"section__head reveal\"><h2 id=\"start-title\">Start a project</h2></header><div class=\"quickstart reveal\"><ol><li>lith-new copies the template into a new module: a guestbook with tests, CI, a systemd unit, a Caddy block and a deploy script with rollback.</li><li>Run it and open two tabs. Sign in one; the other shows the entry in the next tick.</li><li>Replace the guestbook with your first feature and keep the wiring. <a href=\"/docs/getting-started\">Getting started</a> walks through it.</li></ol><sb-tabs class=\"starts\" labels=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

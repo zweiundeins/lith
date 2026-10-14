@@ -343,7 +343,7 @@ func Track(t track) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if t.Race.ID == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div class=\"wr-track__empty\"><h3 id=\"writer-race-track-title\">The track</h3><p>No race yet. Pick the producers and the durability, and start one: it runs here, for everyone on this page.</p><p class=\"wr-track__ref\">lith's writer benchmark, 200 producers on an Intel i5-13500: <b>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div class=\"wr-track__empty\"><h3 id=\"writer-race-track-title\">The track</h3><p>No race yet. Pick the producers and the durability, and start one: it runs here, for everyone on this page.</p><p class=\"wr-track__ref\">lith's writer benchmark on this server, 200 producers: <b>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -932,14 +932,14 @@ func chartFigure(c chart, class string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "\" aria-hidden=\"true\">bench, i5-13500: ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "\" aria-hidden=\"true\">bench, this server: ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var53 string
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(c.Bench)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/writer-race/views.templ`, Line: 179, Col: 121}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/demos/writer-race/views.templ`, Line: 179, Col: 124}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {
@@ -1591,7 +1591,7 @@ func embedLive(t track) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 142, "</b> commands a second</p><p class=\"wr-embed__meta\">lith's writer benchmark, 200 producers on an Intel i5-13500. No race on this server yet: start the first.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 142, "</b> commands a second</p><p class=\"wr-embed__meta\">lith's writer benchmark on this server, 200 producers. No race here yet: start the first.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

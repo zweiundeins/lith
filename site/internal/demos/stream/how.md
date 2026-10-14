@@ -91,7 +91,7 @@ The table at a step is a function of its size, its churn and the step: the cells
 
 ## What the inspector costs the server
 
-Measured on 2026-10-13 on an Intel i5-13500, with the site's binary on four cores and `GOMEMLIMIT=192MiB` as deployed: 100 inspectors with the large table, read by a load test on other cores that does not decompress them, over 60 s each:
+Measured on 2026-10-13 on a development machine, an Intel i5-13500, not on the VPS that serves this site, with the site's binary on four cores and `GOMEMLIMIT=192MiB` as deployed: 100 inspectors with the large table, read by a load test on other cores that does not decompress them, over 60 s each:
 
 | Churn | CPU | Bytes a frame | Heap after a collection |
 | --- | --- | --- | --- |

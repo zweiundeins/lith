@@ -73,7 +73,7 @@ templ LandingPage(l Landing) {
 			<header class="section__head reveal">
 				<h2 id="numbers-title">Measured</h2>
 				<p>
-					In process, on an Intel i5-13500 under Linux, in October 2026.
+					On the server this site runs on, a VPS for about 10 dollars a month: four vCPUs of an AMD EPYC and 4 GB of memory, shared with other apps. In process, on 14 October 2026.
 					With <span class="tip" tabindex="0">synchronous=NORMAL<span class="tip__bubble" role="tooltip">SQLite syncs the log only at checkpoints: a power loss can undo up to about 35 s of commits, a crash of the process none. FULL syncs every batch.</span></span> unless it says otherwise.
 				</p>
 			</header>
@@ -88,7 +88,7 @@ templ LandingPage(l Landing) {
 			<p class="note">
 				How each number was taken, with the commands to run it again:
 				<a href={ safe(l.Repo + "/blob/main/bench/RESULTS.md") }>bench/RESULTS.md</a>.
-				The kanban numbers come from kanban's own load tool.
+				The same benchmarks on a development machine, an Intel i5-13500, are there too.
 			</p>
 		</div>
 	</section>

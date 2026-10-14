@@ -1,12 +1,14 @@
 ---
 title: Performance
-summary: The numbers to plan a lith app with, measured on one machine in process, the settings they led to, and the commands that measure them again.
+summary: The numbers to plan a lith app with, measured in process on a development machine and on the 10-dollar VPS that serves this site, the settings they led to, and the commands that measure them again.
 order: 5
 ---
 
-lith's numbers come from benchmarks in its repository, run in process on one machine, and recorded in [`bench/RESULTS.md`](https://github.com/zweiundeins/lith/blob/main/bench/RESULTS.md) and the CSV files of [`bench/budget`](https://github.com/zweiundeins/lith/tree/main/bench/budget) with their date, their settings and the command that produced them. These pages show them, with charts drawn from those numbers.
+lith's numbers come from benchmarks in its repository, run in process, and recorded in [`bench/RESULTS.md`](https://github.com/zweiundeins/lith/blob/main/bench/RESULTS.md) and the CSV files of [`bench/budget`](https://github.com/zweiundeins/lith/tree/main/bench/budget) with their date, their settings and the command that produced them. These pages show them, with charts drawn from those numbers.
 
 ## The numbers to plan with
+
+On a development machine (below), unless a row says otherwise:
 
 | What | Measured | Page |
 | --- | --- | --- |
@@ -19,9 +21,22 @@ lith's numbers come from benchmarks in its repository, run in process on one mac
 | The window a 142 KB frame needs | 2^18: at 2^17 a frame takes four times the bytes | [The stream budget](/docs/performance/budget) |
 | An idle tab, hibernating after 30 s | 0.11 MiB of heap instead of 0.64, for about 45 KB more on the wire an hour | [Hibernation](/docs/performance/hibernation) |
 
-kanban, on lith, commits 14,928 moves a second at 200 people in its own load test and answers a move in 13.1 ms at p95; with zstd its server needs half the CPU it needed with brotli.
+## On this site's server
 
-## The machine
+lith.zweiundeins.gmbh runs on a VPS for about 10 dollars a month: four vCPUs of an AMD EPYC (Genoa) and 4 GB of memory, shared with other apps and with the other tenants of its host. The same benchmarks ran there on 2026-10-14, medians of three runs:
+
+| What | On the VPS |
+| --- | --- |
+| Commands a second, 200 producers waiting with `Do` | 80,530 with NORMAL, 14,480 with FULL |
+| One producer alone | 13,436 a second with NORMAL; 143 with FULL, where an fsync takes about 7 ms |
+| A command's commit, beside 200 streams, NORMAL | 0.42 ms at p50 |
+| 200 streams on one 139 KB view, 800 commands a second, zstd | one render a tick, 0.55 of a core, 2,188 bytes a frame |
+
+The writer does more with NORMAL on the VPS than on the development machine, and less with FULL, where it waits for a slower disk. In one of the three board runs the neighbours held a tick for 252 ms, and the streams skipped to the newest frame. `bench/RESULTS.md` has every row and the commands.
+
+kanban, on lith, commits 14,928 moves a second at 200 people in its own load test on the development machine and answers a move in 13.1 ms at p95; with zstd its server needs half the CPU it needed with brotli.
+
+## The development machine
 
 Unless a page says otherwise: an Intel i5-13500 (20 threads) under Linux 6.18, Go 1.26.5 to 1.27.2 and modernc.org/sqlite v1.60.1 (SQLite 3.53.4), measured on 2026-10-12 and 2026-10-13. The database sits in `/tmp`, on a btrfs image on the host's SSD cache pool. The runs are pinned to the CPU's twelve performance cores with `taskset -c 0-11`, which gives GOMAXPROCS 12.
 

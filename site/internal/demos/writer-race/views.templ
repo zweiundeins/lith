@@ -83,7 +83,7 @@ templ Track(t track) {
 				<h3 id="writer-race-track-title">The track</h3>
 				<p>No race yet. Pick the producers and the durability, and start one: it runs here, for everyone on this page.</p>
 				<p class="wr-track__ref">
-					lith's writer benchmark, 200 producers on an Intel i5-13500:
+					lith's writer benchmark on this server, 200 producers:
 					<b>{ group(int64(bench[Settings{200, "NORMAL"}])) }</b> commands a second with NORMAL,
 					<b>{ group(int64(bench[Settings{200, "FULL"}])) }</b> with FULL.
 				</p>
@@ -176,7 +176,7 @@ templ chartFigure(c chart, class string) {
 				<i class="wr-chart__head" style={ c.Head } aria-hidden="true"></i>
 			}
 			if c.Bench != "" {
-				<span class="wr-chart__ref" style={ "inset-block-start: " + c.BenchAt } aria-hidden="true">bench, i5-13500: { c.Bench }</span>
+				<span class="wr-chart__ref" style={ "inset-block-start: " + c.BenchAt } aria-hidden="true">bench, this server: { c.Bench }</span>
 			}
 		</div>
 		<div class="wr-chart__axis" aria-hidden="true">
@@ -309,7 +309,7 @@ templ embedLive(t track) {
 	<div id="writer-race-embed" class="wr-embed__live" data-state={ t.state() }>
 		if t.Race.ID == 0 {
 			<p class="wr-embed__big"><b>{ group(int64(bench[Settings{200, "NORMAL"}])) }</b> commands a second</p>
-			<p class="wr-embed__meta">lith's writer benchmark, 200 producers on an Intel i5-13500. No race on this server yet: start the first.</p>
+			<p class="wr-embed__meta">lith's writer benchmark on this server, 200 producers. No race here yet: start the first.</p>
 		} else {
 			<p class="wr-embed__big"><b>{ group(int64(t.Rate)) }</b> commands a second</p>
 			<p class="wr-embed__meta">

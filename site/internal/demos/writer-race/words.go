@@ -138,7 +138,7 @@ func (c chart) caption() string {
 	if c.Bench == "" {
 		return "."
 	}
-	return ", against " + c.Bench + " a second in lith's benchmark on an Intel i5-13500."
+	return ", against " + c.Bench + " a second in lith's benchmark on this server."
 }
 
 // waiting counts the races in list that wait.

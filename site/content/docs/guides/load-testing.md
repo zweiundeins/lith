@@ -55,7 +55,7 @@ func BenchmarkBoard(b *testing.B) {
 
 ## Reading the report
 
-`Report.String()` lays a run out in lines. One run of the benchmark above, on 2026-10-13 on an Intel i5-13500 with GOMAXPROCS 20, not pinned, while other test suites ran on the machine:
+`Report.String()` lays a run out in lines. One run of the benchmark above, on 2026-10-13 on a development machine, an Intel i5-13500, with GOMAXPROCS 20, not pinned, while other test suites ran on the machine:
 
 ```text
 200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 20, 0.38 cores busy

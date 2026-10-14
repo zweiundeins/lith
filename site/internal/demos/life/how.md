@@ -39,7 +39,7 @@ func (c *clock) run() {
 
 ## The step
 
-`Step` is a command like any other: it reads the board in the writer's transaction and writes it back, 0.14 ms with the commit on an i5-13500, of which the generation itself takes 0.03 ms. A quiet board, empty for 15 seconds or repeating itself for 30, gets a new soup. An empty board is left as it is, so the step writes nothing and no frame goes out.
+`Step` is a command like any other: it reads the board in the writer's transaction and writes it back, 0.14 ms with the commit on a development machine (an Intel i5-13500), of which the generation itself takes 0.03 ms. A quiet board, empty for 15 seconds or repeating itself for 30, gets a new soup. An empty board is left as it is, so the step writes nothing and no frame goes out.
 
 ```go title=commands.go
 func (c Step) Apply(tx *writer.Tx) error {
@@ -165,7 +165,7 @@ const flush = `$_life.stroke !== '' && (
 
 ## Measured
 
-On an i5-13500 on 13 October 2026, with the site running as in production (`GOMEMLIMIT=192MiB`, on four cores) and the streams opened by `TestLoad` in another process, 20 to 30 seconds a run:
+On a development machine, an Intel i5-13500, on 13 October 2026, with the site running as in production (`GOMEMLIMIT=192MiB`, on four cores) and the streams opened by `TestLoad` in another process, 20 to 30 seconds a run:
 
 | Streams | CPU per generation | Bytes a frame per stream | Resident |
 | --- | --- | --- | --- |

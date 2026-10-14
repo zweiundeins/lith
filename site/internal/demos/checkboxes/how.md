@@ -109,7 +109,7 @@ Boxes checked, toggles per second and people here render once a second, like a c
 
 ## What it costs
 
-Measured in process with the production unit's memory limit (GOMEMLIMIT 192 MiB, so the streams' encoders share 96 MiB), on the i5-13500 of the site's other numbers, shared with other work, on 13 October 2026: `LITH_SITE_MEASURE=1 go test ./internal/app -run TestMeasureCheckboxes -v`.
+Measured in process with the production unit's memory limit (GOMEMLIMIT 192 MiB, so the streams' encoders share 96 MiB), on a development machine, an Intel i5-13500, shared with other work, on 13 October 2026: `LITH_SITE_MEASURE=1 go test ./internal/app -run TestMeasureCheckboxes -v`.
 
 - The writer takes about 17,000 clicks a second from one person who waits for each commit, 36,000 from 16 at once, and 60,000 to 80,000 from 128 or 512, 300 to 470 clicks to a transaction. The site lets one address send 20 a second.
 - A tile is 8.7 KB of HTML. On a zstd stream a whole window, twelve tiles with the list and the numbers, takes 7 KB, and a flip 35 to 50 bytes.

@@ -240,7 +240,7 @@ Every table stays small: the board is one row, `canvas_painted` holds at most a 
 
 ## Measured
 
-On an Intel i5-13500 under Linux, in October 2026, with other work on the machine:
+On a development machine, an Intel i5-13500 under Linux, in October 2026, with other work on the machine:
 
 - The writer takes about 30,000 paints a second from 100 painters at once, 50 paints to a transaction: 60,000 pixels a second in the two-pixel batches of a stroke at the limit, 500,000 in batches of 60. The limits let 300 streams send 6,000.
 - The board's frame is 4.8 KB of HTML. After a one-pixel paint the board and the pulse together cost 44 bytes on the wire with zstd and 42 with brotli; a painter's first frames, 1.3 KB.

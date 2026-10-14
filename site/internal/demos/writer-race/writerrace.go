@@ -61,11 +61,12 @@ func (s Settings) Valid() bool {
 	return slices.Contains(Producers, s.Producers) && slices.Contains(Syncs, s.Sync)
 }
 
-// bench are lith's writer benchmark's commands a second for each choice:
-// bench/RESULTS.md, an Intel i5-13500, 2026-10-12, medians of three runs.
+// bench are lith's writer benchmark's commands a second for each choice,
+// on the VPS that serves the site: bench/RESULTS.md, "On the site's
+// server", 2026-10-14, medians of three runs.
 var bench = map[Settings]int{
-	{1, "FULL"}: 526, {50, "FULL"}: 13_260, {200, "FULL"}: 34_893,
-	{1, "NORMAL"}: 13_049, {50, "NORMAL"}: 63_267, {200, "NORMAL"}: 66_688,
+	{1, "FULL"}: 143, {50, "FULL"}: 3_986, {200, "FULL"}: 14_480,
+	{1, "NORMAL"}: 13_436, {50, "NORMAL"}: 64_138, {200, "NORMAL"}: 80_530,
 }
 
 var (

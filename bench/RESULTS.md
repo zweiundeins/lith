@@ -34,6 +34,44 @@ Here the checkpoint is not part of a transaction's time; the producers queue the
 
 kanban's `BenchmarkMoveCard` on the same machine (2026-10-08, FULL) moved 240 to 340, about 5,100 and about 13,800 cards a second with 1, 50 and 200 people, in transactions of 1, 25 and 103 moves. A move runs about fifteen statements, and a transaction alone took 2.9 to 4.2 ms there. Anders Murphy's benchmark reports 98,163 transactions a second with a savepoint each and FULL on an M1 MacBook, two updates per transaction; without `PRAGMA fullfsync`, macOS's fsync does not wait for the drive's cache, so NORMAL is the closer comparison here.
 
+## On the site's server
+
+Measured on 2026-10-14 between 05:08 and 05:12 UTC on the VPS that serves lith.zweiundeins.gmbh: four vCPUs of an AMD EPYC (Genoa) and 4 GB of memory for about 10 dollars a month, shared with other apps and with other tenants of its host, with Go 1.27.2 and modernc.org/sqlite v1.60.1, on lith's main at 7ee5af7. The test binaries ran at normal priority, not pinned, with the databases in `/var/tmp` on the VPS's disk. The 1-minute load average was 0.42 before the runs and 1.94 during them:
+
+    go test -c -o writer.test ./writer && go test -c -o loadtest.test ./loadtest
+    TMPDIR=/var/tmp ./writer.test -test.run '^$' -test.bench 'Writer$' -test.benchtime 5s -test.count 3
+    TMPDIR=/var/tmp ./loadtest.test -test.run '^$' -test.bench 'SharedBoard/.*/zstd' -test.count 3
+
+`BenchmarkWriter`, as on the development machine above. Medians of three runs, the range in brackets:
+
+| synchronous | producers | commands/s | commands per transaction | ms per transaction |
+|---|---|---|---|---|
+| FULL | 1 | 143 (119 to 163) | 1 | 7.0 |
+| FULL | 50 | 3,986 (3,879 to 4,103) | 25 | 6.3 |
+| FULL | 200 | 14,480 (11,980 to 15,833) | 108 | 7.4 |
+| NORMAL | 1 | 13,436 (13,271 to 13,539) | 1 | 0.07 |
+| NORMAL | 50 | 64,138 (62,404 to 65,707) | 22 | 0.33 |
+| NORMAL | 200 | 80,530 (73,684 to 81,096) | 108 | 1.3 |
+
+With NORMAL the VPS commits more commands a second than the development machine; with FULL a transaction waits about 7 ms for the VPS's fsync, against 1.9 ms there, and two hundred producers get 14,480 commands a second instead of 34,893.
+
+`BenchmarkSharedBoard` with zstd, 200 streams on one board while 200 producers send 800 commands a second:
+
+| | FULL | NORMAL |
+|---|---|---|
+| CPU, cores busy | 0.54 (0.51 to 0.55) | 0.55 (0.53 to 0.59) |
+| ticks a second | 16.4 (16.3 to 18.8) | 19.8 (19.3 to 19.8) |
+| tick p95 | 3.0 ms (2.84 to 3.06) | 1.1 ms (1.09 to 1.40) |
+| renders per tick | 1.00 | 1.00 |
+| frames dropped a second | 0 | 0 (0 to 18.9) |
+| bytes per frame on the wire | 2,194 (2,167 to 2,261) | 2,188 (2,156 to 2,265) |
+| heap per stream | 1.66 MiB (1.66 to 1.68) | 1.68 MiB (1.66 to 1.68) |
+| commands per transaction | 5.9 (5.5 to 6.1) | 1.02 (1.02 to 1.06) |
+| command from due to commit, p50 | 10.5 ms (10.1 to 10.5) | 0.42 ms (0.40 to 0.43) |
+| command from due to commit, p99 | 437 to 1,622 ms | 9 to 185 ms |
+
+In one NORMAL run a tick took 252 ms, the VPS's neighbours at work, and the streams dropped 19 frames a second of that run: a stream that falls behind gets the newest frame, not every one.
+
 ## Read pool statement cache
 
 Measured on 2026-10-13 between 20:50 and 20:52 UTC on the same machine, with Go 1.27.2 and modernc.org/sqlite v1.60.1 (SQLite 3.53.4), on lith's stmtcache branch at 6bbf9a3, pinned to the performance cores, which gives GOMAXPROCS 12. Six runs, each through every case once:

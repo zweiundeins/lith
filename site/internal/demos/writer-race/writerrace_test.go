@@ -325,7 +325,7 @@ func TestViews(t *testing.T) {
 		t.Fatalf("views: %v", keys)
 	}
 	track := render(vs[0])
-	for _, want := range []string{`id="writer-race-track"`, `data-state="running"`, `Race 1`, `200 producers`, `80,000`, `<sb-gauge value="100.0"`, `<sb-meter label="Queue" value="90" max="200"`, `bench, i5-13500: 66,688`, `--h: 0.333`, `--h: 1.000`, `<sb-sparkline values="[2.00,2.00,2.00]"`} {
+	for _, want := range []string{`id="writer-race-track"`, `data-state="running"`, `Race 1`, `200 producers`, `80,000`, `<sb-gauge value="100.0"`, `<sb-meter label="Queue" value="90" max="200"`, `bench, this server: 80,530`, `--h: 0.333`, `--h: 1.000`, `<sb-sparkline values="[2.00,2.00,2.00]"`} {
 		if !strings.Contains(track, want) {
 			t.Errorf("the track lacks %q:\n%s", want, track)
 		}
