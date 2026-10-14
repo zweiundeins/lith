@@ -16,7 +16,9 @@
 // brotli streams take quality 3, then a window below their frames, as the
 // limit fills. Stream.Hibernate lets an idle zstd stream give its encoder
 // back until its next write, and Stream.Upgrade tells when a brotli
-// stream would do better on a new connection.
+// stream would do better on a new connection. Options.Slow marks a stream
+// to a client on a slow link, which then takes a denser encoder while the
+// budget has room for it.
 //
 // Every write has its own deadline, so run the server without a
 // WriteTimeout and let a stream that cannot take a write in time fail
@@ -91,6 +93,20 @@ type Options struct {
 	// window that holds such a frame, and picks the stream's tiers for
 	// frames at least that long. Without Refuse it changes nothing.
 	Frame int
+	// Slow marks a stream to a client on a slow link (edge.SlowLink), for
+	// which fewer bytes are worth more of the server's memory. Its zstd
+	// encoder runs at zstd.SpeedDefault, or ZstdLevel if that is higher: at
+	// 2^19, 54% fewer bytes a frame on a list whose rows change all over
+	// it, 4 to 8% fewer where a frame changes a card or a few cells, none
+	// on a Game of Life, for 1.1 MiB more heap and 17% less to 46% more
+	// CPU a frame (bench/budget/slow.csv). A Budget gives it that level
+	// while the denser tier fits its fair share and what is left, and a
+	// brotli stream its quality (4) while the budget has room for it, not
+	// only while it stays half full: 29 to 46% fewer bytes than quality 3
+	// on boards, tables and lists of 50 to 230 KB, 3 to 9% on a page of
+	// small views and on a Game of Life. With Refuse, it gets in on the
+	// same terms as any other stream.
+	Slow bool
 }
 
 // The content codings a stream can use, in the server's order of
@@ -158,6 +174,9 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 	if o.ZstdLevel == 0 {
 		o.ZstdLevel = zstd.SpeedFastest
 	}
+	if o.Slow && o.Budget == nil {
+		o.ZstdLevel = max(o.ZstdLevel, zstd.SpeedDefault)
+	}
 	if o.BrotliQuality == 0 {
 		o.BrotliQuality = 4
 	}
@@ -198,7 +217,7 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 	case Zstd:
 		s.zstd = zstdKey{o.ZstdLevel, o.ZstdWindow, o.ZstdLowMemory}
 		if s.tier.coding == Zstd {
-			s.zstd.window, s.zstd.lowMem = s.tier.window, s.tier.lowMem
+			s.zstd = s.keyFor(s.tier)
 		}
 		if !s.asleep {
 			s.enc, err = s.zstd.encoder(&s.buf)
@@ -242,7 +261,8 @@ func (s *Stream) Encoding() string { return s.encoding }
 func (s *Stream) Sent() (events, wire int64) { return s.in, s.out }
 
 // Tier names what the stream's encoder holds now, as BudgetStats.Streams
-// counts it: "zstd 2^19", "zstd 2^18 low memory", "br q4 2^18" or "gzip";
+// counts it: "zstd 2^19", "zstd 2^18 low memory", "zstd default 2^19" (at
+// zstd's default level, for Options.Slow), "br q4 2^18" or "gzip";
 // "zstd asleep" while a zstd stream has no encoder (before its first
 // write, while it hibernates, or while its budget has no room for it);
 // "identity" when it goes out uncompressed. heap is what the stream's
@@ -259,7 +279,7 @@ func (s *Stream) Tier() (name string, heap int64) {
 	t := tier{coding: s.encoding}
 	switch s.encoding {
 	case Zstd:
-		t.window, t.lowMem = s.zstd.window, s.zstd.lowMem
+		t.window, t.lowMem, t.dense = s.zstd.window, s.zstd.lowMem, s.opt.Slow
 		if s.asleep {
 			t = tier{}
 		}

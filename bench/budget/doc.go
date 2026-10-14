@@ -6,7 +6,8 @@
 // encoder and what a stream that joins a view costs with and without the
 // view's frame, opens streams against budgets with their real frames and
 // encoders (the curve), simulates budgets as streams grow, measures idle
-// hibernation, and runs the board load test with and without a budget.
+// hibernation, runs the board load test with and without a budget, and
+// measures the denser settings a slow stream asks for (slow.csv).
 // The CSV files next to this one are its output, and curve.md the docs'
 // table of the curve.
 //

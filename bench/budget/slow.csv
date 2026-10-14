@@ -1,0 +1,127 @@
+workload,setting,frame_bytes,heap_kib_per_stream,first_frame_bytes,bytes_per_frame,cpu_us_per_frame
+board 50 KB,zstd 2^20,48649,2711,4223,175,19.0
+board 50 KB,zstd default 2^20,48649,3799,4107,157,18.8
+board 50 KB,zstd 2^19,48649,1688,4223,287,18.6
+board 50 KB,zstd default 2^19,48649,2775,4107,266,20.8
+board 50 KB,zstd 2^20 low memory,48649,1571,4223,175,43.6
+board 50 KB,zstd default 2^20 low memory,48649,2657,4107,157,43.3
+board 50 KB,zstd 2^19 low memory,48649,1060,4223,287,30.3
+board 50 KB,zstd default 2^19 low memory,48649,2145,4107,266,30.9
+board 50 KB,zstd 2^18 low memory,48649,804,4223,437,23.4
+board 50 KB,zstd default 2^18 low memory,48649,1889,4107,416,25.8
+board 50 KB,zstd 2^17 low memory,48649,677,4223,796,22.6
+board 50 KB,zstd default 2^17 low memory,48649,1763,4107,778,28.6
+board 50 KB,zstd 2^16 low memory,48649,613,4223,1180,25.3
+board 50 KB,zstd default 2^16 low memory,48649,1635,4107,1175,35.8
+board 50 KB,zstd 2^15 low memory,48649,532,4280,4084,53.3
+board 50 KB,zstd default 2^15 low memory,48649,1556,4181,3886,76.6
+board 50 KB,brotli q3 2^16,48649,671,4035,65,135.6
+board 50 KB,brotli q4 2^16,48649,1201,3877,46,140.5
+board 142 KB,zstd 2^20,142067,2720,10896,794,52.5
+board 142 KB,zstd default 2^20,142067,3848,10743,733,60.3
+board 142 KB,zstd 2^19,142067,1696,10896,1471,61.6
+board 142 KB,zstd default 2^19,142067,2824,10743,1347,78.0
+board 142 KB,zstd 2^20 low memory,142067,1601,10896,794,135.3
+board 142 KB,zstd default 2^20 low memory,142067,2739,10743,733,154.8
+board 142 KB,zstd 2^19 low memory,142067,1089,10896,1471,93.6
+board 142 KB,zstd default 2^19 low memory,142067,2227,10743,1347,109.0
+board 142 KB,zstd 2^18 low memory,142067,833,10896,2703,86.6
+board 142 KB,zstd default 2^18 low memory,142067,1995,10743,2563,120.0
+board 142 KB,zstd 2^17 low memory,142067,705,10896,10831,157.5
+board 142 KB,zstd default 2^17 low memory,142067,1867,10743,10554,236.0
+board 142 KB,zstd 2^16 low memory,142067,641,10928,10872,145.1
+board 142 KB,zstd default 2^16 low memory,142067,1665,10559,10508,223.0
+board 142 KB,zstd 2^15 low memory,142067,538,11227,11234,149.8
+board 142 KB,zstd default 2^15 low memory,142067,1562,10877,10808,229.5
+board 142 KB,brotli q3 2^18,142067,1067,10586,158,398.8
+board 142 KB,brotli q4 2^18,142067,1591,10064,95,402.7
+board 230 KB,zstd 2^20,234914,2732,17452,1715,100.5
+board 230 KB,zstd default 2^20,234914,3848,16858,1815,123.7
+board 230 KB,zstd 2^19,234914,1708,17452,2948,102.6
+board 230 KB,zstd default 2^19,234914,2824,16858,2810,126.6
+board 230 KB,zstd 2^20 low memory,234914,1613,17452,1715,158.8
+board 230 KB,zstd default 2^20 low memory,234914,2739,16858,1815,172.3
+board 230 KB,zstd 2^19 low memory,234914,1101,17452,2948,111.3
+board 230 KB,zstd default 2^19 low memory,234914,2251,16858,2810,134.5
+board 230 KB,zstd 2^18 low memory,234914,845,17452,4183,100.7
+board 230 KB,zstd default 2^18 low memory,234914,1995,16858,3466,121.9
+board 230 KB,zstd 2^17 low memory,234914,717,17492,17430,236.5
+board 230 KB,zstd default 2^17 low memory,234914,1867,16834,16673,350.0
+board 230 KB,zstd 2^16 low memory,234914,653,17569,17616,244.8
+board 230 KB,zstd default 2^16 low memory,234914,1675,16972,16959,355.3
+board 230 KB,zstd 2^15 low memory,234914,550,18122,18247,245.6
+board 230 KB,zstd default 2^15 low memory,234914,1574,17538,17511,357.8
+board 230 KB,brotli q3 2^18,234914,1083,16925,259,635.8
+board 230 KB,brotli q4 2^18,234914,1603,16127,140,648.7
+table 230 KB,zstd 2^20,229374,2760,25342,2738,107.3
+table 230 KB,zstd default 2^20,229374,3891,25920,2265,129.1
+table 230 KB,zstd 2^19,229374,1736,25342,4598,122.1
+table 230 KB,zstd default 2^19,229374,2867,25920,4436,178.3
+table 230 KB,zstd 2^20 low memory,229374,1639,25342,2738,173.3
+table 230 KB,zstd default 2^20 low memory,229374,2804,25920,2265,195.4
+table 230 KB,zstd 2^19 low memory,229374,1127,25342,4598,141.2
+table 230 KB,zstd default 2^19 low memory,229374,2292,25920,4436,193.4
+table 230 KB,zstd 2^18 low memory,229374,871,25342,6887,135.0
+table 230 KB,zstd default 2^18 low memory,229374,2036,25920,6803,216.5
+table 230 KB,zstd 2^17 low memory,229374,743,25379,25300,324.3
+table 230 KB,zstd default 2^17 low memory,229374,1908,25867,25400,565.4
+table 230 KB,zstd 2^16 low memory,229374,679,25358,25174,315.1
+table 230 KB,zstd default 2^16 low memory,229374,1708,25760,25442,550.8
+table 230 KB,zstd 2^15 low memory,229374,577,25427,25318,323.1
+table 230 KB,zstd default 2^15 low memory,229374,1608,26535,26454,563.2
+table 230 KB,brotli q3 2^18,229374,1091,25512,227,621.2
+table 230 KB,brotli q4 2^18,229374,1611,25051,134,634.2
+list 230 KB,zstd 2^20,228025,2718,6259,1312,100.8
+list 230 KB,zstd default 2^20,228025,3839,7390,556,81.1
+list 230 KB,zstd 2^19,228025,1694,6259,1738,103.9
+list 230 KB,zstd default 2^19,228025,2815,7390,807,86.6
+list 230 KB,zstd 2^20 low memory,228025,1572,6259,1312,171.2
+list 230 KB,zstd default 2^20 low memory,228025,2723,7390,556,152.3
+list 230 KB,zstd 2^19 low memory,228025,1076,6259,1738,123.5
+list 230 KB,zstd default 2^19 low memory,228025,2211,7390,807,103.4
+list 230 KB,zstd 2^18 low memory,228025,820,6259,2514,116.5
+list 230 KB,zstd default 2^18 low memory,228025,1955,7390,1490,108.0
+list 230 KB,zstd 2^17 low memory,228025,694,6238,6781,191.3
+list 230 KB,zstd default 2^17 low memory,228025,1838,7378,7795,309.9
+list 230 KB,zstd 2^16 low memory,228025,630,6275,6848,190.4
+list 230 KB,zstd default 2^16 low memory,228025,1653,7899,8499,311.6
+list 230 KB,zstd 2^15 low memory,228025,530,6274,6743,187.1
+list 230 KB,zstd default 2^15 low memory,228025,1557,8011,7964,290.4
+list 230 KB,brotli q3 2^18,228025,1063,7325,676,673.6
+list 230 KB,brotli q4 2^18,228025,1591,7373,406,655.0
+page,zstd 2^20,13633,2711,757,163,9.8
+page,zstd default 2^20,13633,3798,760,150,10.0
+page,zstd 2^19,13633,1687,757,189,8.2
+page,zstd default 2^19,13633,2774,760,176,9.9
+page,zstd 2^20 low memory,13633,1550,757,163,11.2
+page,zstd default 2^20 low memory,13633,2639,760,150,12.6
+page,zstd 2^19 low memory,13633,1038,757,189,11.3
+page,zstd default 2^19 low memory,13633,2127,760,176,11.5
+page,zstd 2^18 low memory,13633,782,757,248,10.6
+page,zstd default 2^18 low memory,13633,1871,760,233,12.4
+page,zstd 2^17 low memory,13633,654,757,379,10.7
+page,zstd default 2^17 low memory,13633,1743,760,356,14.9
+page,zstd 2^16 low memory,13633,590,757,571,12.8
+page,zstd default 2^16 low memory,13633,1615,760,542,19.0
+page,zstd 2^15 low memory,13633,528,757,1130,18.9
+page,zstd default 2^15 low memory,13633,1551,760,1090,31.6
+page,brotli q3 2^16,13633,673,736,266,52.7
+page,brotli q4 2^16,13633,1201,710,242,60.9
+life,zstd 2^20,45354,2725,1301,602,33.7
+life,zstd default 2^20,45354,3813,1301,603,32.0
+life,zstd 2^19,45354,1701,1301,601,32.5
+life,zstd default 2^19,45354,2789,1301,608,32.7
+life,zstd 2^20 low memory,45354,1577,1301,602,70.0
+life,zstd default 2^20 low memory,45354,2681,1301,603,60.6
+life,zstd 2^19 low memory,45354,1065,1301,601,43.8
+life,zstd default 2^19 low memory,45354,2169,1301,608,43.2
+life,zstd 2^18 low memory,45354,809,1301,609,34.0
+life,zstd default 2^18 low memory,45354,1913,1301,615,34.0
+life,zstd 2^17 low memory,45354,681,1301,626,29.8
+life,zstd default 2^17 low memory,45354,1771,1301,646,30.7
+life,zstd 2^16 low memory,45354,619,1301,634,28.6
+life,zstd default 2^16 low memory,45354,1643,1301,657,34.5
+life,zstd 2^15 low memory,45354,548,1362,1202,45.1
+life,zstd default 2^15 low memory,45354,1572,1350,1218,46.2
+life,brotli q3 2^16,45354,671,2177,1656,177.5
+life,brotli q4 2^16,45354,1198,2061,1607,204.6

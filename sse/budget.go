@@ -113,10 +113,18 @@ type BudgetOptions struct {
 // their fair share move down too, to the window that holds their frame,
 // until what is left would hold the stream turned away.
 //
+// A slow stream (Options.Slow) trades the budget's room for bytes on the
+// wire. A zstd stream takes the tier it would get, at zstd's default level
+// instead of its fastest while that tier (about 1.1 MiB more) fits its
+// fair share and what is left, and moves down as other zstd streams do,
+// to the fastest level at its window first. A brotli stream takes its
+// quality (4) while the budget has room for it, not only while it stays
+// half full. Open lets it in on the same terms as any stream.
+//
 // The tiers' sizes are the most a stream held at each, after sessions of
-// frames of 50 to 230 KB (lith's bench/budget, framesize.csv), rounded up
-// to 16 KiB: zstd at its fastest level, brotli at quality 3 and 4. Other
-// levels and qualities hold more.
+// frames of 50 to 230 KB (lith's bench/budget, framesize.csv and
+// slow.csv), rounded up to 16 KiB: zstd at its fastest and its default
+// level, brotli at quality 3 and 4. Other levels and qualities hold more.
 type Budget struct {
 	limit                int64 // 0: none
 	minWindow, maxWindow int
@@ -166,7 +174,8 @@ type BudgetStats struct {
 	Reserved int64
 	Frames   int64 // booked through Hold: the frames a live hub keeps
 	// Streams counts the open streams by what they hold: a tier such as
-	// "zstd 2^19", "zstd 2^17 low memory" or "br q4 2^18"; "zstd asleep"
+	// "zstd 2^19", "zstd 2^17 low memory", "zstd default 2^19" (a slow
+	// stream's, Options.Slow) or "br q4 2^18"; "zstd asleep"
 	// for zstd streams without an encoder (before their first write,
 	// hibernating, or, without Refuse, waiting for room); "identity" for
 	// streams that go out uncompressed.
@@ -229,6 +238,7 @@ type tier struct {
 	coding  string // "" for none
 	window  int    // base 2 logarithm
 	lowMem  bool   // zstd's history at its window
+	dense   bool   // zstd at its default level, for a slow stream
 	quality int    // brotli's
 	heap    int64
 }
@@ -236,10 +246,14 @@ type tier struct {
 func (t tier) String() string {
 	switch t.coding {
 	case Zstd:
-		if t.lowMem {
-			return fmt.Sprintf("zstd 2^%d low memory", t.window)
+		name := "zstd"
+		if t.dense {
+			name = "zstd default"
 		}
-		return fmt.Sprintf("zstd 2^%d", t.window)
+		if t.lowMem {
+			return fmt.Sprintf("%s 2^%d low memory", name, t.window)
+		}
+		return fmt.Sprintf("%s 2^%d", name, t.window)
 	case Brotli:
 		return fmt.Sprintf("br q%d 2^%d", t.quality, t.window)
 	}
@@ -296,11 +310,38 @@ var (
 			{coding: Brotli, quality: 4, window: 16, heap: 1232 * kib},
 		},
 	}
+	// zstdDense are zstd's tiers at its default level, which a slow stream
+	// takes while they fit: about 1.1 MiB more than at the fastest level,
+	// for the encoder's second hash table (bench/budget/slow.csv).
+	zstdDense = map[tier]int64{
+		{coding: Zstd, window: 20}:               3904 * kib,
+		{coding: Zstd, window: 19}:               2880 * kib,
+		{coding: Zstd, window: 20, lowMem: true}: 2816 * kib,
+		{coding: Zstd, window: 19, lowMem: true}: 2304 * kib,
+		{coding: Zstd, window: 18, lowMem: true}: 2048 * kib,
+		{coding: Zstd, window: 17, lowMem: true}: 1920 * kib,
+		{coding: Zstd, window: 16, lowMem: true}: 1712 * kib,
+		{coding: Zstd, window: 15, lowMem: true}: 1616 * kib,
+	}
 	gzipTier = tier{coding: Gzip, window: 15, heap: 848 * kib}
 	// brotliFloor is what Open reserves for a brotli stream until its
 	// first write: the least it holds, whatever its frames.
 	brotliFloor = brotliTiers[3][4]
 )
+
+// denser is the zstd tier t at zstd's default level, when o asks for it
+// (Options.Slow) and it fits in room bytes, else t.
+func denser(t tier, o Options, room int64) tier {
+	if !o.Slow || t.coding != Zstd || t.dense {
+		return t
+	}
+	d := t
+	d.dense, d.heap = true, zstdDense[tier{coding: Zstd, window: t.window, lowMem: t.lowMem}]
+	if d.heap == 0 || d.heap > room {
+		return t
+	}
+	return d
+}
 
 // menu lists the tiers a stream of the coding may get when its largest
 // write is n bytes: those whose window holds it, best first, and the last
@@ -424,12 +465,13 @@ func (b *Budget) pickZstd(o Options, n int, own tier) (tier, bool) {
 		if len(fit) == 0 {
 			return tier{}, false
 		}
-		return fit[0], true
+		return denser(fit[0], o, math.MaxInt64), true
 	}
 	left := b.limit - b.reserved + own.heap
+	room := min(left, b.share(b.nopen, b.users))
 	for _, t := range fit {
-		if t.heap <= min(left, b.share(b.nopen, b.users)) {
-			return t, true
+		if t.heap <= room {
+			return denser(t, o, room), true
 		}
 	}
 	if len(fit) > 0 && fit[len(fit)-1].heap <= left {
@@ -455,7 +497,11 @@ func (b *Budget) pickZstd(o Options, n int, own tier) (tier, bool) {
 func (b *Budget) pickBrotli(o Options, n int, own tier) tier {
 	fit, last := b.menu(Brotli, o, n)
 	used := b.reserved - own.heap
-	if len(fit) > 0 && used+fit[0].heap <= b.limit/2 {
+	best := b.limit / 2
+	if o.Slow {
+		best = b.limit
+	}
+	if len(fit) > 0 && used+fit[0].heap <= best {
 		return fit[0]
 	}
 	for _, t := range slices.Backward(fit) {
@@ -510,7 +556,7 @@ func (b *Budget) open(coding string, o Options, seen *int64) (t tier, user, pick
 		}
 		switch {
 		case b.limit == 0 && len(fit) > 0:
-			t = fit[0]
+			t = denser(fit[0], o, math.MaxInt64)
 		case need.coding == "" || b.limit > 0 && need.heap > b.limit-b.reserved-streamHeap:
 			b.starved.Add(1)
 			if b.refuse {
@@ -603,7 +649,7 @@ func (b *Budget) shrink(t tier, o Options, n int, seen *int64) (tier, bool) {
 		nt = tier{}
 		for _, c := range fit {
 			if c.heap <= share {
-				nt = c
+				nt = denser(c, o, share)
 				break
 			}
 		}

@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
+
 	"github.com/zweiundeins/lith/sse"
 )
 
@@ -23,15 +25,20 @@ type setting struct {
 	window int    // base 2 logarithm
 	lowMem bool   // zstd's history at its window
 	q      int    // brotli's quality
+	dense  bool   // zstd at its default level instead of its fastest
 }
 
 func (s setting) String() string {
 	switch s.coding {
 	case sse.Zstd:
-		if s.lowMem {
-			return fmt.Sprintf("zstd 2^%d low memory", s.window)
+		name := "zstd"
+		if s.dense {
+			name = "zstd default"
 		}
-		return fmt.Sprintf("zstd 2^%d", s.window)
+		if s.lowMem {
+			return fmt.Sprintf("%s 2^%d low memory", name, s.window)
+		}
+		return fmt.Sprintf("%s 2^%d", name, s.window)
 	case sse.Brotli:
 		return fmt.Sprintf("brotli q%d 2^%d", s.q, s.window)
 	case sse.Gzip:
@@ -43,7 +50,11 @@ func (s setting) String() string {
 func (s setting) options() sse.Options {
 	switch s.coding {
 	case sse.Zstd:
-		return sse.Options{ZstdWindow: s.window, ZstdLowMemory: s.lowMem}
+		o := sse.Options{ZstdWindow: s.window, ZstdLowMemory: s.lowMem}
+		if s.dense {
+			o.ZstdLevel = zstd.SpeedDefault
+		}
+		return o
 	case sse.Brotli:
 		return sse.Options{BrotliWindow: s.window, BrotliQuality: s.q}
 	case sse.Gzip:

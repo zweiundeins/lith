@@ -64,7 +64,7 @@ func (s *Stream) wake() (bool, error) {
 		}
 		s.tier, s.freed = t, b.freed.Load()
 		s.low = b.short(t, Zstd, s.opt, s.frame)
-		s.zstd.window, s.zstd.lowMem = t.window, t.lowMem
+		s.zstd = s.keyFor(t)
 	}
 	e, err := s.zstd.encoder(&s.buf)
 	if err != nil {
@@ -111,7 +111,7 @@ func (s *Stream) shrink() error {
 		s.asleep = true
 		return nil
 	}
-	s.zstd.window, s.zstd.lowMem = t.window, t.lowMem
+	s.zstd = s.keyFor(t)
 	e, err := s.zstd.encoder(&s.buf)
 	if err != nil {
 		return err
@@ -126,6 +126,16 @@ type zstdKey struct {
 	level  zstd.EncoderLevel
 	window int // base 2 logarithm
 	lowMem bool
+}
+
+// keyFor is the settings of the encoder of a zstd stream that holds t: the
+// stream's level, raised to the default one for a dense tier.
+func (s *Stream) keyFor(t tier) zstdKey {
+	k := zstdKey{level: s.opt.ZstdLevel, window: t.window, lowMem: t.lowMem}
+	if t.dense {
+		k.level = max(k.level, zstd.SpeedDefault)
+	}
+	return k
 }
 
 // zstdPools hold the encoders of streams that hibernated or closed, by
