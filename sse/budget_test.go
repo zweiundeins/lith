@@ -430,6 +430,7 @@ func TestBudgetUpgrade(t *testing.T) {
 		}
 	}
 	// Room for one better tier: the first is asked, at once.
+	first := time.Now()
 	b.Hold(-600 * kib)
 	if !asked(below[0]) || asked(below[1]) || asked(below[2]) || asked(id) {
 		t.Fatal("after 600 KiB freed up, the first stream is not the one asked")
@@ -444,9 +445,10 @@ func TestBudgetUpgrade(t *testing.T) {
 		t.Fatal("a stream asked to open again is listed again")
 	}
 	below[0].Close()
-	// Room for all: one more every reopenEvery.
+	// Room for all: one more every reopenEvery, so none while it has not
+	// passed since the first was asked (a slow write above may take longer).
 	b.Hold(-fill + 600*kib)
-	if asked(below[1]) {
+	if time.Since(first) < every && asked(below[1]) {
 		t.Fatal("a second stream asked within reopenEvery")
 	}
 	var at []time.Time
