@@ -289,9 +289,10 @@ func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 
 // stream serves the tab's stream of views until the tab leaves or the
 // server stops; then its last event re-creates the page's stream element,
-// which opens it again on the next process.
+// which opens it again on the next process. A tab on a slow link gets its
+// views' frames about four times a second.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, v demo.Viewer, vs []live.View) {
-	err := s.hub.Serve(w, r, live.Spec{ID: v.Tab, Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter()})
+	err := s.hub.Serve(w, r, live.Spec{ID: v.Tab, Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r)})
 	if err != nil && !errors.Is(err, live.ErrFull) && !errors.Is(err, live.ErrStopped) && !errors.Is(err, sse.ErrNoRoom) {
 		s.log.Debug("stream ended", "tab", v.Tab, "err", err)
 	}
@@ -421,6 +422,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, sh vie
 func (s *Server) send(w http.ResponseWriter, code int, sh views.Shell, body []byte) {
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Accept-CH", edge.NetworkHints) // for the streams: edge.SlowLink
 	h.Add("Vary", "Cookie")
 	if sh.Tab != "" {
 		h.Set("Cache-Control", "no-store") // the tab id is this document's alone

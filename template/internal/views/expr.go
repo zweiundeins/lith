@@ -10,14 +10,21 @@ import (
 
 // signals are the page's, all local (_): an action sends only its payload.
 func signals(tab string) string {
-	return fmt.Sprintf(`{_tab: %q, _name: '', _message: '', _op: '', _ack: '', _accepted: false, _problem: ''}`, tab)
+	return fmt.Sprintf(`{_tab: %q, _slow: %s, _name: '', _message: '', _op: '', _ack: '', _accepted: false, _problem: ''}`, tab, slowLink)
 }
 
-// openStream opens the tab's stream on the element with id "stream".
-// retry 'error' retries through network errors, 502s and 503s and never
-// gives up, but leaves a stream the server ends closed: on a deploy the
-// server ends it with sse.Reconnect, which runs this again.
-const openStream = `@get('/stream?tab=' + $_tab, {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
+// slowLink is true on a slow link, measured once as the page starts. Where
+// the browser has navigator.connection (Chromium): data saving, or a link
+// it calls 2g or 3g. Elsewhere, from Navigation Timing: the document's
+// first byte more than 300 ms after its request, or under 100 KB/s.
+const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(c.effectiveType) : !!n && n.transferSize > 0 && (n.responseStart - n.requestStart > 300 || n.transferSize < 100 * (n.responseEnd - n.responseStart)))(navigator.connection, performance.getEntriesByType('navigation')[0])`
+
+// openStream opens the tab's stream on the element with id "stream", with
+// net=slow on a slow link (edge.SlowLink). retry 'error' retries through
+// network errors, 502s and 503s and never gives up, but leaves a stream
+// the server ends closed: on a deploy the server ends it with
+// sse.Reconnect, which runs this again.
+const openStream = `@get('/stream?tab=' + $_tab + ($_slow ? '&net=slow' : ''), {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
 
 // sign sends the form with a new op id unless one is pending. The tab's
 // stream brings the op's outcome back as $_ack.

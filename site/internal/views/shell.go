@@ -94,17 +94,25 @@ func colorScheme(theme string) string {
 // Its data-indicator keeps $_live true while the stream is open.
 const StreamID = "stream"
 
-// openStream opens the tab's stream. retry 'error' keeps trying through a
-// restart's 502s and 503s and never gives up; a stream the server ends
-// stays closed, except through sse.Reconnect.
+// openStream opens the tab's stream, with net=slow on a slow link
+// (edge.SlowLink). retry 'error' keeps trying through a restart's 502s and
+// 503s and never gives up; a stream the server ends stays closed, except
+// through sse.Reconnect.
 func openStream(url string) string {
-	return "@get(" + jsString(url+"?tab=") + " + $_tab, {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})"
+	return "@get(" + jsString(url+"?tab=") + " + $_tab + ($_slow ? '&net=slow' : ''), {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})"
 }
 
+// slowLink is true on a slow link, measured once as the page starts. Where
+// the browser has navigator.connection (Chromium): data saving, or a link
+// it calls 2g or 3g. Elsewhere, from Navigation Timing: the document's
+// first byte more than 300 ms after its request, or under 100 KB/s.
+const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(c.effectiveType) : !!n && n.transferSize > 0 && (n.responseStart - n.requestStart > 300 || n.transferSize < 100 * (n.responseEnd - n.responseStart)))(navigator.connection, performance.getEntriesByType('navigation')[0])`
+
 // pageSignals are the signals every streaming page starts with: the tab
-// id, local to the browser (_), and sent along by the actions that need it.
+// id, local to the browser (_), and sent along by the actions that need
+// it, and whether the link is slow.
 func pageSignals(tab string) string {
-	return "{_tab: " + jsString(tab) + "}"
+	return "{_tab: " + jsString(tab) + ", _slow: " + slowLink + "}"
 }
 
 func jsString(s string) string {

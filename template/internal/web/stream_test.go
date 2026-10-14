@@ -60,6 +60,28 @@ func TestSignOnTheStream(t *testing.T) {
 	next(t, events, `"_ack":"op2","_accepted":false`)
 }
 
+// TestSlowLink checks the page's part of a slow link: it asks for
+// Chromium's network hints and opens its stream with net=slow when it
+// measured a slow link; such a stream brings the same views.
+func TestSlowLink(t *testing.T) {
+	base := start(t)
+	res, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if got := res.Header.Get("Accept-CH"); got != edge.NetworkHints {
+		t.Errorf("Accept-CH: %q", got)
+	}
+	if !strings.Contains(string(page), "_slow: ((c, n) =&gt;") || !strings.Contains(string(page), "$_slow ? &#39;&amp;net=slow&#39;") {
+		t.Errorf("the page does not measure its link:\n%s", page)
+	}
+	events := listen(t, http.DefaultClient, base+"/stream?tab=tab1&net=slow")
+	next(t, events, `<section id="entries"`)
+	next(t, events, `"_ack":""`)
+}
+
 // start serves the routes behind the part of the edge an action needs: a
 // session, and the CSRF check.
 func start(t *testing.T) string {

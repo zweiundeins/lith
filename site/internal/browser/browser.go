@@ -225,6 +225,7 @@ type Page struct {
 	errs   []string
 	logs   []string
 	loaded chan struct{}
+	on     map[string][]func(json.RawMessage) // OnEvent's handlers by method
 }
 
 // NewPage opens a tab of width×height CSS pixels, in a browser context of
@@ -272,7 +273,26 @@ func (p *Page) Call(t testing.TB, method string, params any) json.RawMessage {
 	return res
 }
 
+// OnEvent calls f with the params of each of the page's events named
+// method, such as "Network.dataReceived" once the test has called
+// Network.enable. f runs on the goroutine that reads from Chromium: it
+// must return quickly and must not call the page.
+func (p *Page) OnEvent(method string, f func(params json.RawMessage)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.on == nil {
+		p.on = map[string][]func(json.RawMessage){}
+	}
+	p.on[method] = append(p.on[method], f)
+}
+
 func (p *Page) event(method string, params json.RawMessage) {
+	p.mu.Lock()
+	on := p.on[method]
+	p.mu.Unlock()
+	for _, f := range on {
+		f(params)
+	}
 	switch method {
 	case "Page.loadEventFired":
 		select {

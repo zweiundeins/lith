@@ -87,11 +87,14 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Cache-Control", "no-store") // the tab id is this document's alone
+	h.Set("Cache-Control", "no-store")    // the tab id is this document's alone
+	h.Set("Accept-CH", edge.NetworkHints) // Chromium's hints for edge.SlowLink
 	w.Write(buf.Bytes())
 }
 
 // stream sends the tab its views: the shared entries, then its own state.
+// A tab on a slow link gets each view's frames about four times a second,
+// and a denser encoder while the budget has room.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
@@ -99,7 +102,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := edge.SessionID(r.Context())
-	if err := s.hub.Serve(w, r, live.Spec{ID: tab, Views: []live.View{entriesView(), tabView(sid, tab)}, Reconnect: "stream"}); err != nil {
+	spec := live.Spec{ID: tab, Views: []live.View{entriesView(), tabView(sid, tab)}, Reconnect: "stream", Slow: edge.SlowLink(r)}
+	if err := s.hub.Serve(w, r, spec); err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)
 	}
 }
