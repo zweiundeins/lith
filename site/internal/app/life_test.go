@@ -113,7 +113,7 @@ func TestLife(t *testing.T) {
 
 	ada.Eval(t, `document.querySelector('.life__swatch.e').click()`, nil)
 	ada.Wait(t, `document.querySelector('.life__swatch.e').getAttribute('aria-pressed') === 'true'`, 5*time.Second)
-	const teal = `document.querySelectorAll('#life-board > .e').length`
+	const teal = `document.querySelectorAll('#life-board > div > .e').length`
 
 	ada.Eval(t, `document.querySelector('.life__tool:nth-child(2)').click()`, nil) // the glider
 	lifeClick(t, ada, 20, 15)
@@ -200,27 +200,26 @@ func TestLifePhone(t *testing.T) {
 }
 
 // TestLifePageCost measures what a tab of the demo costs the browser: the
-// CPU time of its main thread over 10 s of a fresh soup, with the page's
-// transitions and without them. It only reports.
+// CPU time of its main thread over 10 s of a fresh soup, in all and per
+// frame the page applied. It only reports. A number above 1 slows the CPU down that many times, like
+// DevTools' throttling.
 //
-//	LIFE_PAGE_COST=1 LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifePageCost -v
+//	LIFE_PAGE_COST=4 LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifePageCost -v
 func TestLifePageCost(t *testing.T) {
 	if os.Getenv("LIFE_PAGE_COST") == "" {
 		t.Skip("set LIFE_PAGE_COST=1 to measure")
 	}
+	rate, _ := strconv.ParseFloat(os.Getenv("LIFE_PAGE_COST"), 64)
 	a, base := apptest.Start(t)
 	b := browser.Start(t)
-	for _, v := range []struct{ name, css string }{
-		{"with the transitions", ""},
-		{"without them", "[data-demo=life] .life__board > p { transition: none !important }"},
-	} {
+	for range 2 {
 		p := b.NewPage(t, 1440, 900)
+		if rate > 1 {
+			p.Call(t, "Emulation.setCPUThrottlingRate", map[string]any{"rate": rate})
+		}
 		p.Navigate(t, base+"/demos/life")
 		p.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
 		p.Eval(t, lifeScrollToStage, nil)
-		if v.css != "" {
-			p.Eval(t, "(() => { const s = document.createElement('style'); s.textContent = "+fmt.Sprintf("%q", v.css)+"; document.head.append(s) })()", nil)
-		}
 		// A fresh soup: the board empty and quiet since long ago.
 		if err := a.Writer().Do(context.Background(), writer.Func(func(tx *writer.Tx) error {
 			_, err := tx.Exec(`UPDATE life_board SET cells = zeroblob(4000), quiet = 1`)
@@ -244,11 +243,16 @@ func TestLifePageCost(t *testing.T) {
 			}
 			return m
 		}
+		// The generation counter changes once for each frame applied.
+		p.Eval(t, `window.frames_ = 0; new MutationObserver(() => window.frames_++).observe(document.getElementById('life-stats'), {subtree: true, childList: true, characterData: true}); 0`, nil)
 		before := metrics()
 		time.Sleep(10 * time.Second)
 		after := metrics()
+		var frames float64
+		p.Eval(t, `window.frames_`, &frames)
 		d := func(k string) float64 { return after[k] - before[k] }
-		t.Logf("%s: main thread %.0f%% busy (script %.2f s, style %.2f s, layout %.2f s in 10 s)", v.name, d("ThreadTime")*10, d("ScriptDuration"), d("RecalcStyleDuration"), d("LayoutDuration"))
+		ms := func(k string) float64 { return d(k) / max(frames, 1) * 1000 }
+		t.Logf("main thread %.0f%% busy (script %.2f s, style %.2f s, layout %.2f s in 10 s); %.0f frames, each %.0f ms script, %.0f ms style, %.0f ms layout", d("ThreadTime")*10, d("ScriptDuration"), d("RecalcStyleDuration"), d("LayoutDuration"), frames, ms("ScriptDuration"), ms("RecalcStyleDuration"), ms("LayoutDuration"))
 		p.Close(t)
 	}
 }

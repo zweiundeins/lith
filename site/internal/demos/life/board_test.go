@@ -192,3 +192,18 @@ func BenchmarkNext(b *testing.B) {
 		cur, next = next, cur
 	}
 }
+
+// A cell that dies leaves its colour for two generations.
+func TestTrail(t *testing.T) {
+	cur, none := make([]byte, Cells), make([]byte, Cells)
+	cur[5] = 3
+	t1 := trail(nil, cur, none)
+	t2 := trail(t1, none, none)
+	t3 := trail(t2, none, none)
+	if t1[5] != 1<<4|3 || t2[5] != 2<<4|3 || t3[5] != 0 {
+		t.Errorf("the trail at the cell: %#x, %#x, %#x", t1[5], t2[5], t3[5])
+	}
+	if born := trail(t1, none, cur); born[5] != 0 {
+		t.Errorf("a cell born again keeps a trail: %#x", born[5])
+	}
+}

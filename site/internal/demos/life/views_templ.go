@@ -205,7 +205,7 @@ func Stage(b Board, here, colour int, now time.Time) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = boardCells(b.Cells).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = boardCells(b.Cells, b.Trail).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -748,7 +748,7 @@ func Frame(b Board, here int, now time.Time) templ.Component {
 			templ_7745c5c3_Var47 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = boardCells(b.Cells).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = boardCells(b.Cells, b.Trail).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

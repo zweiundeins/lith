@@ -110,39 +110,82 @@ func boardView() live.View {
 
 ## Cells of one length
 
-Every frame holds the whole board, and every cell in it is a `<p>` with a class of one letter. A `<p>` ends the one before it, so a cell needs no end tag, and all cells have the same length, 11 bytes. A frame then lines up byte for byte with the one before it, and zstd encodes little more than the cells that changed: 465 bytes a frame on a soup. With dead cells as a bare `<p>`, a frame is 15 KB instead of 45, but each birth and death shifts the rest of it, and the same frames take 784 bytes.
+Every frame holds the whole board, and every cell in it is a `<p>` with a class of one letter: its colour, or its trail's. A `<p>` ends the one before it, so a cell needs no end tag, and all cells have the same length, 11 bytes. A frame then lines up byte for byte with the one before it, and zstd encodes little more than the cells that changed: 465 bytes a frame on a soup. With dead cells as a bare `<p>`, a frame is 15 KB instead of 45, but each birth and death shifts the rest of it, and the same frames take 784 bytes.
 
 ```go title=render.go
-var cellTags = func() (t [len(cellClass)]string) {
-	for i := range t {
-		t[i] = "<p class=" + cellClass[i:i+1] + ">"
+var cellTags = func() (t [3][len(cellClass)]string) {
+	for age, class := range [...]string{cellClass, dyingClass, trailClass} {
+		for i := range class {
+			t[age][i] = "<p class=" + class[i:i+1] + ">"
+		}
 	}
 	return t
 }()
 ```
 
-## The board in CSS
+## Rows with ids
 
-The morph changes the class of each cell born or died, and CSS animates the change. A cell is a square of its colour painted in the middle of its box, a circle in the smooth style, sized with `background-size`. A cell that dies shrinks and cools into its dot in three steps, one each generation, which leaves a short trail behind whatever moves; a cell born grows in two.
+The board is 50 rows of 80 cells, and each row has an id. Datastar's morph pairs an element that has an id with the element of the same id, so a frame's morph walks 50 known rows instead of matching 4,000 cells against each other. The ids also give zstd the same bytes at the same places in every frame, which makes a frame about 30% smaller.
 
-```css title=life.css
-& > p {
-	color: var(--life-dot);
-	background: radial-gradient(circle closest-side, currentColor calc(92% + 60% * var(--lith-notch)), transparent calc(100% + 60% * var(--lith-notch))) 50% 50% / 24% 24% no-repeat;
-	transition:
-		color 300ms steps(3, start),
-		background-size 300ms steps(3, start);
-}
+```go title=render.go
+var rowTags = func() (t [H]string) {
+	for y := range t {
+		t[y] = `<div id="life-r` + strconv.Itoa(y) + `">`
+	}
+	return t
+}()
+```
 
-& > p:not(._) {
-	color: var(--c);
-	background-size: 86% 86%;
-	transition-duration: 100ms;
-	transition-timing-function: steps(2, start);
+CSS lays the rows out as one grid: a row is `display: contents`, so its cells are the grid's items.
+
+## The trail
+
+A cell that dies shrinks and cools into its dot over two generations, which leaves a short trail behind whatever moves. The server draws it: each step keeps, beside the cells, the colour of every cell that died one or two generations ago, and the frame gives such a cell a class of its own, its colour's capital a generation after it died and another letter the generation after. Every class is still one letter, so the cells keep their length.
+
+```go title=state.go
+func trail(old, cur, next []byte) []byte {
+	t := make([]byte, Cells)
+	for i, c := range next {
+		switch {
+		case c != 0:
+		case cur[i] != 0:
+			t[i] = 1<<4 | cur[i]
+		case len(old) == Cells && old[i]>>4 == 1:
+			t[i] = 2<<4 | old[i]&15
+		}
+	}
+	return t
 }
 ```
 
-A transform such as `scale` would give each of the 4,000 cells a paint layer of its own; a gradient sized with `background-size` needs none. A stepped transition changes a cell's look only at its steps, so the browser repaints it two or three times instead of every frame. In headless Chromium on an i5-13500, a tab on a fresh soup keeps its main thread 30 to 40% busy without the transitions and 65 to 85% with them (`TestLifePageCost`).
+## The board in CSS
+
+A cell is a square of its colour painted in the middle of its box, a circle in the smooth style, sized with `background-size`. A transform such as `scale` would give each of the 4,000 cells a paint layer of its own; a gradient needs none. Nothing on the board animates: each class has its size and its colour, and the trail's colours are mixed into the dot's.
+
+```css title=life.css
+& > div > :is(.a, .b, .c, .d, .e, .f, .g, .h, .w) {
+	color: var(--c);
+	background-size: 86% 86%;
+}
+
+& > div > :is(.A, .B, .C, .D, .E, .F, .G, .H, .W) {
+	color: color-mix(in oklab, var(--c) 67%, var(--life-dot));
+	background-size: 65% 65%;
+}
+```
+
+## What a frame costs the browser
+
+Every frame is the whole board, and the page morphs it into the one before. A trail drawn with CSS transitions (300 ms in three steps) costs the browser more than the morph itself: with Chromium's CPU slowed down four times, as DevTools throttles it to stand in for a slow phone, a tab then applies only 32 to 62 of the 100 frames sent in 10 seconds. With the trail rendered on the server it applies every one. In headless Chromium on an i5-13500, over 10 seconds of a fresh soup (`TestLifePageCost`):
+
+| | Frames applied (of 100) | Main thread | Per frame |
+| --- | --- | --- | --- |
+| Transitions, CPU as is | 100 | 65 to 85% busy | |
+| Transitions, CPU 4x slower | 32 to 62 | 100% busy | 120 to 240 ms |
+| Server trail, CPU as is | 100 | 36 to 40% busy | 14 to 16 ms script, 6 to 7 ms style |
+| Server trail, CPU 4x slower | 100 | 99 to 100% busy | 45 to 47 ms script, 19 to 20 ms style |
+
+The ids alone change little in the browser: without transitions, a frame costs the same with ids and without, and two or three ids a row cost the same as one, in a few more bytes. Datastar's `replace` mode for the board costs more than the morph: it builds 4,000 new elements each frame and lays them out again, 100 to 135 ms of script a frame at 4x. On the wire the trail spends about what the ids save, since it changes more cells each frame.
 
 On a narrow screen CSS stands the board on its side: the same 80 by 50 cells in 50 columns of 80, half again as large on a phone, and the pointer's maths swap the axes.
 

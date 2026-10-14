@@ -25,17 +25,18 @@ type Board struct {
 	RateSince  int64  // unix ms: the start of the second the rate counts
 	RateFrom   int64  // the generation then
 	Quiet      int64  // unix ms since the board is empty or repeats itself; 0 while it lives
+	Trail      []byte // what died a generation or two ago: age*16 + colour, or empty
 	Recent     []byte // hashes of the last four generations
 	History    string // the population once a second: a JSON array
 	Reset      int64  // unix ms of the last reset
 }
 
-const selectBoard = `SELECT cells, generation, stepped, rate, rate_since, rate_from, quiet, recent, history, reset FROM life_board WHERE id = 1`
+const selectBoard = `SELECT cells, trail, generation, stepped, rate, rate_since, rate_from, quiet, recent, history, reset FROM life_board WHERE id = 1`
 
 // load reads the board, in a command, a view or a GET.
 func load(ctx context.Context, q sqlite.Querier) (Board, error) {
 	var b Board
-	err := q.QueryRowContext(ctx, selectBoard).Scan(&b.Cells, &b.Generation, &b.Stepped, &b.Rate, &b.RateSince, &b.RateFrom, &b.Quiet, &b.Recent, &b.History, &b.Reset)
+	err := q.QueryRowContext(ctx, selectBoard).Scan(&b.Cells, &b.Trail, &b.Generation, &b.Stepped, &b.Rate, &b.RateSince, &b.RateFrom, &b.Quiet, &b.Recent, &b.History, &b.Reset)
 	if err == nil && len(b.Cells) != Cells {
 		err = errors.New("life: the board has the wrong size")
 	}
@@ -47,8 +48,11 @@ func (b *Board) save(tx *writer.Tx) error {
 	if b.Recent == nil {
 		b.Recent = []byte{} // nil would be NULL
 	}
-	_, err := tx.Exec(`UPDATE life_board SET cells = ?, generation = ?, stepped = ?, rate = ?, rate_since = ?, rate_from = ?, quiet = ?, recent = ?, history = ?, reset = ? WHERE id = 1`,
-		b.Cells, b.Generation, b.Stepped, b.Rate, b.RateSince, b.RateFrom, b.Quiet, b.Recent, b.History, b.Reset)
+	if b.Trail == nil {
+		b.Trail = []byte{}
+	}
+	_, err := tx.Exec(`UPDATE life_board SET cells = ?, trail = ?, generation = ?, stepped = ?, rate = ?, rate_since = ?, rate_from = ?, quiet = ?, recent = ?, history = ?, reset = ? WHERE id = 1`,
+		b.Cells, b.Trail, b.Generation, b.Stepped, b.Rate, b.RateSince, b.RateFrom, b.Quiet, b.Recent, b.History, b.Reset)
 	if err != nil {
 		return err
 	}
@@ -62,6 +66,7 @@ func (b *Board) save(tx *writer.Tx) error {
 func (b *Board) step(now int64) {
 	next := make([]byte, Cells)
 	population := Next(next, b.Cells, b.Generation)
+	b.Trail = trail(b.Trail, b.Cells, next)
 	b.Cells = next
 	b.Generation++
 	h := Hash(next)
@@ -90,6 +95,22 @@ func (b *Board) step(now int64) {
 		b.sample(population)
 	}
 	b.Stepped = now
+}
+
+// trail ages the trail by a generation from cur to next: a cell that dies
+// leaves its colour for two generations, as the page draws it shrinking.
+func trail(old, cur, next []byte) []byte {
+	t := make([]byte, Cells)
+	for i, c := range next {
+		switch {
+		case c != 0:
+		case cur[i] != 0:
+			t[i] = 1<<4 | cur[i]
+		case len(old) == Cells && old[i]>>4 == 1:
+			t[i] = 2<<4 | old[i]&15
+		}
+	}
+	return t
 }
 
 // sample adds the population to the history, which keeps the last
@@ -125,7 +146,7 @@ func (b *Board) quietFor() time.Duration {
 
 // reseed puts a new soup on the board at now, from a source seeded by now.
 func (b *Board) reseed(now int64) {
-	b.Cells = make([]byte, Cells)
+	b.Cells, b.Trail = make([]byte, Cells), nil
 	Soup(b.Cells, rand.New(rand.NewPCG(uint64(now), 0x11fe)))
 	b.restart()
 	b.Quiet, b.Recent = 0, nil

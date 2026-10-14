@@ -27,7 +27,7 @@ templ Stage(b Board, here, colour int, now time.Time) {
 			data-on:keydown={ key }
 			data-on:blur="$_life.drawing || ($_life.x = -1)"
 		>
-			@boardCells(b.Cells)
+			@boardCells(b.Cells, b.Trail)
 			<svg class="life__marks" viewBox="0 0 80 50" preserveAspectRatio="none" aria-hidden="true" data-class:is-clearing="!$_life.alive">
 				<path data-attr:d="$_life.pend + $_life.draft"></path>
 			</svg>
@@ -110,7 +110,7 @@ templ outline(class, show, name, style string) {
 // it, the same for every tab. The board comes first: whatever the counters
 // do, it then starts at the same byte in every frame.
 templ Frame(b Board, here int, now time.Time) {
-	@boardCells(b.Cells)
+	@boardCells(b.Cells, b.Trail)
 	@Stats(b, here)
 	@Share(b.Cells)
 	@Status(b, now)

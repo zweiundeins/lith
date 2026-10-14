@@ -166,7 +166,7 @@ func (c Reset) Apply(tx *writer.Tx) error {
 	case since < ResetEvery:
 		state.Refusal = fmt.Sprintf("Someone reset the board %s. Try again in %s.", ago(since), seconds(ResetEvery-since))
 	default:
-		b.Cells = make([]byte, Cells)
+		b.Cells, b.Trail = make([]byte, Cells), nil
 		b.restart()
 		b.Reset = now
 		b.changed(now)

@@ -64,7 +64,7 @@ var begin = `$_life.tool === 'draw' && evt.isPrimary && evt.button === 0 && (` +
 	point,
 	`el.setPointerCapture(evt.pointerId)`,
 	`$_life.drawing = true`,
-	`$_life.alive = document.getElementById('life-board').children[`+cell+`].className === '_'`,
+	`$_life.alive = !/^[a-hw]$/.test(document.getElementById('life-r' + $_life.y).children[$_life.x].className)`,
 	`$_life.last = -1`,
 	`$_life.stroke = String(`+cell+`)`,
 	`$_life.draft = `+square,
@@ -100,7 +100,7 @@ var click = `$_life.tool !== 'draw' && (` + expr(point, drop) + `)`
 var toggle = `(` + expr(
 	`$_life.problem = ''`,
 	newOp,
-	`$_life.alive = document.getElementById('life-board').children[`+cell+`].className === '_'`,
+	`$_life.alive = !/^[a-hw]$/.test(document.getElementById('life-r' + $_life.y).children[$_life.x].className)`,
 	`$_life.pend += `+square,
 	`@post('/cmd/life/draw', {payload: {tab: $_tab, op: $_life.op, cells: [`+cell+`], alive: $_life.alive}, requestCancellation: 'disabled'})`,
 ) + `)`
