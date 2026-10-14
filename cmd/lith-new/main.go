@@ -203,10 +203,11 @@ func (p *project) write(tmpl fs.FS) error {
 
 // rewriter returns a function that replaces, in one pass, the template's
 // module path and its app's name, app, with the project's: in file names,
-// in text, and as the prefix APP_ of environment variables.
+// in text, as the prefix APP_ of environment variables, and as the prefix
+// app_ of identifiers, such as Alloy's component labels, with - as _.
 func (p *project) rewriter() func(string) string {
-	re := regexp.MustCompile(regexp.QuoteMeta(templateModule) + `|\b` + templateName + `\b|\b` + strings.ToUpper(templateName) + `_`)
-	env := strings.ToUpper(strings.ReplaceAll(p.name, "-", "_")) + "_"
+	re := regexp.MustCompile(regexp.QuoteMeta(templateModule) + `|\b` + templateName + `\b|\b` + templateName + `_|\b` + strings.ToUpper(templateName) + `_`)
+	ident := strings.ReplaceAll(p.name, "-", "_") + "_"
 	return func(s string) string {
 		return re.ReplaceAllStringFunc(s, func(m string) string {
 			switch m {
@@ -214,8 +215,12 @@ func (p *project) rewriter() func(string) string {
 				return p.module
 			case templateName:
 				return p.name
+			case templateName + "_":
+				return ident
+			case strings.ToUpper(templateName) + "_":
+				return strings.ToUpper(ident)
 			}
-			return env
+			return m
 		})
 	}
 }

@@ -77,6 +77,15 @@ func TestWrite(t *testing.T) {
 	}
 }
 
+func TestRewriter(t *testing.T) {
+	p := &project{module: "example.com/acme/visitor-log", name: "visitor-log"}
+	got := p.rewriter()("app app_journal APP_DB application mapp_x github.com/zweiundeins/lith/template/internal")
+	want := "visitor-log visitor_log_journal VISITOR_LOG_DB application mapp_x example.com/acme/visitor-log/internal"
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
 // TestPublishable keeps every template file in lith's module zip, which
 // leaves out the files in subdirectories of vendor directories.
 func TestPublishable(t *testing.T) {
