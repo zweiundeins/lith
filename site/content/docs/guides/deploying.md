@@ -142,4 +142,4 @@ The server's base context must not be the signal's context: request contexts wou
 
 ## This site's deploy
 
-`site/deploy` is a second, complete example: the unit listens on a loopback port instead of a socket, its metrics listen at that port plus 100 for Prometheus only, and the unit may connect nowhere and bind those two ports alone. Its README installs it, and `site/deploy/observability` holds the probes, the dashboard and the alerts of [Metrics and monitoring](/docs/guides/monitoring).
+`site/deploy` is a second, complete example: the unit listens on a loopback port instead of a socket, its metrics listen at that port plus 100 for Prometheus only, and the unit may connect nowhere and bind those two ports alone. Its README installs it, and `site/deploy/observability` holds its probes and log shipping, beside the dashboard and the alerts in lith's `deploy/observability` ([Metrics and monitoring](/docs/guides/monitoring)).

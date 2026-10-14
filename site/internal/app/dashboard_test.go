@@ -12,8 +12,9 @@ import (
 )
 
 // TestDashboard checks that every metric the Grafana dashboard and the
-// alert rules in deploy/observability read is one the site exports, under
-// its namespace: a renamed metric must not leave a panel empty.
+// alert rules in lith's deploy/observability read is one the site exports,
+// under its namespace: a renamed metric must not leave a panel empty. They
+// serve every lith app, so they name none.
 func TestDashboard(t *testing.T) {
 	a, base := apptest.Start(t)
 	c := client(t)
@@ -35,10 +36,15 @@ func TestDashboard(t *testing.T) {
 		}
 	}
 	wanted := map[string]string{}
-	for _, file := range []string{"../../deploy/observability/grafana/lith-apps.json", "../../deploy/observability/grafana/alerting/rules-lith-apps.yaml"} {
+	for _, file := range []string{"../../../deploy/observability/lith-apps.json", "../../../deploy/observability/rules-lith-apps.yaml"} {
 		b, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
+		}
+		for _, name := range []string{"lith_site", "lith-site", "job="} {
+			if strings.Contains(string(b), name) {
+				t.Errorf("%s holds %q, but serves every lith app on any scrape job", file, name)
+			}
 		}
 		for _, re := range []*regexp.Regexp{namespaced, anyNamespace} {
 			for _, m := range re.FindAllStringSubmatch(string(b), -1) {
@@ -46,9 +52,7 @@ func TestDashboard(t *testing.T) {
 			}
 		}
 		for _, m := range runtime.FindAllString(string(b), -1) {
-			if m != "go_runtime" { // the scrape job's name
-				wanted[m] = file
-			}
+			wanted[m] = file
 		}
 	}
 	if len(wanted) < 20 {

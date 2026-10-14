@@ -1,7 +1,7 @@
 {
   "title": "lith apps",
   "uid": "lith-apps",
-  "description": "Any app on lith (github.com/zweiundeins/lith) whose metrics Prometheus scrapes: the HTTP requests by route, the live hub's ticks, renders and frames, the writer, the streams' memory budget, the statements, the process. Pick the app's metric namespace (lith_site for lith's website), then the job and the app. The HTTP panels need the app to export <ns>_http_requests_total{route,code} and <ns>_http_request_duration_seconds{route}, as lith-site's internal/metrics does; the rest comes from lith/prom and lith/dbmetrics/prom.",
+  "description": "Any app on lith (github.com/zweiundeins/lith) whose metrics Prometheus scrapes: the HTTP requests by route, the live hub's ticks, renders and frames, the writer, the streams' memory budget, the statements, the process. Pick the app's metric namespace (the one it gives lith/prom), then the app and the slot, the labels of its scrape target. The HTTP panels need the app to export <ns>_http_requests_total{route,code} and <ns>_http_request_duration_seconds{route}, as site/internal/metrics in lith's repository does; the rest comes from lith/prom and lith/dbmetrics/prom.",
   "tags": [
     "lith",
     "go"
@@ -31,27 +31,7 @@
         "refresh": 2,
         "includeAll": false,
         "multi": false,
-        "current": {
-          "text": "lith_site",
-          "value": "lith_site"
-        }
-      },
-      {
-        "name": "job",
-        "type": "query",
-        "label": "Job",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus-ds"
-        },
-        "query": "label_values({__name__=\"${ns}_writer_commands_total\"}, job)",
-        "refresh": 2,
-        "includeAll": true,
-        "multi": true,
-        "current": {
-          "text": "All",
-          "value": "$__all"
-        }
+        "current": {}
       },
       {
         "name": "app",
@@ -61,10 +41,28 @@
           "type": "prometheus",
           "uid": "prometheus-ds"
         },
-        "query": "label_values({__name__=\"${ns}_writer_commands_total\", job=~\"$job\"}, app)",
+        "query": "label_values({__name__=\"${ns}_writer_commands_total\"}, app)",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "slot",
+        "type": "query",
+        "label": "Slot",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-ds"
+        },
+        "query": "label_values({__name__=\"${ns}_writer_commands_total\", app=~\"$app\"}, slot)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
         "current": {
           "text": "All",
           "value": "$__all"
@@ -105,7 +103,7 @@
     {
       "id": 2,
       "title": "Requests by route",
-      "description": "Requests a second by route, the ServeMux pattern that matched (\"GET /demos/{slug}\"), never the raw path. \"edge\" counts what the edge answered before the mux (a refused cross-site action), \"/\" the catch-all (404s). Event streams count once, when they end.",
+      "description": "Requests a second by route, the ServeMux pattern that matched (\"GET /items/{id}\"), never the raw path. Event streams count once, when they end.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -141,7 +139,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app, route) (rate({__name__=\"${ns}_http_requests_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app, route) (rate({__name__=\"${ns}_http_requests_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} {{route}}",
           "datasource": {
             "type": "prometheus",
@@ -189,7 +187,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app, route, code) (rate({__name__=\"${ns}_http_requests_total\", job=~\"$job\", app=~\"$app\", code=~\"5..\"}[$__rate_interval]))",
+          "expr": "sum by (app, route, code) (rate({__name__=\"${ns}_http_requests_total\", app=~\"$app\", slot=~\"$slot\", code=~\"5..\"}[$__rate_interval]))",
           "legendFormat": "{{app}} {{route}} {{code}}",
           "datasource": {
             "type": "prometheus",
@@ -237,7 +235,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (app, route, le) (rate({__name__=\"${ns}_http_request_duration_seconds_bucket\", job=~\"$job\", app=~\"$app\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (app, route, le) (rate({__name__=\"${ns}_http_request_duration_seconds_bucket\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval])))",
           "legendFormat": "{{app}} {{route}}",
           "datasource": {
             "type": "prometheus",
@@ -298,7 +296,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) ({__name__=\"${ns}_live_streams\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app) ({__name__=\"${ns}_live_streams\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}} streams",
           "datasource": {
             "type": "prometheus",
@@ -307,7 +305,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum by (app) ({__name__=\"${ns}_http_requests_in_flight\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app) ({__name__=\"${ns}_http_requests_in_flight\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}} requests in flight",
           "datasource": {
             "type": "prometheus",
@@ -355,7 +353,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_live_ticks_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_ticks_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} ticks",
           "datasource": {
             "type": "prometheus",
@@ -364,7 +362,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_live_tick_overruns_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_tick_overruns_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} overruns",
           "datasource": {
             "type": "prometheus",
@@ -412,7 +410,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_live_renders_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval])) / sum by (app) (rate({__name__=\"${ns}_live_ticks_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_renders_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval])) / sum by (app) (rate({__name__=\"${ns}_live_ticks_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -460,7 +458,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_live_frames_sent_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_frames_sent_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} sent",
           "datasource": {
             "type": "prometheus",
@@ -469,7 +467,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_live_frames_dropped_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_frames_dropped_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} dropped",
           "datasource": {
             "type": "prometheus",
@@ -517,7 +515,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) ({__name__=\"${ns}_live_views\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app) ({__name__=\"${ns}_live_views\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}} views",
           "datasource": {
             "type": "prometheus",
@@ -526,7 +524,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_live_read_txs_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_read_txs_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} read transactions/s",
           "datasource": {
             "type": "prometheus",
@@ -587,7 +585,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_commands_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_commands_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -635,7 +633,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_commands_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval])) / sum by (app) (rate({__name__=\"${ns}_writer_batches_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_commands_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval])) / sum by (app) (rate({__name__=\"${ns}_writer_batches_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} average",
           "datasource": {
             "type": "prometheus",
@@ -644,7 +642,7 @@
         },
         {
           "refId": "B",
-          "expr": "max by (app) ({__name__=\"${ns}_writer_batch_max\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "max by (app) ({__name__=\"${ns}_writer_batch_max\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}} most",
           "datasource": {
             "type": "prometheus",
@@ -692,7 +690,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (app) ({__name__=\"${ns}_writer_commit_p99_seconds\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "max by (app) ({__name__=\"${ns}_writer_commit_p99_seconds\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -740,7 +738,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_command_failures_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_command_failures_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -788,7 +786,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (app) ({__name__=\"${ns}_writer_queue\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "max by (app) ({__name__=\"${ns}_writer_queue\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -836,7 +834,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_busy_seconds_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_busy_seconds_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -897,7 +895,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) ({__name__=\"${ns}_sse_budget_reserved_bytes\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app) ({__name__=\"${ns}_sse_budget_reserved_bytes\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}} reserved",
           "datasource": {
             "type": "prometheus",
@@ -906,7 +904,7 @@
         },
         {
           "refId": "B",
-          "expr": "max by (app) ({__name__=\"${ns}_sse_budget_limit_bytes\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "max by (app) ({__name__=\"${ns}_sse_budget_limit_bytes\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}} limit",
           "datasource": {
             "type": "prometheus",
@@ -961,7 +959,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app, setting) ({__name__=\"${ns}_sse_budget_streams\", job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app, setting) ({__name__=\"${ns}_sse_budget_streams\", app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}} {{setting}}",
           "datasource": {
             "type": "prometheus",
@@ -1009,7 +1007,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_sse_budget_refused_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_sse_budget_refused_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -1070,7 +1068,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (app, op, le) (rate({__name__=\"${ns}_db_query_duration_seconds_bucket\", job=~\"$job\", app=~\"$app\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (app, op, le) (rate({__name__=\"${ns}_db_query_duration_seconds_bucket\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval])))",
           "legendFormat": "{{app}} {{op}}",
           "datasource": {
             "type": "prometheus",
@@ -1118,7 +1116,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app, op) (rate({__name__=\"${ns}_db_query_duration_seconds_count\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app, op) (rate({__name__=\"${ns}_db_query_duration_seconds_count\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} {{op}}",
           "datasource": {
             "type": "prometheus",
@@ -1127,7 +1125,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum by (app, op) (rate({__name__=\"${ns}_db_slow_queries_total\", job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app, op) (rate({__name__=\"${ns}_db_slow_queries_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} slow {{op}}",
           "datasource": {
             "type": "prometheus",
@@ -1188,7 +1186,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (go_memstats_heap_inuse_bytes{job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app) (go_memstats_heap_inuse_bytes{app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -1236,7 +1234,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (process_resident_memory_bytes{job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app) (process_resident_memory_bytes{app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -1284,7 +1282,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (go_goroutines{job=~\"$job\", app=~\"$app\"})",
+          "expr": "sum by (app) (go_goroutines{app=~\"$app\", slot=~\"$slot\"})",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",
@@ -1332,7 +1330,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate(process_cpu_seconds_total{job=~\"$job\", app=~\"$app\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate(process_cpu_seconds_total{app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}}",
           "datasource": {
             "type": "prometheus",

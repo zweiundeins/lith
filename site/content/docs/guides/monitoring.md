@@ -7,7 +7,7 @@ description: The writer's, the hub's and the budget's numbers in Prometheus, sta
 order: 10
 ---
 
-A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()` count what the writer, the hub and the streams' encoders do, from the start of the process. `lith/prom` exports them to Prometheus, `dbmetrics` times every statement, and this site's `deploy/observability` has a dashboard and alert rules that read them for any lith app.
+A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()` count what the writer, the hub and the streams' encoders do, from the start of the process. `lith/prom` exports them to Prometheus, `dbmetrics` times every statement, and lith's `deploy/observability` has a dashboard and alert rules that read them for any lith app.
 
 ## The numbers that matter
 
@@ -86,7 +86,7 @@ return flagValue, nil
 
 ## The dashboard
 
-[`site/deploy/observability/grafana/lith-apps.json`](https://github.com/zweiundeins/lith/blob/main/site/deploy/observability/grafana/lith-apps.json) shows any lith app: pick its metric namespace, then the job and the app. Its rows:
+[`deploy/observability/lith-apps.json`](https://github.com/zweiundeins/lith/blob/main/deploy/observability/lith-apps.json) shows any lith app: pick its metric namespace, then the app and the slot. Its rows:
 
 - **Requests**: requests, 5xx and p95 latency by route.
 - **Live**: open streams beside the requests in flight, ticks a second and overruns, renders per tick, frames sent and dropped, watched views and read transactions.
@@ -99,7 +99,7 @@ The site's `TestDashboard` fails when the dashboard or the alert rules read a me
 
 ## Alerts
 
-[`rules-lith-apps.yaml`](https://github.com/zweiundeins/lith/blob/main/site/deploy/observability/grafana/alerting/rules-lith-apps.yaml) holds Grafana alert rules that match any lith app by its metric names:
+[`rules-lith-apps.yaml`](https://github.com/zweiundeins/lith/blob/main/deploy/observability/rules-lith-apps.yaml) holds Grafana alert rules that match any lith app by its metric names, one alert for each app and slot:
 
 | Alert | Fires when |
 | --- | --- |

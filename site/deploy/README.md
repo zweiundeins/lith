@@ -7,7 +7,7 @@ lith's website (lith.zweiundeins.gmbh) is one binary and one SQLite file, behind
 - `lith-site.caddy`: the site block. TLS, `reverse_proxy` to the loopback port with the client's address in X-Forwarded-For and X-Real-IP, the access log in JSON at `/var/log/caddy/lith-access.log`, no `encode`, and `flush_interval -1` for the streams.
 - `lith-site-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
 - `setup-host.sh`: creates the user that CI deploys as, whose key may run `lith-site-deploy -` and nothing else.
-- `observability/`: the blackbox probes, the Prometheus target, a Grafana dashboard for lith apps and their alert rules (below).
+- `observability/`: the blackbox probes, the Prometheus target and the Alloy block (below). The Grafana dashboard for lith apps and their alert rules are in `deploy/observability` at lith's root.
 
 The database holds the demos' data only, which the sweep keeps small: it needs no backup.
 
@@ -84,7 +84,7 @@ On a restart every open page reconnects: the streams end with `sse.Reconnect`, a
 
 - **Metrics:** Prometheus scrapes `127.0.0.1:8197`, never public. Add the target in `observability/prometheus-scrape.yml` to the `go_runtime` job; it lists the metrics: `lith_site_http_requests_total{route,code}`, `lith_site_http_request_duration_seconds{route}`, `lith_site_writer_*`, `lith_site_live_*`, `lith_site_sse_budget_*`, `lith_site_db_*`, `go_*` and `process_*`.
 - **Probes:** `observability/lith-site.targets.yml` goes to `/etc/prometheus/targets/lith-site.yml`, and the `http_2xx_lith` module in `observability/blackbox-module.yml` into the blackbox exporter's `blackbox.yml`. The targets' `service` label is `lith`, the site's name in the access log's stream, so the host's Services dashboard shows the probes and the log under one name.
-- **Dashboard:** `observability/grafana/lith-apps.json`, provisioned like the host's other dashboards. It shows any lith app: pick its metric namespace (`lith_site`), then the job and the app.
-- **Alerts:** `observability/grafana/alerting/rules-lith-apps.yaml`: a 5xx ratio above 2%, tick overruns, dropped frames, writer failures and refused streams, for every app that runs lith's writer. A site that stops answering trips the host's rule on every blackbox probe. Hand-written to the host's format: import, check and export them over the file before relying on them.
+- **Dashboard:** [`deploy/observability/lith-apps.json`](../../deploy/observability) at lith's root, which the host installs once for every lith app. It shows any lith app: pick its metric namespace (`lith_site`), then the app and the slot.
+- **Alerts:** `rules-lith-apps.yaml`, beside the dashboard: a 5xx ratio above 2%, tick overruns, dropped frames, writer failures and refused streams, for every app that runs lith's writer. A site that stops answering trips the host's rule on every blackbox probe. Hand-written to the host's format: import, check and export them over the file before relying on them.
 - **Logs:** slog JSON on stdout, one object per line, into the journal. `observability/lith-site.alloy` is the block for the host's Alloy config that ships them to Loki as `{job="lith-site"}`, with `level` as a label like the other apps. Caddy's access log reaches Loki as `{job="caddy", site="lith"}`, from a path target in the same config.
 - **Health:** `/healthz` answers `ok <version>` while the process serves; `/readyz` answers 200 while the database answers and the writer and the hub run, else 503 naming what failed.
