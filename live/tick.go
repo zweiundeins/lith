@@ -171,6 +171,10 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	}
 	clear(h.dirty)
 	h.dirty = h.dirty[:0]
+	var published chan struct{}
+	if len(t.views) > 0 {
+		published, h.next = h.next, make(chan struct{})
+	}
 	h.mu.Unlock()
 	if len(t.views) == 0 {
 		return false
@@ -188,6 +192,7 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	t.wg.Wait()
 	h.ticks.Add(1)
 	h.publish(t)
+	close(published)
 	clear(t.views)
 	clear(t.frames)
 	clear(t.errs)

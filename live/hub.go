@@ -106,7 +106,8 @@ type Options struct {
 	// when not even the smallest tier fits; without a memory limit it only
 	// counts. Pass a Budget of your own for another limit, or with Refuse,
 	// which Serve answers with 503 when the budget has no room for a
-	// stream, uncompressed ones too; or one with Limit -1 to turn it off.
+	// stream: for a window that holds its first frames, or for the 32 KiB
+	// of one that compresses nothing; or one with Limit -1 to turn it off.
 	SSE sse.Options
 }
 
@@ -191,6 +192,7 @@ type Hub struct {
 	pending map[string][]pendingView // by stream ID, in the order of Watch
 	sweepAt time.Time                // when pending is next swept
 	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
+	next    chan struct{}            // closed once the next tick that renders views has published its frames
 
 	ticks, renders, sent, dropped, overruns, readTxs atomic.Int64
 
@@ -310,6 +312,7 @@ func New(o Options) *Hub {
 		byID:          map[string]*stream{},
 		pending:       map[string][]pendingView{},
 		asked:         map[string]time.Time{},
+		next:          make(chan struct{}),
 	}
 	// From the clock, so a page that reconnects to a new process still
 	// sees the number grow.
@@ -658,17 +661,23 @@ const frameSlack = 8 << 10
 // frameHeap is what the hub books for a view's frame: its length and
 // frameSlack, or nothing when the frame has no length.
 func frameHeap(f any) int64 {
-	n := -1
-	switch f := f.(type) {
-	case []byte:
-		n = len(f)
-	case interface{ Len() int }:
-		n = f.Len()
-	}
+	n := frameLen(f)
 	if n < 0 {
 		return 0
 	}
 	return int64(n) + frameSlack
+}
+
+// frameLen is the length of a frame: a []byte's, else what its Len() int
+// method reports, else -1.
+func frameLen(f any) int {
+	switch f := f.(type) {
+	case []byte:
+		return len(f)
+	case interface{ Len() int }:
+		return f.Len()
+	}
+	return -1
 }
 
 // unchanged reports whether f, whose hash is sum when it is []byte,

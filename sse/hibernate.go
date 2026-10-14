@@ -13,8 +13,9 @@ import (
 // stream holds neither. The next write takes an encoder from the pool and
 // starts a new frame, without the history of the frames before; with a
 // budget, of the tier the budget then allows, or in raw blocks while it
-// allows none. A budget with BudgetOptions.Refuse keeps the smallest tier
-// booked for the stream, which its next write takes when no other fits.
+// allows none. A budget with BudgetOptions.Refuse keeps the least tier
+// that holds the stream's frame booked for it, which its next write takes
+// when no larger one fits.
 // A Content-Encoding: zstd body may hold any number of frames one after
 // another, and browsers decode them as one stream. Hibernate does nothing
 // to a stream of another coding: a brotli or gzip body is a single
@@ -40,7 +41,7 @@ func (s *Stream) Hibernate() error {
 	}
 	s.enc, s.asleep, s.framed = nil, true, false
 	if b := s.opt.Budget; b != nil {
-		s.tier = b.sleep(s.tier)
+		s.tier = b.sleep(s.tier, s.opt, s.frame)
 	}
 	if err != nil {
 		return s.fail(err)

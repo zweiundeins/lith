@@ -84,6 +84,13 @@ type Options struct {
 	// keeps a stream to low-memory windows, and BrotliQuality is the
 	// quality brotli streams take while the budget has room (else 3).
 	Budget *Budget
+	// Frame, if set, is the length in bytes of the stream's frames as far
+	// as its handler knows them before Open: live's Serve sets it to the
+	// length of the stream's first frames. A Budget with
+	// BudgetOptions.Refuse lets the stream in only when it has room for a
+	// window that holds such a frame, and picks the stream's tiers for
+	// frames at least that long. Without Refuse it changes nothing.
+	Frame int
 }
 
 // The content codings a stream can use, in the server's order of
@@ -171,12 +178,14 @@ func Open(w http.ResponseWriter, r *http.Request, o Options) (*Stream, error) {
 		s.encoding = s.accepts
 	}
 	if b := o.Budget; b != nil {
-		t, user, ok := b.open(s.encoding, o, &s.seen)
+		t, user, pick, ok := b.open(s.encoding, o, &s.seen)
 		if !ok {
 			return nil, ErrNoRoom
 		}
-		s.tier, s.user = t, user
-		s.pick = t == brotliFloor
+		s.tier, s.user, s.pick = t, user, pick
+		if b.refuse {
+			s.frame = max(0, o.Frame)
+		}
 		if t.coding == "" {
 			s.asleep = s.encoding == Zstd
 			if !s.asleep {
@@ -238,9 +247,11 @@ func (s *Stream) Sent() (events, wire int64) { return s.in, s.out }
 // write, while it hibernates, or while its budget has no room for it);
 // "identity" when it goes out uncompressed. heap is what the stream's
 // budget reserves for the encoder: 0 without a budget, and for a stream
-// asleep or uncompressed, but for an asleep one the heap of zstd's
-// smallest tier with BudgetOptions.Refuse. A brotli stream with a budget
-// holds quality 3 at 2^16 until its first write picks its tier.
+// asleep or uncompressed, but for an asleep one, with
+// BudgetOptions.Refuse, the heap of the least tier that holds its frame. A
+// brotli stream with a budget holds quality 3 at 2^16 until its first
+// write picks its tier, with Refuse quality 3 at the window that holds its
+// frame.
 func (s *Stream) Tier() (name string, heap int64) {
 	if s.opt.Budget != nil {
 		return label(s.tier, s.encoding), s.tier.heap

@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -417,4 +419,152 @@ func TestReconnectForABetterTier(t *testing.T) {
 	if st := b.Stats(); st.Reopened != 1 {
 		t.Fatalf("reopened %d", st.Reopened)
 	}
+}
+
+// With Refuse, Serve opens a stream once its first frame is there and lets
+// it in only with room for a window that holds that frame: tabs with a
+// 230 KB view of their own, in budgets that hold six zstd tabs at 2^18,
+// eight brotli tabs at quality 3 (seven get in: the first two take
+// quality 4) or four of each (seven). Every tab let in holds a window that
+// holds its frame; the next gets a 503 and nothing else, also after the
+// zstd tabs moved down to make room, and gets in once a tab of its coding
+// leaves.
+func TestRefuseNeedsTheFrameWindow(t *testing.T) {
+	const zstdNeed, brotliNeed = (880 + 32) << 10, (1104 + 32) << 10
+	for _, c := range []struct {
+		name    string
+		codings []string
+		limit   int64
+		want    int
+	}{
+		{"zstd", []string{sse.Zstd}, 6 * zstdNeed, 6},
+		{"brotli", []string{sse.Brotli}, 8 * brotliNeed, 7},
+		{"mixed", []string{sse.Zstd, sse.Brotli}, 4*zstdNeed + 4*brotliNeed, 7},
+	} {
+		b := sse.NewBudget(sse.BudgetOptions{Limit: c.limit, Refuse: true})
+		h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
+		var version atomic.Int64
+		f, _ := tabView("x", 1410, &version).Render(t.Context(), nil)
+		frame := len(f.([]byte))
+		var cs []*client
+		sent := int64(0)
+		round := func() {
+			t.Helper()
+			version.Add(1)
+			h.Changed([]string{"tabs"})
+			sent += int64(len(cs))
+			waitFor(t, "a frame to every tab", func() bool { return h.Stats().FramesSent == sent })
+		}
+		tab := 0
+		try := func(coding string) *client {
+			t.Helper()
+			tab++
+			cl := serve(h, Spec{Views: []View{tabView("tab"+strconv.Itoa(tab), 1410, &version)}}, coding)
+			waitFor(t, "the frame or the refusal", func() bool {
+				return h.Stats().FramesSent == sent+1 || cl.status() == http.StatusServiceUnavailable
+			})
+			if cl.status() != http.StatusServiceUnavailable {
+				sent++
+				return cl
+			}
+			if err := cl.returned(t); !errors.Is(err, sse.ErrNoRoom) {
+				t.Fatalf("%s: a refused tab: %v", c.name, err)
+			}
+			if e := cl.header.Get("Content-Encoding"); e != "" || !strings.HasPrefix(string(cl.bytes()), "too many streams") {
+				t.Fatalf("%s: a refused tab got Content-Encoding %q and %q", c.name, e, cl.bytes())
+			}
+			return nil
+		}
+		var refused string
+		for i := 0; refused == ""; i++ {
+			coding := c.codings[i%len(c.codings)]
+			cl := try(coding)
+			if cl == nil {
+				round()
+				if cl = try(coding); cl == nil {
+					refused = coding
+					break
+				}
+			}
+			cs = append(cs, cl)
+			round()
+		}
+		st := b.Stats()
+		for k, n := range st.Streams {
+			if !holdsFrame(k, frame) {
+				t.Errorf("%s: %d tabs at %s, which does not hold a frame of %d bytes", c.name, n, k, frame)
+			}
+		}
+		if len(cs) != c.want || st.Refused < 2 {
+			t.Errorf("%s: %d tabs let in, want %d; %d refused: %v", c.name, len(cs), c.want, st.Refused, st.Streams)
+		}
+		t.Logf("%s, a frame of %d bytes: %d tabs, %v, %d KiB left", c.name, frame, len(cs), st.Streams, (st.Limit-st.Reserved)>>10)
+		i := slices.IndexFunc(cs, func(cl *client) bool { return cl.header.Get("Content-Encoding") == refused })
+		cs[i].leave(t)
+		cs = slices.Delete(cs, i, i+1)
+		cl := try(refused)
+		if cl == nil {
+			t.Fatalf("%s: a %s tab after one left: refused", c.name, refused)
+		}
+		cs = append(cs, cl)
+		for k := range b.Stats().Streams {
+			if !holdsFrame(k, frame) {
+				t.Errorf("%s: after the retry, a tab at %s", c.name, k)
+			}
+		}
+		for _, cl := range cs {
+			cl.leave(t)
+		}
+	}
+}
+
+// holdsFrame reports whether a tier, as the budget's Stats name it, holds
+// a frame of n bytes with a sixteenth to spare.
+func holdsFrame(tier string, n int) bool {
+	_, w, ok := strings.Cut(tier, "2^")
+	if !ok {
+		return false
+	}
+	w, _, _ = strings.Cut(w, " ")
+	bits, err := strconv.Atoi(w)
+	return err == nil && int64(n)*16 <= int64(15)<<bits
+}
+
+// A view that Watch gives a stream while Serve waits for its first frame
+// is not lost when the budget then turns the stream away: the next stream
+// with its ID watches it.
+func TestRefusedStreamKeepsItsWatches(t *testing.T) {
+	b := sse.NewBudget(sse.BudgetOptions{Limit: 2 << 20, Refuse: true})
+	h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, SSE: sse.Options{Budget: b}})
+	var version atomic.Int64
+	// It takes zstd 2^19 and leaves no room for a second tab at 2^18.
+	first := serve(h, Spec{Views: []View{tabView("first", 1410, &version)}}, sse.Zstd)
+	waitFor(t, "the first tab's frame", func() bool { return h.Stats().FramesSent == 1 })
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	tab := tabView("tab", 1410, &version)
+	render := tab.Render
+	tab.Render = func(ctx context.Context, tx *sql.Tx) (any, error) {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+		return render(ctx, tx)
+	}
+	c := serve(h, Spec{ID: "t1", Views: []View{tab}}, sse.Zstd)
+	<-entered
+	extra := text("extra", nil, func(context.Context, *sql.Tx) (string, error) { return "x", nil })
+	if !h.Watch("t1", extra) {
+		t.Fatal("Watch found no stream while it waited for its frame")
+	}
+	close(release)
+	if err := c.returned(t); !errors.Is(err, sse.ErrNoRoom) || c.status() != http.StatusServiceUnavailable {
+		t.Fatalf("the second tab: %v, status %d", err, c.status())
+	}
+	first.leave(t)
+	again := serve(h, Spec{ID: "t1", Views: []View{tab}}, sse.Zstd)
+	waitFor(t, "the watched view on the next stream", func() bool {
+		return strings.Contains(string(unzstd(t, again.bytes())), `<p id="extra">x</p>`)
+	})
+	again.leave(t)
 }

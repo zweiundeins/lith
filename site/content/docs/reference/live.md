@@ -161,7 +161,7 @@ Run renders views until ctx ends. Then it ends every stream: a write under way f
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error
 ```
 
-Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's newest frame when the hub keeps it (View.Render), else a frame rendered in the next tick, then every new frame. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a failed write ends the stream with its error.
+Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's newest frame when the hub keeps it (View.Render), else a frame rendered in the next tick, then every new frame. It opens the stream once those first frames are there, or the tick that renders them has ended, and passes their length to the streams' budget (sse.Options.Frame), so the response's headers go out with the first frames: a budget with sse.BudgetOptions.Refuse lets the stream in only with room for a window that holds them. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a failed write ends the stream with its error.
 
 #### func (*Hub) Stats {#Hub.Stats}
 
@@ -257,7 +257,8 @@ type Options struct {
 	// when not even the smallest tier fits; without a memory limit it only
 	// counts. Pass a Budget of your own for another limit, or with Refuse,
 	// which Serve answers with 503 when the budget has no room for a
-	// stream, uncompressed ones too; or one with Limit -1 to turn it off.
+	// stream: for a window that holds its first frames, or for the 32 KiB
+	// of one that compresses nothing; or one with Limit -1 to turn it off.
 	SSE sse.Options
 }
 ```

@@ -71,10 +71,14 @@ var errReopen = errors.New("live: the budget has a better tier for the stream")
 // Serve streams the views of spec to the client until it leaves or the
 // hub stops, and then returns nil. It sends each view's newest frame when
 // the hub keeps it (View.Render), else a frame rendered in the next tick,
-// then every new frame. When the hub is full or stopped, or the streams'
-// budget refuses the stream, it answers 503 and returns ErrFull,
-// ErrStopped or sse.ErrNoRoom; a failed write ends the stream with its
-// error.
+// then every new frame. It opens the stream once those first frames are
+// there, or the tick that renders them has ended, and passes their length
+// to the streams' budget (sse.Options.Frame), so the response's headers go
+// out with the first frames: a budget with sse.BudgetOptions.Refuse lets
+// the stream in only with room for a window that holds them. When the hub
+// is full or stopped, or the streams' budget refuses the stream, it
+// answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a failed
+// write ends the stream with its error.
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	for _, v := range spec.Views {
 		check(v)
@@ -98,11 +102,16 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	cancel := func() { cancelCause(nil) }
 	defer cancel()
 	defer context.AfterFunc(h.done, func() { cancelCause(shutdown.Cause) })()
-	st, err := sse.Open(w, r.WithContext(ctx), h.sse)
+	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1), upgrade: -1}
+	if spec.Reconnect != "" {
+		s.upgrade = h.upgradeAfter(spec.ID)
+	}
+	published := h.attach(s, spec.Views)
+	o := h.sse
+	o.Frame = h.first(ctx, s, published)
+	st, err := sse.Open(w, r.WithContext(ctx), o)
 	if err != nil {
-		h.mu.Lock()
-		h.streams--
-		h.mu.Unlock()
+		h.detach(s, errors.Is(err, sse.ErrNoRoom), spec.Views)
 		switch {
 		case r.Context().Err() != nil:
 			return nil
@@ -110,6 +119,9 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 			w.Header().Del("Content-Encoding")
 			http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
 			return ErrStopped
+		case ctx.Err() != nil:
+			// A stream with the ID that came later replaced this one.
+			return nil
 		case errors.Is(err, sse.ErrNoRoom):
 			http.Error(w, "too many streams", http.StatusServiceUnavailable)
 		}
@@ -117,12 +129,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	}
 	var last [][]byte
 	defer func() { st.CloseWith(last...) }()
-	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1), upgrade: -1}
-	if spec.Reconnect != "" {
-		s.upgrade = h.upgradeAfter(spec.ID)
-	}
-	h.attach(s, spec.Views)
-	defer h.detach(s)
+	defer h.detach(s, false, nil)
 	err = h.pump(ctx, s, st)
 	if (h.done.Err() != nil || errors.Is(err, errReopen)) && spec.Reconnect != "" && r.Context().Err() == nil {
 		last = append(last, sse.Reconnect(spec.Reconnect))
@@ -162,14 +169,18 @@ func (h *Hub) reopened(id string) {
 	h.asked[id] = now
 }
 
-func (h *Hub) attach(s *stream, views []View) {
+// attach makes s watch the views, and those Watch kept for its ID. It
+// returns a channel closed once the tick that renders them has published
+// its frames.
+func (h *Hub) attach(s *stream, views []View) <-chan struct{} {
 	h.mu.Lock()
+	published := h.next
 	if s.id != "" {
 		old := h.byID[s.id]
 		if old != nil && old.seq > s.seq {
 			h.mu.Unlock()
 			s.cancel()
-			return
+			return published
 		}
 		if old != nil {
 			old.cancel()
@@ -193,15 +204,29 @@ func (h *Hub) attach(s *stream, views []View) {
 	if marked {
 		h.poke()
 	}
+	return published
 }
 
-func (h *Hub) detach(s *stream) {
+// detach takes s off the hub. When the budget refused s, the views that
+// Watch gave it besides those of its spec go to the stream open with its
+// ID, or wait for the next one, as they would have if s had never opened.
+func (h *Hub) detach(s *stream, refused bool, spec []View) {
 	h.mu.Lock()
 	if s.id != "" && h.byID[s.id] == s {
 		delete(h.byID, s.id)
 	}
 	marked := false
+	now := time.Now()
 	for _, w := range s.watches {
+		if refused && s.id != "" && !slices.ContainsFunc(spec, func(v View) bool { return v.Key == w.v.key }) {
+			v := w.v
+			def := View{Key: v.key, Topics: v.topics, Render: v.render, Every: v.every, Presence: v.presence}
+			if o := h.byID[s.id]; o != nil {
+				marked = h.watch(o, def) || marked
+			} else {
+				h.pend(s.id, def, now)
+			}
+		}
 		marked = h.drop(w) || marked
 	}
 	s.mu.Lock()
@@ -212,6 +237,50 @@ func (h *Hub) detach(s *stream) {
 	if marked {
 		h.poke()
 	}
+}
+
+// first waits for the first frames of the views s watches, so that Open
+// knows the length of its first write: until each view has offered one,
+// or published closes, or a heartbeat has passed. A hub that does not run
+// renders nothing, and it does not wait. It returns the length of the
+// frames offered by then.
+func (h *Hub) first(ctx context.Context, s *stream, published <-chan struct{}) int {
+	if n, all := s.offered(); all || !h.running.Load() {
+		return n
+	}
+	timeout := time.NewTimer(h.heartbeat)
+	defer timeout.Stop()
+	for {
+		select {
+		case <-s.wake:
+			if n, all := s.offered(); all {
+				return n
+			}
+			continue
+		case <-published:
+		case <-timeout.C:
+		case <-ctx.Done():
+			return 0
+		}
+		n, _ := s.offered()
+		return n
+	}
+}
+
+// offered adds up the length of the frames offered to s and not sent yet,
+// and reports whether each view it watches has one.
+func (s *stream) offered() (n int, all bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all = true
+	for _, w := range s.watches {
+		if w.next == nil {
+			all = false
+			continue
+		}
+		n += max(0, frameLen(w.next.value))
+	}
+	return n, all
 }
 
 // unwatched reports whether the stream stopped watching w's view.
