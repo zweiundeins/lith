@@ -30,10 +30,10 @@ KillSignal=SIGTERM
 TimeoutStopSec=20
 LimitNOFILE=4096
 
-# Memory. The live hub gives the streams' encoders half of GOMEMLIMIT, 96
-# MiB: about 55 streams at zstd 2^19, about 136 once the budget moves them
-# down to 2^17 with low memory, then uncompressed (a guestbook frame is a
-# few KB). An idle stream gives its encoder back after a minute (Hibernate).
+# Memory. The live hub gives the streams half of GOMEMLIMIT, 96 MiB, for
+# their encoders, 32 KiB each and the views' frames: about 55 streams at
+# zstd 2^19, about 125 once the budget moves them down to 2^17 with low
+# memory, then uncompressed (a guestbook frame is a few KB). An idle stream gives its encoder back after a minute (Hibernate).
 # The rest is the process: Go, the page caches of the SQLite connections at
 # 4 MiB at most and their prepared statements at 0.5 MiB at most, the
 # static files. -streams caps the open tabs. Change these together.

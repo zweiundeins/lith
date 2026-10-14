@@ -45,16 +45,16 @@ TasksMax=256
 ```
 
 - `GOMEMLIMIT` makes Go's garbage collector work harder as the heap nears it, before systemd's `MemoryHigh` throttles the process and `MemoryMax` ends it.
-- The hub's budget gives the encoders half of `GOMEMLIMIT`: 224 MiB here. That holds about 135 streams at zstd 2^19, and about 270 once the budget moves them to 2^18 with low memory ([Streams and compression](/docs/guides/streams#the-memory-budget)).
+- The hub's budget gives the streams half of `GOMEMLIMIT`, 224 MiB here, for their encoders, 32 KiB each and the views' frames. That holds about 129 streams at zstd 2^19, and about 250 once the budget moves them to 2^18 with low memory, less what the frames take ([Streams and compression](/docs/guides/streams#the-memory-budget)). The other half is for the rest of the process and for the garbage between two collections.
 - `-streams 200` caps the open tabs: the 201st gets a 503, which its page retries.
 
 This site runs in less, beside other apps on its host:
 
 ```ini source=site/deploy/lith-site.service
-# Memory. The live hub gives the streams' encoders half of GOMEMLIMIT, 96
-# MiB: about 55 streams at zstd 2^19, about 136 once the budget moves them
-# down to 2^17 with low memory, then uncompressed (a guestbook frame is a
-# few KB). An idle stream gives its encoder back after a minute (Hibernate).
+# Memory. The live hub gives the streams half of GOMEMLIMIT, 96 MiB, for
+# their encoders, 32 KiB each and the views' frames: about 55 streams at
+# zstd 2^19, about 125 once the budget moves them down to 2^17 with low
+# memory, then uncompressed (a guestbook frame is a few KB). An idle stream gives its encoder back after a minute (Hibernate).
 # The rest is the process: Go, the page caches of the SQLite connections at
 # 4 MiB at most and their prepared statements at 0.5 MiB at most, the
 # static files. -streams caps the open tabs. Change these together.

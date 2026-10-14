@@ -1,7 +1,7 @@
 ---
 title: The stream budget
 nav: The budget
-headline: The stream budget: encoder memory as streams grow
+headline: The stream budget: what streams hold as they grow
 summary: What each window and encoder setting costs, what a stream and a view hold besides the encoder, how budgets behave as streams open, and the defaults lith took from it.
 description: What each window and encoder setting costs, what streams and views hold besides their encoders, and how budgets behave as streams open.
 order: 4
