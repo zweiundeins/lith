@@ -28,7 +28,8 @@ var chartBlock = regexp.MustCompile("(?s)(```chart\n)(.*?)(```)")
 //	step: 50                                   (keep the x that are multiples of it)
 //
 // series names the series to keep, in order, each as label=value, the
-// label being what the chart shows.
+// label being what the chart shows. Charts also fills the parts of a page
+// that a file includes (include).
 func Charts(root string) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	docs := filepath.Join(root, filepath.FromSlash(Docs))
@@ -60,7 +61,11 @@ func Charts(root string) (map[string][]byte, error) {
 		if len(errs) > 0 {
 			return errs[0]
 		}
-		if generated {
+		out, included, err := include(root, out)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		if generated || included {
 			rel, err := filepath.Rel(root, path)
 			if err != nil {
 				return err

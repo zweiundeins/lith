@@ -1,7 +1,8 @@
 // Package gen writes the parts of the docs that come from files outside
 // the site's module, which go:embed cannot reach: the package reference,
 // from the Go doc comments of lith's packages, the rows of the charts that
-// plot a CSV file of lith's benchmarks, and the changelog. cmd/docgen runs it (go
+// plot a CSV file of lith's benchmarks, the parts of pages a benchmark's
+// file fills (a table), and the changelog. cmd/docgen runs it (go
 // generate ./content), and TestUpToDate fails when the files it would
 // write differ from those in content/docs.
 package gen
