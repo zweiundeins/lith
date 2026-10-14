@@ -28,13 +28,27 @@
 	}
 
 	.code__label {
+		min-inline-size: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+
+		/* Cut to the label's box, so the link ends before the Copy button. */
+		& a {
+			display: inline-block;
+			max-inline-size: 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			vertical-align: bottom;
+		}
 	}
 
+	/* At least 24 by 24 px, the target size of WCAG 2.2 AA. */
 	.code__copy {
 		display: inline-grid;
+		place-items: center;
+		min-block-size: 1.5rem;
+		min-inline-size: 1.5rem;
 		padding: var(--lith-space-1) var(--lith-space-2);
 		border: 0;
 		background: transparent;
