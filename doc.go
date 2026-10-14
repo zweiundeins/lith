@@ -1,5 +1,5 @@
-// Package lith (Linear writes, Immediate mode, Ticks, Hypermedia) is the
-// shared runtime of the Go, SQLite and Datastar projects: one writer for
+// Package lith (Linear writes, Immediate mode, Ticks, Hypermedia) is a
+// runtime for Go, SQLite and Datastar apps: one writer for
 // SQLite that batches commands, a read pool, a render loop that renders each
 // changed view once per tick, and SSE streams that send the newest frame
 // through their own compressor.

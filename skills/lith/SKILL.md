@@ -5,9 +5,9 @@ description: How zwei und eins builds Go + SQLite + Datastar apps on the shared 
 
 # lith
 
-The Go projects of zwei und eins share one architecture: CQRS on one SQLite
-file, server-rendered views pushed over SSE, Datastar in the browser. lith is
-that runtime as a module, and its name is its design: Linear writes, Immediate
+lith is a runtime for Go apps of one architecture, built by zwei und eins:
+CQRS on one SQLite file, server-rendered views pushed over SSE, Datastar in
+the browser. Its name is its design: Linear writes, Immediate
 mode, Ticks, Hypermedia. This skill ships in the lith repo, so its rules match
 the lith version in a project's go.mod.
 

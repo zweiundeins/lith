@@ -164,7 +164,7 @@ func pref(r *http.Request, cookie string, values ...string) string {
 	return values[0]
 }
 
-const description = "lith is the runtime of the Go, SQLite and Datastar apps of zwei und eins: one writer, views rendered once per tick for everyone, and HTML streamed over SSE."
+const description = "lith is a runtime for Go, SQLite and Datastar apps, built by zwei und eins: one writer, views rendered once per tick for everyone, and HTML streamed over SSE."
 
 // home is the landing page. Its slots show the demos' embeds, drawn from
 // one read transaction and kept current by the page's stream.

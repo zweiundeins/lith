@@ -7,8 +7,8 @@
 [![Datastar 1.0](https://img.shields.io/badge/Datastar-1.0-6c4fbb)](https://data-star.dev)
 [![SSE: zstd or brotli](https://img.shields.io/badge/SSE-zstd%20%7C%20brotli-2e7d32)](sse)
 
-**L**inear writes, **I**mmediate mode, **T**icks, **H**ypermedia: the shared
-runtime for the Go, SQLite and Datastar apps of zwei und eins.
+**L**inear writes, **I**mmediate mode, **T**icks, **H**ypermedia: a runtime
+for Go, SQLite and Datastar apps, built by zwei und eins.
 
 - **Linear writes:** one writer applies every command in order, batched into
   one transaction with a savepoint each.
