@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zweiundeins/lith/edge"
+	"github.com/zweiundeins/lith/writer"
 
 	"github.com/zweiundeins/lith/site/internal/app/apptest"
 	"github.com/zweiundeins/lith/site/internal/browser"
@@ -77,18 +78,18 @@ func TestSlowLinkStream(t *testing.T) {
 	}
 }
 
-// TestSlowLinkPage opens the stream inspector in Chromium on a link that
+// TestSlowLinkPage opens the Game of Life in Chromium on a link that
 // DevTools throttles as its Slow 4G preset: the page finds it slow, its
 // stream asks with net=slow while the page's own URL stays as it was, and
-// the stream reports zstd at its default level and four frames a second at
-// most. Without navigator.connection, as in Firefox and Safari, Navigation
-// Timing tells the same; where the page's measurement says nothing,
-// Chromium's network hints, which the document asked for, still do.
-// Unthrottled, the page is fast.
+// the board, which steps ten times a second, changes four times a second
+// at most. Without navigator.connection, as in Firefox and Safari,
+// Navigation Timing tells the same; where the page's measurement says
+// nothing, Chromium's network hints, which the document asked for, still
+// do. Unthrottled, the page is fast.
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestSlowLinkPage
 func TestSlowLinkPage(t *testing.T) {
-	_, base := apptest.Start(t)
+	a, base := apptest.Start(t)
 	b := browser.Start(t)
 	const (
 		noNetInfo = `Object.defineProperty(Navigator.prototype, 'connection', {get: () => undefined})`
@@ -98,7 +99,7 @@ func TestSlowLinkPage(t *testing.T) {
 		name          string
 		throttle      bool
 		script        string
-		netSlow, tier bool // net=slow in the stream's URL; the denser tier
+		netSlow, slow bool // net=slow in the stream's URL; a slow stream
 	}{
 		{"unthrottled", false, "", false, false},
 		{"Slow 4G", true, "", true, true},
@@ -127,13 +128,18 @@ func TestSlowLinkPage(t *testing.T) {
 			if c.script != "" {
 				p.Call(t, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": c.script})
 			}
-			p.Navigate(t, base+"/demos/stream")
+			p.Navigate(t, base+"/demos/life")
 			p.Wait(t, `document.querySelector('.live-badge.is-live')`, 30*time.Second)
-			want := "zstd 2^"
-			if c.tier {
-				want = "zstd default 2^"
+			// A fresh soup, which steps ten times a second.
+			if err := a.Writer().Do(context.Background(), writer.Func(func(tx *writer.Tx) error {
+				_, err := tx.Exec(`UPDATE life_board SET cells = zeroblob(4000), quiet = 1`)
+				return err
+			})); err != nil {
+				t.Fatal(err)
 			}
-			p.Wait(t, `document.querySelector('.sx-pairs code').textContent.startsWith('`+want+`')`, 30*time.Second)
+			time.Sleep(time.Second)
+			var fps float64
+			p.Eval(t, `new Promise(done => { let n = 0; const o = new MutationObserver(() => n++); o.observe(document.getElementById('life-stats'), {subtree: true, childList: true, characterData: true}); setTimeout(() => { o.disconnect(); done(n / 2) }, 2000) })`, &fps)
 			var search string
 			p.Eval(t, `location.search`, &search)
 			mu.Lock()
@@ -142,13 +148,8 @@ func TestSlowLinkPage(t *testing.T) {
 			if search != "" || strings.Contains(got, "net=slow") != c.netSlow {
 				t.Errorf("the page's query %q, its stream %s", search, got)
 			}
-			if c.tier {
-				time.Sleep(2 * time.Second)
-				var fps float64
-				p.Eval(t, `Number(document.querySelector('[data-text="$_stream.fps"]').textContent)`, &fps)
-				if fps > 4.5 {
-					t.Errorf("%.1f frames a second", fps)
-				}
+			if c.slow && fps > 4.5 || !c.slow && fps < 7 {
+				t.Errorf("%.1f frames a second", fps)
 			}
 			if errs := p.Errors(); len(errs) > 0 {
 				t.Errorf("the page: %v", errs)

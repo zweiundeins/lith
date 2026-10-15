@@ -93,8 +93,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 }
 
 // stream sends the tab its views: the shared entries, then its own state.
-// A tab on a slow link gets each view's frames about four times a second,
-// and a denser encoder while the budget has room.
+// A tab on a slow link gets each view's frames about four times a second.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {

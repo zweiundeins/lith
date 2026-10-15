@@ -55,9 +55,7 @@ type Spec struct {
 	// (Stats.RendersDeferred), so it renders about four times a second,
 	// and its frame can be up to 250 ms old when it goes out; a view that
 	// others keep up with renders for them, and the frames in between drop
-	// (Stats.FramesDropped). Heartbeats go out as before. Serve opens the
-	// stream with sse.Options.Slow, for a denser encoder while the budget
-	// has room.
+	// (Stats.FramesDropped). Heartbeats go out as before.
 	Slow bool
 }
 
@@ -131,7 +129,6 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	published := h.attach(s, spec.Views)
 	o := h.sse
 	o.Frame = h.first(ctx, s, published)
-	o.Slow = o.Slow || spec.Slow
 	st, err := sse.Open(w, r.WithContext(ctx), o)
 	if err != nil {
 		h.detach(s, errors.Is(err, sse.ErrNoRoom), spec.Views)

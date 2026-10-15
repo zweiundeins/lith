@@ -342,29 +342,6 @@ Hashing a frame for the unchanged-frame check takes 3.5 µs at 49 KB and 15.8 µ
 
 The hub keeps no frame of a view that one stream watches, so the tabs book no frames. 150 tabs with a 233 KB view of their own all hold 2^18 in 200 MiB with brotli (197.4 MiB booked, 190.5 MiB of heap), in 140 MiB with zstd (133.6 and 125.1 MiB), and in 230 MiB half each. With `Refuse`, every tab let in holds 2^18: 120 MiB lets in 134 of the 150 zstd tabs, 91 brotli tabs and 111 when half are each; 150 MiB all 150 zstd tabs, 114 brotli tabs and 139 mixed.
 
-### Slow streams
-
-`TestSlowLinks` (`slow.csv`) measures what the denser settings of a slow stream (`sse.Options.Slow`) cost and save, the way `TestFrameSizes` measures the tiers: 64 streams, the heap they keep after two collections, the process's CPU time per frame, one run. It compares zstd at its default level with its fastest at every zstd tier of the budget's menu, and brotli at quality 4 with 3 at the smallest window that holds the frame, on the frames of `TestFrameSizes`, the page, and a Game of Life of 80 by 50 cells rendered as lith's site renders its board (45 KB, a few dozen cells changing a generation). Measured on 2026-10-14 between 21:30 and 21:34 UTC on the same machine, on lith's slow-links branch, with the 1-minute load average between 1.6 and 2.9:
-
-    LITH_BUDGET=1 taskset -c 0-11 go test ./bench/budget -run SlowLinks -v -timeout 1h
-
-At 2^19, the tier a stream gets while the budget has room:
-
-| Frames | Bytes a frame, fastest | Default level | CPU a frame, fastest | Default level |
-|---|---|---|---|---|
-| board 50 KB | 287 | 266 (-7%) | 18.6 µs | 20.8 µs |
-| board 142 KB | 1,471 | 1,347 (-8%) | 61.6 µs | 78.0 µs |
-| board 230 KB | 2,948 | 2,810 (-5%) | 103 µs | 127 µs |
-| table 230 KB | 4,598 | 4,436 (-4%) | 122 µs | 178 µs |
-| list 230 KB | 1,738 | 807 (-54%) | 104 µs | 86.6 µs |
-| page | 189 | 176 (-7%) | 8.2 µs | 9.9 µs |
-| Game of Life | 601 | 608 (+1%) | 32.5 µs | 32.7 µs |
-
-- The default level pays where a frame changes in many places: the list changes 13 rows spread over 1,300, and sends half the bytes. Where a frame changes in one place (a card, a few cells of a table, a view of the page), it saves 4 to 8%, and on the Game of Life nothing: each generation's few changes cost the same at either level.
-- It holds 1,022 to 1,165 KiB more at every window, its second hash table: 2^19 2,774 to 2,867 KiB against 1,687 to 1,736, 2^18 with low memory 1,871 to 2,036 against 782 to 871. The budget books each tier at the most a stream held, rounded up to 16 KiB: 3,904, 2,880, 2,816, 2,304, 2,048, 1,920, 1,712 and 1,616 KiB from 2^20 down to 2^15 with low memory.
-- It takes 12 to 46% more CPU a frame on the boards, the table and the page, the same on the Game of Life, and 17% less on the list, whose frames it codes in fewer sequences. A slow stream on lith's site also sends about four frames a second instead of ten or twenty (`live.Spec.Slow`), so its encoder does less work a second than a fast stream's.
-- Brotli at quality 4 instead of 3, at the window that holds the frame, sends 29 to 46% fewer bytes on the boards, the table and the list, 9% on the page and 3% on the Game of Life, for 3% less to 16% more CPU and 520 to 530 KiB more heap.
-
 ### What lith adopted
 
 A live hub makes a budget when it is given none: half the process's memory limit, for the streams' encoders, 32 KiB per stream and the frames of views that two or more streams watch, and no change at all without a memory limit (a stream's own ZstdWindow and BrotliWindow cap what it gets). A stream's first write picks a window that holds its largest write. Brotli takes that window at quality 4 while the budget stays at most half full, at quality 3 after, and 2^16 only when that does not fit; zstd takes the largest tier within its fair share and moves down while open, no further than its frame's window. A brotli stream below its frame's window, or uncompressed, is asked to open again once room frees up. Pages with large frames pass a budget with `Refuse`. The hub keeps the frame of a view that two or more streams watch, which a join to it would otherwise render again; of a `[]byte` view that one stream watches, only the frame's length and hash. Hibernation is opt-in: `live.Options.Hibernate` is zero unless an app sets it.

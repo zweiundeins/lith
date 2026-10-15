@@ -111,16 +111,3 @@ func TestSlowStreamHeartbeats(t *testing.T) {
 		t.Fatalf("in a second, %d heartbeats and %d frames", pings, frames)
 	}
 }
-
-// Serve opens a slow stream with sse.Options.Slow: with room in the
-// budget, zstd at its default level.
-func TestSlowStreamDenserEncoder(t *testing.T) {
-	h := start(t, Options{SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{Limit: 1 << 30})}})
-	v := text("v", nil, func(context.Context, *sql.Tx) (string, error) { return strings.Repeat("row ", 1000), nil })
-	serve(h, Spec{Views: []View{v}, Slow: true}, "zstd")
-	serve(h, Spec{Views: []View{v}}, "zstd")
-	waitFor(t, "both streams' tiers", func() bool {
-		st := h.Budget().Stats().Streams
-		return st["zstd default 2^19"] == 1 && st["zstd 2^19"] == 1
-	})
-}

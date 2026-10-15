@@ -20,8 +20,7 @@
 // client skips frames and holds up no one else. Views that change in the
 // same tick reach a stream together, in the order it watches them. A
 // stream to a client on a slow link (Spec.Slow) takes a view's frames
-// about four times a second, and a denser encoder while the budget has
-// room.
+// about four times a second.
 //
 // A dirty view does not render while every stream that watches it still
 // has a frame of it waiting: a stream that has not sent the last one has
