@@ -7,16 +7,16 @@ in doubt.
 ## Start a new project
 
 ```sh
-go run github.com/zweiundeins/lith/cmd/lith-new -lith /develop/lith ~/develop/guestbook example.com/acme/guestbook
+go run github.com/zweiundeins/lith/cmd/lith-new@latest ~/develop/guestbook example.com/acme/guestbook
 cd ~/develop/guestbook && go mod tidy && go tool task test
 ```
 
 The template is a guestbook that uses every rule once (a command, a shared
 view, a per-tab view backed by `tab_state`, a pending button), with tests,
 deploy files (systemd, Caddy, a deploy script with rollback, a backup timer,
-the probes and log shipping a shared host loads) and CI. Replace the guestbook with the app, keep the wiring. Until lith is
-published, go.mod needs the `replace` that `-lith` writes, and CI fails while
-it points at a local path.
+the probes and log shipping a shared host loads) and CI. Replace the guestbook with the app, keep the wiring. For work across
+checkouts, `lith-new -lith <dir>` writes a `replace` directive to a local
+lith instead; CI fails while it points at a local path.
 
 ## Wire a project
 
@@ -360,8 +360,8 @@ for chunk := range slices.Chunk(rows, 5000) {
 and VACUUM are refused there. `w.Exclusive(ctx, fn)` runs fn on the writer's
 own connection between two batches, outside any transaction; commands queued
 meanwhile wait and run after it in order. It replaces a second write
-connection, such as libretto's Legacy (factory reset, tenant import and
-merge): a transaction on that one that runs past the busy timeout makes the
+connection, such as one kept for a factory reset or a tenant import: a
+transaction on that one that runs past the busy timeout makes the
 writer's batches fail with `SQLITE_BUSY`.
 
 ```go

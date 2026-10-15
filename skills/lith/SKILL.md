@@ -1,6 +1,6 @@
 ---
 name: lith
-description: How zwei und eins builds Go + SQLite + Datastar apps on the shared module github.com/zweiundeins/lith, short for Linear writes, Immediate mode, Ticks, Hypermedia (one batching writer, a read pool, a tick-based render loop with shared views, per-stream zstd or brotli SSE, the request edge). Use when writing, reviewing or debugging code in a project that imports lith (starbase, kanban, 2und1.ch-2027, libretto, swisscyberguard, pendlerpreis), when moving a project onto lith, or when starting a new app of that kind. Covers commands, views and topics, tab state, migrations, backups, load tests, and the Datastar gotchas these projects share.
+description: How to build Go + SQLite + Datastar apps on github.com/zweiundeins/lith, short for Linear writes, Immediate mode, Ticks, Hypermedia (one batching writer, a read pool, a tick-based render loop with shared views, per-stream zstd or brotli SSE, the request edge). Use when writing, reviewing or debugging code in a project that imports lith, when moving a project onto lith, or when starting a new app of that kind. Covers commands, views and topics, tab state, migrations, backups, load tests, and the Datastar gotchas such apps run into.
 ---
 
 # lith
@@ -12,8 +12,8 @@ mode, Ticks, Hypermedia. This skill ships in the lith repo, so its rules match
 the lith version in a project's go.mod.
 
 The reasoning behind the design is Anders Murphy's (hyperlith,
-andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
-`benchmarks/RESULTS.md` has the numbers measured in Go.
+andersmurphy.com). The kanban example app (github.com/zweiundeins/kanban)
+has the numbers measured in Go in `benchmarks/RESULTS.md`.
 
 ## The rules
 
@@ -97,8 +97,7 @@ andersmurphy.com); the `andersmurphy` skill has his posts. kanban's
 - `references/performance.md`: measured numbers, the knobs they set, how to
   measure.
 - `references/review.md`: the checklist with `rg` patterns.
-- `references/datastar.md`: the Datastar gotchas the projects learned.
+- `references/datastar.md`: the Datastar gotchas apps on lith ran into.
 
-A project's own CLAUDE.md or AGENTS.md says what is specific to it (Rocket
-components in starbase, tenancy and billing in libretto) and which lith
-version it uses.
+A project's own CLAUDE.md or AGENTS.md says what is specific to it and which
+lith version it uses.

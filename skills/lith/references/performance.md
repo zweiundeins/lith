@@ -58,10 +58,10 @@ i5-13500 core, 2026-10-12:
   window that holds its largest write with a sixteenth to spare. Without one,
   measure the largest frame of each page and size the window to it. A page
   that sends one view after another on one stream refers back further than a
-  frame: libretto's frames (2 to 37 KB) cost 9% more bytes at 2^17 than at
+  frame: a business app's frames (2 to 37 KB) cost 9% more bytes at 2^17 than at
   2^19 and 19% more at 2^16; set `MinWindow` for such pages. kanban's 139 KB
-  board needs 2^18. (datastar-go's brotli q3 held 8.5 MiB per libretto tab
-  after the first render.)
+  board needs 2^18. (datastar-go's brotli q3 held 8.5 MiB per tab of that
+  app after the first render.)
 - Once renders are shared, compression is the main CPU cost: in kanban's
   200-tab run most of 4.9 cores went into brotli. Safari decodes zstd from 26.3
   (on OS 26.3 and later); older browsers get brotli.
