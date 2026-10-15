@@ -154,8 +154,7 @@ func TestMigrationRebuildsParentTable(t *testing.T) {
 	}
 }
 
-// A project's own runner, here one with a schema_migrations table like
-// pendlerpreis', runs on the write connection instead of Migrations.
+// A project's own runner, here one with a schema_migrations table, runs on the write connection instead of Migrations.
 func TestCustomMigrate(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "m.db")

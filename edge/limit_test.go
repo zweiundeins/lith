@@ -35,8 +35,7 @@ func TestLimiterSurvivesAClockStep(t *testing.T) {
 	for range 5 {
 		l.Allow("ip", 1, t0)
 	}
-	// The wall clock steps back 45 s, as WSL2's time sync does every 30 s
-	// (libretto's case). Neither a reset nor a refill may follow.
+	// The wall clock steps back 45 s, as WSL2's time sync does every 30 s. Neither a reset nor a refill may follow.
 	for _, back := range []time.Duration{-time.Millisecond, -45 * time.Second, -time.Hour} {
 		if l.Allow("ip", 1, t0.Add(back)) {
 			t.Errorf("a %v clock step let a request through an empty bucket", back)

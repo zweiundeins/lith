@@ -49,7 +49,7 @@ A frame can refer back only as far as the window reaches. When the window is sma
 | 2^18 (256 KiB) | 2,703 |
 | 2^19 (512 KiB) | 1,471 |
 
-A budget picks that window for each stream from its largest write ([below](#the-memory-budget)). Without a budget, or with one without a limit, measure the largest frame of each page, the full board, the longest list, and pick the smallest window that holds it with room to spare. The board app's largest frame, three lanes of 50 cards with long titles, is 51 KB: 2^16 holds it. A page that sends one view after another on the same stream refers back further than one frame: libretto's frames, 2 to 37 KB, cost 9% more bytes at 2^17 than at 2^19 and 19% more at 2^16. The [budget's table](/docs/performance/budget#settings) has every window for two workloads.
+A budget picks that window for each stream from its largest write ([below](#the-memory-budget)). Without a budget, or with one without a limit, measure the largest frame of each page, the full board, the longest list, and pick the smallest window that holds it with room to spare. The board app's largest frame, three lanes of 50 cards with long titles, is 51 KB: 2^16 holds it. A page that sends one view after another on the same stream refers back further than one frame: a business app's frames, 2 to 37 KB, cost 9% more bytes at 2^17 than at 2^19 and 19% more at 2^16. The [budget's table](/docs/performance/budget#settings) has every window for two workloads.
 
 `Stream.Sent()` returns the bytes of events a stream was given and the bytes it sent, compressed. A test that renders the largest state of a page and checks the frame's length catches a page that outgrows its window.
 

@@ -213,7 +213,7 @@ Other agents' work kept the 1-minute load average between 3.3 and 5.6 while the 
 
 ### Settings
 
-Two workloads. The board is `loadtest.Board`'s view rendered from SQLite: 200 frames of 142 KB, one card changed before each. The page is a synthetic tab of a small business app shaped like libretto's: lists of up to 72 entries, a form in a modal, a detail page and an overview, 150 frames of 2.4 to 36.9 KB (13.6 KB on average), most of them a view the tab saw before with a change. `TestSettings` writes the frames to 64 streams in turn, as the hub does, and measures the heap the open streams keep after two collections, divided by 64, the bytes per frame on the wire after the first frame, and the process's CPU time per frame, the median of three runs (the runs differ by up to 11%). zstd runs at its fastest level (`settings.csv`):
+Two workloads. The board is `loadtest.Board`'s view rendered from SQLite: 200 frames of 142 KB, one card changed before each. The page is a synthetic tab of a small business app: lists of up to 72 entries, a form in a modal, a detail page and an overview, 150 frames of 2.4 to 36.9 KB (13.6 KB on average), most of them a view the tab saw before with a change. `TestSettings` writes the frames to 64 streams in turn, as the hub does, and measures the heap the open streams keep after two collections, divided by 64, the bytes per frame on the wire after the first frame, and the process's CPU time per frame, the median of three runs (the runs differ by up to 11%). zstd runs at its fastest level (`settings.csv`):
 
 | Setting | Board: heap | bytes per frame | CPU per frame | Page: heap | bytes per frame | CPU per frame |
 |---|---|---|---|---|---|---|
@@ -242,7 +242,7 @@ Two workloads. The board is `loadtest.Board`'s view rendered from SQLite: 200 fr
 | gzip | 0.80 MiB | 13,169 | 143 µs | 0.79 MiB | 1,318 | 16.3 µs |
 | identity | 1 KiB | 142,067 | 0.3 µs | 1 KiB | 13,703 | 0.3 µs |
 
-- A window that cannot reach the frame before costs the board four times the bytes with zstd and a hundred times with brotli, and twice the CPU or more: below 2^18 a frame finds the previous one out of reach. The page loses less, since a window still holds several of its frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. libretto's real frames lose less (9% more at 2^17, 19% at 2^16): their measured session repeats a few views more often than this page.
+- A window that cannot reach the frame before costs the board four times the bytes with zstd and a hundred times with brotli, and twice the CPU or more: below 2^18 a frame finds the previous one out of reach. The page loses less, since a window still holds several of its frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. A real business app's recorded frames lose less (9% more at 2^17, 19% at 2^16): its measured session repeats a few views more often than this page.
 - zstd with its full history holds 1.6 MiB at every window up to 2^19, so below 2^19 only low memory saves heap. It costs CPU with the board's frames (79 µs against 59 at 2^19, 116 against 52 at 2^20) and 1 to 2 µs with the page's.
 - On the board, brotli at quality 3 holds 0.51 MiB less than quality 4 at the same window, and once the window holds the frame sends two thirds more bytes for about the same CPU. At the same window, brotli takes five to seven and a half times the CPU of zstd with its full history on the board, four to six times on the page.
 

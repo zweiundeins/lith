@@ -210,4 +210,4 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Cause.** "The server sends the right bytes" and "the page works" are different claims. A Go test that reads the stream over HTTP proves the first only; attribute syntax, the CSP and the morph are the browser's.
 
-**Fix.** Drive the page in a real browser and check its console: this site's tests run Chromium on every page, and among the projects starbase has its Chrome tests, kanban an end-to-end harness and pendlerpreis `tools/capture`.
+**Fix.** Drive the page in a real browser and check its console: this site's tests run Chromium on every page, and among the projects starbase has its Chrome tests and kanban an end-to-end harness.

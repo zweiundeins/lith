@@ -15,7 +15,7 @@ import (
 )
 
 // TestHibernation simulates an hour of 200 mostly idle tabs, second by
-// second, as libretto's are: each person changes something every three
+// second, as in a business app: each person changes something every three
 // minutes on average (a modal, then the list it changed, a second apart),
 // and the hub sends a heartbeat after 20 seconds of silence. With
 // hibernation, a stream that sent no frame for the given time gives its

@@ -133,4 +133,4 @@ An account erased for good also leaves its replica: detach it, then `m.PurgeRepl
 
 ## Two slots for a rollback
 
-libretto and swisscyberguard run two slots of one systemd unit on one data directory, `app@blue` and `app@green`, so that a rollback is a cutover instead of a reinstall. Only one slot runs at a time, since Litestream allows one replicator per database, and Caddy proxies to both ports with `health_uri /readyz` and `lb_try_duration`, so requests wait through the seconds of a handoff. Their units and deploy scripts are in those projects' `deploy/` folders.
+An app can run two slots of one systemd unit on one data directory, `app@blue` and `app@green`, so that a rollback is a cutover instead of a reinstall. Only one slot runs at a time, since Litestream allows one replicator per database, and Caddy proxies to both ports with `health_uri /readyz` and `lb_try_duration`, so requests wait through the seconds of a handoff.

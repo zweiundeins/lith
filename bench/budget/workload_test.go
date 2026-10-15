@@ -65,8 +65,8 @@ func boardRows(t testing.TB, rows, n int) [][]byte {
 	return frames
 }
 
-// pageFrames is a session of one tab of a small business app, shaped like
-// libretto's: lists of entries, a modal form, a detail page and an
+// pageFrames is a session of one tab of a small business app: lists of
+// entries, a modal form, a detail page and an
 // overview, 2 to 37 KB of HTML each. A frame is one view's render. Most
 // frames repeat a view the tab saw before with a change (a row added,
 // edited or deleted, the modal opened again, a list sorted); some show a

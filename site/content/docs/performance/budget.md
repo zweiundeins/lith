@@ -12,7 +12,7 @@ The tests in `bench/budget` measured what a stream's encoder costs under each se
 The two workloads:
 
 - **The board**: `loadtest.Board`'s view rendered from SQLite, 200 frames of 142 KB, one card changed before each.
-- **The page**: a synthetic tab of a small business app, shaped like libretto's: lists of up to 72 entries, a form in a modal, a detail page and an overview, 150 frames of 2.4 to 36.9 KB (13.6 KB on average), most of them a view the tab saw before, with a change.
+- **The page**: a synthetic tab of a small business app: lists of up to 72 entries, a form in a modal, a detail page and an overview, 150 frames of 2.4 to 36.9 KB (13.6 KB on average), most of them a view the tab saw before, with a change.
 
 ## Settings
 
@@ -42,7 +42,7 @@ series: zstd, fastest=zstd; brotli, quality 4=br
 "brotli, quality 4",20,99
 ```
 
-A window that cannot reach the frame before costs the board four times the bytes with zstd and a hundred times with brotli, and twice the CPU or more: below 2^18, a frame finds the previous one out of reach. The page loses less, since a window still holds several of its smaller frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. libretto's real frames lose less again, 9% more at 2^17 and 19% at 2^16, since its sessions repeat a few views more often than this page.
+A window that cannot reach the frame before costs the board four times the bytes with zstd and a hundred times with brotli, and twice the CPU or more: below 2^18, a frame finds the previous one out of reach. The page loses less, since a window still holds several of its smaller frames: against 2^19, it sends twice the bytes at 2^17, three times at 2^16 and six times at 2^15. A real business app's recorded frames lose less again, 9% more at 2^17 and 19% at 2^16, since its sessions repeat a few views more often than this page.
 
 ```chart
 kind: bars
