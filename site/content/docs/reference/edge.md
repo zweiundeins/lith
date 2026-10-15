@@ -167,7 +167,7 @@ SessionID returns the session id Sessions.Handler put in ctx, or "".
 func SlowLink(r *http.Request) bool
 ```
 
-SlowLink reports whether r says its client is on a slow link. Any of these does: the query parameter net=slow, which a page adds to its stream's URL from its own measurement (navigator.connection's saveData or an effective type of 2g or 3g, or where that is missing, a document that took over 300 ms to its first byte or came at under 100 KB/s); the header Save-Data: on; Chromium's client hints, after an Accept-CH of NetworkHints: ECT slow-2g, 2g or 3g, RTT over 300 (ms), Downlink under 0.8 (Mbit/s). A client that claims a slow link without one gets fewer frames and an encoder that costs the server more memory, within the budget that guards it (live.Spec.Slow).
+SlowLink reports whether r says its client is on a slow link. Any of these does: the query parameter net=slow, which a page adds to its stream's URL from its own measurement (navigator.connection's saveData or an effective type of 2g or 3g, or where that is missing, a document that took over 300 ms to its first byte or came at under 100 KB/s); the header Save-Data: on; Chromium's client hints, after an Accept-CH of NetworkHints: ECT slow-2g, 2g or 3g, RTT over 300 (ms), Downlink under 0.8 (Mbit/s). A client that claims a slow link without one only gets fewer frames (live.Spec.Slow), which costs the server less.
 
 ## Types
 

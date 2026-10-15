@@ -20,6 +20,7 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 | `live.Stats` | `Ticks`, `Renders` | renders per tick |
 | | `Overruns` | ticks that took longer than the tick (50 ms): frames come late for everyone |
 | | `FramesSent`, `FramesDropped` | frames written to streams, and frames a newer one replaced before their stream sent them: slow clients |
+| | `RendersDeferred` | renders put off while every stream that watches the view still had a frame of it waiting: streams that do not keep up, slow links |
 | | `Streams`, `Views` | open streams, watched views |
 | | `RendersByKey` | renders per view: a view that renders more often than its topics change listens to too much |
 | `sse.BudgetStats` | `Limit`, `Reserved` | what the streams may hold and hold now: encoders, 32 KiB a stream, frames |
@@ -62,7 +63,7 @@ The metrics, with the namespace `app`:
 | `app_writer_batches_total`, `app_writer_commands_total`, `app_writer_command_failures_total`, `app_writer_busy_seconds_total` | `lith/prom` |
 | `app_writer_queue`, `app_writer_batch_max`, `app_writer_commit_p99_seconds` | `lith/prom` |
 | `app_live_ticks_total`, `app_live_renders_total`, `app_live_tick_overruns_total`, `app_live_read_txs_total` | `lith/prom` |
-| `app_live_frames_sent_total`, `app_live_frames_dropped_total`, `app_live_streams`, `app_live_views` | `lith/prom` |
+| `app_live_frames_sent_total`, `app_live_frames_dropped_total`, `app_live_renders_deferred_total`, `app_live_streams`, `app_live_views` | `lith/prom` |
 | `app_sse_budget_limit_bytes`, `app_sse_budget_reserved_bytes`, `app_sse_budget_streams{setting}`, `app_sse_budget_refused_total` | `lith/prom` |
 | `app_db_query_duration_seconds{op}`, `app_db_slow_queries_total{op}` | `lith/dbmetrics/prom` |
 | `app_backup_enabled`, `app_backup_replica_last_sync_timestamp_seconds{replica}` and the rest | `lith/backup` ([Backups](/docs/guides/backups#replication-with-litestream)) |
@@ -89,7 +90,7 @@ return flagValue, nil
 [`deploy/observability/lith-apps.json`](https://github.com/zweiundeins/lith/blob/main/deploy/observability/lith-apps.json) shows any lith app: pick its metric namespace, then the app and the slot. Its rows:
 
 - **Requests**: requests, 5xx and p95 latency by route.
-- **Live**: open streams beside the requests in flight, ticks a second and overruns, renders per tick, frames sent and dropped, watched views and read transactions.
+- **Live**: open streams beside the requests in flight, ticks a second and overruns, renders per tick, frames sent and dropped and renders deferred, watched views and read transactions.
 - **Writer**: commands a second, commands per batch and the largest batch, commit p99, failures, the queue, the time the writer is busy.
 - **Streams**: the budget reserved against its limit, streams by encoder setting, refused streams.
 - **Database**: p95 by operation, statements and slow statements.

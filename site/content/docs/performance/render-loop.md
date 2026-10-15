@@ -64,10 +64,23 @@ With NORMAL a command commits in 0.3 to 0.5 ms; with FULL it waits for its batch
 
 The p99s are the shared SSD pool's: medians of 7 to 29 ms in these runs, and seconds in a run with a disk stall, in either mode. `RESULTS.md` has them, with their ranges.
 
+## Streams that do not keep up
+
+In these runs every stream takes every frame. A stream that does not, because its client is slow or its link is ([Streams: slow links](/docs/guides/streams#slow-links)), keeps only the newest frame of each view, and the hub does not render a view while every stream that watches it still has a frame of it waiting ([Ticks](/docs/concepts/ticks#the-newest-frame-wins)). `TestRenderCost` in `live` gives 50 tabs a view of their own of about 34 KB that changes at every tick. Measured on 2026-10-15 on the development machine, three runs each, before the render skip and with it:
+
+| Streams | Renders a second per stream, before | with the skip | Cores busy, before | with the skip |
+| --- | --- | --- | --- | --- |
+| keep up | 19.8 | 19.8 | 2.17 to 2.20 | 2.17 to 2.19 |
+| slow, four frames a second | 19.8 to 19.9 | 3.9 to 4.0 | 1.64 to 1.73 | 0.39 to 0.41 |
+| client stopped reading | 19.7 to 19.8 | 0 | 1.42 to 1.65 | 0.03 to 0.05 |
+
+Before, the hub rendered 20 frames a second for a slow stream that sent 4, and for a stream that sent none until its write deadline ended it; it dropped the rest. Now it renders a view again only once a stream has taken the frame before, and `Stats.RendersDeferred` counts the renders it put off. A view that one stream keeps up with renders at every change, for all of its streams.
+
 ## Measuring again
 
 ```sh
 taskset -c 0-11 go test ./loadtest -run '^$' -bench SharedBoard -count 3
+LITH_RENDER_COST=1 go test ./live -run TestRenderCost -v -count 3
 ```
 
 Add `-cpuprofile cpu.out` for the profile. The benchmark logs each run's whole report, and reports its numbers as benchmark metrics for `benchstat`.

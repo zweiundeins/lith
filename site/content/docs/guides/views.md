@@ -279,4 +279,4 @@ return live.Options{
 }
 ```
 
-`hub.Stats()` counts ticks, renders, frames sent and dropped, overruns, open streams, watched views and the workers' read transactions. When a tick takes longer than `Tick`, the hub samples every tick for 20 s and logs their count, p50, p95, p99 and maximum ([Metrics and monitoring](/docs/guides/monitoring)).
+`hub.Stats()` counts ticks, renders, frames sent and dropped, renders deferred while every stream watching the view had a frame of it waiting, overruns, open streams, watched views and the workers' read transactions. When a tick takes longer than `Tick`, the hub samples every tick for 20 s and logs their count, p50, p95, p99 and maximum ([Metrics and monitoring](/docs/guides/monitoring)).

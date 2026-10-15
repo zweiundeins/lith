@@ -12,7 +12,9 @@ A View is a part of a page. Views with the same key are one view, which renders 
 
 A view renders in one read transaction, so it agrees with itself. Views rendered by different workers can see different commits when one lands during the tick; that commit marks its views dirty, and the next tick brings them together. What must always agree belongs in one view.
 
-A stream keeps only the newest frame of each view it watches, so a slow client skips frames and holds up no one else. Views that change in the same tick reach a stream together, in the order it watches them. A stream to a client on a slow link (Spec.Slow) takes a view's frames about four times a second, and a denser encoder while the budget has room.
+A stream keeps only the newest frame of each view it watches, so a slow client skips frames and holds up no one else. Views that change in the same tick reach a stream together, in the order it watches them. A stream to a client on a slow link (Spec.Slow) takes a view's frames about four times a second.
+
+A dirty view does not render while every stream that watches it still has a frame of it waiting: a stream that has not sent the last one has no use for the next. The hub defers the view instead (Stats.RendersDeferred), and the first stream that takes its waiting frame marks the view dirty again, so the next tick renders the state as it is then. A view stays deferred, and costs no render, while its streams' writes block, and a view that only slow streams watch renders about four times a second. A view that one stream keeps up with renders at every change, for all of its streams.
 
 The hub keeps a view's newest frame while two or more streams watch it, so that a stream that joins gets it at once. Of a view that one stream watches, such as a tab's own, it keeps only the frame's length and hash once the stream has the frame: a render that repeats it goes to no stream, and a stream that joins gets a frame rendered in the next tick. A frame that is not \[]byte has no hash, and the hub keeps it.
 
@@ -300,14 +302,16 @@ type Spec struct {
 	Reconnect string
 	// Slow marks a stream to a client on a slow link (edge.SlowLink tells
 	// one). It sends the newest frame of a view 250 ms or more after the
-	// last, four a second, and the frames in between drop, as for a stream
-	// that falls behind (Stats.FramesDropped). A frame is due at once when
-	// it is its view's first, or its view sent nothing for 250 ms, and it
-	// takes the frames that wait along: views that change together still
-	// arrive together, and a view that changes now and then is not held
-	// up, for one frame more of the others with each of its own.
-	// Heartbeats go out as before. Serve opens the stream with
-	// sse.Options.Slow, for a denser encoder while the budget has room.
+	// last, four a second. A frame is due at once when it is its view's
+	// first, or its view sent nothing for 250 ms, and it takes the frames
+	// that wait along: views that change together still arrive together,
+	// and a view that changes now and then is not held up, for one frame
+	// more of the others with each of its own. While a frame waits, a view
+	// that no other stream keeps up with is not rendered
+	// (Stats.RendersDeferred), so it renders about four times a second,
+	// and its frame can be up to 250 ms old when it goes out; a view that
+	// others keep up with renders for them, and the frames in between drop
+	// (Stats.FramesDropped). Heartbeats go out as before.
 	Slow bool
 }
 ```
@@ -322,10 +326,13 @@ type Stats struct {
 	Renders       int64
 	FramesSent    int64 // frames of views written to streams
 	FramesDropped int64 // frames a newer one replaced before their stream sent them
-	Overruns      int64 // ticks that took longer than Options.Tick
-	Streams       int
-	Views         int
-	ReadTxs       int64 // read transactions the render workers began
+	// RendersDeferred counts the times a dirty view was not rendered
+	// because every stream that watches it still had a frame of it waiting.
+	RendersDeferred int64
+	Overruns        int64 // ticks that took longer than Options.Tick
+	Streams         int
+	Views           int
+	ReadTxs         int64 // read transactions the render workers began
 	// RendersByKey counts the renders of each view watched now, by its
 	// key, since it was first watched.
 	RendersByKey map[string]int64

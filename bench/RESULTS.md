@@ -189,6 +189,20 @@ gave the same bytes in each run:
 
 The `memmove` in zstd's `addBlock` comes from its history: the encoder keeps twice its window (1 MiB for the 512 KiB window) and, when the next block does not fit, moves the newest 512 KiB to the front. With a 140 KB frame that is one 512 KiB move every three or four frames, as many bytes again as copying each frame in. No encoder option changes the ratio: a larger window moves more bytes less often, and `ZstdLowMemory` moves once for every frame.
 
+### Streams that do not take their frames
+
+`TestRenderCost` (`live/rendercost_unix_test.go`) measures what streams cost the hub when they do not take every frame: 50 tabs, each with a view of its own of about 34 KB that changes at every tick (`Every`, the default 50 ms tick), formatted row by row as a template would, on streams that keep up, on slow streams (`Spec.Slow`), and on streams whose client stopped reading. The clients take no bytes off the machine. Each kind runs for 11 s and is measured for the last 10. Measured on 2026-10-15 between 09:41 and 09:45 UTC on the same machine, with Go 1.27.2, not pinned (GOMAXPROCS 20), the 1-minute load average about 1.7, three runs each of lith's main at 9c0e842 and of the render-skip branch:
+
+    LITH_RENDER_COST=1 go test ./live -run TestRenderCost -v -count=1
+
+| Streams | Renders a second per stream, before | after | Cores busy, before | after |
+|---|---|---|---|---|
+| keep up | 19.8 | 19.8 | 2.17 to 2.20 | 2.17 to 2.19 |
+| slow | 19.8 to 19.9 | 3.9 to 4.0 | 1.64 to 1.73 | 0.39 to 0.41 |
+| stopped reading | 19.7 to 19.8 | 0 | 1.42 to 1.65 | 0.03 to 0.05 |
+
+Before, a slow stream sent 4 frames a second and the hub rendered 20, dropping 16 of them; a stream whose client stopped reading sent none and the hub rendered 20, dropping all, until its write deadline (10 s by default, a minute here) ended it. With the render skip the hub defers those renders (15.7 and 19.7 a second per stream), and a view renders when its stream has taken the frame before. Streams that keep up cost the same.
+
 ## Stream budget and hibernation
 
 Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1; the settings and the floor again on 2026-10-14 between 17:28 and 17:34 UTC, on lith's main at ff7e536 (v0.2.0, whose streams flush their brotli encoders within a frame), with the 1-minute load average between 1.5 and 4.9. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:

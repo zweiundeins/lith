@@ -141,21 +141,30 @@ and those hints (ECT 2g/3g, RTT over 300, Downlink under 0.8), and the
 handler passes it as `live.Spec.Slow`. A slow stream gets each view's
 newest frame 250 ms apart, about 4 a second (a view's first frame, or one
 of a view quiet for 250 ms, goes at once and takes the waiting frames
-along; heartbeats unchanged), and `sse.Options.Slow`: zstd's default level
-while that tier (1.1 MiB more) fits the fair share, else the fastest;
-brotli q4 while the budget has room, not only while half full. The default
-level at 2^19: 54% fewer bytes where a frame changes in many places, 4 to
-8% where in one, none on a Game of Life, 17% less to 46% more CPU
-(`bench/budget/slow.csv`). On lith's site, a Game of Life tab on a phone
+along; heartbeats unchanged). On lith's site, a Game of Life tab on a phone
 (CPU 4x, Slow 4G or 3G) went from 89 to 90% of its main thread busy to 54
 to 56%, its stream from 5.2 to 6.2 KB/s to 2.7 to 2.9; the network was
-never the limit.
+never the limit. Back-pressure does not tell a phone too slow for the page
+on a fast link: at CPU 15x, unthrottled, behind Caddy (HTTP/2) or not, the
+tab applied 7 of 10 frames a second and fell 94 to 98 s behind in 5
+minutes, with no frame dropped and no write waiting (Chromium grants an
+HTTP/2 stream 6 MiB; over HTTP/1.1 the kernel buffers held it); with
+net=slow it stayed within 1.2 s (`TestLifeDrift`, 2026-10-15). The page
+measures its link, not its CPU.
 
 ## Render loop
 
 - The tick (50 ms by default) bounds the work: N commits in one tick cost one
   render per changed view, whatever N is. A slower tick saves CPU; a faster one
   lowers latency. Measure with the overrun log before changing it.
+- A dirty view does not render while every stream that watches it still has
+  a frame of it waiting (`Stats.RendersDeferred`); the stream that takes its
+  frame marks it dirty for the next tick. A stream whose writes block costs
+  no renders, a view only slow streams watch renders 4 times a second. 50
+  tabs, a 34 KB view each changing every tick: slow streams 1.6 to 1.7 cores
+  before, 0.4 after; clients that stopped reading 1.4 to 1.7 before, 0.03 to
+  0.05 after; streams that keep up unchanged (`TestRenderCost`,
+  bench/RESULTS.md).
 - Each render worker opens one read transaction per tick for all the views it
   renders: one WAL check per worker per tick instead of one per query.
 - Each render worker holds one read connection for the hub's life and keeps

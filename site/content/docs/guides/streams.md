@@ -31,7 +31,6 @@ Chrome, Firefox and Edge accept zstd; Safari decodes it from version 26.3, and o
 | `ZstdLowMemory` | false | history at the window: 0.65 MiB less per stream, more CPU per frame |
 | `BrotliQuality`, `BrotliWindow` | 4, 18 | brotli's quality and window; with a budget, the largest window it gives |
 | `NoCompression` | false | every stream as it is ([below](#small-frequent-events)) |
-| `Slow` | false | a denser encoder for a client on a slow link, while the budget has room ([below](#slow-links)) |
 | `WriteTimeout` | 10 s | the deadline of each write |
 | `Compress` | half the CPUs, in a hub | a semaphore that bounds how many streams compress at once |
 | `Budget` | half the memory limit, in a hub | the memory the streams share, and the window each gets ([below](#the-memory-budget)) |
@@ -101,7 +100,7 @@ An encoder's heap, 0.4 MiB and more per stream, buys little when the events are 
 
 ## Slow links
 
-A phone on a slow link pays for each frame twice: its bytes on the wire, and the work of its main thread to apply it. A stream that knows its link is slow takes fewer frames and a denser encoder.
+A phone pays for each frame twice: its bytes on the wire, and the work of its main thread to apply it. A stream that knows its client is slow takes fewer frames.
 
 **What the page measures.** The page measures once, as it starts, into a local signal, and opens its stream with `net=slow` when the link is slow; its own URL stays as it is. Where the browser has `navigator.connection` (Chromium), the link is slow when the user asked to save data or the browser calls it 2g or 3g. Firefox and Safari have no such API, and there Navigation Timing tells: the document's first byte more than 300 ms after its request, or the document coming at under 100 KB/s. The thresholds sit just past where `navigator.connection` turns from 4g to 3g, a round trip of 270 ms or 700 kbit/s. The template's page puts the measurement in its `data-signals` as `_slow`, and its stream's element reads it:
 
@@ -139,14 +138,11 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-**What a slow stream gets.** With `live.Spec.Slow`:
+**What a slow stream gets.** With `live.Spec.Slow`, each view's newest frame, 250 ms or more after the last: about four frames a second. A view's first frame goes out at once, and so does a frame of a view that sent nothing for 250 ms, such as the tab's outcome after an action; it takes the frames that wait along, so views that change together still arrive together. Heartbeats go out as before. While a frame waits for its turn, the hub does not render its view again unless another stream keeps up with it ([Ticks](/docs/concepts/ticks#the-newest-frame-wins)): a tab's own view renders about four times a second instead of at every tick, and its frame can be up to 250 ms older than the view when it goes out. A view that faster streams watch too renders for them, and the slow stream's frames between drop.
 
-- Each view's newest frame, 250 ms or more after the last: about four frames a second. The frames between drop, as they do for a stream that falls behind. A view's first frame goes out at once, and so does a frame of a view that sent nothing for 250 ms, such as the tab's outcome after an action; it takes the frames that wait along, so views that change together still arrive together. Heartbeats go out as before.
-- `sse.Options.Slow`, which asks the budget for a denser encoder while it has room: zstd at its default level instead of its fastest, while that tier, about 1.1 MiB more, fits the stream's fair share and what is left, and the fastest level's when it does not; brotli at quality 4 while the budget has room for it, where another stream drops to 3 once the budget is half full. The default level sends half the bytes of the fastest on frames that change in many places and 4 to 8% fewer where a frame changes in one place, and nothing on a Game of Life ([Encoders](/docs/performance/encoders#for-slow-links)).
+A client that claims a slow link without one gets fewer frames and costs the server less; a slow link the page takes for a fast one gets what every stream gets.
 
-A client that claims a slow link without one gets fewer frames and costs some memory, within the budget; a slow link the page takes for a fast one gets what every stream gets.
-
-On this site, every demo's stream and the landing page's pass `edge.SlowLink(r)`. Measured on 2026-10-14 on the development machine, in headless Chromium 154 with DevTools' network presets and its CPU four times slower, as on a phone (`TestSlowLinkCost` in `site/internal/app`), with this commit and with the site and lith as of v0.2.0, three runs each, the medians over 10 s with the range in brackets: the stream's KB/s and frames a second, the main thread's share of the time in tasks, and the longest wait of a key press, sent every half second. The Game of Life steps ten times a second; the landing page has five cursors moving behind its title. Unthrottled, both builds send the Game of Life 5.0 to 7.2 KB/s, ten frames a second, and keep the main thread 35 to 43% busy.
+On this site, every demo's stream and the landing page's pass `edge.SlowLink(r)`. Measured on 2026-10-14 on the development machine, in headless Chromium 154 with DevTools' network presets and its CPU four times slower, as on a phone (`TestSlowLinkCost` in `site/internal/app`), with the commit that added slow streams, which then also took a denser zstd level, and with the site and lith as of v0.2.0, three runs each, the medians over 10 s with the range in brackets: the stream's KB/s and frames a second, the main thread's share of the time in tasks, and the longest wait of a key press, sent every half second. The Game of Life steps ten times a second; the landing page has five cursors moving behind its title. Unthrottled, both builds send the Game of Life 5.0 to 7.2 KB/s, ten frames a second, and keep the main thread 35 to 43% busy.
 
 | Page, link | Stream | KB/s | Frames a second | Main thread busy | Slowest key |
 | --- | --- | --- | --- | --- | --- |
@@ -163,6 +159,25 @@ On this site, every demo's stream and the landing page's pass `edge.SlowLink(r)`
 - The streams send half the bytes or less: fewer frames, each a few generations or moves apart from the one before, so each is larger (the Game of Life's about 700 bytes instead of 520).
 - Every page stayed interactive: no key press waited more than 71 ms from DevTools sending it to the page taking it, and Chromium's Event Timing measured none over 104 ms, under the 200 ms that counts as a good response.
 - The landing page sends more than four frames a second: its counter and the stream inspector's report change once a second, are due at once, and take the cursors' newest frame along.
+- Measured again on 2026-10-15, one run, with slow streams as they are now, without the denser level and with the render skip, the slow rows came out within those ranges or next to them: the Game of Life 2.8 and 3.2 KB/s with its main thread 52 and 53% busy, the landing page 0.4 KB/s with 46 and 50%.
+
+**A slow phone on a fast network.** The server cannot tell such a phone by its writes. A frame of the Game of Life is about 700 bytes on the wire, and the buffers between the server and the page hold minutes of them, so a page that applies frames more slowly than they come falls further and further behind, and the server's writes never wait. Measured on 2026-10-15 on the development machine (`TestLifeDrift` in `site/internal/app`), headless Chromium 154 on an unthrottled link with its CPU slowed 15 times, the least of 4, 6, 10, 15 and 20 at which the page could not keep up: it applied 7 of the board's 10 frames a second, where at 10 times it applied all ten and stayed 2 to 3 s behind. The board got a fresh soup every 15 s, so it stayed as busy as a new one. Every second the test compared the board's generation with the one the page showed, for 5 minutes, behind Caddy 2.10.2 with TLS and HTTP/2, as this site runs, and without Caddy, with `navigator.connection` saying 4g, and saying 3g, which has the page open its stream with `net=slow`:
+
+| Behind the board after | Caddy, 4g | Caddy, 3g: `net=slow` | Without Caddy, 4g | Without Caddy, 3g: `net=slow` |
+| --- | --- | --- | --- | --- |
+| 30 s | 13.7 s (138 generations) | 0.7 s (7) | 13.3 s (133) | 0.9 s (10) |
+| 1 minute | 23.1 s (232) | 0.9 s (10) | 22.5 s (225) | 0.6 s (7) |
+| 2 minutes | 42.6 s (427) | 0.6 s (7) | 40.3 s (404) | 0.4 s (5) |
+| 3 minutes | 60.5 s (605) | 1.1 s (11) | 58.9 s (589) | 0.4 s (5) |
+| 4 minutes | 77.7 s (778) | 0.6 s (7) | 75.3 s (754) | 1.0 s (10) |
+| 5 minutes | 98.1 s (981) | 0.2 s (3) | 94.1 s (941) | 0.4 s (5) |
+| Frames dropped in 5 minutes | 0 | 1,829 | 0 | 1,828 |
+| Longest write of the site | 0.16 ms | 0.13 ms | 0.12 ms | 0.14 ms |
+
+- How far behind is how long ago the board showed the generation the page showed. Without `net=slow` the page applied about 7 frames a second and fell 3 generations further behind every second, for the whole five minutes, with Caddy and without it. The hub dropped no frame, and no write of the site's waited.
+- The frames waited where the server cannot see them. Behind Caddy, Chromium took the stream as it came over HTTP/2 and held what the page had not applied, and the sockets' kernel buffers stayed empty: Chromium grants an HTTP/2 stream a window of 6 MiB, which this backlog, about 2 KB a second, would fill in about 50 minutes, before Caddy and the socket to the site hold more. Without Caddy, over HTTP/1.1, Chromium stopped reading the socket, and the frames waited in the kernel: the browser's receive buffer filled at about 110 KB, and the site's send buffer took the rest, up to 528 KB and still growing, which it may until `tcp_wmem`'s maximum, 16 MiB on the development machine and 4 MiB on this site's server.
+- With `net=slow` the page applied the four frames a second it got and stayed 0.6 s behind at the median, 1.2 s at most. The frames dropped are the slow stream's frames between its four a second, which the hub then still rendered; it now defers those renders instead.
+- The page measures its link, not its CPU: on a fast link, a phone this slow opens its stream without `net=slow` and falls behind as in the first column.
 
 ## Streams without the hub
 
