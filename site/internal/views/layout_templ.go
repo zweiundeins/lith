@@ -739,7 +739,7 @@ func Footer(s Shell) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "<span>lith is a runtime for Go, SQLite and Datastar apps, built by <a href=\"https://zweiundeins.gmbh\">zwei und eins</a>.</span></p><nav aria-label=\"Footer\"><a href=\"/docs\">Docs</a> <a href=\"/demos\">Demos</a> <a href=\"/docs/credits\">Credits</a> <a href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "<span>lith is a runtime for Go, SQLite and Datastar apps. Maintained by <a href=\"https://zweiundeins.gmbh\">zwei und eins gmbh</a>.</span></p><nav aria-label=\"Footer\"><a href=\"/docs\">Docs</a> <a href=\"/demos\">Demos</a> <a href=\"/docs/credits\">Credits</a> <a href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

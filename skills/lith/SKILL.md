@@ -5,7 +5,7 @@ description: How to build Go + SQLite + Datastar apps on github.com/zweiundeins/
 
 # lith
 
-lith is a runtime for Go apps of one architecture, built by zwei und eins:
+lith is a runtime for Go apps of one architecture, built by zwei und eins gmbh:
 CQRS on one SQLite file, server-rendered views pushed over SSE, Datastar in
 the browser. Its name is its design: Linear writes, Immediate
 mode, Ticks, Hypermedia. This skill ships in the lith repo, so its rules match

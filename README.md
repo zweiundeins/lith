@@ -8,7 +8,7 @@
 [![SSE: zstd or brotli](https://img.shields.io/badge/SSE-zstd%20%7C%20brotli-2e7d32)](sse)
 
 **L**inear writes, **I**mmediate mode, **T**icks, **H**ypermedia: a runtime
-for Go, SQLite and Datastar apps, built by [zwei und eins](https://zweiundeins.gmbh).
+for Go, SQLite and Datastar apps, built by [zwei und eins gmbh](https://zweiundeins.gmbh).
 
 - **Linear writes:** one writer applies every command in order, batched into
   one transaction with a savepoint each.
@@ -115,3 +115,7 @@ Inspired by [andersmurphy/hyperlith](https://github.com/andersmurphy/hyperlith) 
 ## License
 
 [MIT](LICENSE).
+
+## Maintainer
+
+Maintained by [zwei und eins gmbh](https://zweiundeins.gmbh), Aarberg, Switzerland.
