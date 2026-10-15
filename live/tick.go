@@ -166,6 +166,10 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 		if v.every > 0 {
 			v.due = start.Add(v.every)
 		}
+		if h.waiting(v) {
+			h.deferred.Add(1)
+			continue
+		}
 		v.rendering = true
 		t.views = append(t.views, v)
 	}
@@ -198,6 +202,45 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	clear(t.errs)
 	clear(t.sums)
 	return true
+}
+
+// waiting reports whether every watch of v has a frame waiting (Hub.mu held).
+// v is marked deferred first, so a pump that takes a slot after a read sees it.
+func (h *Hub) waiting(v *view) bool {
+	if len(v.watches) == 0 {
+		return false
+	}
+	v.deferred.Store(true)
+	for _, w := range v.watches {
+		w.s.mu.Lock()
+		full := w.next != nil
+		w.s.mu.Unlock()
+		if !full {
+			v.deferred.Store(false)
+			return false
+		}
+	}
+	return true
+}
+
+// resume marks dirty the deferred views of the frames a pump took, so that
+// the next tick renders them as they are now.
+func (h *Hub) resume(taken []offer) {
+	locked := false
+	for _, o := range taken {
+		if !o.w.v.deferred.CompareAndSwap(true, false) {
+			continue
+		}
+		if !locked {
+			h.mu.Lock()
+			locked = true
+		}
+		h.mark(o.w.v)
+	}
+	if locked {
+		h.mu.Unlock()
+		h.poke()
+	}
 }
 
 // publish offers the new frames to their streams, and a frame that

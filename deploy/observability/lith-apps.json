@@ -421,8 +421,8 @@
     },
     {
       "id": 9,
-      "title": "Frames sent and dropped per second",
-      "description": "Frames written to streams, and frames a newer one replaced before their stream sent them: a slow client skips frames and holds up nobody else.",
+      "title": "Frames sent and dropped, renders deferred, per second",
+      "description": "Frames written to streams, frames a newer one replaced before their stream sent them, and renders put off while every stream watching the view had a frame of it waiting: a slow client skips frames and holds up nobody else.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -469,6 +469,15 @@
           "refId": "B",
           "expr": "sum by (app) (rate({__name__=\"${ns}_live_frames_dropped_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} dropped",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_renders_deferred_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} deferred",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus-ds"

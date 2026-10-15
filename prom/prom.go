@@ -29,7 +29,7 @@ type collector struct {
 
 	batches, commands, failures, busy, queue, batchMax, commitP99 *prometheus.Desc
 
-	ticks, renders, sent, dropped, overruns, readTxs, streams, views *prometheus.Desc
+	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views *prometheus.Desc
 
 	limit, reserved, frames, tier, refused, reopened *prometheus.Desc
 }
@@ -57,6 +57,7 @@ func New(namespace string, s Sources) prometheus.Collector {
 		renders:   d("live", "renders_total", "Views rendered."),
 		sent:      d("live", "frames_sent_total", "Frames of views written to streams."),
 		dropped:   d("live", "frames_dropped_total", "Frames a newer one replaced before their stream sent them."),
+		deferred:  d("live", "renders_deferred_total", "Renders of dirty views put off while every stream watching the view had a frame of it waiting."),
 		overruns:  d("live", "tick_overruns_total", "Ticks that took longer than the tick."),
 		readTxs:   d("live", "read_txs_total", "Read transactions the render workers began."),
 		streams:   d("live", "streams", "Streams open now."),
@@ -72,7 +73,7 @@ func New(namespace string, s Sources) prometheus.Collector {
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99,
-		c.ticks, c.renders, c.sent, c.dropped, c.overruns, c.readTxs, c.streams, c.views,
+		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views,
 		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened} {
 		ch <- d
 	}
@@ -101,6 +102,7 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		counter(c.renders, float64(st.Renders))
 		counter(c.sent, float64(st.FramesSent))
 		counter(c.dropped, float64(st.FramesDropped))
+		counter(c.deferred, float64(st.RendersDeferred))
 		counter(c.overruns, float64(st.Overruns))
 		counter(c.readTxs, float64(st.ReadTxs))
 		gauge(c.streams, float64(st.Streams))

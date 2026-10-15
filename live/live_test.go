@@ -1230,13 +1230,15 @@ func TestViewsOfOneTickGoInOrder(t *testing.T) {
 }
 
 // blockingWrite records the frames a stream writes as key and value, and
-// blocks on the frame first until release is closed.
+// blocks on the frame first, the first time it comes, until release is
+// closed.
 type blockingWrite struct {
 	first            string
 	entered, release chan struct{}
 
-	mu  sync.Mutex
-	got []string
+	mu      sync.Mutex
+	got     []string
+	blocked bool
 }
 
 func newBlockingWrite(first string) *blockingWrite {
@@ -1250,8 +1252,10 @@ func (b *blockingWrite) write(_ *sse.Stream, key string, frame any) error {
 	f := fmt.Sprint(key, frame)
 	b.mu.Lock()
 	b.got = append(b.got, f)
+	block := f == b.first && !b.blocked
+	b.blocked = b.blocked || block
 	b.mu.Unlock()
-	if f == b.first {
+	if block {
 		close(b.entered)
 		<-b.release
 	}
@@ -1284,10 +1288,11 @@ func byteNumbers(n *atomic.Int64, keys ...string) []View {
 }
 
 // While a stream's Write blocks, the frames of later ticks wait: each
-// tick's frames go out together and in the stream's order, and a frame
-// that a newer one replaced before it went out counts as dropped. So it
-// goes with []byte frames too, of which the hub keeps none: a stream's
-// pending frames are its own.
+// tick's frames go out together and in the stream's order. The stream's
+// views render once into its slots and then wait, deferred, until the
+// pump takes those frames; then they render together, at the newest
+// state. So it goes with []byte frames too, of which the hub keeps none:
+// a stream's pending frames are its own.
 func TestBlockedWriteKeepsTicksTogether(t *testing.T) {
 	for name, views := range map[string]func(*atomic.Int64, ...string) []View{"int": numbers, "[]byte": byteNumbers} {
 		h := start(t, Options{Tick: 2 * time.Millisecond})
@@ -1296,22 +1301,24 @@ func TestBlockedWriteKeepsTicksTogether(t *testing.T) {
 		b := newBlockingWrite("a1")
 		serve(h, Spec{Views: views(&n, "a", "b"), Write: b.write}, "")
 		<-b.entered
-		for i := int64(2); i <= 3; i++ {
+		n.Store(2)
+		h.Changed([]string{"t"})
+		waitFor(t, "the second tick", func() bool { return h.Stats().Ticks == 2 })
+		for i := int64(3); i <= 4; i++ {
 			n.Store(i)
 			h.Changed([]string{"t"})
-			waitFor(t, "the tick", func() bool { return h.Stats().Ticks == i })
+			waitFor(t, "the deferred renders", func() bool { return h.Stats().RendersDeferred == 2*(i-2) })
 		}
-		waitFor(t, "the third tick's frames", func() bool { return h.Stats().FramesDropped == 2 })
 		close(b.release)
 		waitFor(t, "the last frames", func() bool {
 			got := b.sent()
-			return slices.Contains(got, "a3") && slices.Contains(got, "b3")
+			return slices.Contains(got, "a4") && slices.Contains(got, "b4")
 		})
-		if got, want := b.sent(), []string{"a1", "b1", "a3", "b3"}; !slices.Equal(got, want) {
+		if got, want := b.sent(), []string{"a1", "b1", "a2", "b2", "a4", "b4"}; !slices.Equal(got, want) {
 			t.Fatalf("%s: sent %v, want %v", name, got, want)
 		}
-		waitFor(t, "the count", func() bool { return h.Stats().FramesSent == 4 })
-		if s := h.Stats(); s.FramesDropped != 2 {
+		waitFor(t, "the count", func() bool { return h.Stats().FramesSent == 6 })
+		if s := h.Stats(); s.FramesDropped != 0 || s.Ticks != 3 {
 			t.Fatalf("%s: stats %+v", name, s)
 		}
 	}

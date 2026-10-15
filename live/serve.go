@@ -46,14 +46,18 @@ type Spec struct {
 	Reconnect string
 	// Slow marks a stream to a client on a slow link (edge.SlowLink tells
 	// one). It sends the newest frame of a view 250 ms or more after the
-	// last, four a second, and the frames in between drop, as for a stream
-	// that falls behind (Stats.FramesDropped). A frame is due at once when
-	// it is its view's first, or its view sent nothing for 250 ms, and it
-	// takes the frames that wait along: views that change together still
-	// arrive together, and a view that changes now and then is not held
-	// up, for one frame more of the others with each of its own.
-	// Heartbeats go out as before. Serve opens the stream with
-	// sse.Options.Slow, for a denser encoder while the budget has room.
+	// last, four a second. A frame is due at once when it is its view's
+	// first, or its view sent nothing for 250 ms, and it takes the frames
+	// that wait along: views that change together still arrive together,
+	// and a view that changes now and then is not held up, for one frame
+	// more of the others with each of its own. While a frame waits, a view
+	// that no other stream keeps up with is not rendered
+	// (Stats.RendersDeferred), so it renders about four times a second,
+	// and its frame can be up to 250 ms old when it goes out; a view that
+	// others keep up with renders for them, and the frames in between drop
+	// (Stats.FramesDropped). Heartbeats go out as before. Serve opens the
+	// stream with sse.Options.Slow, for a denser encoder while the budget
+	// has room.
 	Slow bool
 }
 
@@ -385,6 +389,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			}
 		}
 		s.mu.Unlock()
+		h.resume(batch)
 		due = nil
 		if wait > 0 {
 			dueTimer.Reset(wait)

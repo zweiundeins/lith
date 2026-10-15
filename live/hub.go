@@ -23,6 +23,16 @@
 // about four times a second, and a denser encoder while the budget has
 // room.
 //
+// A dirty view does not render while every stream that watches it still
+// has a frame of it waiting: a stream that has not sent the last one has
+// no use for the next. The hub defers the view instead
+// (Stats.RendersDeferred), and the first stream that takes its waiting
+// frame marks the view dirty again, so the next tick renders the state as
+// it is then. A view stays deferred, and costs no render, while its
+// streams' writes block, and a view that only slow streams watch renders
+// about four times a second. A view that one stream keeps up with renders
+// at every change, for all of its streams.
+//
 // The hub keeps a view's newest frame while two or more streams watch
 // it, so that a stream that joins gets it at once. Of a view that one
 // stream watches, such as a tab's own, it keeps only the frame's length
@@ -151,10 +161,13 @@ type Stats struct {
 	Renders       int64
 	FramesSent    int64 // frames of views written to streams
 	FramesDropped int64 // frames a newer one replaced before their stream sent them
-	Overruns      int64 // ticks that took longer than Options.Tick
-	Streams       int
-	Views         int
-	ReadTxs       int64 // read transactions the render workers began
+	// RendersDeferred counts the times a dirty view was not rendered
+	// because every stream that watches it still had a frame of it waiting.
+	RendersDeferred int64
+	Overruns        int64 // ticks that took longer than Options.Tick
+	Streams         int
+	Views           int
+	ReadTxs         int64 // read transactions the render workers began
 	// RendersByKey counts the renders of each view watched now, by its
 	// key, since it was first watched.
 	RendersByKey map[string]int64
@@ -197,7 +210,7 @@ type Hub struct {
 	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
 	next    chan struct{}            // closed once the next tick that renders views has published its frames
 
-	ticks, renders, sent, dropped, overruns, readTxs atomic.Int64
+	ticks, renders, sent, dropped, deferred, overruns, readTxs atomic.Int64
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
@@ -212,6 +225,9 @@ type view struct {
 	presence bool
 
 	renders atomic.Int64
+	// deferred: dirty, but left unrendered while every watch had a frame of
+	// it waiting; the pump that takes one marks the view dirty again.
+	deferred atomic.Bool
 
 	// Guarded by Hub.mu.
 	frame     *frame // the newest frame while two or more streams watch the view, else nil
@@ -480,15 +496,16 @@ func (h *Hub) Stats() Stats {
 	}
 	h.mu.Unlock()
 	return Stats{
-		Ticks:         h.ticks.Load(),
-		Renders:       h.renders.Load(),
-		FramesSent:    h.sent.Load(),
-		FramesDropped: h.dropped.Load(),
-		Overruns:      h.overruns.Load(),
-		Streams:       streams,
-		Views:         views,
-		ReadTxs:       h.readTxs.Load(),
-		RendersByKey:  byKey,
+		Ticks:           h.ticks.Load(),
+		Renders:         h.renders.Load(),
+		FramesSent:      h.sent.Load(),
+		FramesDropped:   h.dropped.Load(),
+		RendersDeferred: h.deferred.Load(),
+		Overruns:        h.overruns.Load(),
+		Streams:         streams,
+		Views:           views,
+		ReadTxs:         h.readTxs.Load(),
+		RendersByKey:    byKey,
 	}
 }
 
