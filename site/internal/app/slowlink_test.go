@@ -89,6 +89,7 @@ func TestSlowLinkStream(t *testing.T) {
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestSlowLinkPage
 func TestSlowLinkPage(t *testing.T) {
+	browser.SkipFirefox(t, "the Firefox driver cannot throttle the network")
 	a, base := apptest.Start(t)
 	b := browser.Start(t)
 	const (

@@ -17,6 +17,7 @@ import (
 // the landing page zooms in, along the docs slides forward and back, home
 // again zooms out. transitions.js leaves the type it chose on <html>.
 func TestTransitionTypes(t *testing.T) {
+	browser.SkipFirefox(t, "Firefox has no cross-document view transitions")
 	_, base := apptest.Start(t)
 	b := browser.Start(t)
 	p := b.NewPage(t, 1280, 900)
