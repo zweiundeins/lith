@@ -47,11 +47,13 @@ import (
 // or "off". LIFE_DRIFT_CACHE sets the stream's Cache-Control ("no-cache",
 // or "none" for no header; lith sends no-store). LIFE_DRIFT_RTT, such as
 // 100ms, puts a link with that round trip time in front of the browser.
-// LIFE_DRIFT_COST, in ms, makes each board frame the page applies cost its
+// LIFE_DRIFT_CDP_LATENCY, in ms, turns on DevTools' network emulation with
+// that latency instead, for comparison. LIFE_DRIFT_COST, in ms, makes each board frame the page applies cost its
 // main thread that much more, which works in Firefox too (LITH_BROWSER=
 // firefox), where LIFE_DRIFT=1 then. LIFE_DRIFT_TRACE, a file, records a
 // performance trace of the page, LIFE_DRIFT_TRACE_FOR long (default 20s),
-// starting LIFE_DRIFT_TRACE_AT into the run (default 30s): JSON for
+// starting LIFE_DRIFT_TRACE_AT into the run (default 30s; 0 starts it
+// before the page loads): JSON for
 // DevTools' Performance panel or ui.perfetto.dev, with User Timing marks
 // for each read of the stream and each frame applied (traceMarks).
 // LIFE_DRIFT_ACK, a number of writes, paces the stream by the page's
@@ -168,6 +170,10 @@ func TestLifeDrift(t *testing.T) {
 		}
 	})
 	p.Call(t, "Network.enable", nil)
+	if ms, _ := strconv.ParseFloat(os.Getenv("LIFE_DRIFT_CDP_LATENCY"), 64); ms > 0 {
+		// DevTools' own emulation, to compare with LIFE_DRIFT_RTT's link.
+		p.Call(t, "Network.emulateNetworkConditions", map[string]any{"offline": false, "latency": ms, "downloadThroughput": -1, "uploadThroughput": -1})
+	}
 	effective := "4g"
 	if slow {
 		effective = "3g"
@@ -187,6 +193,10 @@ func TestLifeDrift(t *testing.T) {
 	if chromium {
 		p.Call(t, "Performance.enable", nil)
 	}
+	var shown appliedFrames
+	if chromium {
+		shown.follow(t, p)
+	}
 	p.AddInitScript(t, appliedLog)
 
 	// The board's generation, read often, and when it reached each.
@@ -198,6 +208,11 @@ func TestLifeDrift(t *testing.T) {
 		return g
 	})
 
+	if trace != nil && traceAt == 0 {
+		// From before the page loads: a page that is busy from its start
+		// may never let its renderer join a trace started later.
+		trace.start(t)
+	}
 	p.Navigate(t, base+"/demos/life")
 	p.Wait(t, `document.querySelector('.live-badge.is-live')`, 60*time.Second)
 	p.Eval(t, lifeScrollToStage, nil)
@@ -242,6 +257,7 @@ func TestLifeDrift(t *testing.T) {
 	h0 := a.Hub().Stats()
 	var lastApplied float64
 	var lastWrite writeStats
+	var lastBusy float64
 	busy := func() float64 {
 		if !chromium {
 			return 0
@@ -252,7 +268,11 @@ func TestLifeDrift(t *testing.T) {
 				Value float64
 			}
 		}
-		json.Unmarshal(p.Call(t, "Performance.getMetrics", nil), &r)
+		res, err := p.TryCall("Performance.getMetrics", nil)
+		if err != nil {
+			return lastBusy
+		}
+		json.Unmarshal(res, &r)
 		for _, m := range r.Metrics {
 			if m.Name == "TaskDuration" {
 				return m.Value
@@ -260,11 +280,10 @@ func TestLifeDrift(t *testing.T) {
 		}
 		return 0
 	}
-	lastBusy := busy()
+	lastBusy = busy()
 	lastSelf, lastCaddy := cpuTime(caddyPID)
 	cpu0, caddy0 := lastSelf, lastCaddy
 	var busies []float64
-	var shown appliedFrames
 	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint)
 	t.Logf("| t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy %% |")
 	// The trace starts and ends on time, while the loop below may wait
@@ -277,7 +296,9 @@ func TestLifeDrift(t *testing.T) {
 			time.Sleep(time.Until(start.Add(traceAt)))
 			// Chromium answers once the page's main thread has started
 			// to record, which can take seconds when it is behind.
-			trace.start(st)
+			if traceAt > 0 {
+				trace.start(st)
+			}
 			began := time.Now()
 			t.Logf("trace started at %.1f s", began.Sub(start).Seconds())
 			time.Sleep(time.Until(began.Add(traceFor)))
@@ -297,13 +318,13 @@ func TestLifeDrift(t *testing.T) {
 		now := at.Sub(start)
 		dt := at.Sub(last).Seconds()
 		last = at
-		pg := shown.gen
+		sn, pg := shown.read()
 		bg := board.now()
 		lagS := board.since(pg)
 		h := a.Hub().Stats()
 		ws := wm.stats()
 		q := queues(sitePort, front)
-		row := []any{now.Seconds(), bg, pg, bg - pg, lagS.Seconds(), (float64(shown.n) - lastApplied) / dt,
+		row := []any{now.Seconds(), bg, pg, bg - pg, lagS.Seconds(), (float64(sn) - lastApplied) / dt,
 			h.FramesDropped - h0.FramesDropped, h.FramesSent - h0.FramesSent, h.Renders - h0.Renders,
 			ws.bytes, received.Load(), float64(ws.blocked-lastWrite.blocked) / 1e6, float64(ws.max) / 1e6,
 			q.siteSend, q.proxyRecv, q.proxySend, q.browserRecv, ws.streams}
@@ -318,7 +339,7 @@ func TestLifeDrift(t *testing.T) {
 		row = append(row, busyPct, float64(self-lastSelf)/1e6, float64(cad-lastCaddy)/1e6, reqs, reqBytes, up, down, h.RendersDeferred-h0.RendersDeferred)
 		busies = append(busies, busyPct)
 		lastBusy, lastSelf, lastCaddy = bz, self, cad
-		lastApplied, lastWrite = float64(shown.n), ws
+		lastApplied, lastWrite = float64(sn), ws
 		wm.resetMax()
 		if out != nil {
 			var cells []string
@@ -395,7 +416,9 @@ func mean(xs []float64) float64 {
 
 // appliedLog runs before the page's scripts. Its listener on document,
 // added after Datastar's, notes the time and the generation each board
-// frame shows once Datastar has applied it.
+// frame shows once Datastar has applied it. In Chromium it logs them to
+// the console, whose messages DevTools sends as they come: a page that is
+// behind its stream may not run an evaluation for minutes.
 const appliedLog = `(() => {
   const log = window.__drift = []
   const board = d => !!d && d.type === 'datastar-patch-elements' && typeof (d.argsRaw || {}).elements === 'string' && d.argsRaw.elements.includes('id="life-board"')
@@ -406,34 +429,75 @@ const appliedLog = `(() => {
     document.addEventListener('datastar-fetch', e => {
       if (!board(e.detail)) return
       const dd = document.querySelector('#life-stats dd')
-      log.push([performance.timeOrigin + performance.now(), dd ? dd.textContent : ''])
+      const f = [performance.timeOrigin + performance.now(), dd ? dd.textContent : '']
+      if (window.__driftConsole) console.debug('lith-drift', f[0], f[1])
+      else log.push(f)
     })
   }, true)
 })()`
 
 // appliedFrames are the board frames the page applied, with when.
 type appliedFrames struct {
+	mu   sync.Mutex
 	at   []time.Time
 	gens []int64
 	n    int   // frames applied
 	gen  int64 // the newest generation applied
 }
 
-// drain takes the frames the page applied since the last call.
+// follow takes the frames from the page's console (Chromium).
+func (a *appliedFrames) follow(t *testing.T, p *browser.Page) {
+	p.AddInitScript(t, `window.__driftConsole = true`)
+	p.OnEvent("Runtime.consoleAPICalled", func(params json.RawMessage) {
+		var e struct {
+			Args []struct{ Value any }
+		}
+		json.Unmarshal(params, &e)
+		if len(e.Args) == 3 && e.Args[0].Value == "lith-drift" {
+			ms, _ := e.Args[1].Value.(float64)
+			s, _ := e.Args[2].Value.(string)
+			a.add(ms, s)
+		}
+	})
+}
+
+func (a *appliedFrames) add(ms float64, s string) {
+	g, err := strconv.ParseInt(strings.ReplaceAll(s, ",", ""), 10, 64)
+	if err != nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.at = append(a.at, time.UnixMicro(int64(ms*1000)))
+	a.gens = append(a.gens, g)
+	a.n++
+	a.gen = g
+}
+
+// read is how many frames the page applied, and the newest generation.
+func (a *appliedFrames) read() (int, int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.n, a.gen
+}
+
+// drain takes the frames the page applied since the last call, where
+// they are not in the console (Firefox).
 func (a *appliedFrames) drain(t *testing.T, p *browser.Page) {
+	if p.Engine() == "chromium" {
+		return
+	}
+	// Not splice: a reply that comes too late loses no frame.
+	n, _ := a.read()
 	var got [][2]any
-	p.Eval(t, `window.__drift ? window.__drift.splice(0) : []`, &got)
+	if err := p.TryEval(`window.__drift ? window.__drift.slice(`+strconv.Itoa(n)+`) : []`, &got); err != nil {
+		t.Logf("the page: %v", err)
+		return
+	}
 	for _, e := range got {
 		ms, _ := e[0].(float64)
 		s, _ := e[1].(string)
-		g, err := strconv.ParseInt(strings.ReplaceAll(s, ",", ""), 10, 64)
-		if err != nil {
-			continue
-		}
-		a.at = append(a.at, time.UnixMicro(int64(ms*1000)))
-		a.gens = append(a.gens, g)
-		a.n++
-		a.gen = g
+		a.add(ms, s)
 	}
 }
 
@@ -441,6 +505,8 @@ func (a *appliedFrames) drain(t *testing.T, p *browser.Page) {
 // passed the generation the page had applied last by then, and how many
 // frames it applied in that second.
 func (a *appliedFrames) grid(start, end time.Time, b *boardClock) (lags, applied []float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	j := 0
 	g := int64(-1)
 	for T := start.Add(time.Second); !T.After(end); T = T.Add(time.Second) {

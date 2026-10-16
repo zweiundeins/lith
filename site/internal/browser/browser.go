@@ -427,6 +427,15 @@ func (p *Page) WaitLoad(t testing.TB) {
 	}
 }
 
+// TryCall is Call that returns its error, for Chromium only.
+func (p *Page) TryCall(method string, params any) (json.RawMessage, error) {
+	return p.b.call(p.session, method, params)
+}
+
+// TryEval is Eval that returns its error, such as no reply in 30 s from
+// a page whose main thread is busy for longer.
+func (p *Page) TryEval(expr string, out any) error { return p.eval(expr, out) }
+
 // Eval runs a JavaScript expression, awaits it if it is a promise, and
 // unmarshals its value into out, if out is not nil.
 func (p *Page) Eval(t testing.TB, expr string, out any) {
