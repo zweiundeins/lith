@@ -41,6 +41,7 @@ A demo is one package under `internal/demos/<slug>` that exports a `demo.Demo`, 
 - `Embed`: a small live part for a slot of the landing page (below).
 - `Sweep`: keeps the demo's tables small, run as a command every five minutes. `demo.KeepNewest(tx, table, n)` and `demo.DeleteOlder(tx, table, column, t)` do the usual cases; touch your topics when rows went.
 - `Components`: the Starbase components the demo renders, by slug (below).
+- `Events`: the demo's `lith/events` store, if it keeps an event log. The site runs an `events.Runner` on it beside the writer (stopped before the writer closes), which rebuilds a projector whose version changed, and exports its numbers as `lith_site_events_*`. One demo keeps events at most (`demos.Check`); the town (`internal/demos/town`) is the example: a stream per tile, a decider, an inline projector for now and one with `valid_from`/`valid_to` positions for the past.
 
 ### Commands and handlers
 

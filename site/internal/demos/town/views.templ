@@ -1,0 +1,138 @@
+package town
+
+import "strconv"
+
+// Stage is the demo on its page: the palette, the town, the slider under
+// it and the events around its position. The stage itself is never
+// morphed; the regions with ids are the stream's: the town and the events
+// up to the tab's position (the town now, or as of a position), the
+// events after it, and the tab's outcome.
+templ Stage(b Bounds, m moment, me string) {
+	<div class="town" data-signals={ signals(b) } data-effect={ settle }>
+		@spriteSheet
+		<style data-text={ waiting }></style>
+		<span hidden data-effect={ greet }></span>
+		<div class="town__layout">
+			<div class="town__main">
+				<fieldset class="town-tools">
+					<legend class="visually-hidden">What to build</legend>
+					for _, k := range Tools {
+						<label class="town-tool" data-k={ kindAttr(k) }>
+							<input type="radio" name="town-tool" value={ k } data-bind:_town.tool data-attr:disabled="$_town.at !== 0"/>
+							<span class="town-tool__icon" aria-hidden="true" style={ hue(me) }>
+								@templ.Raw(toolGlyph(k))
+							</span>
+							<span>{ toolName(k) }</span>
+						</label>
+					}
+				</fieldset>
+				<div
+					class="town-board"
+					data-on:click={ place }
+					data-on:keydown={ keys }
+					data-on:datastar-fetch={ placeFailed }
+					data-class:is-past="$_town.at !== 0"
+					data-attr:aria-busy={ pending }
+				>
+					@Board(m)
+				</div>
+				<div class="town-time" data-on:datastar-fetch={ seekFailed }>
+					<input
+						type="range"
+						class="town-slider"
+						min={ strconv.FormatInt(b.First, 10) }
+						max={ strconv.FormatInt(b.Head, 10) }
+						value={ strconv.FormatInt(b.Head, 10) }
+						step="1"
+						aria-label="Position in the town's history"
+						data-bind:_town.want
+						data-effect={ edges }
+						data-attr:aria-valuetext={ posLabel }
+						{ drag()... }
+					/>
+					<div class="town-time__row">
+						<output class="town-time__pos" data-text={ posLabel }>Now</output>
+						<button type="button" class="btn btn--sm" data-on:click={ now } data-attr:disabled="$_town.at === 0 && +$_town.want >= $_town.head">Now</button>
+					</div>
+				</div>
+				<p class="town-past" style="display: none" data-show="$_town.at !== 0">This is the town as it was. Press <b>Now</b> to build again.</p>
+				@Outcome(TabState{})
+				<p class="outcome is-problem" role="alert" style="display: none" data-show="$_town.problem" data-text="$_town.problem"></p>
+			</div>
+			<section class="town-log" aria-labelledby="town-when">
+				@When(m)
+				@LaterList(nil, nil)
+				@EarlierList(m)
+			</section>
+		</div>
+	</div>
+}
+
+// Moment is the frame of the town at a position: the tiles, the time,
+// the events up to it, and at now an empty list of the events after it.
+templ Moment(m moment) {
+	@Board(m)
+	@When(m)
+	@EarlierList(m)
+	if m.At == 0 {
+		@LaterList(nil, nil)
+	}
+}
+
+// When is the moment's time: now, or the time of the event at the
+// position.
+templ When(m moment) {
+	<h3 id="town-when" class="town-when">
+		if m.At == 0 {
+			<b>Now</b>
+			if len(m.Earlier) > 0 {
+				<span>position { grouped(m.Earlier[0].Position) }</span>
+			}
+		} else if m.Gone != 0 {
+			<b>Position { grouped(m.Gone) } is gone</b>
+			<span>the town keeps its newest { grouped(Kept) } events: this is the oldest</span>
+		} else if len(m.Earlier) > 0 {
+			<b>{ stamp(m.Earlier[0].At) }</b>
+			<span>position { grouped(m.At) }</span>
+		}
+	</h3>
+}
+
+// EarlierList is the events up to the position, the one at it first.
+templ EarlierList(m moment) {
+	<ol id="town-earlier" class="town-events" role="list">
+		for j, e := range m.Earlier {
+			@event(e, j == 0, m.people)
+		}
+	</ol>
+}
+
+// LaterList is the events after the position, the newest first.
+templ LaterList(evs []Event, p people) {
+	<ol id="town-later" class="town-events town-events--later" role="list">
+		for _, e := range evs {
+			@event(e, false, p)
+		}
+	</ol>
+}
+
+templ event(e Event, here bool, p people) {
+	<li
+		class="town-ev"
+		data-pos={ strconv.FormatInt(e.Position, 10) }
+		if here {
+			data-here
+		}
+	>
+		<span class="town-ev__face" style={ "--h: " + strconv.Itoa(p.of(e.Who).Hue) } aria-hidden="true">
+			<svg viewBox="0 0 7 7"><path d={ p.of(e.Who).Path }></path></svg>
+		</span>
+		<span class="town-ev__what"><b>{ p.of(e.Who).Name }</b> { what(e) }</span>
+		<time datetime={ e.At.UTC().Format("2006-01-02T15:04:05.000Z") }>{ clock(e.At) }</time>
+	</li>
+}
+
+// Outcome is the tab's own region: why its last change was refused.
+templ Outcome(s TabState) {
+	<p id="town-outcome" role="status" class="outcome is-refused">{ s.Refusal }</p>
+}

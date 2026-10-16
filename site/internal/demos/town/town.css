@@ -1,0 +1,401 @@
+/* The town. Its rules apply inside its own island only.
+ *
+ * The tiles are buttons with a picture of 8 by 8 pixels: symbols from the
+ * page's sprite sheet (sprites.go), drawn in the custom properties below,
+ * so the town follows the theme. A house's roof takes its builder's hue
+ * (--h), roads and bridges share their pieces in asphalt or wood (--_pave).
+ * The page's own state reaches a tile through --town-wait, which the
+ * page's style element sets by the tile's number (expr.go, waiting). */
+@scope ([data-demo="town"]) {
+	:scope {
+		--town-grass: light-dark(oklch(80% 0.09 132), oklch(42% 0.06 140));
+		--town-grass-line: light-dark(oklch(74% 0.09 132), oklch(38% 0.06 140));
+		--town-water: light-dark(oklch(70% 0.09 228), oklch(40% 0.075 240));
+		--town-wave: light-dark(oklch(86% 0.06 220), oklch(56% 0.08 235));
+		--town-wall: light-dark(oklch(97% 0.01 80), oklch(90% 0.015 80));
+		--town-wall-2: light-dark(oklch(84% 0.015 80), oklch(72% 0.015 80));
+		--town-door: oklch(42% 0.06 50);
+		--town-window: oklch(40% 0.03 240);
+		--town-leaf: light-dark(oklch(50% 0.12 145), oklch(56% 0.11 145));
+		--town-leaf-2: light-dark(oklch(63% 0.13 138), oklch(69% 0.12 138));
+		--town-trunk: oklch(42% 0.06 55);
+		--town-road: light-dark(oklch(54% 0.008 70), oklch(29% 0.008 70));
+		--town-wood: oklch(58% 0.07 62);
+	}
+
+	.town {
+		container: town / inline-size;
+		margin-block-start: var(--lith-space-4);
+	}
+
+	.town__layout {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--lith-space-6);
+
+		@container town (width >= 44rem) {
+			grid-template-columns: minmax(0, 3fr) minmax(15rem, 2fr);
+		}
+	}
+
+	.town__main {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-4);
+	}
+
+	.town-sheet {
+		position: absolute;
+		inline-size: 0;
+		block-size: 0;
+		overflow: hidden;
+	}
+
+	/* ── The palette ─────────────────────────────────────────────────── */
+	.town-tools {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--lith-space-2);
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+
+	.town-tool {
+		--_n: calc(3px * var(--lith-notch));
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--lith-space-2);
+		padding: var(--lith-space-1) var(--lith-space-3) var(--lith-space-1) var(--lith-space-1);
+		color: var(--lith-text-2);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-sm);
+		background: var(--lith-surface-1);
+		box-shadow: inset 0 0 0 1px var(--lith-border);
+		clip-path: polygon(var(--_n) 0, calc(100% - var(--_n)) 0, 100% var(--_n), 100% calc(100% - var(--_n)), calc(100% - var(--_n)) 100%, var(--_n) 100%, 0 calc(100% - var(--_n)), 0 var(--_n));
+		border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+		cursor: pointer;
+		transition: background var(--lith-dur-2) var(--lith-ease-snap), box-shadow var(--lith-dur-2) var(--lith-ease-snap);
+
+		& input {
+			position: absolute;
+			inset: 0;
+			margin: 0;
+			opacity: 0;
+			cursor: inherit;
+		}
+
+		&:hover {
+			background: var(--lith-surface-hover);
+		}
+
+		&:has(input:checked) {
+			color: var(--lith-text-1);
+			background: var(--lith-accent-subtle);
+			box-shadow: inset 0 0 0 2px var(--lith-accent);
+		}
+
+		&:has(input:focus-visible) {
+			box-shadow: inset 0 0 0 2px var(--lith-focus);
+		}
+
+		&:has(input:disabled) {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+	}
+
+	.town-tool__icon {
+		display: grid;
+		inline-size: 1.75rem;
+		block-size: 1.75rem;
+		background: var(--town-grass);
+
+		.town-tool[data-k="water"] & {
+			background: var(--town-water);
+		}
+
+		& svg {
+			inline-size: 100%;
+			block-size: 100%;
+			shape-rendering: crispEdges;
+		}
+	}
+
+	/* ── The town ────────────────────────────────────────────────────── */
+	.town-board {
+		position: relative;
+		padding: var(--lith-frame-step, 4px);
+		background: var(--lith-surface-inset);
+		box-shadow: inset 0 0 0 1px var(--lith-border);
+	}
+
+	.town-map {
+		display: grid;
+		grid-template-columns: repeat(12, minmax(0, 1fr));
+		background: var(--town-grass);
+		transition: filter var(--lith-dur-4) var(--lith-ease-glide);
+
+		/* The past looks like an old photograph. */
+		.is-past > & {
+			filter: sepia(0.4) saturate(0.75);
+		}
+	}
+
+	.town-tile,
+	.town-tool__icon {
+		--_roof: light-dark(oklch(55% 0.15 var(--h, 30)), oklch(63% 0.14 var(--h, 30)));
+		--_roof-2: light-dark(oklch(45% 0.13 var(--h, 30)), oklch(52% 0.13 var(--h, 30)));
+		--_pave: var(--town-road);
+	}
+
+	.town-tile {
+		display: grid;
+		aspect-ratio: 1;
+		min-inline-size: 0;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: var(--town-grass);
+		box-shadow: inset 0 0 0 0.5px var(--town-grass-line);
+		outline: calc(3px * var(--town-wait, 0)) solid var(--lith-accent);
+		outline-offset: -3px;
+		cursor: pointer;
+
+		&[data-k="water"],
+		&[data-k="bridge"] {
+			background: var(--town-water);
+			box-shadow: none;
+		}
+
+		&[data-k="road"] {
+			box-shadow: none;
+		}
+
+		&[data-k="bridge"] {
+			--_pave: var(--town-wood);
+		}
+
+		/* What appears on grass rises into place. */
+		& svg {
+			inline-size: 100%;
+			block-size: 100%;
+			shape-rendering: crispEdges;
+			pointer-events: none;
+			transition: scale var(--lith-dur-2) var(--lith-ease-snap), opacity var(--lith-dur-2) var(--lith-ease-snap);
+
+			@starting-style {
+				scale: 0.6;
+				opacity: 0;
+			}
+		}
+
+		&:hover:not([aria-disabled]) {
+			filter: brightness(1.12);
+		}
+
+		&:focus-visible {
+			outline: 3px solid var(--lith-focus);
+			outline-offset: -3px;
+		}
+
+		&[aria-disabled] {
+			cursor: default;
+		}
+	}
+
+	/* A seek on its way: a pixel blinks in the frame's corner. */
+	.town-board[aria-busy="true"]::after {
+		content: "";
+		position: absolute;
+		inset-block-start: 0;
+		inset-inline-end: 0;
+		inline-size: var(--lith-frame-step, 4px);
+		block-size: var(--lith-frame-step, 4px);
+		background: var(--lith-accent);
+		animation: town-blink 0.4s var(--lith-ease-steps) infinite;
+	}
+
+	/* ── The slider ──────────────────────────────────────────────────── */
+	.town-time {
+		display: grid;
+		gap: var(--lith-space-2);
+	}
+
+	.town-slider {
+		appearance: none;
+		inline-size: 100%;
+		block-size: 1.75rem;
+		margin: 0;
+		background: transparent;
+		cursor: pointer;
+
+		&::-webkit-slider-runnable-track {
+			block-size: 0.5rem;
+			background: var(--lith-surface-inset);
+			box-shadow: inset 0 0 0 1px var(--lith-border-strong);
+		}
+
+		&::-moz-range-track {
+			block-size: 0.5rem;
+			background: var(--lith-surface-inset);
+			box-shadow: inset 0 0 0 1px var(--lith-border-strong);
+		}
+
+		&::-webkit-slider-thumb {
+			appearance: none;
+			inline-size: 0.875rem;
+			block-size: 1.5rem;
+			margin-block-start: -0.5rem;
+			border: 0;
+			border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+			background: var(--lith-accent);
+			box-shadow: 0 0 0 2px var(--lith-bg), 0 0 12px var(--lith-glow-color);
+		}
+
+		&::-moz-range-thumb {
+			inline-size: 0.875rem;
+			block-size: 1.5rem;
+			border: 0;
+			border-radius: calc(var(--lith-radius-sm) * (1 - var(--lith-notch)));
+			background: var(--lith-accent);
+			box-shadow: 0 0 0 2px var(--lith-bg), 0 0 12px var(--lith-glow-color);
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--lith-focus);
+			outline-offset: 2px;
+		}
+
+		&:disabled {
+			cursor: default;
+			opacity: 0.5;
+		}
+	}
+
+	.town-time__row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--lith-space-3);
+	}
+
+	.town-time__pos {
+		color: var(--lith-text-2);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-sm);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.town-past {
+		color: var(--lith-accent-text);
+		font-size: var(--lith-text-sm);
+	}
+
+	/* ── The events around the position ──────────────────────────────── */
+	.town-log {
+		display: grid;
+		align-content: start;
+		gap: var(--lith-space-2);
+	}
+
+	.town-when {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--lith-space-1) var(--lith-space-3);
+		min-block-size: 1.75rem;
+		margin: 0;
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		font-weight: 400;
+		letter-spacing: var(--lith-tracking-caps);
+		text-transform: uppercase;
+
+		& b {
+			color: var(--lith-text-1);
+			font-size: var(--lith-text-sm);
+			font-weight: 600;
+			letter-spacing: normal;
+			text-transform: none;
+		}
+	}
+
+	.town-events {
+		display: grid;
+		gap: 2px;
+		margin: 0;
+		padding: 0;
+
+		&:empty {
+			display: none;
+		}
+	}
+
+	.town-ev {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		align-items: center;
+		gap: var(--lith-space-2);
+		padding: var(--lith-space-1) var(--lith-space-2);
+		border-inline-start: 3px solid transparent;
+		background: var(--lith-surface-1);
+		color: var(--lith-text-2);
+		font-size: var(--lith-text-sm);
+		line-height: var(--lith-leading-snug);
+
+		& b {
+			color: var(--lith-text-1);
+			font-weight: 600;
+		}
+
+		& time {
+			color: var(--lith-text-muted);
+			font-family: var(--lith-font-ui);
+			font-size: var(--lith-text-xs);
+			font-variant-numeric: tabular-nums;
+		}
+
+		&[data-here] {
+			border-inline-start-color: var(--lith-accent);
+			background: var(--lith-surface-2);
+		}
+
+		/* Events after the position: what is still to come. */
+		.town-events--later > & {
+			opacity: 0.6;
+		}
+	}
+
+	.town-ev__face {
+		--_c: light-dark(oklch(52% 0.14 var(--h)), oklch(80% 0.12 var(--h)));
+		display: grid;
+		inline-size: 1.5rem;
+		block-size: 1.5rem;
+		padding: 0.1875rem;
+		background: color-mix(in oklch, var(--_c) 16%, var(--lith-surface-inset));
+
+		& svg {
+			inline-size: 100%;
+			block-size: 100%;
+			fill: var(--_c);
+			shape-rendering: crispEdges;
+		}
+	}
+
+	@media (forced-colors: active) {
+		.town-tile:focus-visible,
+		.town-tool:has(input:focus-visible) {
+			outline: 3px solid CanvasText;
+		}
+	}
+}
+
+/* Keyframes belong to the document, outside the scope. */
+@keyframes town-blink {
+	50% {
+		opacity: 0;
+	}
+}

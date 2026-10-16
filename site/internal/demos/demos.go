@@ -16,6 +16,7 @@ import (
 	"github.com/zweiundeins/lith/site/internal/demos/guestbook"
 	"github.com/zweiundeins/lith/site/internal/demos/life"
 	"github.com/zweiundeins/lith/site/internal/demos/stream"
+	"github.com/zweiundeins/lith/site/internal/demos/town"
 	writerrace "github.com/zweiundeins/lith/site/internal/demos/writer-race"
 	"github.com/zweiundeins/lith/site/internal/migrate"
 	"github.com/zweiundeins/lith/site/migrations"
@@ -28,6 +29,7 @@ var All = []demo.Demo{
 	stream.Demo,
 	canvas.Demo,
 	board.Demo,
+	town.Demo,
 	cursorparty.Demo,
 	checkboxes.Demo,
 	life.Demo,

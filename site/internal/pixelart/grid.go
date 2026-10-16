@@ -86,6 +86,14 @@ func SVG(w, h int, css string, layers ...Layer) string {
 	return b.String()
 }
 
+// Paths is g's pixels as SVG paths, one per colour, without an <svg>
+// around them: the body of a <symbol> that a page draws many times.
+func Paths(g Grid) string {
+	var b strings.Builder
+	writeRuns(&b, g, 0, 0)
+	return b.String()
+}
+
 // writeRuns writes the horizontal runs of equal colour, one path per
 // colour: the same pixels as a rect each, in a fraction of the markup.
 func writeRuns(b *strings.Builder, g Grid, ox, oy int) {

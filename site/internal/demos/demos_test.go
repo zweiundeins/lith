@@ -13,6 +13,7 @@ import (
 
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/demos"
+	"github.com/zweiundeins/lith/site/internal/demos/town"
 	"github.com/zweiundeins/lith/site/internal/markdown"
 	"github.com/zweiundeins/lith/site/internal/migrate"
 )
@@ -106,6 +107,11 @@ func TestCheck(t *testing.T) {
 	}
 	if err := demos.Check([]demo.Demo{good, good}); err == nil {
 		t.Error("a demo listed twice was accepted")
+	}
+	one, two := town.Demo, town.Demo
+	two.Slug = "town-two"
+	if err := demos.Check([]demo.Demo{one, two}); err == nil || !strings.Contains(err.Error(), "both keep events") {
+		t.Errorf("two demos that keep events: %v", err)
 	}
 	if got := (&demo.Demo{Slug: "cursor-party"}).SignalName(); got != "_cursorParty" {
 		t.Errorf("signal name %q", got)

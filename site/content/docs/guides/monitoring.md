@@ -60,7 +60,7 @@ reg.MustRegister(
 )
 ```
 
-`dbMetrics` is `dbprom.New(Namespace)`, from the module `lith/dbmetrics/prom`. `sources` holds the writer and the hub, and an app on `lith/events` adds its runner and its store; this site does for the event store of a demo that keeps one:
+`dbMetrics` is `dbprom.New(Namespace)`, from the module `lith/dbmetrics/prom`. `sources` holds the writer and the hub, and an app on `lith/events` adds its runner and its store; this site does for the event store of its demo [Town in time](/demos/town):
 
 ```go source=site/internal/app/app.go
 sources := prom.Sources{Writer: w, Hub: hub}
@@ -120,7 +120,7 @@ return flagValue, nil
 - **Database**: p95 by operation, statements and slow statements.
 - **Process**: Go heap in use, resident memory, goroutines, CPU.
 
-The site's `TestDashboard` fails when the dashboard or the alert rules read a metric the site does not export. The site keeps no events, so the test takes the events metrics from the board example's store.
+The site's `TestDashboard` fails when the dashboard or the alert rules read a metric the site does not export. The events metrics come from the town's store and its runner.
 
 ## Alerts
 
