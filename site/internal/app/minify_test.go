@@ -27,8 +27,9 @@ var (
 
 // TestMinified loads the scripts and stylesheets of a page in production
 // and in development. In production the site's own go out minified, and
-// the vendored builds byte for byte as their integrity says; in
-// development every file goes out as written. With -v it lists the sizes,
+// the vendored builds byte for byte as their integrity says, lith's
+// newest-frame.js among them; in development every file goes out as
+// written. With -v it lists the sizes,
 // raw and under brotli -11.
 func TestMinified(t *testing.T) {
 	prod, prodPage := pageAssets(t, false)
@@ -59,7 +60,7 @@ func TestMinified(t *testing.T) {
 			file, err = w, nil
 		}
 		switch {
-		case strings.HasPrefix(name, "vendor/"):
+		case strings.HasPrefix(name, "vendor/") || name == "lith/"+live.NewestFrame:
 			if string(p) != string(d) || string(p) != string(file) {
 				t.Errorf("%s: %d bytes in production, %d in development, %d as written", name, len(p), len(d), len(file))
 			}

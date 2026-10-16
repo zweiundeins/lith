@@ -65,7 +65,8 @@ func newStatic(tb testing.TB, fsys fs.FS, opts ...edge.StaticOption) *edge.Stati
 // TestStatic serves the template's and the site's static files with
 // Minify(minify.Bytes): their own scripts and stylesheets go out minified,
 // and the vendored builds byte for byte as written, as their integrity
-// hashes need. Run with -v, it lists the sizes, raw and under brotli -11.
+// hashes need; lith's newest-frame.js, a minified build too, gains too
+// little to change. Run with -v, it lists the sizes, raw and under brotli -11.
 func TestStatic(t *testing.T) {
 	for name, dir := range staticDirs {
 		t.Run(name, func(t *testing.T) {
@@ -88,7 +89,7 @@ func TestStatic(t *testing.T) {
 				got := w.Body.Bytes()
 				ext := path.Ext(p)
 				switch {
-				case strings.HasPrefix(p, "vendor/") || ext != ".js" && ext != ".css":
+				case strings.HasPrefix(p, "vendor/") || p == "lith/"+live.NewestFrame || ext != ".js" && ext != ".css":
 					if !bytes.Equal(got, b) {
 						t.Errorf("%s: %d bytes served, %d as written", p, len(got), len(b))
 					}

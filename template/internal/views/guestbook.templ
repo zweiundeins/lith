@@ -31,7 +31,7 @@ templ Guestbook(p Page) {
 			<script type="module" src={ p.JS }></script>
 			<script type="module" src={ p.NewestFrame }></script>
 		</head>
-		<body data-newest-frame>
+		<body data-newest-frame__reopen>
 			<main data-signals={ signals(p.Tab) }>
 				<div id="stream" hidden data-init={ openStream }></div>
 				<h1>Guestbook</h1>

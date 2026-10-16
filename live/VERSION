@@ -1,0 +1,9 @@
+The build of the Datastar plugin data-newest-frame: dist/index.js of
+github.com/mbolli/datastar-attribute-newest-frame at commit
+fd92fa12e2775845051609b3a412afbaa8121409, byte for byte, until its npm package
+@mbolli/datastar-attribute-newest-frame 1.0.0 is released.
+Update: copy dist/index.js from a newer commit or npm release to
+newest-frame.js and change this file.
+MIT, github.com/mbolli/datastar-attribute-newest-frame.
+
+newest-frame.js	2964 bytes	sha384-ytt4vRO2taDepI105vY3qxzyk1q/si4TD3u6IXh8t156D60tOc866qNeWiZ6VCxV
