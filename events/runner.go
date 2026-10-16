@@ -583,9 +583,7 @@ func (r *Runner) try(ctx context.Context, p *projector, ev Raw, log *slog.Logger
 	for attempt := 1; ; attempt++ {
 		err := p.deliver(ctx, r.st, ev)
 		if err == nil {
-			if attempt > 1 {
-				r.note(p.name, func(s *ProjectorStats) { s.Error, s.Attempts = "", 0 })
-			}
+			r.note(p.name, func(s *ProjectorStats) { s.Error, s.Attempts = "", 0 })
 			return nil
 		}
 		if ctx.Err() != nil {
