@@ -2,6 +2,11 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- Template: the binary serves its metrics for Prometheus on a loopback listener of its own, which `-metrics` sets: `auto`, the default, is 127.0.0.1 at `-addr`'s port + 100 (8180 in development, `-dev` included), `off` is none. They are `lith/prom`'s and `lith/dbmetrics/prom`'s under the app's name with `-` as `_`, and the Go runtime's and the process's, so the "lith apps" dashboard and alert rules show a new app without a change. The unit passes `-metrics 127.0.0.1:8180` beside its socket, binds that port alone, and now allows loopback and no other host, so that Prometheus can connect: an app that calls out adds the addresses it needs to `IPAddressAllow`. `deploy/observability/app.metrics.yml` is the scrape target, labelled `app` and `slot`, which `setup-host.sh` installs where Prometheus is. `TestDashboard` checks the app's metric names against the dashboard and the rules, and `TestMetricsPort` that the unit and the target name one port. An app made from an earlier template can copy `cmd/app/metrics.go`, the unit's network lines and the target.
+- `lith-new`: the new go.mod requires `lith/prom` at lith's version, as it requires lith and `lith/minify`, and `lith/dbmetrics/prom` at v0.1.0; `-lith` replaces all four. Every release tags `prom/vX.Y.Z` with the root's `vX.Y.Z`, as it tags `minify/vX.Y.Z`, or `lith-new` of that release writes a go.mod that does not tidy.
+
 ## v0.3.0 (2026-10-16)
 
 The new package `events` adds event sourcing to the writer, with inline and catch-up projectors, rebuilds, retention and reads as of any position. A page that is too slow for its stream now stays close to the present with `newest-frame.js`, a Datastar plugin that lith serves. It applies only the newest frame of each view, and asks for a slower stream when it skips most of them. No API was removed. What to check in an app:
