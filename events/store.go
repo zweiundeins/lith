@@ -68,6 +68,7 @@ type Store struct {
 	catchUp    map[string][]*projector
 	upcasts    map[string]map[string]*Upcaster // by stream kind, then the old type's name
 	streams    map[string]any                  // the *Stream of each kind New saw
+	owners     map[string]string               // the projector of each table, by its name in lower case
 
 	once     sync.Once
 	checkErr error
@@ -81,8 +82,8 @@ type Part interface {
 
 // New makes a store of the projectors and upcasters. It refuses a
 // projector that neither handles nor ignores an event type of its stream,
-// two projectors with one name, two streams with one kind, and an event
-// type upcast twice. The first Execute, Append or Run checks once more,
+// two projectors with one name or one table, two streams with one kind,
+// and an event type upcast twice. The first Execute, Append or Run checks once more,
 // for event types defined after New ran.
 func New(parts ...Part) (*Store, error) {
 	st := &Store{
@@ -91,6 +92,7 @@ func New(parts ...Part) (*Store, error) {
 		catchUp: map[string][]*projector{},
 		upcasts: map[string]map[string]*Upcaster{},
 		streams: map[string]any{},
+		owners:  map[string]string{},
 	}
 	var errs []error
 	for _, p := range parts {

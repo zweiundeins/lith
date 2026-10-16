@@ -512,7 +512,11 @@ func TestNewRefuses(t *testing.T) {
 			events.Handle(Archived, func(*writer.Tx, events.Record[int64, CardArchived]) error { return nil }))},
 		"catch-up tables": {events.NewProjector(Cards, "p", 1, events.Ignore(Archived), events.Ignore(Renamed), afterCreated).Tables("t")},
 		"inline history":  {events.NewProjector(Cards, "p", 1, handles...).SkipHistory()},
-		"self upcast":     {events.Upcast(Created, Created, func(c CardCreated) CardCreated { return c })},
+		"one table": {
+			events.NewProjector(Cards, "p", 1, handles...).Tables("card_titles"),
+			events.NewProjector(Cards, "q", 1, handles...).Tables("Card_Titles"),
+		},
+		"self upcast": {events.Upcast(Created, Created, func(c CardCreated) CardCreated { return c })},
 		"upcast twice": {
 			events.Upcast(Created, Renamed, func(CardCreated) CardRenamed { return CardRenamed{} }),
 			events.Upcast(Created, Archived, func(CardCreated) CardArchived { return CardArchived{} }),

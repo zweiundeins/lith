@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 
 	"github.com/zweiundeins/lith/writer"
 )
@@ -156,9 +157,17 @@ func (p *Projector[K, E]) add(st *Store) error {
 	if !c.catchUp && c.skipHistory {
 		errs = append(errs, fmt.Errorf("events: inline projector %s skips history: only catch-up projectors can", c.name))
 	}
+	for _, t := range c.tables {
+		if other, dup := st.owners[strings.ToLower(t)]; dup {
+			errs = append(errs, fmt.Errorf("events: projectors %s and %s both name table %s", other, c.name, t))
+		}
+	}
 	errs = append(errs, st.stream(c.kind, p.stream))
 	if err := errors.Join(errs...); err != nil {
 		return err
+	}
+	for _, t := range c.tables {
+		st.owners[strings.ToLower(t)] = c.name
 	}
 	st.projectors = append(st.projectors, c)
 	st.byName[c.name] = c

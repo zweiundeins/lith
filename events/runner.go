@@ -573,6 +573,10 @@ func (r *Runner) catchUp(ctx context.Context, p *projector, pos int64, wake chan
 			}
 			parked = true
 			r.note(p.name, func(s *ProjectorStats) { s.Status = "parked" })
+			select {
+			case <-resume: // a Resume from before it parked
+			default:
+			}
 		}
 	}
 }
