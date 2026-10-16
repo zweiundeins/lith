@@ -98,7 +98,8 @@
 // A Runner keeps the projectors current in a database. When an inline
 // projector's version changes, it rebuilds the projector's tables: it
 // fills a copy of each from every event, a command per batch, while pages
-// read the old tables, and swaps the copies in with the last batch. It
+// read the old tables, which new events still reach, and swaps the copies
+// in with the last batch. It
 // runs the catch-up projectors from their checkpoints, woken by the
 // commits that append their events; an event that keeps failing parks its
 // projector, with the error in Stats.
@@ -107,7 +108,8 @@
 //
 // Load reads a stream's events and Since every event after a position,
 // both as iterators over the transaction they are given. Pages render
-// from projections: a stream's history only grows.
+// from projections: a stream's history only grows. LoadUntil, SinceUntil
+// and StateAt read as of a position, for a page that shows the past.
 //
 // # Retention
 //

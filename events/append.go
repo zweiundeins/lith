@@ -82,7 +82,8 @@ func Execute[K Key, C, E, S any](st *Store, tx *writer.Tx, d Decider[C, E, S], i
 // Append appends events that need no decision, such as an import's or a
 // migration's, after checking the expected version, and runs the inline
 // projectors, in the command's transaction. The stream's state row, if a
-// decider made one, is dropped: its next Execute folds the events again.
+// decider made one, is dropped, so the stream's next Execute refolds it
+// from all its events.
 func Append[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E], want Expected, meta Meta, evs ...E) error {
 	l, live, err := st.prepare(tx, id.s.kind)
 	if err != nil {

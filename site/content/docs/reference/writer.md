@@ -362,6 +362,14 @@ func (t *Tx) Touch(topics ...string)
 
 Touch records that the command changed what the topics name. If the command succeeds, OnCommit gets them after the batch commits.
 
+#### func (*Tx) Untouched {#Tx.Untouched}
+
+```go
+func (t *Tx) Untouched(fn func(*Tx) error) error
+```
+
+Untouched runs fn and drops the topics it touched, while its changes and its AfterCommit functions stay: for writes that no view reads yet, such as a table being filled to replace another. It returns fn's error and undoes nothing; run fn in a Savepoint for that.
+
 ### type Validator {#Validator}
 
 ```go

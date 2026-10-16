@@ -460,7 +460,7 @@ func (c Rename) Apply(tx *writer.Tx) error {
 - Commands decide from the stream's state row, never from a projection.
 - `events.Append(store, tx, id, want, meta, evs...)` for imports, without a
   decider; a single concrete event goes in as `events.One[CardEvent](e)`. It
-  drops the stream's state row, and the next `Execute` folds it again.
+  drops the stream's state row, so the next `Execute` refolds the stream.
 - `Meta`: `At` (stored in Unix milliseconds, now when zero), `Actor`,
   `Correlation`, `Causation`.
 - Test deciders with `eventstest.For(rename).Given(evs...).When(cmd).Then(t, evs...)`
@@ -496,9 +496,16 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   touch the topics they change; `Execute` also touches `events.Topic`.
 - Bumping a projector's version makes the Runner rebuild its `Tables` into
   copies (`card_titles__v2`), a command per `Options.Batch` events, and swap
-  them in with the last batch. Pages read the old table until the swap; its
-  indexes then end in `__v2`. No triggers on, and no foreign keys into, a
-  projection's tables. The swap touches `cardTitles.Topic()`.
+  them in with the last batch; the batches run in `tx.Untouched`, so only
+  the swap touches `cardTitles.Topic()`. Pages read the old table until the
+  swap, and new events still reach it through the new handlers, in a
+  savepoint whose failure is logged and leaves the command alone. No
+  triggers on, and no foreign keys into, a projection's tables.
+- After a rebuild an index `x` is `x__v2`: a migration that changes it runs
+  `DROP INDEX IF EXISTS` on both names. The replaced table is dropped in
+  one command, long for a large projection.
+- A projector's missing table fails `Run`, and in commands only `Execute`
+  and `Append` on its own stream kind, naming the table.
 - Catch-up projectors (`After`) run after the commit, outside the writer, for
   mail and other systems: at least once, with `r.Position` as the idempotency
   key. Failures back off (`Options.Backoff`, `MaxBackoff`); after `Retries`
@@ -508,6 +515,12 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
 - Pages render from projections. `events.Load` (a stream) and `events.Since`
   (the log after a position) are iterators over any `sqlite.Querier`, for a
   history page, a feed near the end of the log, tests and tools.
+- As of a position (a slider back in time): `events.LoadUntil`,
+  `events.SinceUntil`, `events.StateAt` (a decider's state then). A page of
+  many entities reads a history projection whose rows carry `valid_from`
+  and `valid_to` positions: `WHERE valid_from <= ?1 AND (valid_to IS NULL OR
+  valid_to > ?1)`. At 10,000 events: 0.46 ms a look, against 12.6 ms for a
+  replay of the log (bench/RESULTS.md).
 - Retention: `events.Forget(store, tx, id)` deletes a stream (erasure; delete
   its projection rows in the same command), `events.Prune(store, tx, Cards,
   before, limit)` a kind's old events, never past a catch-up projector.

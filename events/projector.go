@@ -118,8 +118,13 @@ func NewProjector[K Key, E any](s *Stream[K, E], name string, version int, hs ..
 
 // Tables names the tables an inline projector writes, and only it: a
 // rebuild fills a copy of each and puts the copies in their place. The
-// app's migrations create and change them. Without tables, a version
-// change rebuilds nothing.
+// app's migrations create and change them. After a rebuild to version N,
+// an index x of a table is named x__vN, as SQLite cannot rename an index:
+// a migration that changes it drops both names (DROP INDEX IF EXISTS).
+// The table a rebuild replaced is dropped in one command, which takes as
+// long as SQLite needs to free its pages. A projector whose table is
+// missing stops the commands of its stream kind until a migration creates
+// it. Without tables, a version change rebuilds nothing.
 func (p *Projector[K, E]) Tables(names ...string) *Projector[K, E] {
 	p.core.tables = append(p.core.tables, names...)
 	for _, n := range names {

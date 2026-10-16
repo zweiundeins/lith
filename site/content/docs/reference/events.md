@@ -83,11 +83,11 @@ var cardTitles = events.NewProjector(Cards, "card_titles", 1,
 var store = events.Must(events.New(cardTitles))
 ```
 
-A Runner keeps the projectors current in a database. When an inline projector's version changes, it rebuilds the projector's tables: it fills a copy of each from every event, a command per batch, while pages read the old tables, and swaps the copies in with the last batch. It runs the catch-up projectors from their checkpoints, woken by the commits that append their events; an event that keeps failing parks its projector, with the error in Stats.
+A Runner keeps the projectors current in a database. When an inline projector's version changes, it rebuilds the projector's tables: it fills a copy of each from every event, a command per batch, while pages read the old tables, which new events still reach, and swaps the copies in with the last batch. It runs the catch-up projectors from their checkpoints, woken by the commits that append their events; an event that keeps failing parks its projector, with the error in Stats.
 
 #### Reads {#hdr-Reads}
 
-Load reads a stream's events and Since every event after a position, both as iterators over the transaction they are given. Pages render from projections: a stream's history only grows.
+Load reads a stream's events and Since every event after a position, both as iterators over the transaction they are given. Pages render from projections: a stream's history only grows. LoadUntil, SinceUntil and StateAt read as of a position, for a page that shows the past.
 
 #### Retention {#hdr-Retention}
 
@@ -130,7 +130,7 @@ ErrConflict is the error, wrapped, of an append to a stream that is not at the e
 func Append[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E], want Expected, meta Meta, evs ...E) error
 ```
 
-Append appends events that need no decision, such as an import's or a migration's, after checking the expected version, and runs the inline projectors, in the command's transaction. The stream's state row, if a decider made one, is dropped: its next Execute folds the events again.
+Append appends events that need no decision, such as an import's or a migration's, after checking the expected version, and runs the inline projectors, in the command's transaction. The stream's state row, if a decider made one, is dropped, so the stream's next Execute refolds it from all its events.
 
 ### func CheckSample {#CheckSample}
 
@@ -172,6 +172,14 @@ func Load[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id Str
 
 Load yields the events of a stream after version after (0 for all), in order, decoded and upcast, read through q: a GET's transaction, a live Render's sqlite.QuerierFrom(ctx), a command's \*writer.Tx. Breaking off the loop closes the rows. A render reads a projection rather than replaying a stream, whose history only grows; Load is for a stream's own history page, a test, a tool.
 
+### func LoadUntil {#LoadUntil}
+
+```go
+func LoadUntil[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id StreamID[K, E], after, upto int64) iter.Seq2[Record[K, E], error]
+```
+
+LoadUntil is Load up to a position: the events of a stream after version after that were stored at or before position upto, the stream as it stood then.
+
 ### func One {#One}
 
 ```go
@@ -199,6 +207,22 @@ func Since(ctx context.Context, q sqlite.Querier, position int64) iter.Seq2[Raw,
 ```
 
 Since yields every event stored after position (0 for all), of every stream, in the order they were stored, as the table holds them: an activity feed is a view over it that lists Topic. Positions only grow, and they commit in order, so a reader that keeps the last position it saw misses no event. Breaking off the loop closes the rows.
+
+### func SinceUntil {#SinceUntil}
+
+```go
+func SinceUntil(ctx context.Context, q sqlite.Querier, after, upto int64) iter.Seq2[Raw, error]
+```
+
+SinceUntil is Since up to a position: every event stored after position after and at or before position upto.
+
+### func StateAt {#StateAt}
+
+```go
+func StateAt[K Key, C, E, S any](ctx context.Context, st *Store, q sqlite.Querier, d Decider[C, E, S], id StreamID[K, E], upto int64) (S, int64, error)
+```
+
+StateAt folds a stream's events up to position upto into d's state: what a command on the stream decided from then, for a page that shows the past. It returns the stream's version then too. It reads through q and stores nothing, and it folds from the stream's first event, so it costs what the stream's history up to upto costs to read.
 
 ## Types
 
@@ -407,7 +431,7 @@ SkipHistory starts a new catch-up projector, and one whose version changed, afte
 func (p *Projector[K, E]) Tables(names ...string) *Projector[K, E]
 ```
 
-Tables names the tables an inline projector writes, and only it: a rebuild fills a copy of each and puts the copies in their place. The app's migrations create and change them. Without tables, a version change rebuilds nothing.
+Tables names the tables an inline projector writes, and only it: a rebuild fills a copy of each and puts the copies in their place. The app's migrations create and change them. After a rebuild to version N, an index x of a table is named x\_\_vN, as SQLite cannot rename an index: a migration that changes it drops both names (DROP INDEX IF EXISTS). The table a rebuild replaced is dropped in one command, which takes as long as SQLite needs to free its pages. A projector whose table is missing stops the commands of its stream kind until a migration creates it. Without tables, a version change rebuilds nothing.
 
 #### func (*Projector[K, E]) Topic {#Projector.Topic}
 

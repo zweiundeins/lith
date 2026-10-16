@@ -116,7 +116,7 @@ The check comes before the decision. A stream at another version fails the comma
 
 `events.Meta` records who and what caused the event: the actor (a user, a session), a correlation id (the request) and a causation id (the command's op id, which `writer.Once` deduplicates). `At` defaults to the time of the append and is stored in Unix milliseconds, so events of the same second keep their order on a page; their order in the log comes from their positions.
 
-`events.Append` appends events that need no decision, such as an import's, with the same version check and the same projectors. It drops the stream's state row, and the next `Execute` folds the stream again. Go infers the stream's event type from its id and refuses a struct in its place, so a single event goes through `events.One[CardEvent](Renamed{...})`, and several through `[]CardEvent{...}...`.
+`events.Append` appends events that need no decision, such as an import's, with the same version check and the same projectors. It drops the stream's state row, so the stream's next `Execute` refolds it from all its events. Go infers the stream's event type from its id and refuses a struct in its place, so a single event goes through `events.One[CardEvent](Renamed{...})`, and several through `[]CardEvent{...}...`.
 
 ## Testing a decider
 
@@ -174,19 +174,22 @@ defer func() {
 }()
 ```
 
-`Run` first records new projectors and changed versions in `lith_projections`, in one command, and returns an error there, such as a projector's missing table. Without a runner, inline projectors still run in every command; nothing is rebuilt and no catch-up projector moves. `runner.Stats()` lists each projector with its version, its status (live, rebuilding or parked), its position and its last error.
+`Run` first records new projectors and changed versions in `lith_projections`, in one command, and returns an error there, such as a projector's missing table. In commands, a missing table stops only its own stream kind: `Execute` and `Append` on that kind fail with an error that names the table, and the other kinds go on. Without a runner, inline projectors still run in every command; nothing is rebuilt and no catch-up projector moves. `runner.Stats()` lists each projector with its version, its status (live, rebuilding or parked), its position and its last error.
 
 ## Rebuilds
 
 A new version of an inline projector, or a projector new to a database whose stream has events, is rebuilt from the events:
 
 1. The runner creates an empty copy of each of its tables, `card_history__v2` with its indexes, from the table's own `CREATE` statements.
-2. It fills the copy in batches of `Options.Batch` events (500), each a command of its own, so other commands run between them. The handlers write their tables by name, so for the length of each batch the copy takes the table's name and the table steps aside.
-3. The batch that finds fewer events left is the swap: it applies them, and the copy keeps the table's name. Pages read the old table until that batch commits and the new one from then on, never a table half built. The next command drops the old table, and the swap touches the projector's topic, `lith:projection:card_history`, for views that list it.
+2. It fills the copy in batches of `Options.Batch` events (500), each a command of its own, so other commands run between them. The handlers write their tables by name, so for the length of each batch the copy takes the table's name and the table steps aside. The batches run in `tx.Untouched`, which drops the topics the handlers touch: no page reads the copy.
+3. The batch that finds fewer events left is the swap: it applies them, and the copy keeps the table's name. Pages read the old table until that batch commits and the new one from then on, never a table half built. The swap touches the projector's topic, `lith:projection:card_history`, for views that list it.
+4. The next command drops the old table. That is one `DROP TABLE`, as long as SQLite takes to free the table's pages: for a large projection, one long command that the other commands wait for.
 
-While it rebuilds, a projector's table stays as it was: the new events reach it in the batches and at the swap, in order. Commands go on, since they decide from their streams' state rows, not from projections. A rebuild that stops, with a deploy, goes on from its last batch with the next runner.
+While it rebuilds, pages stay current: the events of new commands reach the old table too, through the projector's new handlers, each projector in a savepoint of its own (`tx.Savepoint`), and touch their topics. The new handlers may not fit the old table, a column the new version adds, say: a failure there is logged and undone, and the person's command goes on. The copy gets every event all the same, and the swap replaces the table. Commands decide from their streams' state rows, not from projections. A rebuild that stops, with a deploy, goes on from its last batch with the next runner.
 
-The tables are renamed with `PRAGMA legacy_alter_table` on, so views and triggers elsewhere that name the table go on naming whatever table holds the name. What the module asks of a projector's tables: only the projector writes them, they have no triggers of their own, and no foreign key points at them. After a rebuild to version 2, an index `x` of the table is named `x__v2`, since SQLite cannot rename an index; a migration that changes a projection's indexes bumps the projector's version instead.
+On the development machine, a rebuild of 100,000 events took about a second in 200 commands. Every batch renames tables, a schema change, so each statement a reader has prepared is prepared again after each batch, 53 µs for a lookup by id, which did not show in the readers' mean lookup of 4.4 µs ([the numbers](https://github.com/zweiundeins/lith/blob/main/bench/RESULTS.md)).
+
+The tables are renamed with `PRAGMA legacy_alter_table` on, so views and triggers elsewhere that name the table go on naming whatever table holds the name. What the module asks of a projector's tables: only the projector writes them, they have no triggers of their own, and no foreign key points at them. After a rebuild to version 2, an index `x` of the table is named `x__v2`, since SQLite cannot rename an index. A migration that changes such an index drops both names, `DROP INDEX IF EXISTS x` and `DROP INDEX IF EXISTS x__v2`, before it creates the new one.
 
 ## Catch-up projectors
 
@@ -223,6 +226,54 @@ A failed event is tried again after `Options.Backoff` (a second), then after twi
 `events.Load` yields a stream's events and `events.Since` every event after a position, as iterators over the transaction they are given: a GET's, a render's `sqlite.QuerierFrom(ctx)`, a command's. Breaking off the loop closes the rows. `Load` decodes and upcasts each event; `Since` gives them as stored, as `events.Raw`, for an activity feed whose view lists `events.Topic`, and `events.Decode` turns one into its type.
 
 Pages render from projections. A render that replays a stream grows with its history: the [review checklist](/docs/review) flags it.
+
+## Looking back to a position
+
+A position names a moment of the whole log, so a page can show the app as it stood at any of them, the position of a slider, say. Three reads take an upper position:
+
+- `events.LoadUntil(ctx, store, q, id, after, upto)` yields a stream's events stored up to position `upto`, and `events.SinceUntil(ctx, q, after, upto)` every event between two positions.
+- `events.StateAt(ctx, store, q, decider, id, upto)` folds a stream's events up to `upto` into the decider's state: what a command on it decided from at the time, with the stream's version then.
+- A projection as of a position is a table of its own whose rows carry the positions between which they held. A change ends the current row at the event's position and starts the next row there, and one query reads the rows that held at a position:
+
+```go source=events/asof_test.go
+var titleHistory = events.NewProjector(Cards, "title_history", 1,
+	events.Handle(Created, func(tx *writer.Tx, r events.Record[int64, CardCreated]) error {
+		_, err := tx.Exec(`INSERT INTO title_history (card_id, title, valid_from) VALUES (?, ?, ?)`, r.ID, r.Data.Title, r.Position)
+		return err
+	}),
+	events.Handle(Renamed, func(tx *writer.Tx, r events.Record[int64, CardRenamed]) error {
+		if err := endRow(tx, r.ID, r.Position); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO title_history (card_id, title, archived, valid_from)
+			SELECT card_id, ?3, archived, ?1 FROM title_history WHERE card_id = ?2 AND valid_to = ?1`, r.Position, r.ID, r.Data.To)
+		return err
+	}),
+	events.Handle(Archived, func(tx *writer.Tx, r events.Record[int64, CardArchived]) error {
+		if err := endRow(tx, r.ID, r.Position); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO title_history (card_id, title, archived, valid_from)
+			SELECT card_id, title, 1, ?1 FROM title_history WHERE card_id = ?2 AND valid_to = ?1`, r.Position, r.ID)
+		return err
+	}),
+).Tables("title_history")
+
+// endRow ends a card's current row at position pos.
+func endRow(tx *writer.Tx, card, pos int64) error {
+	_, err := tx.Exec(`UPDATE title_history SET valid_to = ? WHERE card_id = ? AND valid_to IS NULL`, pos, card)
+	return err
+}
+```
+
+```go source=events/asof_test.go
+rows, err := q.QueryContext(ctx, `SELECT card_id, title FROM title_history
+	WHERE valid_from <= ?1 AND (valid_to IS NULL OR valid_to > ?1)`, pos)
+```
+
+The table's key is (`card_id`, `valid_from`), so one card's row at a position is a lookup. The test beside it checks, at every position of a random history, that the table, a replay of the log and each card's `StateAt` agree. A rebuild fills the table like any other, so the history table can come long after the events.
+
+What a look costs on the development machine, for 100 cards and a log of 10,000 events at a random position, in one read transaction: 0.46 ms from the history table, 12.6 ms for a replay of the log up to the position (`SinceUntil`, `Decode` and the fold, 2.5 µs an event), 0.12 ms for one card's `StateAt` over its events up to the position. A slider gives each tab a position of its own, so the view that shows the past is the tab's, rendered for that tab in every tick its slider moves: plan the history table for whole pages and `StateAt` for one stream's page, and key a shared view by the position when tabs can land on the same ones.
 
 ## Event shapes that change
 
