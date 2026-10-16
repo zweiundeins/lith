@@ -758,6 +758,33 @@ func TestAfterCommit(t *testing.T) {
 	}
 }
 
+// Each writer keeps its own locals, and a failed command does not undo
+// SetLocal.
+func TestLocal(t *testing.T) {
+	a := start(t, sqlite.Options{}, Options{})
+	b := start(t, sqlite.Options{}, Options{})
+	type key struct{}
+	ctx := context.Background()
+	set := func(f *fixture, v string) {
+		f.w.Do(ctx, Func(func(tx *Tx) error { tx.SetLocal(key{}, v); return errors.New("refused") }))
+	}
+	get := func(f *fixture) any {
+		v, err := f.w.DoValue(ctx, func(tx *Tx) (any, error) { return tx.Local(key{}), nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	if v := get(a); v != nil {
+		t.Fatalf("a new writer has %v", v)
+	}
+	set(a, "a")
+	set(b, "b")
+	if va, vb := get(a), get(b); va != "a" || vb != "b" {
+		t.Fatalf("locals %v and %v", va, vb)
+	}
+}
+
 func TestSavepointUndoesInnerOnly(t *testing.T) {
 	f := start(t, sqlite.Options{}, Options{})
 	err := f.w.Do(context.Background(), Func(func(tx *Tx) error {

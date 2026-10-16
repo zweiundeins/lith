@@ -156,10 +156,11 @@ type Writer struct {
 	errs     []error
 	topics   map[string]struct{}
 	after    []func()
-	pages    int  // WAL pages written since the last checkpoint
-	dirty    bool // WAL pages written since the last TRUNCATE checkpoint
-	opsReady bool // lith_ops exists
-	resReady bool // lith_results exists
+	pages    int         // WAL pages written since the last checkpoint
+	dirty    bool        // WAL pages written since the last TRUNCATE checkpoint
+	opsReady bool        // lith_ops exists
+	resReady bool        // lith_results exists
+	locals   map[any]any // Tx.SetLocal's
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
 	sizes                                            [SizeBuckets]atomic.Int64

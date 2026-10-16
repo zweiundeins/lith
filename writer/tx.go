@@ -156,6 +156,27 @@ func (t *Tx) Savepoint(fn func(*Tx) error) error {
 	return err
 }
 
+// Local returns the value SetLocal stored under key on this writer, or
+// nil. Packages built on the writer keep there what they know of its
+// database, such as whether their tables exist: one package-level value
+// can then serve the databases of many writers, a database per account
+// among them. Commands run one at a time, so Local needs no lock.
+func (t *Tx) Local(key any) any {
+	t.live()
+	return t.w.locals[key]
+}
+
+// SetLocal stores value under key on this writer, for the commands that
+// follow, until the writer stops. It is not undone when the command
+// fails: set what depends on the commit in AfterCommit.
+func (t *Tx) SetLocal(key, value any) {
+	t.live()
+	if t.w.locals == nil {
+		t.w.locals = map[any]any{}
+	}
+	t.w.locals[key] = value
+}
+
 func (t *Tx) live() {
 	if t.done {
 		panic("writer: Tx used after its command returned")
