@@ -4,12 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/events"
+	"github.com/zweiundeins/lith/events/eventstest"
 	"github.com/zweiundeins/lith/sqlite"
 	"github.com/zweiundeins/lith/writer"
 
@@ -206,14 +209,22 @@ func TestArchiveAndSweep(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Errorf("after the sweep: %d cards, %v", n, err)
 	}
+	n, err = db.ViewValue(ctx, func(tx *sql.Tx) (n int, err error) {
+		err = tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM lith_events) + (SELECT count(*) FROM card_history)`).Scan(&n)
+		return n, err
+	})
+	if err != nil || n != 0 {
+		t.Errorf("after the sweep: %d events and titles of archived cards, %v", n, err)
+	}
 }
 
 func TestRenameCard(t *testing.T) {
-	db, w, _ := open(t)
+	db, w, touched := open(t)
 	ctx := context.Background()
 	if err := w.Do(ctx, board.AddCard{Lane: 1, Title: "Draft"}); err != nil {
 		t.Fatal(err)
 	}
+	touched()
 	for _, title := range []string{"Final", "Final", "Shipped"} {
 		if err := w.Do(ctx, board.RenameCard{Card: 1, Title: title, At: now}); err != nil {
 			t.Fatal(err)
@@ -223,15 +234,87 @@ func TestRenameCard(t *testing.T) {
 	if err := w.Do(ctx, board.RenameCard{Card: 1, Title: " ", At: now}); !errors.As(err, &refusal) {
 		t.Errorf("an empty title: %v", err)
 	}
-	n, err := db.ViewValue(ctx, func(tx *sql.Tx) (n int, err error) {
-		err = tx.QueryRowContext(ctx, `SELECT count(*) FROM card_events WHERE card_id = 1`).Scan(&n)
-		return n, err
-	})
-	if err != nil || n != 2 {
-		t.Errorf("%d events, %v", n, err)
+	if err := w.Do(ctx, board.RenameCard{Card: 9, Title: "x", At: now}); !errors.Is(err, board.ErrNotFound) {
+		t.Errorf("a rename of no card: %v", err)
+	}
+	if got := touched(); !slices.Equal(got, []string{"board:1", "card:1", events.Topic}) {
+		t.Errorf("touched %v", got)
+	}
+	hist, err := db.ViewValue(ctx, func(tx *sql.Tx) ([]board.Title, error) { return board.History(ctx, tx, 1) })
+	if err != nil || len(hist) != 2 || hist[0].Title != "Final" || hist[1].Version != 2 || !hist[1].At.Equal(now) {
+		t.Errorf("history %+v, %v", hist, err)
 	}
 	if c := load(t, db).Lanes[0].Cards[0]; c.Title != "Shipped" || c.Version != 3 {
 		t.Errorf("card %+v", c)
+	}
+}
+
+// The decision alone, as given, when, then: no database.
+func TestDecideRename(t *testing.T) {
+	named := eventstest.For(board.Rename).Given(board.Renamed{Title: "Draft"})
+	named.When(board.RenameCard{Card: 1, Title: " Final "}).Then(t, board.Renamed{Title: "Final"})
+	named.When(board.RenameCard{Card: 1, Title: "Draft"}).Then(t)
+	named.When(board.RenameCard{Card: 1, Title: " "}).ThenError(t, &writer.Refusal{Msg: "A title has 1 to 200 characters."})
+}
+
+// Every event type keeps a sample in testdata, as it was first stored: a
+// field renamed instead of upcast fails here.
+func TestEventSamples(t *testing.T) {
+	eventstest.Samples(t, board.Events, board.Cards, os.DirFS("testdata/card"))
+}
+
+// TestRunner runs the board's event store as the app does, a Runner
+// beside the writer. A database that an older version of the app left,
+// with card_history at version 0, gets the table rebuilt from the cards'
+// streams while the board goes on.
+func TestRunner(t *testing.T) {
+	db, w, _ := open(t)
+	ctx := context.Background()
+	for _, title := range []string{"a", "b"} {
+		if err := w.Do(ctx, board.AddCard{Lane: 1, Title: title}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []board.RenameCard{{Card: 1, Title: "A"}, {Card: 2, Title: "B"}, {Card: 1, Title: "AA"}} {
+		if err := w.Do(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := writer.Func(func(tx *writer.Tx) error {
+		_, err := tx.Exec(`UPDATE lith_projections SET version = 0 WHERE name = 'card_history'; DELETE FROM card_history`)
+		return err
+	})
+	if err := w.Do(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	w.Close() // the old app stops; the new one starts
+	w, err := writer.New(db, writer.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go w.Run(ctx)
+	defer w.Close()
+
+	runCtx, stop := context.WithCancel(ctx)
+	runner := events.NewRunner(board.Events, db, w, events.Options{})
+	done := make(chan error, 1)
+	go func() { done <- runner.Run(runCtx) }()
+	defer func() {
+		stop() // before the writer closes
+		<-done
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !slices.ContainsFunc(runner.Stats().Projectors, func(p events.ProjectorStats) bool {
+		return p.Name == "card_history" && p.Status == "live"
+	}) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no rebuild: %+v", runner.Stats())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	hist, err := db.ViewValue(ctx, func(tx *sql.Tx) ([]board.Title, error) { return board.History(ctx, tx, 1) })
+	if err != nil || len(hist) != 2 || hist[1].Title != "AA" {
+		t.Errorf("history after the rebuild: %+v, %v", hist, err)
 	}
 }
 

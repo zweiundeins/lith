@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/zweiundeins/lith/events"
 	"github.com/zweiundeins/lith/writer"
 )
 
@@ -336,18 +337,21 @@ func ImportFile(ctx context.Context, w *writer.Writer, path string) error {
 
 // Sweep keeps the tables that grow bounded: the rows of tabs quiet for
 // TabTTL, the preferences of sessions unseen for a year, and the cards
-// archived more than a month ago, with their events.
+// archived more than a month ago, with their streams and their history.
 type Sweep struct{ At time.Time }
 
 func (c Sweep) Apply(tx *writer.Tx) error {
 	month := c.At.AddDate(0, -1, 0).Unix()
+	if err := forgetCards(tx, month); err != nil {
+		return err
+	}
 	for _, q := range []struct {
 		sql string
 		arg int64
 	}{
 		{`DELETE FROM tab_state WHERE seen < ?`, c.At.Add(-TabTTL).Unix()},
 		{`DELETE FROM prefs WHERE seen < ?`, c.At.AddDate(-1, 0, 0).Unix()},
-		{`DELETE FROM card_events WHERE card_id IN (SELECT id FROM cards WHERE archived < ?)`, month},
+		{`DELETE FROM card_history WHERE card_id IN (SELECT id FROM cards WHERE archived < ?)`, month},
 		{`DELETE FROM cards WHERE archived < ?`, month},
 	} {
 		if _, err := tx.Exec(q.sql, q.arg); err != nil {
@@ -355,4 +359,32 @@ func (c Sweep) Apply(tx *writer.Tx) error {
 		}
 	}
 	return nil // archived cards show on no board: no topic changed
+}
+
+// forgetCards forgets the streams of the cards archived before a time:
+// their events and their state rows. No rebuild can bring them back, so
+// the sweep deletes the cards' history in the same command.
+func forgetCards(tx *writer.Tx, before int64) error {
+	rows, err := tx.Query(`SELECT id FROM cards WHERE archived < ?`, before)
+	if err != nil {
+		return err
+	}
+	var gone []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		gone = append(gone, id)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, id := range gone {
+		if _, err := events.Forget(Events, tx, Cards.ID(id)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
