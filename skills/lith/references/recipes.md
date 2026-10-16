@@ -510,6 +510,14 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
 - After a rebuild an index `x` is `x__v2`: a migration that changes it runs
   `DROP INDEX IF EXISTS` on both names. The replaced table is dropped in
   one command, long for a large projection.
+- Inline handlers only keep read models: a rebuild runs them again for
+  every event, so a reaction (an event on another stream, a command, a
+  call out) is a catch-up projector that sends its command with
+  `writer.Once` keyed by `r.Position`.
+- A projection table guards nothing: during a rebuild a `UNIQUE` on it fails
+  only a logged handler on the old table, and the command goes on. A rule
+  across streams (a unique slug) lives in a table no projector writes,
+  written by the command itself.
 - A projector's missing table fails `Run`, and in commands only `Execute`
   and `Append` on its own stream kind, naming the table.
 - Catch-up projectors (`After`) run after the commit, outside the writer, for

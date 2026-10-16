@@ -159,6 +159,8 @@ A projector handles or ignores (`events.Ignore`) every event type of its stream:
 
 `Tables` names the tables the projector writes, and only it: the app's migrations create them (`003_card_history.sql` here), and a rebuild replaces them. The board's other projector, `card_titles`, updates `cards.title`, a table that moves change too, so it names no tables and a new version of it rebuilds nothing.
 
+Inline handlers keep read models and do nothing else. A rebuild runs them again for every stored event, so a handler that appended to another stream, sent a command or called out would do it again with each rebuild. A reaction to an event, a notification for an issue's assignee say, is a catch-up projector: it handles each event once its commit is in, and sends its command with `writer.Once` keyed by the event's position (`w.Do(ctx, writer.Once("notify:"+strconv.FormatInt(r.Position, 10), cmd))`), so that a retry after a failure does not send it twice.
+
 ## The Runner
 
 `events.Runner` keeps a store's projectors current in one database: it rebuilds what changed and runs the catch-up projectors. The app starts it beside the writer, on a context that ends before the writer closes:
@@ -185,7 +187,9 @@ A new version of an inline projector, or a projector new to a database whose str
 3. The batch that finds fewer events left is the swap: it applies them, and the copy keeps the table's name. Pages read the old table until that batch commits and the new one from then on, never a table half built. The swap touches the projector's topic, `lith:projection:card_history`, for views that list it.
 4. The next command drops the old table. That is one `DROP TABLE`, as long as SQLite takes to free the table's pages: for a large projection, one long command that the other commands wait for.
 
-While it rebuilds, pages stay current: the events of new commands reach the old table too, through the projector's new handlers, each projector in a savepoint of its own (`tx.Savepoint`), and touch their topics. The new handlers may not fit the old table, a column the new version adds, say: a failure there is logged and undone, and the person's command goes on. The copy gets every event all the same, and the swap replaces the table. Commands decide from their streams' state rows, not from projections. A rebuild that stops, with a deploy, goes on from its last batch with the next runner.
+While it rebuilds, pages stay current: the events of new commands reach the old table too, through the projector's new handlers, each projector in a savepoint of its own (`tx.Savepoint`), and touch their topics. The new handlers may not fit the old table, a column the new version adds, say: a failure there is logged and undone, and the person's command goes on. The copy gets every event all the same, and the swap replaces the table. Commands decide from their streams' state rows, not from projections.
+
+So a projection table guards nothing: while its projector rebuilds, a `UNIQUE` constraint on it, a project's slug say, fails only a handler on the old table, which is logged, and the command that broke the rule goes on. A rule across streams that must hold is a table that no projector writes, `project_slugs (slug UNIQUE, project)`, written by the command itself in the same transaction, where the constraint refuses the command. A rebuild that stops, with a deploy, goes on from its last batch with the next runner.
 
 On the development machine, a rebuild of 100,000 events took about a second in 200 commands. Every batch renames tables, a schema change, so each statement a reader has prepared is prepared again after each batch, 53 µs for a lookup by id, which did not show in the readers' mean lookup of 4.4 µs ([the numbers](https://github.com/zweiundeins/lith/blob/main/bench/RESULTS.md)).
 
