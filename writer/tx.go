@@ -124,6 +124,18 @@ func (t *Tx) Touch(topics ...string) {
 	t.topics = append(t.topics, topics...)
 }
 
+// Untouched runs fn and drops the topics it touched, while its changes
+// and its AfterCommit functions stay: for writes that no view reads yet,
+// such as a table being filled to replace another. It returns fn's error
+// and undoes nothing; run fn in a Savepoint for that.
+func (t *Tx) Untouched(fn func(*Tx) error) error {
+	t.live()
+	n := len(t.topics)
+	err := fn(t)
+	t.topics = t.topics[:n]
+	return err
+}
+
 // AfterCommit runs fn on the writer's goroutine once the batch has
 // committed, before Do returns, in the order the commands registered
 // their functions. If the command fails, or the savepoint fn was

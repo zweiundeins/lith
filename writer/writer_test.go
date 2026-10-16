@@ -722,6 +722,48 @@ func TestOnCommitTopics(t *testing.T) {
 	}
 }
 
+// Untouched keeps fn's changes and AfterCommit functions and drops only
+// the topics fn touched, also those of a nested Savepoint.
+func TestUntouched(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	f := start(t, sqlite.Options{}, Options{OnCommit: func(topics []string) {
+		mu.Lock()
+		got = append(got, topics...)
+		mu.Unlock()
+	}})
+	ran := false
+	errInner := errors.New("inner")
+	err := f.w.Do(context.Background(), Func(func(tx *Tx) error {
+		tx.Touch("before")
+		err := tx.Untouched(func(tx *Tx) error {
+			tx.Touch("inside")
+			if err := insert("untouched")(tx); err != nil {
+				return err
+			}
+			tx.Savepoint(func(tx *Tx) error { tx.Touch("nested"); return nil })
+			tx.AfterCommit(func() { ran = true })
+			return errInner
+		})
+		if !errors.Is(err, errInner) {
+			t.Errorf("Untouched returned %v", err)
+		}
+		tx.Touch("after")
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(got, []string{"after", "before"}) {
+		t.Errorf("published %q", got)
+	}
+	if n := f.count(t, "SELECT count(*) FROM items WHERE name = 'untouched'"); n != 1 || !ran {
+		t.Errorf("the changes or the AfterCommit function went: %d rows, ran %v", n, ran)
+	}
+}
+
 func TestAfterCommit(t *testing.T) {
 	f := start(t, sqlite.Options{}, Options{})
 	var mu sync.Mutex
