@@ -21,6 +21,18 @@ The hub keeps a view's newest frame while two or more streams watch it, so that 
 ## Constants
 
 ```go
+const AckKey = "live.ack"
+```
+
+AckKey is the key of the Frame that carries a stream's acknowledgement event (Spec.Ack) to WriteTick or Write.
+
+```go
+const AckTimeout = 10 * time.Second
+```
+
+AckTimeout is how long a stream with Spec.Window waits for an acknowledgement before it sends its next write anyway.
+
+```go
 const NewestFrame = "newest-frame.js"
 ```
 
@@ -135,6 +147,14 @@ func New(o Options) *Hub
 ```
 
 New returns a hub; Run starts it.
+
+#### func (*Hub) Ack {#Hub.Ack}
+
+```go
+func (h *Hub) Ack(id, token string, n int64) bool
+```
+
+Ack acknowledges the writes of the stream with the ID and token up to the nth (Spec.Window), and frees the window for as many. It reports whether such a stream is open. An acknowledgement of an older write, or of one not written yet, changes nothing.
 
 #### func (*Hub) Budget {#Hub.Budget}
 
@@ -340,6 +360,28 @@ type Spec struct {
 	// others keep up with renders for them, and the frames in between drop
 	// (Stats.FramesDropped). Heartbeats go out as before.
 	Slow bool
+	// Window, if positive, paces the stream by the page: at most Window
+	// writes of frames go out that the page has not acknowledged with
+	// Hub.Ack. Each write of frames ends with the event Ack makes for it,
+	// which has the page acknowledge the write once it has applied it.
+	// While Window writes wait for theirs, the stream's frames wait too:
+	// a view that no other stream keeps up with is not rendered
+	// (Stats.RendersDeferred), and a view that others keep up with drops
+	// the frames in between (Stats.FramesDropped). When an
+	// acknowledgement frees the window, a waiting frame whose view was
+	// deferred since is dropped, and the next tick renders the view as it
+	// is then, so the page never gets a frame that waited for it. A
+	// stream that hears nothing for AckTimeout sends its next write
+	// anyway. It needs an ID and Ack.
+	Window int
+	// Ack makes the event that ends a write of frames on a stream with
+	// Window. The event has the page call Hub.Ack with the stream's ID,
+	// token and n once it has applied the write: n counts the stream's
+	// writes of frames from 1, and token tells this stream from an older
+	// or newer one with the same ID. It goes out as the last Frame of
+	// WriteTick's call, with the key AckKey, or the last event of the
+	// write.
+	Ack func(token string, n int64) []byte
 }
 ```
 
@@ -357,6 +399,7 @@ type Stats struct {
 	// because every stream that watches it still had a frame of it waiting.
 	RendersDeferred int64
 	Overruns        int64 // ticks that took longer than Options.Tick
+	Acks            int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
 	Streams         int
 	Views           int
 	ReadTxs         int64 // read transactions the render workers began

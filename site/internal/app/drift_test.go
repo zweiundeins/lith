@@ -21,6 +21,7 @@ import (
 
 	"github.com/zweiundeins/lith/writer"
 
+	"github.com/zweiundeins/lith/site/internal/app"
 	"github.com/zweiundeins/lith/site/internal/app/apptest"
 	"github.com/zweiundeins/lith/site/internal/browser"
 	"github.com/zweiundeins/lith/site/internal/demos/life"
@@ -53,6 +54,10 @@ import (
 // starting LIFE_DRIFT_TRACE_AT into the run (default 30s): JSON for
 // DevTools' Performance panel or ui.perfetto.dev, with User Timing marks
 // for each read of the stream and each frame applied (traceMarks).
+// LIFE_DRIFT_ACK, a number of writes, paces the stream by the page's
+// acknowledgements instead (web.Config.AckWindow), which the page sends
+// once it has applied a write, or with LIFE_DRIFT_ACK_AFTER=paint after
+// the paint that follows.
 //
 //	LIFE_DRIFT=10 CADDY=$(which caddy) LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifeDrift -v -timeout 30m
 func TestLifeDrift(t *testing.T) {
@@ -80,7 +85,9 @@ func TestLifeDrift(t *testing.T) {
 		traceFor = d
 	}
 
-	a, _ := apptest.Start(t)
+	ackWindow, _ := strconv.Atoi(os.Getenv("LIFE_DRIFT_ACK"))
+	ackPaint := os.Getenv("LIFE_DRIFT_ACK_AFTER") == "paint"
+	a, _ := apptest.Start(t, func(c *app.Config) { c.AckWindow, c.AckAfterPaint = ackWindow, ackPaint })
 	// The site again on a port of its own, behind a writer that times the
 	// stream's writes.
 	wm := writeMeter{cache: os.Getenv("LIFE_DRIFT_CACHE")}
@@ -258,7 +265,7 @@ func TestLifeDrift(t *testing.T) {
 	cpu0, caddy0 := lastSelf, lastCaddy
 	var busies []float64
 	var shown appliedFrames
-	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor)
+	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint)
 	t.Logf("| t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy %% |")
 	// The trace starts and ends on time, while the loop below may wait
 	// seconds for the page.
@@ -349,10 +356,10 @@ func TestLifeDrift(t *testing.T) {
 		self, cad := cpuTime(caddyPID)
 		reqs, reqBytes := wm.requests.read()
 		h := a.Hub().Stats()
-		t.Logf("summary: lag median %.2f s, max %.2f s; applied %.2f frames/s; main thread busy %.0f%%; site CPU %.1f%%, Caddy CPU %.1f%%; lith wrote %.2f KB/s; %d frames sent, %d dropped, %d renders deferred; %.2f other requests/s, %.0f B each",
+		t.Logf("summary: lag median %.2f s, max %.2f s; applied %.2f frames/s; main thread busy %.0f%%; site CPU %.1f%%, Caddy CPU %.1f%%; lith wrote %.2f KB/s; %d frames sent, %d dropped, %d renders deferred; %.2f other requests/s, %.0f B each; %d acks",
 			median(lags), slices.Max(append(lags, 0)), mean(applieds), mean(busies), float64(self-cpu0)/1e9/secs*100, float64(cad-caddy0)/1e9/secs*100,
 			float64(wm.stats().bytes)/1000/secs, h.FramesSent-h0.FramesSent, h.FramesDropped-h0.FramesDropped, h.RendersDeferred-h0.RendersDeferred,
-			float64(reqs)/secs, float64(reqBytes)/float64(max(reqs, 1)))
+			float64(reqs)/secs, float64(reqBytes)/float64(max(reqs, 1)), h.Acks-h0.Acks)
 		if link != nil {
 			t.Logf("link: %.2f KB/s up, %.2f KB/s down", float64(link.up.Load())/1000/secs, float64(link.down.Load())/1000/secs)
 		}

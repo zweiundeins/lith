@@ -1,0 +1,46 @@
+package web
+
+import (
+	"html"
+	"net/http"
+	"strconv"
+
+	"github.com/zweiundeins/lith/live"
+	"github.com/zweiundeins/lith/sse"
+
+	"github.com/zweiundeins/lith/site/internal/views"
+)
+
+// paceByAcks paces a tab's stream by the page's acknowledgements when the
+// site is configured for it (Config.AckWindow), an experiment beside
+// newest-frame.js: each write of frames ends with an element whose
+// data-init posts /ack for it, once Datastar has applied the write, or
+// after the next paint with Config.AckAfterPaint.
+func (s *Server) paceByAcks(spec *live.Spec) {
+	if s.cfg.AckWindow <= 0 {
+		return
+	}
+	tab, paint := spec.ID, s.cfg.AckAfterPaint
+	spec.Window = s.cfg.AckWindow
+	spec.Ack = func(token string, n int64) []byte {
+		num := strconv.FormatInt(n, 10)
+		post := "@post('/ack?tab=" + tab + "&s=" + token + "&n=" + num + "', {requestCancellation: 'disabled'})"
+		if paint {
+			post = "requestAnimationFrame(() => setTimeout(() => " + post + "))"
+		}
+		el := `<i id="ack-` + num + `" data-init="` + html.EscapeString(post) + `"></i>`
+		return sse.PatchElements([]byte(el), sse.Patch{Selector: "#" + views.StreamID, Mode: sse.Inner})
+	}
+}
+
+// ack takes a page's acknowledgement of its stream's writes (live.Hub.Ack).
+func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad ack", http.StatusBadRequest)
+		return
+	}
+	s.hub.Ack(q.Get("tab"), q.Get("s"), n)
+	w.WriteHeader(http.StatusNoContent)
+}

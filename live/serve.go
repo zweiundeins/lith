@@ -57,7 +57,37 @@ type Spec struct {
 	// others keep up with renders for them, and the frames in between drop
 	// (Stats.FramesDropped). Heartbeats go out as before.
 	Slow bool
+	// Window, if positive, paces the stream by the page: at most Window
+	// writes of frames go out that the page has not acknowledged with
+	// Hub.Ack. Each write of frames ends with the event Ack makes for it,
+	// which has the page acknowledge the write once it has applied it.
+	// While Window writes wait for theirs, the stream's frames wait too:
+	// a view that no other stream keeps up with is not rendered
+	// (Stats.RendersDeferred), and a view that others keep up with drops
+	// the frames in between (Stats.FramesDropped). When an
+	// acknowledgement frees the window, a waiting frame whose view was
+	// deferred since is dropped, and the next tick renders the view as it
+	// is then, so the page never gets a frame that waited for it. A
+	// stream that hears nothing for AckTimeout sends its next write
+	// anyway. It needs an ID and Ack.
+	Window int
+	// Ack makes the event that ends a write of frames on a stream with
+	// Window. The event has the page call Hub.Ack with the stream's ID,
+	// token and n once it has applied the write: n counts the stream's
+	// writes of frames from 1, and token tells this stream from an older
+	// or newer one with the same ID. It goes out as the last Frame of
+	// WriteTick's call, with the key AckKey, or the last event of the
+	// write.
+	Ack func(token string, n int64) []byte
 }
+
+// AckKey is the key of the Frame that carries a stream's acknowledgement
+// event (Spec.Ack) to WriteTick or Write.
+const AckKey = "live.ack"
+
+// AckTimeout is how long a stream with Spec.Window waits for an
+// acknowledgement before it sends its next write anyway.
+const AckTimeout = 10 * time.Second
 
 // Frame is a view's new frame, for Spec.WriteTick.
 type Frame struct {
@@ -125,6 +155,9 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	}
 	if spec.Slow {
 		s.every = slowEvery
+	}
+	if spec.Window > 0 && spec.Ack != nil && spec.ID != "" {
+		s.window, s.ack = int64(spec.Window), spec.Ack
 	}
 	published := h.attach(s, spec.Views)
 	o := h.sse
@@ -367,33 +400,69 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		defer restTimer.Stop()
 		rest = restTimer.C
 	}
-	var batch []offer
+	var stall <-chan time.Time // fires when a full window has waited AckTimeout
+	var stallTimer *time.Timer
+	if s.window > 0 {
+		stallTimer = time.NewTimer(time.Hour)
+		stallTimer.Stop()
+		defer stallTimer.Stop()
+	}
+	token := strconv.FormatUint(s.seq, 36)
+	var batch, stale []offer
 	var parts [][]byte
 	var frames []Frame
 	for {
 		var now time.Time
-		if s.every > 0 {
+		if s.every > 0 || s.window > 0 {
 			now = time.Now()
 		}
 		s.mu.Lock()
 		wait := s.hold(now)
-		if wait == 0 {
+		full := s.window > 0 && s.written-s.acked >= s.window && now.Sub(s.heard) < AckTimeout
+		freed := s.full && !full
+		s.full = full
+		if wait == 0 && !full {
 			for _, w := range s.watches {
-				if w.next != nil {
-					batch = append(batch, offer{w, w.next})
-					w.next, w.sent = nil, now
+				if w.next == nil {
+					continue
 				}
+				// A frame that waited for the window while its view's
+				// render was deferred is older than the view: the next
+				// tick renders a newer one.
+				if freed && w.v.deferred.Load() {
+					stale = append(stale, offer{w, w.next})
+					w.next = nil
+					continue
+				}
+				batch = append(batch, offer{w, w.next})
+				w.next, w.sent = nil, now
 			}
+		}
+		var heard time.Time
+		if full {
+			heard = s.heard
 		}
 		s.mu.Unlock()
 		h.resume(batch)
+		if len(stale) > 0 {
+			h.dropped.Add(int64(len(stale)))
+			h.resume(stale)
+			clear(stale)
+			stale = stale[:0]
+		}
 		due = nil
 		if wait > 0 {
 			dueTimer.Reset(wait)
 			due = dueTimer.C
 		}
+		stall = nil
+		if full {
+			stallTimer.Reset(AckTimeout - now.Sub(heard))
+			stall = stallTimer.C
+		}
 
 		_, wire := st.Sent()
+		wrote := false
 		for _, o := range batch {
 			if s.unwatched(o.w) {
 				continue
@@ -407,6 +476,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 					return err
 				}
 				h.sent.Add(1)
+				wrote = true
 				continue
 			}
 			b, ok := o.f.value.([]byte)
@@ -418,9 +488,32 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		clear(batch)
 		batch = batch[:0]
+		if s.window > 0 && (len(frames) > 0 || len(parts) > 0 || wrote) {
+			s.mu.Lock()
+			s.written++
+			n := s.written
+			if n-s.acked >= s.window {
+				s.heard = now // the window is full from now
+			}
+			s.mu.Unlock()
+			ev := s.ack(token, n)
+			switch {
+			case len(frames) > 0:
+				frames = append(frames, Frame{Key: AckKey, Value: ev})
+			case len(parts) > 0:
+				parts = append(parts, ev)
+			default:
+				if err := s.write(st, AckKey, ev); err != nil {
+					return err
+				}
+			}
+		}
 		if len(frames) > 0 {
-			err := s.writeTick(st, frames)
 			n := len(frames)
+			if s.window > 0 {
+				n--
+			}
+			err := s.writeTick(st, frames)
 			clear(frames)
 			frames = frames[:0]
 			if err != nil {
@@ -429,8 +522,11 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			h.sent.Add(int64(n))
 		}
 		if len(parts) > 0 {
-			err := st.Write(parts...)
 			n := len(parts)
+			if s.window > 0 {
+				n--
+			}
+			err := st.Write(parts...)
 			clear(parts)
 			parts = parts[:0]
 			if err != nil {
@@ -453,6 +549,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			return nil
 		case <-s.wake:
 		case <-due:
+		case <-stall:
 		case <-idle.C:
 			if err := st.Write(h.beat()); err != nil {
 				return err
@@ -475,6 +572,27 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			return errReopen
 		}
 	}
+}
+
+// Ack acknowledges the writes of the stream with the ID and token up to
+// the nth (Spec.Window), and frees the window for as many. It reports
+// whether such a stream is open. An acknowledgement of an older write, or
+// of one not written yet, changes nothing.
+func (h *Hub) Ack(id, token string, n int64) bool {
+	h.mu.Lock()
+	s := h.byID[id]
+	h.mu.Unlock()
+	if s == nil || s.window <= 0 || strconv.FormatUint(s.seq, 36) != token {
+		return false
+	}
+	h.acks.Add(1)
+	s.mu.Lock()
+	if n > s.acked && n <= s.written {
+		s.acked, s.heard = n, time.Now()
+	}
+	s.mu.Unlock()
+	s.poke()
+	return true
 }
 
 // beat is a heartbeat: a comment, or a patch of the heartbeat signal.

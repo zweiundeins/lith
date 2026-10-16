@@ -44,6 +44,13 @@ type Config struct {
 	// every request when that directory exists, and serves scripts and
 	// stylesheets as written instead of minified.
 	Dev bool
+	// AckWindow, if positive, paces the demos' streams by the pages'
+	// acknowledgements, with that many writes unacknowledged at most
+	// (live.Spec.Window), and AckAfterPaint has a page acknowledge a write
+	// after the paint that follows it instead of once applied. For
+	// measurements (TestLifeDrift), not in production.
+	AckWindow     int
+	AckAfterPaint bool
 }
 
 // Server holds what the handlers share.
@@ -129,6 +136,9 @@ func (s *Server) Routes() *http.ServeMux {
 		http.Redirect(w, r, "/demos/"+r.PathValue("slug"), http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /demos/{slug}/stream", s.demoStream)
+	if s.cfg.AckWindow > 0 {
+		mux.HandleFunc("POST /ack", s.ack)
+	}
 	mux.Handle("GET /static/", s.static)
 	mux.HandleFunc("GET /favicon.ico", s.file("image/png", iconPNG32))
 	mux.HandleFunc("GET /apple-touch-icon.png", s.file("image/png", iconPNG180))
@@ -302,7 +312,9 @@ func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 // which opens it again on the next process. A tab on a slow link gets its
 // views' frames about four times a second.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, v demo.Viewer, vs []live.View) {
-	err := s.hub.Serve(w, r, live.Spec{ID: v.Tab, Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r)})
+	spec := live.Spec{ID: v.Tab, Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r)}
+	s.paceByAcks(&spec)
+	err := s.hub.Serve(w, r, spec)
 	if err != nil && !errors.Is(err, live.ErrFull) && !errors.Is(err, live.ErrStopped) && !errors.Is(err, sse.ErrNoRoom) {
 		s.log.Debug("stream ended", "tab", v.Tab, "err", err)
 	}
