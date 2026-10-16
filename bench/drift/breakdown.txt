@@ -1,0 +1,90 @@
+## trace-b-noreopen.trace.json.gz: 20.0 s, 931 tasks, 43 applied a frame, 44 long ones applied none
+tasks that applied a frame: 10.13 s, 51% of the time
+    BlinkScheduler_PerformMicrotaskCheckpoint: 9.97 s (98%)
+    SimpleWatcher::OnHandleReady: 0.04 s (0%)
+long tasks without a frame: 8.92 s, 45% of the time
+    Paint: 3.56 s (40%)
+    FireAnimationFrame: 2.21 s (25%)
+    Layout: 2.15 s (24%)
+    Layerize: 0.42 s (5%)
+    PrePaint: 0.21 s (2%)
+    Commit: 0.09 s (1%)
+    UpdateLayoutTree: 0.09 s (1%)
+    EventDispatch: 0.00 s (0%)
+all tasks: 19.35 s, 97% of the time
+    BlinkScheduler_PerformMicrotaskCheckpoint: 9.98 s (52%)
+    Paint: 3.56 s (18%)
+    FireAnimationFrame: 2.21 s (11%)
+    Layout: 2.15 s (11%)
+    Layerize: 0.42 s (2%)
+    PrePaint: 0.21 s (1%)
+    Receive mojo message: 0.12 s (1%)
+    Commit: 0.09 s (0%)
+function calls by time (outermost and nested alike):
+    6.69 s  w in newest-frame.0ea9cedb614c.js
+    2.20 s  T in sparkline.bundle.min.6cc7789b5f09.js
+    1.45 s  Co.MutationObserver.observe.subtree in datastar-rocket.f602fbe19d74.js
+    1.35 s  A in newest-frame.0ea9cedb614c.js
+    0.13 s  Kr in datastar-rocket.f602fbe19d74.js
+    0.07 s  (anonymous) in 
+
+## trace-c-reopen.trace.json.gz: 20.0 s, 683 tasks, 42 applied a frame, 42 long ones applied none
+tasks that applied a frame: 9.23 s, 46% of the time
+    BlinkScheduler_PerformMicrotaskCheckpoint: 9.13 s (99%)
+    SimpleWatcher::OnHandleReady: 0.06 s (1%)
+long tasks without a frame: 9.77 s, 49% of the time
+    Paint: 3.87 s (40%)
+    FireAnimationFrame: 2.51 s (26%)
+    Layout: 2.37 s (24%)
+    Layerize: 0.42 s (4%)
+    PrePaint: 0.21 s (2%)
+    Commit: 0.09 s (1%)
+    UpdateLayoutTree: 0.08 s (1%)
+    IntersectionObserverController::computeIntersections: 0.00 s (0%)
+all tasks: 19.26 s, 96% of the time
+    BlinkScheduler_PerformMicrotaskCheckpoint: 9.14 s (47%)
+    Paint: 3.87 s (20%)
+    FireAnimationFrame: 2.51 s (13%)
+    Layout: 2.37 s (12%)
+    Layerize: 0.42 s (2%)
+    PrePaint: 0.21 s (1%)
+    Commit: 0.09 s (0%)
+    UpdateLayoutTree: 0.09 s (0%)
+function calls by time (outermost and nested alike):
+    6.86 s  w in newest-frame.0ea9cedb614c.js
+    2.62 s  T in sparkline.bundle.min.6cc7789b5f09.js
+    1.40 s  Co.MutationObserver.observe.subtree in datastar-rocket.f602fbe19d74.js
+    0.63 s  A in newest-frame.0ea9cedb614c.js
+    0.17 s  Kr in datastar-rocket.f602fbe19d74.js
+    0.04 s  (anonymous) in 
+
+## trace-e-ack1.trace.json.gz: 20.0 s, 1114 tasks, 46 applied a frame, 46 long ones applied none
+tasks that applied a frame: 9.64 s, 48% of the time
+    BlinkScheduler_PerformMicrotaskCheckpoint: 9.57 s (99%)
+    SimpleWatcher::OnHandleReady: 0.04 s (0%)
+long tasks without a frame: 9.37 s, 47% of the time
+    Paint: 3.69 s (39%)
+    FireAnimationFrame: 2.29 s (24%)
+    Layout: 2.16 s (23%)
+    Layerize: 0.43 s (5%)
+    SimpleWatcher::OnHandleReady: 0.19 s (2%)
+    PrePaint: 0.18 s (2%)
+    UpdateLayoutTree: 0.09 s (1%)
+    Commit: 0.09 s (1%)
+all tasks: 19.79 s, 99% of the time
+    BlinkScheduler_PerformMicrotaskCheckpoint: 9.70 s (49%)
+    Paint: 3.69 s (19%)
+    FireAnimationFrame: 2.29 s (12%)
+    Layout: 2.17 s (11%)
+    SimpleWatcher::OnHandleReady: 0.51 s (3%)
+    Layerize: 0.45 s (2%)
+    PrePaint: 0.19 s (1%)
+    UpdateLayoutTree: 0.10 s (0%)
+function calls by time (outermost and nested alike):
+    7.15 s  (anonymous) in datastar-rocket.f602fbe19d74.js
+    2.28 s  T in sparkline.bundle.min.6cc7789b5f09.js
+    1.49 s  Co.MutationObserver.observe.subtree in datastar-rocket.f602fbe19d74.js
+    0.57 s  Kr in datastar-rocket.f602fbe19d74.js
+    0.11 s  (anonymous) in 
+    0.02 s  l in datastar-rocket.f602fbe19d74.js
+

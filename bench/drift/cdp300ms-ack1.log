@@ -1,0 +1,20 @@
+# 2026-10-16T22:13:52+00:00 9501463  22:13:52 up 91 days, 10:46,  0 users,  load average: 1.64, 1.78, 1.99
+# LIFE_DRIFT=1 LIFE_DRIFT_FOR=60s LIFE_DRIFT_CDP_LATENCY=300 CADDY=/home/dev/.cache/lith-drift/caddy LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_ACK=1
+=== RUN   TestLifeDrift
+    drift_test.go:287: CPU 1x, https://127.0.0.1:46575, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 1 after paint false
+    drift_test.go:288: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:352: |   1 | 12 | 12 | 0 | 0.0 | 13.0 | 0 | 16 | 14 | 1 (0) | 0, 0, 0, 0 | 57 |
+    drift_test.go:352: |   2 | 22 | 22 | 0 | 0.0 | 10.0 | 0 | 27 | 25 | 1 (0) | 0, 0, 0, 0 | 49 |
+    drift_test.go:352: |   3 | 32 | 32 | 0 | 0.0 | 10.0 | 0 | 36 | 35 | 1 (0) | 0, 0, 0, 0 | 47 |
+    drift_test.go:352: |  15 | 152 | 152 | 0 | 0.0 | 10.0 | 0 | 105 | 105 | 1 (0) | 0, 0, 0, 0 | 45 |
+    drift_test.go:352: |  30 | 302 | 302 | 0 | 0.0 | 10.0 | 0 | 217 | 219 | 1 (0) | 0, 0, 0, 0 | 42 |
+    drift_test.go:352: |  45 | 452 | 452 | 0 | 0.0 | 10.0 | 0 | 323 | 326 | 1 (0) | 0, 0, 0, 0 | 46 |
+    drift_test.go:352: |  60 | 602 | 602 | 0 | 0.0 | 10.0 | 0 | 425 | 429 | 1 (0) | 0, 0, 0, 0 | 38 |
+    drift_test.go:373: behind the board after 30 s: 0.0 s
+    drift_test.go:373: behind the board after 60 s: 0.0 s
+    drift_test.go:380: summary: lag median 0.00 s, max 0.03 s; applied 10.10 frames/s; main thread busy 45%; site CPU 5.5%, Caddy CPU 1.0%; lith wrote 7.08 KB/s; 604 frames sent, 0 dropped, 0 renders deferred; 10.10 other requests/s, 846 B each; 604 acks
+    drift_test.go:394: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (62.12s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	62.144s
+# 2026-10-16T22:14:56+00:00  22:14:56 up 91 days, 10:47,  0 users,  load average: 1.94, 1.85, 2.00

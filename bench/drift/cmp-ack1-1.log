@@ -1,0 +1,29 @@
+# 2026-10-16T20:12:24+00:00 6d75d83  20:12:24 up 91 days,  8:44,  0 users,  load average: 1.90, 1.99, 2.14
+# LIFE_DRIFT=15 LIFE_DRIFT_FOR=150s CADDY=/home/dev/.cache/lith-drift/caddy LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_ACK=1
+=== RUN   TestLifeDrift
+    drift_test.go:268: CPU 15x, https://127.0.0.1:40813, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 1 after paint false
+    drift_test.go:269: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:331: |   2 | 28 | 17 | 11 | 1.0 | 2.1 | 3 | 6 | 5 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:331: |   2 | 34 | 24 | 10 | 0.9 | 1.7 | 4 | 7 | 6 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:331: |   3 | 44 | 36 | 8 | 0.7 | 2.0 | 6 | 9 | 8 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:331: |  15 | 163 | 158 | 5 | 0.4 | 2.9 | 38 | 34 | 33 | 0 (0) | 0, 0, 0, 0 | 99 |
+    drift_test.go:331: |  30 | 312 | 307 | 5 | 0.5 | 2.9 | 75 | 68 | 69 | 0 (0) | 0, 0, 0, 0 | 99 |
+    drift_test.go:331: |  45 | 462 | 458 | 4 | 0.4 | 3.4 | 115 | 99 | 99 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:331: |  60 | 613 | 608 | 5 | 0.4 | 3.0 | 158 | 129 | 129 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:331: |  75 | 761 | 757 | 4 | 0.3 | 3.9 | 200 | 159 | 159 | 0 (0) | 0, 0, 0, 0 | 98 |
+    drift_test.go:331: |  90 | 913 | 908 | 5 | 0.5 | 3.0 | 240 | 191 | 192 | 0 (0) | 0, 0, 0, 0 | 99 |
+    drift_test.go:331: | 105 | 1063 | 1058 | 5 | 0.5 | 2.9 | 276 | 226 | 227 | 0 (0) | 0, 0, 0, 0 | 98 |
+    drift_test.go:331: | 120 | 1211 | 1207 | 4 | 0.4 | 3.3 | 316 | 256 | 259 | 0 (0) | 0, 0, 0, 0 | 99 |
+    drift_test.go:331: | 135 | 1362 | 1357 | 5 | 0.4 | 3.0 | 358 | 288 | 290 | 0 (0) | 0, 0, 0, 0 | 98 |
+    drift_test.go:331: | 150 | 1514 | 1509 | 5 | 0.4 | 3.3 | 399 | 320 | 322 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:352: behind the board after 30 s: 0.6 s
+    drift_test.go:352: behind the board after 60 s: 0.4 s
+    drift_test.go:352: behind the board after 90 s: 0.4 s
+    drift_test.go:352: behind the board after 120 s: 0.5 s
+    drift_test.go:352: behind the board after 150 s: 0.3 s
+    drift_test.go:359: summary: lag median 0.46 s, max 1.16 s; applied 2.66 frames/s; main thread busy 100%; site CPU 1.9%, Caddy CPU 0.2%; lith wrote 2.13 KB/s; 399 frames sent, 399 dropped, 1114 renders deferred; 2.66 other requests/s, 846 B each; 399 acks
+    drift_test.go:373: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (153.67s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	153.706s
+# 2026-10-16T20:15:01+00:00  20:15:01 up 91 days,  8:47,  0 users,  load average: 1.76, 1.93, 2.09

@@ -1,0 +1,20 @@
+# 2026-10-16T22:12:48+00:00 9501463  22:12:48 up 91 days, 10:45,  0 users,  load average: 1.15, 1.71, 1.98
+# LIFE_DRIFT=1 LIFE_DRIFT_FOR=60s LIFE_DRIFT_CDP_LATENCY=100 CADDY=/home/dev/.cache/lith-drift/caddy LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_ACK=1
+=== RUN   TestLifeDrift
+    drift_test.go:287: CPU 1x, https://127.0.0.1:42045, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 1 after paint false
+    drift_test.go:288: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:352: |   1 | 9 | 9 | 0 | 0.0 | 12.0 | 0 | 16 | 14 | 1 (0) | 0, 0, 0, 0 | 57 |
+    drift_test.go:352: |   2 | 19 | 19 | 0 | 0.0 | 10.0 | 0 | 27 | 25 | 1 (0) | 0, 0, 0, 0 | 52 |
+    drift_test.go:352: |   3 | 29 | 29 | 0 | 0.0 | 10.0 | 0 | 35 | 34 | 1 (0) | 0, 0, 0, 0 | 48 |
+    drift_test.go:352: |  15 | 150 | 149 | 1 | 0.0 | 10.0 | 0 | 102 | 102 | 1 (0) | 0, 0, 0, 0 | 42 |
+    drift_test.go:352: |  30 | 299 | 299 | 0 | 0.0 | 10.0 | 0 | 216 | 218 | 1 (0) | 0, 0, 0, 0 | 38 |
+    drift_test.go:352: |  45 | 449 | 449 | 0 | 0.0 | 10.0 | 0 | 314 | 317 | 1 (0) | 0, 0, 0, 0 | 42 |
+    drift_test.go:352: |  60 | 599 | 599 | 0 | 0.0 | 10.0 | 0 | 403 | 407 | 1 (0) | 0, 0, 0, 0 | 43 |
+    drift_test.go:373: behind the board after 30 s: 0.0 s
+    drift_test.go:373: behind the board after 60 s: 0.0 s
+    drift_test.go:380: summary: lag median 0.00 s, max 0.01 s; applied 10.08 frames/s; main thread busy 45%; site CPU 6.0%, Caddy CPU 1.1%; lith wrote 6.71 KB/s; 605 frames sent, 0 dropped, 0 renders deferred; 10.10 other requests/s, 846 B each; 606 acks
+    drift_test.go:394: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (61.33s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	61.365s
+# 2026-10-16T22:13:52+00:00  22:13:52 up 91 days, 10:46,  0 users,  load average: 1.64, 1.78, 1.99
