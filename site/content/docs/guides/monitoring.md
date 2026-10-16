@@ -2,12 +2,12 @@
 title: Metrics and monitoring
 nav: Monitoring
 headline: Monitoring lith with Prometheus and Grafana
-summary: The writer's, the hub's and the budget's numbers in Prometheus with lith/prom, statement timings with dbmetrics, the Grafana dashboard and alert rules lith ships, the log lines worth reading, the probes, and the files each app installs on a shared host.
+summary: The writer's, the hub's, the budget's and the event store's numbers in Prometheus with lith/prom, statement timings with dbmetrics, the Grafana dashboard and alert rules lith ships, the log lines worth reading, the probes, and the files each app installs on a shared host.
 description: The writer's, the hub's and the budget's numbers in Prometheus, statement timings, the Grafana dashboard and alerts, logs, probes and a host's drop-ins.
 order: 11
 ---
 
-A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()` count what the writer, the hub and the streams' encoders do, from the start of the process. `lith/prom` exports them to Prometheus, `dbmetrics` times every statement, and lith's `deploy/observability` has a dashboard and alert rules that read them for any lith app.
+A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()` count what the writer, the hub and the streams' encoders do, from the start of the process, and an app on `lith/events` has its runner's and its store's `Stats()`. `lith/prom` exports them to Prometheus, `dbmetrics` times every statement, and lith's `deploy/observability` has a dashboard and alert rules that read them for any lith app.
 
 ## The numbers that matter
 
@@ -28,6 +28,12 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 | | `Streams` | open streams by encoder setting, uncompressed ones as `identity` |
 | | `Refused` | streams turned away for want of memory |
 | | `Reopened` | brotli streams asked to open again for a window that holds their frames |
+| `events.Stats` | `Head` | the last position committed in the database |
+| | `Status`, `Position`, `Lag` | each projector live, rebuilding or parked, its checkpoint, and how many positions a catch-up projector or a rebuild is behind the last event of its stream kind |
+| | `Attempts`, `Error` | the failures of the event a catch-up projector retries, and the last one |
+| `events.StoreStats` | `Appended` | events committed, by stream kind |
+| | `Conflicts` | appends that `ErrConflict` refused, such as a person's action on a page the stream has moved past |
+| | `Refolds` | streams whose state a command folded again from their events, after a decider's `Version` changed or `Append` dropped the state row |
 
 ## Prometheus
 
@@ -54,7 +60,7 @@ reg.MustRegister(
 )
 ```
 
-`dbMetrics` is `dbprom.New(Namespace)`, from the module `lith/dbmetrics/prom`. `dbmetrics` also logs every statement that takes 100 ms or more at Warn, with its SQL text and never its arguments (`Options.SlowThreshold`, negative to turn it off).
+`dbMetrics` is `dbprom.New(Namespace)`, from the module `lith/dbmetrics/prom`. An app on `lith/events` also passes its runner and its store, `prom.Sources{Writer: w, Hub: hub, Events: runner, Store: store}`; this site keeps no events. `dbmetrics` also logs every statement that takes 100 ms or more at Warn, with its SQL text and never its arguments (`Options.SlowThreshold`, negative to turn it off).
 
 The metrics, with the namespace `app`:
 
@@ -65,8 +71,13 @@ The metrics, with the namespace `app`:
 | `app_live_ticks_total`, `app_live_renders_total`, `app_live_tick_overruns_total`, `app_live_read_txs_total` | `lith/prom` |
 | `app_live_frames_sent_total`, `app_live_frames_dropped_total`, `app_live_renders_deferred_total`, `app_live_streams`, `app_live_views` | `lith/prom` |
 | `app_sse_budget_limit_bytes`, `app_sse_budget_reserved_bytes`, `app_sse_budget_streams{setting}`, `app_sse_budget_refused_total` | `lith/prom` |
+| `app_events_appended_total{stream}`, `app_events_conflicts_total`, `app_events_refolds_total` | `lith/prom`, from `Store` |
+| `app_events_head_position`, `app_events_projector_position{projector}`, `app_events_projector_lag{projector}` | `lith/prom`, from `Events` |
+| `app_events_projector_status{projector,status}`, `app_events_projector_attempts{projector}` | `lith/prom`, from `Events` |
 | `app_db_query_duration_seconds{op}`, `app_db_slow_queries_total{op}` | `lith/dbmetrics/prom` |
 | `app_backup_enabled`, `app_backup_replica_last_sync_timestamp_seconds{replica}` and the rest | `lith/backup` ([Backups](/docs/guides/backups#replication-with-litestream)) |
+
+`app_events_projector_status` has a series for each status, `live`, `rebuilding` and `parked`: 1 for the projector's status and 0 for the others, so a parked projector shows as a value, not as a series that appears.
 
 Requests by route are the app's own: this site's `internal/metrics` counts `lith_site_http_requests_total{route,code}` and `lith_site_http_request_duration_seconds{route}`, labelled with the ServeMux pattern that matched, never the raw path, so the number of series stays small whatever URLs arrive.
 
@@ -92,11 +103,12 @@ return flagValue, nil
 - **Requests**: requests, 5xx and p95 latency by route.
 - **Live**: open streams beside the requests in flight, ticks a second and overruns, renders per tick, frames sent and dropped and renders deferred, watched views and read transactions.
 - **Writer**: commands a second, commands per batch and the largest batch, commit p99, failures, the queue, the time the writer is busy.
+- **Events**: events appended a second by stream kind, with conflicts and refolds, each projector's lag, and each projector's status over time.
 - **Streams**: the budget reserved against its limit, streams by encoder setting, refused streams.
 - **Database**: p95 by operation, statements and slow statements.
 - **Process**: Go heap in use, resident memory, goroutines, CPU.
 
-The site's `TestDashboard` fails when the dashboard or the alert rules read a metric the site does not export.
+The site's `TestDashboard` fails when the dashboard or the alert rules read a metric the site does not export. The site keeps no events, so the test takes the events metrics from the board example's store.
 
 ## Alerts
 
@@ -109,8 +121,12 @@ The site's `TestDashboard` fails when the dashboard or the alert rules read a me
 | frames dropped | more than 5% of frames are dropped, for 10 minutes |
 | writer failures | more than 3 commands fail in 10 minutes |
 | streams refused | the budget turned streams away in the last 10 minutes |
+| projector parked | a catch-up projector has been parked for a minute |
+| projector behind | a live catch-up projector stays more than 1,000 positions behind the last event of its stream kind for 10 minutes |
 
 A site that stops answering trips the host's rule on every blackbox probe, so the file has no rule for that.
+
+A catch-up projector that keeps up reads `Options.Batch` (500) events at a time as each commit wakes it, and works off a burst in seconds: two batches behind for 10 minutes means its handler is slower than the appends. Rebuilds and parked projectors are left out of that rule. A new projector that works through a long history trips it too, until it catches up.
 
 A refusal returned from `Apply` counts as a failure, so an app that refuses often either records its refusals in a row, as the board's `Act` does, or raises that alert's threshold. The thresholds are starting points. The rules were written to the host's format without a running instance: import them, check that they evaluate against real data, and export them over the file before relying on them.
 
@@ -121,6 +137,7 @@ This site logs slog JSON on stdout, one object per line; the template logs slog'
 - `live: tick overrun` with `n`, `p50`, `p95`, `p99` and `max`: the hub samples every tick for 20 s after one overruns, then logs this line. A p99 that stays above the tick means a tick holds too much work: a view that renders too often, or renders too slowly.
 - `live: render` with the view's key and the error, and `live: render overrun` for a render past `RenderTimeout`.
 - `writer: batch failed`, `writer: command panicked` with its stack, and `writer: command failed` for a `Send` without `OnSendError`.
+- `events: projector failed, retrying` at Warn for each failure of a catch-up projector's event, `events: projector parked` with the error once it stops, and `events: rebuild batch failed`.
 - dbmetrics' slow statements, at Warn, with their SQL.
 - One line per request from `edge.LogRequests`, at Error for a 5xx, and at Debug for a request whose handler called `edge.Quiet`, such as the cursor party's moves.
 

@@ -221,6 +221,12 @@ hook := events.NewProjector(Cards, "card_hook", 1,
 
 A failed event is tried again after `Options.Backoff` (a second), then after twice that, up to `MaxBackoff` (a minute). After `Retries` failures (8, about two minutes) the projector parks: it stops at the event, `lith_projections` shows `parked: ` and the error, and so does `Stats`. One broken mail holds up only its own projector. `runner.Resume(name)` tries the event again, and so does the next `Run`. A new catch-up projector, and one whose version changed, starts at the first event, or after the last one with `SkipHistory`.
 
+## Monitoring
+
+`runner.Stats()` has the database's head, the last position committed, and each projector's lag: how many positions a catch-up projector or a rebuild is behind the last event of its stream kind. Every kind shares the positions, so at most that many events are left; a live inline projector commits with its events and has no lag. The runner reads the head as it starts and moves it after each commit that appends, so reading it costs no query. `store.Stats()` counts the events committed by stream kind, the appends that `ErrConflict` refused, and the refolds: streams whose state `Execute` folded again from their events, after a decider's `Version` changed or `Append` dropped the state row.
+
+`lith/prom` exports them as `<namespace>_events_*` when the app passes the runner and the store, `prom.Sources{Writer: w, Hub: hub, Events: runner, Store: board.Events}`. The [lith apps dashboard](/docs/guides/monitoring#the-dashboard) shows them in its Events row, and [two alerts](/docs/guides/monitoring#alerts) fire for a projector parked for a minute and for a live catch-up projector more than 1,000 positions behind for 10 minutes.
+
 ## Reading events
 
 `events.Load` yields a stream's events and `events.Since` every event after a position, as iterators over the transaction they are given: a GET's, a render's `sqlite.QuerierFrom(ctx)`, a command's. Breaking off the loop closes the rows. `Load` decodes and upcasts each event; `Since` gives them as stored, as `events.Raw`, for an activity feed whose view lists `events.Topic`, and `events.Decode` turns one into its type.

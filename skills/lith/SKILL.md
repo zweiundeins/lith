@@ -83,7 +83,7 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget, write deadlines, `ReadSignals` for any method |
 | `edge` | sessions cookie, CSRF, client IP, slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
-| `prom` | Prometheus collector for `writer.Stats`, `live.Hub.Stats` and the stream budget: `<ns>_writer_*`, `<ns>_live_*`, `<ns>_sse_budget_*` (nested module) |
+| `prom` | Prometheus collector for `writer.Stats`, `live.Hub.Stats`, the stream budget and the event store's and runner's stats: `<ns>_writer_*`, `<ns>_live_*`, `<ns>_sse_budget_*`, `<ns>_events_*` (nested module) |
 | `tenant` | one database file per account: refcounted pool with LRU eviction |
 | `dbmetrics` | query timing and slow-query log |
 | `loadtest` | writer and render loop under load, in process |
