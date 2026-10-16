@@ -9,9 +9,9 @@ order: 2
 
 `lith/events` keeps an event log in the app's own database, beside its other tables. A command appends events to a stream inside its `Apply`, and the events, the stream's state and the inline projections commit in the command's savepoint, or not at all. The module adds nothing between a handler and the writer: it is a few functions that a command calls, three tables, and a `Runner` that rebuilds and catches up in the background.
 
-The single writer makes the hard parts of an event store simple. A stream's version cannot change between the read and the append, since no other command runs meanwhile, so there is no retry loop. Positions are handed out and committed in one order, so a reader that keeps the last position it saw misses nothing. And an inline projection commits with its events, so a page never sees an event without its effect.
+The writer applies one command at a time. A stream's version cannot change between the read and the append, so there is no retry loop. Positions are handed out and committed in one order, so a reader that keeps the last position it saw misses nothing. And an inline projection commits with its events, so a page never sees an event without its effect.
 
-The board example event-sources one thing, a card's title. A card is still a row of `cards`, which `AddCard` makes and `MoveCard` moves; its stream holds its renames, and two projectors keep `cards.title` and a history table current. The code is in `site/internal/docs/example/board/events.go`.
+The board example event-sources one thing, a card's title. A card is a row of `cards`, which `AddCard` makes and `MoveCard` moves; its stream holds its renames, and two projectors keep `cards.title` and a history table current. The code is in `site/internal/docs/example/board/events.go`.
 
 ## Streams and event types
 
