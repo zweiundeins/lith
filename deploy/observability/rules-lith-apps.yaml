@@ -276,3 +276,112 @@ groups:
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }} has turned streams away for want of memory in the last 10 minutes'
           isPaused: false
+        - uid: lith-apps-projector-parked
+          title: 'lith app: projector parked'
+          # A catch-up projector whose event failed Options.Retries times (8,
+          # about two minutes) stops at it until Resume or the next Run, and
+          # falls behind. Runner.Stats and lith_projections hold the error.
+          condition: C
+          data:
+            - refId: A
+              queryType: range
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus-ds
+              model:
+                expr: 'max by (app, slot, projector) ({__name__=~".+_events_projector_status", status="parked"})'
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                type: reduce
+            - refId: C
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Alerting
+          for: 1m
+          annotations:
+            summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }}: the projector {{ $labels.projector }} has parked on an event that kept failing'
+          isPaused: false
+        - uid: lith-apps-projector-lag
+          title: 'lith app: projector behind'
+          # A live catch-up projector more than 1,000 positions behind the last
+          # event of its stream kind for 10 minutes. One that keeps up wakes at
+          # each commit that appends its events and reads Options.Batch (500)
+          # at a time, so it stays within a batch or two and works off a burst
+          # in seconds: two batches behind for 10 minutes is a handler slower
+          # than the appends. Rebuilds and parked projectors are left out (the
+          # rule above). A new projector working through a long history trips
+          # it too, until it catches up.
+          condition: C
+          data:
+            - refId: A
+              queryType: range
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus-ds
+              model:
+                expr: 'max by (app, slot, projector) ({__name__=~".+_events_projector_lag"}) and (max by (app, slot, projector) ({__name__=~".+_events_projector_status", status="live"}) == 1)'
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: B
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: __expr__
+              model:
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                reducer: last
+                refId: B
+                type: reduce
+            - refId: C
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: __expr__
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 1000
+                        type: gt
+                expression: B
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Alerting
+          for: 10m
+          annotations:
+            summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }}: the projector {{ $labels.projector }} has been more than 1,000 positions behind its stream for 10 minutes'
+          isPaused: false

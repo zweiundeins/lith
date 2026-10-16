@@ -1,7 +1,7 @@
 {
   "title": "lith apps",
   "uid": "lith-apps",
-  "description": "Any app on lith (github.com/zweiundeins/lith) whose metrics Prometheus scrapes: the HTTP requests by route, the live hub's ticks, renders and frames, the writer, the streams' memory budget, the statements, the process. Pick the app's metric namespace (the one it gives lith/prom), then the app and the slot, the labels of its scrape target. The HTTP panels need the app to export <ns>_http_requests_total{route,code} and <ns>_http_request_duration_seconds{route}, as site/internal/metrics in lith's repository does; the rest comes from lith/prom and lith/dbmetrics/prom.",
+  "description": "Any app on lith (github.com/zweiundeins/lith) whose metrics Prometheus scrapes: the HTTP requests by route, the live hub's ticks, renders and frames, the writer, the event store's appends and projectors, the streams' memory budget, the statements, the process. Pick the app's metric namespace (the one it gives lith/prom), then the app and the slot, the labels of its scrape target. The HTTP panels need the app to export <ns>_http_requests_total{route,code} and <ns>_http_request_duration_seconds{route}, as site/internal/metrics in lith's repository does; the rest comes from lith/prom and lith/dbmetrics/prom.",
   "tags": [
     "lith",
     "go"
@@ -853,6 +853,214 @@
       ]
     },
     {
+      "id": 30,
+      "type": "row",
+      "title": "Events: appends and projectors (lith/events)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "title": "Events appended per stream",
+      "description": "Events committed a second, by stream kind, beside the appends refused because the stream was not at the expected version (conflicts) and the streams a command folded again from their events (refolds). Empty for an app that gives lith/prom no event store.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic-by-name"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (app, stream) (rate({__name__=\"${ns}_events_appended_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} {{stream}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_events_conflicts_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} conflicts",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_events_refolds_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} refolds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "Projector lag",
+      "description": "Positions between each catch-up projector, or a rebuild under way, and the last event of its stream kind. Every kind shares the positions, so at most that many events are left; a live inline projector commits with its events and has none. The alert fires for a live catch-up projector more than 1,000 behind for 10 minutes.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic-by-name"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (app, projector) ({__name__=\"${ns}_events_projector_lag\", app=~\"$app\", slot=~\"$slot\"})",
+          "legendFormat": "{{app}} {{projector}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "title": "Projector status",
+      "description": "Each projector's status: live, rebuilding (a new version of an inline projector fills copies of its tables), or parked (a catch-up projector stopped at an event that kept failing, until Resume or the next Run). With several slots, the worst of them.",
+      "type": "state-timeline",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "live",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "rebuilding",
+                  "color": "blue",
+                  "index": 1
+                },
+                "2": {
+                  "text": "parked",
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (app, projector) (2 * {__name__=\"${ns}_events_projector_status\", status=\"parked\", app=~\"$app\", slot=~\"$slot\"} + ignoring (status) {__name__=\"${ns}_events_projector_status\", status=\"rebuilding\", app=~\"$app\", slot=~\"$slot\"})",
+          "legendFormat": "{{app}} {{projector}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        }
+      ]
+    },
+    {
       "id": 18,
       "type": "row",
       "title": "Streams: the encoders' memory budget",
@@ -861,7 +1069,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 60
       },
       "panels": []
     },
@@ -878,7 +1086,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 52
+        "y": 61
       },
       "fieldConfig": {
         "defaults": {
@@ -935,7 +1143,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 52
+        "y": 61
       },
       "fieldConfig": {
         "defaults": {
@@ -990,7 +1198,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 52
+        "y": 61
       },
       "fieldConfig": {
         "defaults": {
@@ -1034,7 +1242,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 60
+        "y": 69
       },
       "panels": []
     },
@@ -1051,7 +1259,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 61
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -1099,7 +1307,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 61
+        "y": 70
       },
       "fieldConfig": {
         "defaults": {
@@ -1152,7 +1360,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 78
       },
       "panels": []
     },
@@ -1169,7 +1377,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 70
+        "y": 79
       },
       "fieldConfig": {
         "defaults": {
@@ -1217,7 +1425,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 70
+        "y": 79
       },
       "fieldConfig": {
         "defaults": {
@@ -1265,7 +1473,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 70
+        "y": 79
       },
       "fieldConfig": {
         "defaults": {
@@ -1313,7 +1521,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 70
+        "y": 79
       },
       "fieldConfig": {
         "defaults": {

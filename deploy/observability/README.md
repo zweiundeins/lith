@@ -2,8 +2,8 @@
 
 What every lith app on a host shares, installed by the host once, not by each app:
 
-- `lith-apps.json`: the Grafana dashboard "lith apps". Pick an app's metric namespace (the one it gives `lith/prom`), then the app and the slot. It shows the requests by route, the live hub's ticks, renders and frames, the writer, the streams' memory budget, the statements and the process.
-- `rules-lith-apps.yaml`: Grafana alert rules for any lith app, one alert per app and slot: a 5xx ratio above 2%, tick overruns, dropped frames, writer failures, refused streams. They land in the folder "lith apps".
+- `lith-apps.json`: the Grafana dashboard "lith apps". Pick an app's metric namespace (the one it gives `lith/prom`), then the app and the slot. It shows the requests by route, the live hub's ticks, renders and frames, the writer, the event store's appends and projectors, the streams' memory budget, the statements and the process.
+- `rules-lith-apps.yaml`: Grafana alert rules for any lith app, one alert per app and slot, and per projector for the events rules: a 5xx ratio above 2%, tick overruns, dropped frames, writer failures, refused streams, a parked projector, a catch-up projector that stays behind. They land in the folder "lith apps".
 
 Both read the metrics of the apps' own listeners, which the host's Prometheus scrapes from `/etc/prometheus/apps/<app>.yml` with the labels `app` and `slot`. Neither filters on the scrape job or on an app's name, so a new app needs no change here. The guide [Metrics and monitoring](https://lith.zweiundeins.gmbh/docs/guides/monitoring#drop-in-files-for-a-shared-host) has the whole contract between a host and its apps: the folders, the files each app installs, the labels.
 
