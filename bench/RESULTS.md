@@ -412,3 +412,39 @@ The hub keeps no frame of a view that one stream watches, so the tabs book no fr
 ### What lith adopted
 
 A live hub makes a budget when it is given none: half the process's memory limit, for the streams' encoders, 32 KiB per stream and the frames of views that two or more streams watch, and no change at all without a memory limit (a stream's own ZstdWindow and BrotliWindow cap what it gets). A stream's first write picks a window that holds its largest write. Brotli takes that window at quality 4 while the budget stays at most half full, at quality 3 after, and 2^16 only when that does not fit; zstd takes the largest tier within its fair share and moves down while open, no further than its frame's window. A brotli stream below its frame's window, or uncompressed, is asked to open again once room frees up. Pages with large frames pass a budget with `Refuse`. The hub keeps the frame of a view that two or more streams watch, which a join to it would otherwise render again; of a `[]byte` view that one stream watches, only the frame's length and hash. Hibernation is opt-in: `live.Options.Hibernate` is zero unless an app sets it.
+
+## Minified static files
+
+Measured on 2026-10-16 on the same machine, an Intel i5-13500 (20 threads), with Go 1.27.2 and tdewolff/minify v2.24.19, on lith's minify branch (on 3fcebd5). The sizes come from the tests that check minification, run with `-v`:
+
+    cd minify && go test -run TestStatic -v .
+    cd site && go test ./internal/app -run TestMinified -v
+
+`minify`'s `TestStatic` serves the template's static files through `edge.Static` with `edge.Minify(minify.Bytes)`, `newest-frame.js` added as the template adds it. The site's `TestMinified` loads the scripts and stylesheets of a demo page, the Game of Life, from the site in production and with `-dev`. Bytes as written against minified, raw and under brotli at 11:
+
+| | as written | minified | brotli, as written | brotli, minified |
+|---|---|---|---|---|
+| template: `style.css` | 1,600 | 1,303 | 569 | 514 |
+| template: `lith/newest-frame.js` | 7,352 | 2,767 | 2,620 | 1,332 |
+| template: `vendor/datastar-rocket.js` | 68,224 | 68,224 | 21,958 | 21,958 |
+| template, together | 77,176 | 72,294 | 25,147 | 23,804 |
+| site: `site.css`, the bundle | 211,704 | 162,378 | 34,382 | 23,426 |
+| site: `js/transitions.js` | 6,104 | 3,304 | 2,099 | 1,353 |
+| site: `lith/newest-frame.js` | 7,352 | 2,767 | 2,620 | 1,332 |
+| site: Datastar and two Starbase bundles | 77,278 | 77,278 | 25,818 | 25,818 |
+| site, together | 302,438 | 245,727 | 64,919 | 51,929 |
+
+Under brotli, minifying saves the template's page 1,343 bytes, 5% of what it loads, all of it from its stylesheet and the plugin, and the site's demo page 12,990 bytes, 20%, most of it from the CSS bundle. The site minified these files before, with code of its own that `lith/minify` replaces. The vendored builds go out as written: tdewolff takes 290 bytes, 0.4%, off the Datastar build and 3 to 52 bytes off each Starbase bundle, less than the twentieth that `edge.Static` asks for, and Static does not ask for `*.min.js` files at all. SVG and JSON stay as written: tdewolff's minifiers take the site's logo from 855 to 789 bytes under brotli, and `lock.json`, which no page loads, from 1,142 to 1,098; the template serves neither.
+
+`BenchmarkNewStatic` (`minify/static_test.go`) runs `edge.NewStatic` on the template's 3 static files and the site's 37, read into memory first as `go:embed` holds them, and adds `newest-frame.js`, with and without `Minify`. Pinned to the performance cores, six runs at 12:42 UTC, while another agent profiled on the machine (1-minute load average 4.4 before, 4.1 after):
+
+    cd minify && taskset -c 0-11 go test -run '^$' -bench NewStatic -benchmem -count 6 -benchtime 2s .
+
+| | as written | minified | allocated, minified |
+|---|---|---|---|
+| template | 0.12 ms (0.08 to 0.13) | 6.1 ms (5.4 to 6.4) | 2.2 MB |
+| site | 0.52 ms (0.40 to 0.58) | 9.2 ms (9.0 to 10.0) | 3.6 MB |
+
+Medians, the range in brackets. Most of the template's time is the Datastar build: `minify.Bytes` takes 3.5 ms for its 68 KB, 19 MB/s, after which Static serves it as written; the plugin takes 0.11 ms and the stylesheet 0.04 ms. A build named `*.min.js` costs nothing, since Static skips it before parsing. The site minifies its CSS bundle in `Add` besides, 2.1 ms for its 212 KB when the machine was quieter, which it did before as well.
+
+The template's binary, built as its Taskfile builds it (`CGO_ENABLED=0 go build -trimpath -ldflags '-s -w'`), is 14,008,480 bytes with `lith/minify` and 13,349,024 without, from the same generated project with the import and the option taken out: the module adds 644 KiB, 4.9%. A project that does not import it builds as before; tdewolff/minify is in the template's module graph anyway, through air's dependency on Hugo, but never in its binary.
