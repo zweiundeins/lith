@@ -11,10 +11,10 @@ import (
 	"github.com/zweiundeins/lith/writer"
 )
 
-// Decider is the write side of a kind of stream for commands of type C
-// (Jérémie Chassaing's pattern): what a command needs to decide, folded
-// from the stream's own events. Decide and Evolve are pure, so a test runs
-// them without a database (eventstest).
+// Decider is the write side of a kind of stream for commands of type C,
+// in the functional decider pattern: what a command needs to decide,
+// folded from the stream's own events. Decide and Evolve are pure, so a
+// test runs them without a database (eventstest).
 type Decider[C, E, S any] struct {
 	// Initial is the state of a stream without events.
 	Initial S

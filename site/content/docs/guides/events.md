@@ -44,7 +44,7 @@ Go cannot constrain one type parameter by another, so `events.Define` takes the 
 
 ## A decider
 
-A decider is what a command needs to decide, folded from the stream's own events, never from a table shaped for pages (Jérémie Chassaing's decider pattern). `Decide` turns the command and the state into events, `Evolve` folds one event into the state. Both are pure:
+A decider is what a command needs to decide, folded from the stream's own events, never from a table shaped for pages: the functional decider pattern. `Decide` turns the command and the state into events, `Evolve` folds one event into the state. Both are pure:
 
 ```go source=site/internal/docs/example/board/events.go
 // titled is what a rename decides on: the title of the card's last
