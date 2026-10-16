@@ -43,7 +43,7 @@ var PackageMeta = map[string]Meta{
 	"dbmetrics":         {"lith/dbmetrics: statement timings and slow queries", "Reference for lith/dbmetrics: wrap a database/sql driver to time every query and exec, and log the slow ones with their SQL but never their arguments."},
 	"loadtest":          {"lith/loadtest: an app's views and commands under load", "Reference for lith/loadtest: measure an app's views and commands in process, with a writer, a live hub, and streams that need no network."},
 	"backup":            {"lith/backup: Litestream replication to S3", "Reference for lith/backup: replicate SQLite databases to S3-compatible storage with Litestream, embedded in the process, in a module of its own."},
-	"prom":              {"lith/prom: Prometheus metrics for a lith app", "Reference for lith/prom: export the writer's batches and commands, the live hub's ticks, renders and frames, and the stream budget to Prometheus."},
+	"prom":              {"lith/prom: Prometheus metrics for a lith app", "Reference for lith/prom: export the writer's commands, the live hub's ticks, renders and frames, the stream budget and the event store to Prometheus."},
 	"dbmetrics/prom":    {"lith/dbmetrics/prom: statement timings in Prometheus", "Reference for lith/dbmetrics/prom: a dbmetrics Observer that records query and exec durations and slow statements as Prometheus histograms and counters."},
 }
 

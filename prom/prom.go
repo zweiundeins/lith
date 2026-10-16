@@ -1,8 +1,8 @@
 // Package prom exports a lith app's numbers to Prometheus: the writer's
-// batches and commands, the live hub's ticks, renders and frames, and what
-// the streams hold of the memory budget. It is a module of its
-// own, so that projects without Prometheus never pull it in. Statement
-// timings come from dbmetrics/prom.
+// batches and commands, the live hub's ticks, renders and frames, what
+// the streams hold of the memory budget, and the event store's appends
+// and projectors. It is a module of its own, so that projects without
+// Prometheus never pull it in. Statement timings come from dbmetrics/prom.
 //
 //	reg := prometheus.NewRegistry()
 //	reg.MustRegister(prom.New("myapp", prom.Sources{Writer: w, Hub: hub}))
@@ -11,6 +11,7 @@ package prom
 import (
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/zweiundeins/lith/events"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sse"
 	"github.com/zweiundeins/lith/writer"
@@ -22,7 +23,15 @@ type Sources struct {
 	Hub    *live.Hub
 	// Budget defaults to the hub's (live.Hub.Budget).
 	Budget *sse.Budget
+	// Events is the runner of the app's projectors in its database, and
+	// Store the event store, whose counters cover every database it
+	// serves.
+	Events *events.Runner
+	Store  *events.Store
 }
+
+// statuses are the statuses of a projector, a series each.
+var statuses = []string{"live", "rebuilding", "parked"}
 
 type collector struct {
 	s Sources
@@ -32,10 +41,13 @@ type collector struct {
 	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views *prometheus.Desc
 
 	limit, reserved, frames, tier, refused, reopened *prometheus.Desc
+
+	appended, conflicts, refolds, head, position, lag, status, attempts *prometheus.Desc
 }
 
 // New returns a collector of the sources' numbers, named under namespace:
-// <namespace>_writer_*, <namespace>_live_* and <namespace>_sse_budget_*.
+// <namespace>_writer_*, <namespace>_live_*, <namespace>_sse_budget_* and
+// <namespace>_events_*.
 // It reads the sources' Stats on every scrape.
 func New(namespace string, s Sources) prometheus.Collector {
 	if s.Budget == nil && s.Hub != nil {
@@ -68,13 +80,22 @@ func New(namespace string, s Sources) prometheus.Collector {
 		tier:      d("sse_budget", "streams", "Open streams by what their encoder holds.", "setting"),
 		refused:   d("sse_budget", "refused_total", "Streams the budget turned away."),
 		reopened:  d("sse_budget", "reopened_total", "Streams the budget asked to open again for a better tier."),
+		appended:  d("events", "appended_total", "Events committed, by stream kind.", "stream"),
+		conflicts: d("events", "conflicts_total", "Appends refused because the stream was not at the expected version."),
+		refolds:   d("events", "refolds_total", "Streams whose state a command folded again from their events, as the state row was missing or from another decider version."),
+		head:      d("events", "head_position", "The last position committed in the database."),
+		position:  d("events", "projector_position", "A catch-up projector's checkpoint, or how far a rebuild got.", "projector"),
+		lag:       d("events", "projector_lag", "Positions between a catch-up projector or a rebuild and the last event of its stream kind; 0 for a live inline projector.", "projector"),
+		status:    d("events", "projector_status", "1 for the projector's status (live, rebuilding or parked), 0 for the others.", "projector", "status"),
+		attempts:  d("events", "projector_attempts", "Failures of the event a catch-up projector retries.", "projector"),
 	}
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99,
 		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views,
-		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened} {
+		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened,
+		c.appended, c.conflicts, c.refolds, c.head, c.position, c.lag, c.status, c.attempts} {
 		ch <- d
 	}
 }
@@ -118,5 +139,29 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		}
 		counter(c.refused, float64(st.Refused))
 		counter(c.reopened, float64(st.Reopened))
+	}
+	if s := c.s.Store; s != nil {
+		st := s.Stats()
+		for kind, n := range st.Appended {
+			counter(c.appended, float64(n), kind)
+		}
+		counter(c.conflicts, float64(st.Conflicts))
+		counter(c.refolds, float64(st.Refolds))
+	}
+	if r := c.s.Events; r != nil {
+		st := r.Stats()
+		gauge(c.head, float64(st.Head))
+		for _, p := range st.Projectors {
+			gauge(c.position, float64(p.Position), p.Name)
+			gauge(c.lag, float64(p.Lag), p.Name)
+			for _, s := range statuses {
+				v := 0.0
+				if s == p.Status {
+					v = 1
+				}
+				gauge(c.status, v, p.Name, s)
+			}
+			gauge(c.attempts, float64(p.Attempts), p.Name)
+		}
 	}
 }
