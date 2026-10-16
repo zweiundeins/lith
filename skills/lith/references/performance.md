@@ -32,6 +32,12 @@ about fifteen statements):
   process loses none. `FULL` costs one fsync per batch, the latency floor of a
   lone write (1.9 ms on the bench host); set it where an acknowledged commit
   must survive a power loss.
+- `events.Execute` with one inline projector (i5-13500, 2026-10-16, NORMAL,
+  a busy host): 6,675 events a second for one producer and 18,342 for 200,
+  against 24,404 and 81,087 transfers of `BenchmarkWriter` in the same hour.
+  An event writes six B-trees (its row, two indexes, `sqlite_sequence`, the
+  state row, the projection), so plan on about four times a plain command's
+  cost (`bench/RESULTS.md`).
 - Anders Murphy's numbers (a MacBook, two updates per transaction): 44,096
   transactions a second unbatched, 121,922 batched with a savepoint each,
   102,545 with concurrent reads. His workload is smaller than a real command;

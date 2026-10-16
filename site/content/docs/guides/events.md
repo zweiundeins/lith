@@ -287,3 +287,8 @@ The first command that needs them creates three tables, as `writer.Once` creates
 | `lith_projections` | a row per projector: its version, its position (a catch-up projector's checkpoint, a rebuild's progress) and its status |
 
 The tables are the app's to read: a query of its own over `lith_events`, such as the newest events first for a feed, goes through the read pool like any other.
+
+## What an event costs
+
+An `Execute` with one inline projector writes six B-trees: the event's row, its two indexes and `sqlite_sequence`, the state row and the projection. On the development machine, an Intel i5-13500, on 16 October 2026 with other jobs running, `BenchmarkExecute` appended 6,675 events a second for one producer and 18,342 for 200 with `synchronous=NORMAL`, where `BenchmarkWriter`'s transfers of four statements reached 24,404 and 81,087 in the same hour ([the numbers](https://github.com/zweiundeins/lith/blob/main/bench/RESULTS.md)).
+

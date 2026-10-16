@@ -72,6 +72,26 @@ With NORMAL the VPS commits more commands a second than the development machine;
 
 In one NORMAL run a tick took 252 ms, the VPS's neighbours at work, and the streams dropped 19 frames a second of that run: a stream that falls behind gets the newest frame, not every one.
 
+## Events through the writer
+
+Measured on 2026-10-16 between 04:34 and 04:39 UTC on the development machine of the Writer section, an Intel i5-13500 under Linux 6.18 (Unraid), with Go 1.27.2 and modernc.org/sqlite v1.60.1, on lith's `events` branch. Other jobs shared the machine (load average 1.8 to 3.0), so `BenchmarkWriter` ran again right after, for numbers of the same hour:
+
+    nice -n 19 taskset -c 0-11 go test ./events -run '^$' -bench Execute -benchtime 5s -count 3
+    nice -n 19 taskset -c 0-11 go test ./writer -run '^$' -bench 'Writer$' -benchtime 5s -count 3
+
+`BenchmarkExecute` (`events/bench_test.go`) is `BenchmarkWriter` with events: 1, 50 or 200 producers, each renaming ten cards of its own with `events.Execute` and waiting for the commit with `Do`. A rename reads the card's state row, decides, appends one event, saves the row and runs one inline projector, which updates `card_titles`: five statements against the transfer's four, writing six B-trees (the event's row, its two indexes and `sqlite_sequence`, the state row, the projection) against the transfer's two. Medians of three runs, the range in brackets; `BenchmarkWriter` the same hour beside them:
+
+| synchronous | producers | events/s | commands per transaction | ms per transaction | `BenchmarkWriter` commands/s |
+|---|---|---|---|---|---|
+| FULL | 1 | 241 (241 to 278) | 1 | 4.1 | 340 |
+| FULL | 50 | 4,564 (4,299 to 5,216) | 25 | 5.5 | 6,650 |
+| FULL | 200 | 13,769 (13,067 to 14,059) | 122 | 9.0 | 32,085 |
+| NORMAL | 1 | 6,675 (6,670 to 6,969) | 1 | 0.15 | 24,404 |
+| NORMAL | 50 | 17,251 (16,724 to 17,354) | 26 | 1.5 | 92,907 |
+| NORMAL | 200 | 18,342 (18,105 to 18,875) | 120 | 6.5 | 81,087 |
+
+With NORMAL an event costs about four times a transfer. In a CPU profile of 200 producers with NORMAL, `events.Execute` takes 55% of the samples, and the commit's WAL writes and SQLite's checkpoints 26%. The renames of 2,000 cards land on pages spread over the event index and the state rows, so a batch writes many more pages to the WAL than a batch of transfers, whose 2,000 accounts fit in a few dozen pages. With one producer the commit takes 51% of the samples. Without the projector, 200 producers with NORMAL appended 17,733 and 19,465 events a second in two runs of 3 s.
+
 ## Read pool statement cache
 
 Measured on 2026-10-13 between 20:50 and 20:52 UTC on the same machine, with Go 1.27.2 and modernc.org/sqlite v1.60.1 (SQLite 3.53.4), on lith's stmtcache branch at 6bbf9a3, pinned to the performance cores, which gives GOMAXPROCS 12. Six runs, each through every case once:

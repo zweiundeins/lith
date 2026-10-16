@@ -547,7 +547,7 @@ Must returns st, and panics if err is not nil: for a store made at package level
 func New(parts ...Part) (*Store, error)
 ```
 
-New makes a store of the projectors and upcasters. It refuses a projector that neither handles nor ignores an event type of its stream, two projectors with one name, two streams with one kind, and an event type upcast twice. The first Execute, Append or Run checks once more, for event types defined after New ran.
+New makes a store of the projectors and upcasters. It refuses a projector that neither handles nor ignores an event type of its stream, two projectors with one name or one table, two streams with one kind, and an event type upcast twice. The first Execute, Append or Run checks once more, for event types defined after New ran.
 
 ### type Stream {#Stream}
 
