@@ -3,7 +3,7 @@ title: Migrations, jobs and imports
 nav: Migrations and jobs
 headline: Migrations, background jobs, imports and sweeps
 summary: The schema as numbered SQL files, work that a command's transaction cannot hold, large imports, background jobs, sweeps, and who checkpoints the WAL.
-order: 2
+order: 3
 ---
 
 ## Migrations
@@ -150,18 +150,21 @@ A mail whose row the job could not delete goes out again on the next pass: the r
 
 ## Sweeps
 
-Every table that grows needs a rule for what it keeps, and a sweep that enforces it. The board's sweep forgets quiet tabs, old preferences and long-archived cards:
+Every table that grows needs a rule for what it keeps, and a sweep that enforces it. The board's sweep forgets quiet tabs, old preferences and long-archived cards, with their event streams ([Event sourcing](/docs/guides/events#retention) has `forgetCards`):
 
 ```go source=site/internal/docs/example/board/commands.go
 func (c Sweep) Apply(tx *writer.Tx) error {
 	month := c.At.AddDate(0, -1, 0).Unix()
+	if err := forgetCards(tx, month); err != nil {
+		return err
+	}
 	for _, q := range []struct {
 		sql string
 		arg int64
 	}{
 		{`DELETE FROM tab_state WHERE seen < ?`, c.At.Add(-TabTTL).Unix()},
 		{`DELETE FROM prefs WHERE seen < ?`, c.At.AddDate(-1, 0, 0).Unix()},
-		{`DELETE FROM card_events WHERE card_id IN (SELECT id FROM cards WHERE archived < ?)`, month},
+		{`DELETE FROM card_history WHERE card_id IN (SELECT id FROM cards WHERE archived < ?)`, month},
 		{`DELETE FROM cards WHERE archived < ?`, month},
 	} {
 		if _, err := tx.Exec(q.sql, q.arg); err != nil {

@@ -279,44 +279,23 @@ A cached statement serves one query at a time. Scan a `QueryRow` before the same
 
 ## An event-sourced command
 
-The writer applies one command at a time, so an event-sourced command needs no optimistic retry loop either. One `Apply` loads the aggregate from its projection, decides, appends the events and updates the projection:
+The writer applies one command at a time, so an event-sourced command needs no optimistic retry loop either, and a stream's version cannot change between the read and the append. [`lith/events`](/docs/guides/events) does the work in the command's `Apply`: `events.Execute` reads the card's state row, decides, appends the event, saves the row and runs the inline projectors, all in the command's savepoint:
 
 ```go source=site/internal/docs/example/board/events.go
 func (c RenameCard) Apply(tx *writer.Tx) error {
-	var card Card
-	var board int64
-	err := tx.QueryRow(`SELECT c.title, l.board_id FROM cards c JOIN lanes l ON l.id = c.lane_id
-		WHERE c.id = ?`, c.Card).Scan(&card.Title, &board)
+	var one int
+	err := tx.QueryRow(`SELECT 1 FROM cards WHERE id = ?`, c.Card).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	events, err := decideRename(card, c.Title)
-	if err != nil || len(events) == 0 {
-		return err
-	}
-	for _, e := range events {
-		data, err := json.Marshal(e)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT INTO card_events (card_id, type, data, at) VALUES (?, 'renamed', ?, ?)`,
-			c.Card, string(data), c.At.Unix()); err != nil {
-			return err
-		}
-		card.Title = e.To
-	}
-	if _, err := tx.Exec(`UPDATE cards SET title = ?, version = version + 1 WHERE id = ?`, card.Title, c.Card); err != nil {
-		return err
-	}
-	tx.Touch(Topic(board), CardTopic(c.Card))
-	return nil
+	return events.Execute(Events, tx, Rename, Cards.ID(c.Card), events.Any, c, events.Meta{At: c.At})
 }
 ```
 
-`decideRename` is a pure function of the card and the new title, so a test calls it without a database. Views render the projection, the `cards` row. A render that replays the events grows with the history.
+The decision is a pure function of the command and the card's state, folded from its own events, so a test runs it without a database. Views render the projections, the `cards` row and `card_history`: a render that replays the events grows with the history. [Event sourcing](/docs/guides/events) has the stream, the decider and the projectors behind this command.
 
 ## What a command must not do
 

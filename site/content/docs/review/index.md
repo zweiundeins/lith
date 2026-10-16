@@ -68,7 +68,27 @@ rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go
 
 - **A render that opens its own transactions.** A render reads through the transaction it is given: `sqlite.QuerierFrom(ctx)`, or a store whose `db.View(ctx, fn)` joins the render's. One that opens transactions of its own, one for the list and one per open dialog, mixes snapshots and shows two moments at once.
 - **`db.W` outside the writer and the migrations.** `db.R` is `query_only` and refuses writes, so a write through it fails loudly; one through `db.W` competes with the writer.
-- **A render that replays an event stream.** It grows with the history. Render from the projection ([Commands](/docs/guides/commands#an-event-sourced-command)).
+## Events
+
+### A render that replays a stream
+
+A view that reads a stream's events with `events.Load`, or the log with `events.Since` from its start, grows with the history and reads all of it at every change. Render from a projection; a feed reads `Since` from a position near the end ([Event sourcing](/docs/guides/events#reading-events)).
+
+```sh
+rg -n 'events\.(Load|Since)\(' --type go -g '!*_test.go'
+```
+
+### A write to the event tables
+
+`lith_events`, `lith_event_state` and `lith_projections` belong to `lith/events`. A statement of the app's own that writes them skips the version check, the state row and the projectors, and an `UPDATE` changes history that projections were built from.
+
+```sh
+rg -n '(INSERT INTO|UPDATE|DELETE FROM) lith_(events|event_state|projections)' --type go
+```
+
+### A projector that writes a table it does not name
+
+A rebuild runs a projector's handlers over every event into copies of the tables it names in `Tables`. A handler that also writes another table writes it again for every event, so a projector with tables writes only those ([Event sourcing](/docs/guides/events#rebuilds)).
 
 ## Requests
 

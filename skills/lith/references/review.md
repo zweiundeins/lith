@@ -37,8 +37,18 @@ pattern matches.
   snapshots. (kanban's card dialogs did.)
 - No `db.W` outside the writer and migrations; `db.R` is `query_only` and
   refuses writes, so a write there fails loudly.
-- A render that replays an event stream grows with the history: render from
-  the projection.
+
+## Events
+
+- `rg -n 'events\.(Load|Since)\(' --type go -g '!*_test.go'`: a render that
+  loads a stream, or reads the log from its start, grows with the history.
+  Render from a projection; a feed reads `Since` from near the end.
+- `rg -n '(INSERT INTO|UPDATE|DELETE FROM) lith_(events|event_state|projections)' --type go`:
+  only `lith/events` writes its tables (`Execute`, `Append`, `Forget`,
+  `Prune`, the Runner). A write of the app's own skips the version check, the
+  state row and the projectors.
+- A projector with `Tables` writes only those tables: a rebuild runs its
+  handlers over every event again, and a write anywhere else happens twice.
 
 ## Requests
 

@@ -3,7 +3,7 @@ title: tenant
 headline: lith/tenant: one open SQLite database per account
 summary: Keeps one open value per key, usually a SQLite database per account.
 description: Reference for lith/tenant: a pool that keeps one open value per key, usually a SQLite database per account, refcounted and closed at a soft cap.
-order: 6
+order: 8
 ---
 
 Import path `github.com/zweiundeins/lith/tenant`. Generated from the doc comments in [tenant/](https://github.com/zweiundeins/lith/tree/main/tenant).

@@ -3,7 +3,7 @@ title: sse
 headline: lith/sse: Datastar events, compressed per stream
 summary: Writes Datastar server-sent events through a compressor of its own per stream.
 description: Reference for lith/sse: Datastar's server-sent events, formatted once and compressed per stream with zstd, brotli or gzip within a memory budget.
-order: 4
+order: 6
 ---
 
 Import path `github.com/zweiundeins/lith/sse`. Generated from the doc comments in [sse/](https://github.com/zweiundeins/lith/tree/main/sse).

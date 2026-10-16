@@ -3,7 +3,7 @@ title: Reads
 headline: Reads: one read transaction per document or render
 summary: Every read runs in a read transaction of the pool, the one it is given: a document's, a render's or a command's. Query code takes a sqlite.Querier, so one function serves all three.
 description: Every read runs in a read transaction from the pool: a document's, a render's or a command's. Query code takes a sqlite.Querier and serves all three.
-order: 3
+order: 4
 ---
 
 `sqlite.Open` opens two pools on one file: `db.W`, a single connection that belongs to the writer and the migrations, and `db.R`, a pool of read connections with `PRAGMA query_only` set, which refuse any write. Everything that reads goes through `db.R`, in a read transaction.

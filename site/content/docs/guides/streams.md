@@ -4,7 +4,7 @@ nav: Streams
 headline: Streams: compression per stream within a budget
 summary: Each stream compresses its frames with an encoder of its own. Pick the window by the largest frame, share memory through the budget, let idle streams hibernate, and leave small events uncompressed.
 description: Each SSE stream compresses with its own encoder: pick the window by the largest frame, share memory through the budget, and let idle streams hibernate.
-order: 6
+order: 7
 ---
 
 Every tab holds one open stream, and every stream compresses what it sends with an encoder of its own. The encoder's window spans the whole stream: a frame that repeats most of the frame before refers back to it and costs a few hundred bytes, which is what makes rendering whole regions affordable ([Hypermedia](/docs/concepts/hypermedia)). The window is also memory, held for as long as the tab stays open.

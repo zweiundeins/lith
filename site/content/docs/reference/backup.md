@@ -3,7 +3,7 @@ title: backup
 headline: lith/backup: Litestream replication to S3
 summary: Replicates SQLite databases to S3-compatible storage with Litestream, embedded in the process.
 description: Reference for lith/backup: replicate SQLite databases to S3-compatible storage with Litestream, embedded in the process, in a module of its own.
-order: 9
+order: 11
 ---
 
 Import path `github.com/zweiundeins/lith/backup`, a module of its own: `go get github.com/zweiundeins/lith/backup`. Generated from the doc comments in [backup/](https://github.com/zweiundeins/lith/tree/main/backup).

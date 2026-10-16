@@ -3,7 +3,7 @@ title: edge
 headline: lith/edge: sessions, CSRF, compression, static files
 summary: What the apps do at the request edge, before a handler runs and after it has written.
 description: Reference for lith/edge: sessions, CSRF checks, a CSP with a nonce, client addresses, rate limits, compression and precompressed static files.
-order: 5
+order: 7
 ---
 
 Import path `github.com/zweiundeins/lith/edge`. Generated from the doc comments in [edge/](https://github.com/zweiundeins/lith/tree/main/edge).

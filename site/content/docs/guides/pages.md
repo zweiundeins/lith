@@ -4,7 +4,7 @@ nav: Pages
 headline: Pages with Datastar: regions, tab state, op ids
 summary: The document a GET renders, regions morphed whole, a tab's state in SQLite, an action that stays pending until its op id comes back, and a page that reconnects by itself after a deploy.
 description: The document a GET renders, regions morphed whole, tab state in SQLite, actions pending until their op id returns, and reconnecting after a deploy.
-order: 5
+order: 6
 ---
 
 A lith page is a document that a GET renders from one read transaction, and a stream that patches it from then on. [Datastar](https://data-star.dev) runs in the browser: it sends the actions, keeps the page's signals, and morphs the HTML that arrives on the stream into the page by the elements' ids. The [Datastar notes](/docs/datastar) list what goes wrong with it, and why.

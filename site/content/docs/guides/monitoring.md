@@ -4,7 +4,7 @@ nav: Monitoring
 headline: Monitoring lith with Prometheus and Grafana
 summary: The writer's, the hub's and the budget's numbers in Prometheus with lith/prom, statement timings with dbmetrics, the Grafana dashboard and alert rules lith ships, the log lines worth reading, the probes, and the files each app installs on a shared host.
 description: The writer's, the hub's and the budget's numbers in Prometheus, statement timings, the Grafana dashboard and alerts, logs, probes and a host's drop-ins.
-order: 10
+order: 11
 ---
 
 A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()` count what the writer, the hub and the streams' encoders do, from the start of the process. `lith/prom` exports them to Prometheus, `dbmetrics` times every statement, and lith's `deploy/observability` has a dashboard and alert rules that read them for any lith app.

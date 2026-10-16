@@ -4,7 +4,7 @@ nav: The edge
 headline: The request edge: sessions, CSRF, CSP and limits
 summary: What happens to a request before its handler runs and after it has written: sessions, CSRF, security headers with a CSP nonce, client addresses, rate limits, compression, static files and health probes.
 description: What happens around a handler: sessions, CSRF checks, security headers with a CSP nonce, client addresses, rate limits, compression and static files.
-order: 7
+order: 8
 ---
 
 `lith/edge` holds the middleware the apps share. It never touches the database: a session there is a cookie, and what a session holds is the app's to store, through its writer, once the browser does something worth keeping.

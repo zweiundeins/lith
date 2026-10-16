@@ -8,6 +8,7 @@
 //
 //	sqlite    open one database file as a write connection and a read pool
 //	writer    the single writer: Send, Do, batches with a savepoint per command
+//	events    event streams, deciders with a state row, projections and rebuilds
 //	live      topics, the tick, render workers, shared views, stream mailboxes
 //	sse       Datastar events and per-stream compression
 //	edge      request edge: sessions, CSRF, client IP, CSP, compression, limits

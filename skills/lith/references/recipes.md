@@ -399,34 +399,120 @@ if err == nil {
 
 ## An event-sourced command
 
-The writer serialises commands, so there is no optimistic retry loop. One
-`Apply` loads the aggregate (from the projection, plus newer events if the
-projection can lag), decides, appends the events and updates the projection.
-Renders read the projection, never the event stream.
+`lith/events` keeps the event log in the app's database. The writer serialises
+commands, so there is no optimistic retry loop and no lagging read model: a
+command calls `events.Execute` in its `Apply`, which reads the stream's state
+row, checks the expected version, decides, appends, saves the row and runs the
+inline projectors, all in the command's savepoint.
 
 ```go
-func (c Record) Apply(tx *writer.Tx) error {
-	s, err := loadSession(tx, c.Session) // session_view row
-	if err != nil {
-		return err
-	}
-	events, err := decide(s, c) // pure
-	if err != nil {
-		return err
-	}
-	for _, e := range events {
-		if _, err := tx.Exec(`INSERT INTO events(stream_id, type, data) VALUES (?, ?, ?)`, c.Session, e.Type, e.Data); err != nil {
-			return err
+type CardEvent interface{ cardEvent() }
+
+type CardCreated struct {
+	Title string `json:"title"`
+}
+
+type CardRenamed struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+func (CardCreated) cardEvent() {}
+func (CardRenamed) cardEvent() {}
+
+var Cards = events.NewStream[int64, CardEvent]("card")
+
+// One line per stream: the compiler checks that T belongs to it.
+func defineCard[T CardEvent](name string) events.Type[int64, CardEvent, T] {
+	return events.Define(Cards, name, func(t T) CardEvent { return t })
+}
+
+var ( // the names are what the table stores
+	Created = defineCard[CardCreated]("card.created")
+	Renamed = defineCard[CardRenamed]("card.renamed")
+)
+
+type card struct{ Exists bool; Title string } // exported fields: kept as JSON
+
+var rename = events.Decider[Rename, CardEvent, card]{
+	Decide: func(c Rename, s card) ([]CardEvent, error) {
+		if !s.Exists {
+			return nil, ErrNotFound
 		}
-		s = s.Apply(e)
-	}
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO session_view(id, data) VALUES (?, ?)`, c.Session, s.JSON()); err != nil {
-		return err
-	}
-	tx.Touch("session:" + c.Session)
-	return nil
+		if c.Title == s.Title {
+			return nil, nil // nothing changes
+		}
+		return []CardEvent{CardRenamed{From: s.Title, To: c.Title}}, nil
+	},
+	Evolve:  evolveCard, // shared by the kind's deciders, one per command type
+	Version: 1,          // bump when Evolve or the state change: rows refold
+}
+
+func (c Rename) Apply(tx *writer.Tx) error {
+	return events.Execute(store, tx, rename, Cards.ID(c.Card), events.Exactly(c.Seen), c,
+		events.Meta{Actor: c.Session, Causation: c.Op})
 }
 ```
+
+- The expected version is the one the page showed: `events.Exactly(v)`,
+  `events.NoStream` for a stream that must not exist, `events.Any`. A mismatch
+  fails with an error wrapping `events.ErrConflict` before `Decide` runs.
+- Commands decide from the stream's state row, never from a projection.
+- `events.Append(store, tx, id, want, meta, evs...)` for imports, without a
+  decider; a single concrete event goes in as `events.One[CardEvent](e)`. It
+  drops the stream's state row, and the next `Execute` folds it again.
+- `Meta`: `At` (stored in Unix milliseconds, now when zero), `Actor`,
+  `Correlation`, `Causation`.
+- Test deciders with `eventstest.For(rename).Given(evs...).When(cmd).Then(t, evs...)`
+  or `.ThenError(t, err)`; no database.
+- A new optional field needs nothing. Any other shape change is a new type
+  name plus `events.Upcast(old, new, fn)` passed to `events.New`; never edit
+  stored events. Keep a JSON sample per type in `testdata` and run
+  `eventstest.Samples`.
+
+## Projections of events
+
+```go
+// Every event type of the stream is handled or ignored (events.Ignore).
+var cardTitles = events.NewProjector(Cards, "card_titles", 1,
+	events.Handle(Created, func(tx *writer.Tx, r events.Record[int64, CardCreated]) error {
+		_, err := tx.Exec(`INSERT INTO card_titles (id, title) VALUES (?, ?)`, r.ID, r.Data.Title)
+		return err
+	}),
+	events.Handle(Renamed, func(tx *writer.Tx, r events.Record[int64, CardRenamed]) error {
+		_, err := tx.Exec(`UPDATE card_titles SET title = ? WHERE id = ?`, r.Data.To, r.ID)
+		tx.Touch(CardTopic(r.ID))
+		return err
+	}),
+).Tables("card_titles") // created by a migration; written by this projector only
+
+var store = events.Must(events.New(cardTitles))
+
+runner := events.NewRunner(store, db, w, events.Options{})
+go runner.Run(runCtx) // cancel runCtx before w.Close()
+```
+
+- Inline projectors (`Handle`) run in the appending command's transaction and
+  touch the topics they change; `Execute` also touches `events.Topic`.
+- Bumping a projector's version makes the Runner rebuild its `Tables` into
+  copies (`card_titles__v2`), a command per `Options.Batch` events, and swap
+  them in with the last batch. Pages read the old table until the swap; its
+  indexes then end in `__v2`. No triggers on, and no foreign keys into, a
+  projection's tables. The swap touches `cardTitles.Topic()`.
+- Catch-up projectors (`After`) run after the commit, outside the writer, for
+  mail and other systems: at least once, with `r.Position` as the idempotency
+  key. Failures back off (`Options.Backoff`, `MaxBackoff`); after `Retries`
+  the projector parks with its error (`runner.Stats()`, `lith_projections`)
+  until `runner.Resume(name)` or the next `Run`. `SkipHistory` starts a new one
+  at the end of the log.
+- Pages render from projections. `events.Load` (a stream) and `events.Since`
+  (the log after a position) are iterators over any `sqlite.Querier`, for a
+  history page, a feed near the end of the log, tests and tools.
+- Retention: `events.Forget(store, tx, id)` deletes a stream (erasure; delete
+  its projection rows in the same command), `events.Prune(store, tx, Cards,
+  before, limit)` a kind's old events, never past a catch-up projector.
+  Events gone cannot be rebuilt. Positions are `AUTOINCREMENT` and never
+  reused.
 
 ## Backups
 

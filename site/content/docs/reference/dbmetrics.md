@@ -3,7 +3,7 @@ title: dbmetrics
 headline: lith/dbmetrics: statement timings and slow queries
 summary: Times the statements a database/sql driver runs and logs the slow ones.
 description: Reference for lith/dbmetrics: wrap a database/sql driver to time every query and exec, and log the slow ones with their SQL but never their arguments.
-order: 7
+order: 9
 ---
 
 Import path `github.com/zweiundeins/lith/dbmetrics`. Generated from the doc comments in [dbmetrics/](https://github.com/zweiundeins/lith/tree/main/dbmetrics).

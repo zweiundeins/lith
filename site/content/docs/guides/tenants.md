@@ -3,7 +3,7 @@ title: One database per account
 nav: Tenants
 headline: One SQLite database per account with tenant.Pool
 summary: Keep each account's data in a file of its own with tenant.Pool, a writer per account and one hub for every account's views, and erase an account for good.
-order: 8
+order: 9
 ---
 
 An app whose accounts never share data can keep each account in a SQLite file of its own. A query then only ever sees one account's rows, so data cannot leak between accounts through a forgotten `WHERE`, and backing up, restoring or erasing one account is a matter of one file. The price is an open database, with its connections and its writer, for every account in use. `lith/tenant` keeps that bounded: a pool opens an account's database on first use, and closes idle ones, least recently released first, when more than its cap are open.

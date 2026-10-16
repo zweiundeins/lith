@@ -78,6 +78,7 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 | --- | --- |
 | `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
+| `events` | event sourcing on the writer: typed streams, deciders that decide from a state row (`Execute`, expected versions), `Append`, inline projectors in the same savepoint, catch-up projectors after the commit, a `Runner` that rebuilds changed projectors into copies and swaps them in, upcasters, retention, `eventstest` |
 | `live` | views and topics, the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats |
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget, write deadlines, `ReadSignals` for any method |
 | `edge` | sessions cookie, CSRF, client IP, slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
@@ -92,8 +93,8 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 - `references/recipes.md`: wiring and migrations, a command, op ids that
   keep refusals, query code shared by reads and commands, a view with topics,
   tab state and preferences, a background job, a bulk import, work a
-  transaction cannot hold, an event-sourced command, backups, monitoring on
-  a shared host, a new project.
+  transaction cannot hold, an event-sourced command, projections of events
+  and their rebuilds, backups, monitoring on a shared host, a new project.
 - `references/performance.md`: measured numbers, the knobs they set, how to
   measure.
 - `references/review.md`: the checklist with `rg` patterns.

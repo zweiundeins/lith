@@ -4,7 +4,7 @@ nav: Views
 headline: Views and the hub: keys, topics and live streams
 summary: A view is a region of a page with a key, topics and a render function. Define the board's views, a tab's and a session's, add one to an open stream, tailor frames per stream, and keep the streams alive.
 description: A view is a region of a page with a key, topics and a render function: shared views, a tab's and a session's, views added to open streams, heartbeats.
-order: 4
+order: 5
 ---
 
 The hub, `live.Hub`, renders views and streams their frames. A commit marks the views of its topics dirty, and in the next tick a worker renders each dirty view once, in one read transaction, for every stream that watches it ([Ticks](/docs/concepts/ticks) explains the loop). This page builds the board's views.

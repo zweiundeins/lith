@@ -23,7 +23,7 @@ const refDir = Docs + "/reference"
 
 // Packages are the packages of the reference, by their directory under
 // the root, in the order of its navigation.
-var Packages = []string{"sqlite", "writer", "live", "sse", "edge", "tenant", "dbmetrics", "loadtest", "backup", "prom", "dbmetrics/prom"}
+var Packages = []string{"sqlite", "writer", "events", "events/eventstest", "live", "sse", "edge", "tenant", "dbmetrics", "loadtest", "backup", "prom", "dbmetrics/prom"}
 
 // Meta is what a generated page shows in search results and shares: the
 // head's title and its meta description.
@@ -32,17 +32,19 @@ type Meta struct{ Headline, Description string }
 // PackageMeta holds each package's Meta, by its directory. A package in
 // Packages needs one.
 var PackageMeta = map[string]Meta{
-	"sqlite":         {"lith/sqlite: one write connection and a read pool", "Reference for lith/sqlite: open a SQLite file with one write connection and a pool of read-only ones, run migrations, and read in one snapshot."},
-	"writer":         {"lith/writer: the single writer of a SQLite database", "Reference for lith/writer: the one writer of a SQLite database, which applies commands in batches of one transaction with a savepoint each."},
-	"live":           {"lith/live: views rendered once a tick, streamed", "Reference for lith/live: views keyed by topics, rendered once per tick in a read transaction, and streamed to every page that watches them."},
-	"sse":            {"lith/sse: Datastar events, compressed per stream", "Reference for lith/sse: Datastar's server-sent events, formatted once and compressed per stream with zstd, brotli or gzip within a memory budget."},
-	"edge":           {"lith/edge: sessions, CSRF, compression, static files", "Reference for lith/edge: sessions, CSRF checks, a CSP with a nonce, client addresses, rate limits, compression and precompressed static files."},
-	"tenant":         {"lith/tenant: one open SQLite database per account", "Reference for lith/tenant: a pool that keeps one open value per key, usually a SQLite database per account, refcounted and closed at a soft cap."},
-	"dbmetrics":      {"lith/dbmetrics: statement timings and slow queries", "Reference for lith/dbmetrics: wrap a database/sql driver to time every query and exec, and log the slow ones with their SQL but never their arguments."},
-	"loadtest":       {"lith/loadtest: an app's views and commands under load", "Reference for lith/loadtest: measure an app's views and commands in process, with a writer, a live hub, and streams that need no network."},
-	"backup":         {"lith/backup: Litestream replication to S3", "Reference for lith/backup: replicate SQLite databases to S3-compatible storage with Litestream, embedded in the process, in a module of its own."},
-	"prom":           {"lith/prom: Prometheus metrics for a lith app", "Reference for lith/prom: export the writer's batches and commands, the live hub's ticks, renders and frames, and the stream budget to Prometheus."},
-	"dbmetrics/prom": {"lith/dbmetrics/prom: statement timings in Prometheus", "Reference for lith/dbmetrics/prom: a dbmetrics Observer that records query and exec durations and slow statements as Prometheus histograms and counters."},
+	"sqlite":            {"lith/sqlite: one write connection and a read pool", "Reference for lith/sqlite: open a SQLite file with one write connection and a pool of read-only ones, run migrations, and read in one snapshot."},
+	"writer":            {"lith/writer: the single writer of a SQLite database", "Reference for lith/writer: the one writer of a SQLite database, which applies commands in batches of one transaction with a savepoint each."},
+	"events":            {"lith/events: event streams, deciders and projections", "Reference for lith/events: typed event streams in the app's SQLite file, deciders that keep a state row, inline and catch-up projectors, rebuilds."},
+	"events/eventstest": {"lith/events/eventstest: deciders as given, when, then", "Reference for lith/events/eventstest: test a decider with the events a stream holds, a command, and the events or error it causes, and check samples."},
+	"live":              {"lith/live: views rendered once a tick, streamed", "Reference for lith/live: views keyed by topics, rendered once per tick in a read transaction, and streamed to every page that watches them."},
+	"sse":               {"lith/sse: Datastar events, compressed per stream", "Reference for lith/sse: Datastar's server-sent events, formatted once and compressed per stream with zstd, brotli or gzip within a memory budget."},
+	"edge":              {"lith/edge: sessions, CSRF, compression, static files", "Reference for lith/edge: sessions, CSRF checks, a CSP with a nonce, client addresses, rate limits, compression and precompressed static files."},
+	"tenant":            {"lith/tenant: one open SQLite database per account", "Reference for lith/tenant: a pool that keeps one open value per key, usually a SQLite database per account, refcounted and closed at a soft cap."},
+	"dbmetrics":         {"lith/dbmetrics: statement timings and slow queries", "Reference for lith/dbmetrics: wrap a database/sql driver to time every query and exec, and log the slow ones with their SQL but never their arguments."},
+	"loadtest":          {"lith/loadtest: an app's views and commands under load", "Reference for lith/loadtest: measure an app's views and commands in process, with a writer, a live hub, and streams that need no network."},
+	"backup":            {"lith/backup: Litestream replication to S3", "Reference for lith/backup: replicate SQLite databases to S3-compatible storage with Litestream, embedded in the process, in a module of its own."},
+	"prom":              {"lith/prom: Prometheus metrics for a lith app", "Reference for lith/prom: export the writer's batches and commands, the live hub's ticks, renders and frames, and the stream budget to Prometheus."},
+	"dbmetrics/prom":    {"lith/dbmetrics/prom: statement timings in Prometheus", "Reference for lith/dbmetrics/prom: a dbmetrics Observer that records query and exec durations and slow statements as Prometheus histograms and counters."},
 }
 
 // indexMeta and changelogMeta are the reference's index's and the

@@ -282,6 +282,14 @@ func (t *Tx) ExecUncached(query string, args ...any) (sql.Result, error)
 
 ExecUncached is Exec for SQL built at runtime, such as an IN list with a mark per value: the statement is prepared for this call only, instead of taking a place in the cache for each length of the list.
 
+#### func (*Tx) Local {#Tx.Local}
+
+```go
+func (t *Tx) Local(key any) any
+```
+
+Local returns the value SetLocal stored under key on this writer, or nil. Packages built on the writer keep there what they know of its database, such as whether their tables exist: one package-level value can then serve the databases of many writers, a database per account among them. Commands run one at a time, so Local needs no lock.
+
 #### func (*Tx) Query {#Tx.Query}
 
 ```go
@@ -337,6 +345,14 @@ func (t *Tx) Savepoint(fn func(*Tx) error) error
 ```
 
 Savepoint runs fn in a nested savepoint. If fn returns an error or panics, its changes are rolled back, the topics it touched and the functions it registered are dropped, and its error is returned: the command can go on.
+
+#### func (*Tx) SetLocal {#Tx.SetLocal}
+
+```go
+func (t *Tx) SetLocal(key, value any)
+```
+
+SetLocal stores value under key on this writer, for the commands that follow, until the writer stops. It is not undone when the command fails: set what depends on the commit in AfterCommit.
 
 #### func (*Tx) Touch {#Tx.Touch}
 

@@ -13,6 +13,8 @@ These pages are generated from the Go doc comments of lith's packages, at the co
 | --- | --- |
 | [sqlite](/docs/reference/sqlite) | Opens one SQLite database file the way the projects use it: a single write connection, for migrations and the writer, and a pool of read-only connections for everything else. |
 | [writer](/docs/reference/writer) | The single writer of a SQLite database. |
+| [events](/docs/reference/events) | Keeps an event log in the app's SQLite database: typed streams of events, deciders that decide from each stream's own state, and projectors that keep read models current. |
+| [events/eventstest](/docs/reference/events-eventstest) | Tests deciders as given, when, then: the events a stream holds, a command, and the events or the error the command should cause. |
 | [live](/docs/reference/live) | Renders views from the database and streams them to pages: view = f(state). |
 | [sse](/docs/reference/sse) | Writes Datastar server-sent events through a compressor of its own per stream. |
 | [edge](/docs/reference/edge) | What the apps do at the request edge, before a handler runs and after it has written. |

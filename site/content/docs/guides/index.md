@@ -11,6 +11,7 @@ The guides follow one app: boards of lanes that hold cards, the domain of lith's
 | Guide | What it covers |
 | --- | --- |
 | [Commands and the writer](/docs/guides/commands) | `Send`, `Do`, `DoValue`, validation, topics, refusals, op ids with `Once` and `OnceResult`, `AfterCommit`, the statement cache |
+| [Event sourcing](/docs/guides/events) | streams and event types, deciders with `Execute`, expected versions, inline and catch-up projectors, rebuilds, upcasting, retention, `eventstest` |
 | [Migrations, jobs and imports](/docs/guides/migrations-and-jobs) | the schema's files, `Exclusive`, bulk imports, background jobs, sweeps, checkpoints |
 | [Reads](/docs/guides/reads) | `View` and `ViewValue`, query code shared through `sqlite.Querier`, `WithTx`, the read pool |
 | [Views and the hub](/docs/guides/views) | keys and topics, `Presence`, `Every`, `Watch` and `Unwatch`, `Spec.WriteTick`, the heartbeat signal, `MaxStreams` |

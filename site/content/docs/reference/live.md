@@ -3,7 +3,7 @@ title: live
 headline: lith/live: views rendered once a tick, streamed
 summary: Renders views from the database and streams them to pages: view = f(state).
 description: Reference for lith/live: views keyed by topics, rendered once per tick in a read transaction, and streamed to every page that watches them.
-order: 3
+order: 5
 ---
 
 Import path `github.com/zweiundeins/lith/live`. Generated from the doc comments in [live/](https://github.com/zweiundeins/lith/tree/main/live).
