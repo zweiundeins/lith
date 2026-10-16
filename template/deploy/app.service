@@ -14,8 +14,13 @@ RuntimeDirectoryMode=0755
 WorkingDirectory=/var/lib/app
 # Optional: APP_* settings the command line leaves out, and secrets.
 EnvironmentFile=-/etc/app/app.env
+# The app on the socket for Caddy, its metrics on 127.0.0.1:8180 for
+# Prometheus only (observability/app.metrics.yml). Each app on a host needs
+# a metrics port of its own: change it here, in SocketBindAllow and in
+# app.metrics.yml.
 ExecStart=/opt/app/app serve \
 	-addr unix:/run/app/app.sock \
+	-metrics 127.0.0.1:8180 \
 	-db /var/lib/app/app.db \
 	-secure \
 	-streams 200
@@ -35,13 +40,18 @@ MemoryHigh=512M
 MemoryMax=640M
 TasksMax=256
 
-# Caddy reaches the socket. The service itself may not reach localhost,
-# where other services listen (Caddy's admin API, databases); DNS goes
-# through systemd-resolved's stub. To listen on a loopback port instead:
-# -addr 127.0.0.1:8080, drop IPAddressDeny, and point app.caddy there.
-IPAddressDeny=localhost
-IPAddressAllow=127.0.0.53 127.0.0.54
+# Network: loopback only, both ways, since Prometheus connects from 127.0.0.1
+# to the metrics port (Caddy reaches the socket). The service may bind that
+# port alone and reaches no other host, but on loopback it could reach the
+# host's other services too (Caddy's admin API, databases). An app that
+# calls out adds the addresses it needs to IPAddressAllow. To listen on a
+# loopback port instead of the socket: -addr 127.0.0.1:8080,
+# SocketBindAllow=tcp:8080, and point app.caddy there.
+IPAddressDeny=any
+IPAddressAllow=localhost
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SocketBindAllow=tcp:8180
+SocketBindDeny=any
 
 NoNewPrivileges=yes
 ProtectSystem=strict

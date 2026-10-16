@@ -1,0 +1,13 @@
+# app's metrics listener for the host's Prometheus, installed as
+# /etc/prometheus/apps/app.yml, which the host's `apps` job reads. The port is
+# app.service's -metrics and SocketBindAllow: change the three together.
+#
+# What it serves (cmd/app/metrics.go):
+#   app_writer_*                        batches, commands, failures, queue, commit p99 (lith/prom)
+#   app_live_*                          ticks, overruns, renders, frames sent and dropped, streams (lith/prom)
+#   app_sse_budget_*                    limit, reserved, streams by setting, refused (lith/prom)
+#   app_db_query_duration_seconds{op}   statement timings (lith/dbmetrics/prom)
+#   app_db_slow_queries_total{op}
+#   go_*, process_*                     the Go runtime and the process
+- targets: ['127.0.0.1:8180']
+  labels: { app: app, slot: prod }

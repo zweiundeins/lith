@@ -14,11 +14,12 @@ A lith app ships as one static binary and keeps its state in one SQLite file. Th
 
 ## The systemd unit
 
-The unit runs the binary as an unprivileged user, keeps the database in `/var/lib/app` (`StateDirectory`), and listens on a Unix socket that Caddy reaches:
+The unit runs the binary as an unprivileged user, keeps the database in `/var/lib/app` (`StateDirectory`), listens on a Unix socket that Caddy reaches, and serves its metrics on 127.0.0.1:8180 for the host's Prometheus:
 
 ```ini source=template/deploy/app.service
 ExecStart=/opt/app/app serve \
 	-addr unix:/run/app/app.sock \
+	-metrics 127.0.0.1:8180 \
 	-db /var/lib/app/app.db \
 	-secure \
 	-streams 200
@@ -31,7 +32,7 @@ TimeoutStopSec=20
 LimitNOFILE=65536
 ```
 
-The rest of the unit closes the process in: it may not reach localhost, where other services listen, and runs with a read-only system, private `/tmp` and devices, no capabilities, and the `@system-service` system calls. Each flag of the binary can also come from the environment, `-db` as `APP_DB`, through an optional `/etc/app/app.env`.
+The rest of the unit closes the process in: it reaches no host but its own, may bind its metrics port and no other, and runs with a read-only system, private `/tmp` and devices, no capabilities, and the `@system-service` system calls. Loopback is open both ways, since Prometheus connects from 127.0.0.1, so the app could also reach the other services that listen there; an app that calls out to another host adds the addresses it needs to `IPAddressAllow` ([Metrics and monitoring](/docs/guides/monitoring#metrics-from-the-template)). Each flag of the binary can also come from the environment, `-db` as `APP_DB`, through an optional `/etc/app/app.env`.
 
 ## Memory
 
@@ -126,6 +127,7 @@ defer cancel()
 if err := srv.Shutdown(sctx); err != nil { // 2. actions finish, and still reach the writer
 	log.Warn("shutdown", "err", err)
 }
+msrv.Close()
 jobs.Wait()
 <-hubDone
 return errors.Join(err, w.Close(), db.Close()) // 3. the writer applies what is queued; 4. the database closes
@@ -142,7 +144,7 @@ The server's base context must not be the signal's context: request contexts wou
 
 ## The host's folders
 
-On a host that runs several apps, each app puts its files into folders that the host's services load, and never edits the host's own configuration: the Caddy block into `/etc/caddy/sites/`, its probes and its metrics target into Prometheus's folders, its log shipping into Alloy's. `setup-host.sh` installs the monitoring files, and [Metrics and monitoring](/docs/guides/monitoring#drop-in-files-for-a-shared-host) lists the folders and the labels.
+On a host that runs several apps, each app puts its files into folders that the host's services load, and never edits the host's own configuration: the Caddy block into `/etc/caddy/sites/`, its probes and its metrics target into Prometheus's folders, its log shipping into Alloy's. `setup-host.sh` installs the monitoring files, and [Metrics and monitoring](/docs/guides/monitoring#drop-in-files-for-a-shared-host) lists the folders and the labels. Each app needs a metrics port of its own: the template's is 8180, in the unit's `-metrics` and `SocketBindAllow` and in `observability/app.metrics.yml`.
 
 ## This site's deploy
 

@@ -37,7 +37,7 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 
 ## Prometheus
 
-`lith/prom` is a module of its own, so an app without Prometheus never pulls in its client. `prom.New(namespace, sources)` returns a collector that reads the sources' stats on every scrape. `dbmetrics` times the statements a database/sql driver runs: register its wrapper of modernc's driver once, name it in `sqlite.Options.Driver`, and the write connection, the read pool and `Backup` all open through it. This site wires both:
+`lith/prom` is a module of its own, so an app without Prometheus never pulls in its client. `prom.New(namespace, sources)` returns a collector that reads the sources' stats on every scrape. `dbmetrics` times the statements a database/sql driver runs: register its wrapper of modernc's driver once, name it in `sqlite.Options.Driver`, and the write connection, the read pool and `Backup` all open through it. The template wires both in `cmd/app/metrics.go`, and this site in `internal/app`:
 
 ```go source=site/internal/app/app.go
 driverOnce.Do(func() {
@@ -95,9 +95,9 @@ Requests by route are the app's own: this site's `internal/metrics` counts `lith
 
 ## A listener of its own
 
-The metrics never go on the public listener. This site serves them on 127.0.0.1 at its public port plus 100, where the host's Prometheus scrapes every app, and refuses an address that is not loopback:
+The metrics never go on the public listener. The template and this site serve them on a loopback listener of their own, which the flag `-metrics` sets: `auto`, the default, is 127.0.0.1 at the public port plus 100, where the host's Prometheus scrapes every app (127.0.0.1:8180 for the template's 8080), and `off` is none. A Unix socket has no port to add 100 to, so the template's unit names the address itself, `-metrics 127.0.0.1:8180`. An address that is not loopback is refused:
 
-```go source=site/cmd/lith-site/main.go
+```go source=template/cmd/app/metrics.go
 host, _, err := net.SplitHostPort(flagValue)
 if err != nil {
 	return "", fmt.Errorf("-metrics: %w", err)
@@ -120,7 +120,7 @@ return flagValue, nil
 - **Database**: p95 by operation, statements and slow statements.
 - **Process**: Go heap in use, resident memory, goroutines, CPU.
 
-The site's `TestDashboard` fails when the dashboard or the alert rules read a metric the site does not export. The events metrics come from the town's store and its runner.
+The site's `TestDashboard` fails when the dashboard or the alert rules read a metric the site does not export. The events metrics come from the town's store and its runner. The template's `TestDashboard`, in `cmd/app`, does the same for a new app, which exports all but the requests by route and the events: it reads both files from the lith module that go.mod names.
 
 ## Alerts
 
@@ -249,9 +249,21 @@ Caddy's main file imports the sites, `import /etc/caddy/sites/*.caddy`, and Graf
 
 ### Metrics from the template
 
-The template serves no metrics, so its `deploy/observability` has no `metrics.yml`. To add them: a registry with `lith/prom` and `lith/dbmetrics/prom` on a loopback port of its own ([A listener of its own](#a-listener-of-its-own)), a unit that lets Prometheus connect (the template's `IPAddressDeny=localhost` blocks loopback both ways; this site's unit allows localhost and binds only its two ports), and the target, labelled like this site's:
+An app made from the template serves its metrics from the start, with its name as their namespace and `-` as `_`: lith-new turns `app_writer_commands_total` into `visitor_log_writer_commands_total` for an app named `visitor-log`. Its unit listens on a Unix socket for Caddy, passes `-metrics 127.0.0.1:8180`, and opens loopback both ways, so that Prometheus can connect; the app may bind that port alone:
 
-```yaml source=site/deploy/observability/lith-site.metrics.yml
-- targets: ['127.0.0.1:8197']
-  labels: { app: lith-site, slot: prod }
+```ini source=template/deploy/app.service
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SocketBindAllow=tcp:8180
+SocketBindDeny=any
 ```
+
+The app reaches no other host, but on loopback it can reach the host's other services too, such as Caddy's admin API. An app that calls out to another host adds the addresses it needs to `IPAddressAllow`. Its target names the same port, labelled with the app's name:
+
+```yaml source=template/deploy/observability/app.metrics.yml
+- targets: ['127.0.0.1:8180']
+  labels: { app: app, slot: prod }
+```
+
+Each app on a host needs a metrics port of its own. A second app from the template changes 8180 in its unit's `-metrics` and `SocketBindAllow` and in its `metrics.yml`; its `TestMetricsPort` fails until the three agree.

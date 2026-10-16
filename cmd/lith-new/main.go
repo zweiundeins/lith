@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -33,8 +34,14 @@ const (
 
 // lithModules are lith's modules that the template requires, by their
 // directory in lith's repository: each at zeroVersion in go.mod.tmpl, and
-// tagged with every release.
-var lithModules = []string{".", "minify"}
+// tagged with every release, or lith-new of that release writes a go.mod
+// that does not tidy.
+var lithModules = []string{".", "minify", "prom"}
+
+// ownModules are lith's modules that the template requires at a version of
+// their own, which go.mod.tmpl names: a release tags them only when they
+// change. -lith replaces them as it replaces lithModules.
+var ownModules = []string{"dbmetrics/prom"}
 
 // moduleAt is the path of the lith module at dir.
 func moduleAt(dir string) string {
@@ -52,14 +59,17 @@ deploy files and CI. The app is named after the module path's last element, or
 -name: its binary in cmd/<name>, the systemd units in deploy/, the <NAME>_
 environment variables.
 
-The new go.mod requires the lith that lith-new was run from, and lith/minify
-of the same version: with go run github.com/zweiundeins/lith/cmd/lith-new@latest,
-the latest release. To work against a lith checkout instead, name it with
--lith, or with LITH_DIR in the environment, and the new go.mod gets
+The new go.mod requires the lith that lith-new was run from, lith/minify and
+lith/prom of the same version, and lith/dbmetrics/prom, which has versions of
+its own: with go run github.com/zweiundeins/lith/cmd/lith-new@latest, the
+latest release. To work against a lith checkout instead, name it with -lith,
+or with LITH_DIR in the environment, and the new go.mod gets
 
 	replace (
 		github.com/zweiundeins/lith => <the checkout's absolute path>
+		github.com/zweiundeins/lith/dbmetrics/prom => <the checkout's absolute path>/dbmetrics/prom
 		github.com/zweiundeins/lith/minify => <the checkout's absolute path>/minify
+		github.com/zweiundeins/lith/prom => <the checkout's absolute path>/prom
 	)
 
 Flags:
@@ -201,7 +211,9 @@ func (p *project) write(tmpl fs.FS) error {
 			switch {
 			case p.lith != "":
 				b = append(b, "\nreplace (\n"...)
-				for _, dir := range lithModules {
+				dirs := slices.Concat(lithModules, ownModules)
+				slices.Sort(dirs)
+				for _, dir := range dirs {
 					b = fmt.Appendf(b, "\t%s => %s\n", moduleAt(dir), modPath(filepath.Join(p.lith, dir)))
 				}
 				b = append(b, ")\n"...)
@@ -226,13 +238,16 @@ func (p *project) write(tmpl fs.FS) error {
 // rewriter returns a function that replaces, in one pass, the template's
 // module path and its app's name, app, with the project's: in file names,
 // in text, as the prefix APP_ of environment variables, and as the prefix
-// app_ of identifiers, such as Alloy's component labels, with - as _.
+// app_ of identifiers, such as Alloy's component labels and metric names,
+// with - as _. The label app of a Prometheus target keeps its name.
 func (p *project) rewriter() func(string) string {
-	re := regexp.MustCompile(regexp.QuoteMeta(templateModule) + `|\b` + templateName + `\b|\b` + templateName + `_|\b` + strings.ToUpper(templateName) + `_`)
+	re := regexp.MustCompile(regexp.QuoteMeta(appLabel) + `|` + regexp.QuoteMeta(templateModule) + `|\b` + templateName + `\b|\b` + templateName + `_|\b` + strings.ToUpper(templateName) + `_`)
 	ident := strings.ReplaceAll(p.name, "-", "_") + "_"
 	return func(s string) string {
 		return re.ReplaceAllStringFunc(s, func(m string) string {
 			switch m {
+			case appLabel:
+				return m
 			case templateModule:
 				return p.module
 			case templateName:
@@ -246,6 +261,10 @@ func (p *project) rewriter() func(string) string {
 		})
 	}
 }
+
+// appLabel opens the labels of the template's Prometheus target,
+// deploy/observability/app.metrics.yml: { app: app, slot: prod }.
+const appLabel = "{ " + templateName + ": "
 
 // vendored files are copied as they are.
 func vendored(path string) bool {

@@ -30,7 +30,10 @@ func TestWrite(t *testing.T) {
 	}
 
 	gomod := read(t, dir, "go.mod")
-	replace := "\nreplace (\n\tgithub.com/zweiundeins/lith => " + lith + "\n\tgithub.com/zweiundeins/lith/minify => " + filepath.Join(lith, "minify") + "\n)\n"
+	replace := "\nreplace (\n\tgithub.com/zweiundeins/lith => " + lith +
+		"\n\tgithub.com/zweiundeins/lith/dbmetrics/prom => " + filepath.Join(lith, "dbmetrics/prom") +
+		"\n\tgithub.com/zweiundeins/lith/minify => " + filepath.Join(lith, "minify") +
+		"\n\tgithub.com/zweiundeins/lith/prom => " + filepath.Join(lith, "prom") + "\n)\n"
 	if !strings.HasPrefix(gomod, "module example.com/acme/visitor-log\n") || !strings.HasSuffix(gomod, replace) {
 		t.Errorf("go.mod:\n%s", gomod)
 	}
@@ -53,6 +56,12 @@ func TestWrite(t *testing.T) {
 	if s := read(t, dir, "deploy/observability/visitor-log.targets.yml"); !strings.Contains(s, "service: visitor-log,") {
 		t.Errorf("the probes:\n%s", s)
 	}
+	if s := read(t, dir, "deploy/observability/visitor-log.metrics.yml"); !strings.Contains(s, "labels: { app: visitor-log, slot: prod }") || !strings.Contains(s, "visitor_log_writer_*") {
+		t.Errorf("the scrape target:\n%s", s)
+	}
+	if s := read(t, dir, "cmd/visitor-log/metrics.go"); !strings.Contains(s, `namespace = strings.ReplaceAll("visitor-log", "-", "_")`) {
+		t.Errorf("the metrics' namespace:\n%s", s)
+	}
 	alloy := read(t, dir, "deploy/observability/visitor-log.alloy")
 	for _, want := range []string{`"SYSLOG_IDENTIFIER=visitor-log"`, `replacement  = "visitor-log"`, `"site" = "visitor-log"`, accessLog} {
 		if !strings.Contains(alloy, want) {
@@ -69,7 +78,7 @@ func TestWrite(t *testing.T) {
 	if len(labels) < 5 {
 		t.Errorf("the Alloy file has %d components", len(labels))
 	}
-	for _, gone := range []string{"template.go", "go.mod.tmpl", "cmd/app", "deploy/app.service", "deploy/observability/app.alloy"} {
+	for _, gone := range []string{"template.go", "go.mod.tmpl", "cmd/app", "deploy/app.service", "deploy/observability/app.alloy", "deploy/observability/app.metrics.yml"} {
 		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
 			t.Errorf("%s was copied", gone)
 		}
@@ -104,8 +113,8 @@ func TestWrite(t *testing.T) {
 
 func TestRewriter(t *testing.T) {
 	p := &project{module: "example.com/acme/visitor-log", name: "visitor-log"}
-	got := p.rewriter()("app app_journal APP_DB application mapp_x github.com/zweiundeins/lith/template/internal")
-	want := "visitor-log visitor_log_journal VISITOR_LOG_DB application mapp_x example.com/acme/visitor-log/internal"
+	got := p.rewriter()("app app_journal APP_DB application mapp_x github.com/zweiundeins/lith/template/internal labels: { app: app, slot: prod }")
+	want := "visitor-log visitor_log_journal VISITOR_LOG_DB application mapp_x example.com/acme/visitor-log/internal labels: { app: visitor-log, slot: prod }"
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
@@ -206,8 +215,9 @@ func read(t *testing.T, dir, name string) string {
 }
 
 // Without a checkout, go.mod requires the lith version lith-new ran from,
-// and lith/minify of that version, so that go mod tidy finds them; with
-// one, the placeholders stay and replace directives point at the checkout.
+// and lith/minify and lith/prom of that version, so that go mod tidy finds
+// them; with one, the placeholders stay and replace directives point at the
+// checkout. lith/dbmetrics/prom keeps its own version.
 func TestWriteVersion(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "visitors")
 	p, err := newProject(dir, "example.com/acme/visitor-log", "", "")
@@ -219,8 +229,12 @@ func TestWriteVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	gomod := read(t, dir, "go.mod")
-	if !strings.Contains(gomod, "\tgithub.com/zweiundeins/lith v0.4.2\n") || !strings.Contains(gomod, "\tgithub.com/zweiundeins/lith/minify v0.4.2\n") ||
-		strings.Contains(gomod, zeroVersion) || strings.Contains(gomod, "replace") {
+	for _, want := range []string{"lith v0.4.2", "lith/minify v0.4.2", "lith/prom v0.4.2", "lith/dbmetrics/prom v0."} {
+		if !strings.Contains(gomod, "\tgithub.com/zweiundeins/"+want) {
+			t.Errorf("go.mod lacks %s", want)
+		}
+	}
+	if strings.Contains(gomod, zeroVersion) || strings.Contains(gomod, "replace") || strings.Contains(gomod, "dbmetrics/prom v0.4.2") {
 		t.Errorf("go.mod:\n%s", gomod)
 	}
 	var out bytes.Buffer
@@ -232,7 +246,32 @@ func TestWriteVersion(t *testing.T) {
 	p.version = ""
 	out.Reset()
 	p.next(&out)
-	if !strings.Contains(out.String(), "go get github.com/zweiundeins/lith@latest github.com/zweiundeins/lith/minify@latest\n") {
+	if !strings.Contains(out.String(), "go get github.com/zweiundeins/lith@latest github.com/zweiundeins/lith/minify@latest github.com/zweiundeins/lith/prom@latest\n") {
 		t.Errorf("next steps without a version:\n%s", out.String())
+	}
+}
+
+// TestOwnModules checks that the template requires each module with a
+// version of its own at the version the site requires.
+func TestOwnModules(t *testing.T) {
+	tmpl, err := fs.ReadFile(template.FS, "go.mod.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	site, err := os.ReadFile("../../site/go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range ownModules {
+		re := regexp.MustCompile(`\n\t` + regexp.QuoteMeta(moduleAt(dir)) + ` (v\S+)\n`)
+		version := func(gomod []byte) string {
+			if m := re.FindSubmatch(gomod); m != nil {
+				return string(m[1])
+			}
+			return ""
+		}
+		if a, b := version(tmpl), version(site); a == "" || a != b {
+			t.Errorf("%s: the template requires %q, the site %q", moduleAt(dir), a, b)
+		}
 	}
 }
