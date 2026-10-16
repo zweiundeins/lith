@@ -23,7 +23,7 @@ jobs:
         run: go test -race ./...
       - name: nested modules
         run: |
-          for m in backup dbmetrics/prom prom; do
+          for m in backup dbmetrics/prom minify prom; do
             (cd "$m" && go vet ./... && go test -race ./...)
           done
 
