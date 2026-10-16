@@ -109,6 +109,22 @@ Measured on 2026-10-16 around 05:10 UTC on the same machine, `nice -n 19 taskset
 
 The re-prepares do not show in the mean: a connection prepares each statement it uses once per batch, 200 times in the rebuild, about 11 ms of 53 µs each per statement over a second of rebuild, against some 250,000 lookups per reader in that second. A render worker that runs twenty statements and renders after every batch pays that twenty times, about 0.2 s of CPU for a rebuild of 100,000 events.
 
+### Looking back to a position
+
+Measured on 2026-10-16 around 05:15 UTC on the same machine, `nice -n 19 taskset -c 0-11`, load average 3.2 to 4.2:
+
+    go test ./events -run '^$' -bench AsOf -count 3
+
+`BenchmarkAsOf` (`events/asof_test.go`) reads 100 cards as of a random position of a log of 10,000 events (each card created and renamed 99 times), in one read transaction per look, as a render does. Medians of three runs:
+
+| how | per look |
+|---|---|
+| the cards' titles from `title_history`, rows with `valid_from` and `valid_to` positions, one query | 0.46 ms |
+| the cards' titles from a replay of the log up to the position (`SinceUntil`, `Decode`, the fold) | 12.6 ms |
+| one card's state from its own stream (`StateAt`, about 50 events) | 0.12 ms |
+
+The history table has no index besides its key (`card_id`, `valid_from`), so the query reads all its 10,000 rows: an index on `valid_from` alone made it 2.2 ms, with a lookup in the table per row before the position, and a covering index on (`valid_from`, `valid_to`, `card_id`, `title`) 0.35 ms. The replay decodes and folds half the log on average, 2.5 µs an event.
+
 ## Read pool statement cache
 
 Measured on 2026-10-13 between 20:50 and 20:52 UTC on the same machine, with Go 1.27.2 and modernc.org/sqlite v1.60.1 (SQLite 3.53.4), on lith's stmtcache branch at 6bbf9a3, pinned to the performance cores, which gives GOMAXPROCS 12. Six runs, each through every case once:

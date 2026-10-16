@@ -3,7 +3,9 @@ package events
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"iter"
+	"math"
 	"strings"
 	"time"
 
@@ -17,10 +19,17 @@ import (
 // replaying a stream, whose history only grows; Load is for a stream's
 // own history page, a test, a tool.
 func Load[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id StreamID[K, E], after int64) iter.Seq2[Record[K, E], error] {
+	return LoadUntil(ctx, st, q, id, after, math.MaxInt64)
+}
+
+// LoadUntil is Load up to a position: the events of a stream after
+// version after that were stored at or before position upto, the stream
+// as it stood then.
+func LoadUntil[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id StreamID[K, E], after, upto int64) iter.Seq2[Record[K, E], error] {
 	return func(yield func(Record[K, E], error) bool) {
 		key := keyValue(id.key)
 		rows, err := q.QueryContext(ctx, `SELECT position, version, type, data, at, actor, correlation, causation
-			FROM lith_events WHERE stream = ? AND stream_id = ? AND version > ? ORDER BY version`, id.s.kind, key, after)
+			FROM lith_events WHERE stream = ? AND stream_id = ? AND version > ? AND position <= ? ORDER BY version`, id.s.kind, key, after, upto)
 		if err != nil {
 			if !noTable(err) {
 				yield(Record[K, E]{}, err)
@@ -44,15 +53,44 @@ func Load[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id Str
 	}
 }
 
+// StateAt folds a stream's events up to position upto into d's state:
+// what a command on the stream decided from then, for a page that shows
+// the past. It returns the stream's version then too. It reads through q
+// and stores nothing, and it folds from the stream's first event, so it
+// costs what the stream's history up to upto costs to read.
+func StateAt[K Key, C, E, S any](ctx context.Context, st *Store, q sqlite.Querier, d Decider[C, E, S], id StreamID[K, E], upto int64) (S, int64, error) {
+	s, err := initial(d)
+	if err != nil {
+		return s, 0, err
+	}
+	var version int64
+	for r, err := range LoadUntil(ctx, st, q, id, 0, upto) {
+		if err != nil {
+			return s, 0, err
+		}
+		if version == 0 && r.Version != 1 {
+			return s, 0, fmt.Errorf("events: stream %s %v lost its first events to retention", id.s.kind, keyValue(id.key))
+		}
+		s, version = d.Evolve(s, r.Data), r.Version
+	}
+	return s, version, nil
+}
+
 // Since yields every event stored after position (0 for all), of every
 // stream, in the order they were stored, as the table holds them: an
 // activity feed is a view over it that lists Topic. Positions only grow,
 // and they commit in order, so a reader that keeps the last position it
 // saw misses no event. Breaking off the loop closes the rows.
 func Since(ctx context.Context, q sqlite.Querier, position int64) iter.Seq2[Raw, error] {
+	return SinceUntil(ctx, q, position, math.MaxInt64)
+}
+
+// SinceUntil is Since up to a position: every event stored after position
+// after and at or before position upto.
+func SinceUntil(ctx context.Context, q sqlite.Querier, after, upto int64) iter.Seq2[Raw, error] {
 	return func(yield func(Raw, error) bool) {
 		rows, err := q.QueryContext(ctx, `SELECT position, version, type, data, at, actor, correlation, causation, stream, stream_id
-			FROM lith_events WHERE position > ? ORDER BY position`, position)
+			FROM lith_events WHERE position > ? AND position <= ? ORDER BY position`, after, upto)
 		if err != nil {
 			if !noTable(err) {
 				yield(Raw{}, err)

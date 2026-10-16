@@ -144,6 +144,16 @@ CREATE TABLE card_titles (
 	archived INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 CREATE INDEX card_titles_title ON card_titles (title);
+
+-- Every title a card had, and the positions it held between.
+CREATE TABLE title_history (
+	card_id    INTEGER NOT NULL,
+	title      TEXT NOT NULL,
+	archived   INTEGER NOT NULL DEFAULT 0,
+	valid_from INTEGER NOT NULL, -- the position of the event that set it
+	valid_to   INTEGER,          -- the position of the next one, NULL while current
+	PRIMARY KEY (card_id, valid_from)
+) STRICT, WITHOUT ROWID;
 `
 
 type fixture struct {
