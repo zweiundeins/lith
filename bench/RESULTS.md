@@ -92,6 +92,23 @@ Measured on 2026-10-16 between 04:34 and 04:39 UTC on the development machine of
 
 With NORMAL an event costs about four times a transfer. In a CPU profile of 200 producers with NORMAL, `events.Execute` takes 55% of the samples, and the commit's WAL writes and SQLite's checkpoints 26%. The renames of 2,000 cards land on pages spread over the event index and the state rows, so a batch writes many more pages to the WAL than a batch of transfers, whose 2,000 accounts fit in a few dozen pages. With one producer the commit takes 51% of the samples. Without the projector, 200 producers with NORMAL appended 17,733 and 19,465 events a second in two runs of 3 s.
 
+### A rebuild under readers
+
+Measured on 2026-10-16 around 05:10 UTC on the same machine, `nice -n 19 taskset -c 0-11`, three runs:
+
+    go test ./events -run '^$' -bench RebuildReaders -benchtime 1x -count 3
+
+`BenchmarkRebuildReaders` (`events/rebuild_bench_test.go`) gives `card_titles` a new version over 100,000 events (20,000 cards, each created and renamed four times) and lets the Runner rebuild it in its default batches of 500, 200 commands, while four readers look up cards by id on the read pool's prepared statements. Every batch renames the tables, a schema change, so each statement a reader has prepared is prepared again at its first use after each batch commits.
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| the rebuild | 0.92 s | 1.03 s | 0.93 s |
+| a lookup, readers alone | 4.4 µs | 4.7 µs | 4.6 µs |
+| a lookup during the rebuild | 4.1 µs | 4.5 µs | 4.2 µs |
+| preparing the lookup again after a schema change | 53 µs | 80 µs | 53 µs |
+
+The re-prepares do not show in the mean: a connection prepares each statement it uses once per batch, 200 times in the rebuild, about 11 ms of 53 µs each per statement over a second of rebuild, against some 250,000 lookups per reader in that second. A render worker that runs twenty statements and renders after every batch pays that twenty times, about 0.2 s of CPU for a rebuild of 100,000 events.
+
 ## Read pool statement cache
 
 Measured on 2026-10-13 between 20:50 and 20:52 UTC on the same machine, with Go 1.27.2 and modernc.org/sqlite v1.60.1 (SQLite 3.53.4), on lith's stmtcache branch at 6bbf9a3, pinned to the performance cores, which gives GOMAXPROCS 12. Six runs, each through every case once:
