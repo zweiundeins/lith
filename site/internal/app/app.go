@@ -46,7 +46,7 @@ type Config struct {
 	Repo        string // the repository on GitHub
 	Version     string
 	Secure      bool // served over HTTPS: a __Host- cookie and HSTS
-	Dev         bool // drafts in the docs, read from ./content
+	Dev         bool // drafts in the docs, read from ./content; scripts and stylesheets as written
 	MaxStreams  int  // open streams at most; more get 503
 	Workers     int  // render workers, each holding a read connection
 	Synchronous string

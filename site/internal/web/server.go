@@ -40,8 +40,9 @@ type Config struct {
 	// Repo is the repository's URL on GitHub.
 	Repo    string
 	Version string
-	// Dev shows draft docs pages, and reads the docs from ./content/docs
-	// on every request when that directory exists.
+	// Dev shows draft docs pages, reads the docs from ./content/docs on
+	// every request when that directory exists, and serves scripts and
+	// stylesheets as written instead of minified.
 	Dev bool
 }
 

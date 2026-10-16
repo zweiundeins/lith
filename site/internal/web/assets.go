@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"encoding/xml"
@@ -11,10 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tdewolff/minify/v2/css"
-	"github.com/tdewolff/minify/v2/js"
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
+	"github.com/zweiundeins/lith/minify"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/pixelart"
@@ -64,13 +62,18 @@ var (
 var fontURL = regexp.MustCompile(`url\("\.\./fonts/([a-z0-9-]+\.woff2)"\)`)
 
 // loadStatic serves the files under static/ by their hashed names, and adds
-// what the site makes: the CSS bundle and the logo as a file.
+// what the site makes: the CSS bundle, lith's newest-frame.js and the logo
+// as a file. Scripts and stylesheets go out minified, except in development.
 func (s *Server) loadStatic(list []demo.Demo) error {
 	files, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return err
 	}
-	if s.static, err = edge.NewStatic(files, "/static/"); err != nil {
+	var opts []edge.StaticOption
+	if !s.cfg.Dev {
+		opts = append(opts, edge.Minify(minify.Bytes))
+	}
+	if s.static, err = edge.NewStatic(files, "/static/", opts...); err != nil {
 		return err
 	}
 	bundle, err := Bundle(files, list, s.static.URL)
@@ -78,9 +81,11 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 		return err
 	}
 	s.static.Add("site.css", bundle)
-	if err := minifyScripts(files, s.static); err != nil {
+	plugin, err := fs.ReadFile(live.Scripts, live.NewestFrame)
+	if err != nil {
 		return err
 	}
+	s.static.Add("lith/"+live.NewestFrame, plugin)
 	s.static.Add("art/logo.svg", []byte(pixelart.Logo()))
 	if s.starbase, err = starbase.Load(files); err != nil {
 		return err
@@ -134,21 +139,9 @@ func (s *Server) components(slugs ...string) []views.Script {
 }
 
 // Bundle joins the stylesheets into one, with font URLs pointing at their
-// hashed names, appends each demo's stylesheet in the components layer, and
-// minifies the result.
+// hashed names, and appends each demo's stylesheet in the components layer.
+// The site's edge.Static minifies it.
 func Bundle(files fs.FS, list []demo.Demo, url func(string) string) ([]byte, error) {
-	b, err := bundle(files, list, url)
-	if err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	if err := css.Minify(nil, &out, bytes.NewReader(b), nil); err != nil {
-		return nil, fmt.Errorf("minifying the CSS bundle: %w", err)
-	}
-	return out.Bytes(), nil
-}
-
-func bundle(files fs.FS, list []demo.Demo, url func(string) string) ([]byte, error) {
 	var b strings.Builder
 	for _, name := range Stylesheets {
 		css, err := fs.ReadFile(files, name)
@@ -167,34 +160,6 @@ func bundle(files fs.FS, list []demo.Demo, url func(string) string) ([]byte, err
 		fmt.Fprintf(&b, "/* demo: %s */\n@layer components {\n%s\n}\n", d.Slug, d.CSS)
 	}
 	return []byte(b.String()), nil
-}
-
-// minifyScripts serves the site's own scripts, js/*.js, minified in place
-// of the files as written, and lith's (live.Scripts) minified as lith/*.js.
-// The vendored ones come minified.
-func minifyScripts(files fs.FS, static *edge.Static) error {
-	add := func(fsys fs.FS, name, as string) error {
-		src, err := fs.ReadFile(fsys, name)
-		if err != nil {
-			return err
-		}
-		var out bytes.Buffer
-		if err := js.Minify(nil, &out, bytes.NewReader(src), nil); err != nil {
-			return fmt.Errorf("minifying %s: %w", name, err)
-		}
-		static.Add(as, out.Bytes())
-		return nil
-	}
-	names, err := fs.Glob(files, "js/*.js")
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		if err := add(files, name, name); err != nil {
-			return err
-		}
-	}
-	return add(live.Scripts, live.NewestFrame, "lith/"+live.NewestFrame)
 }
 
 // robots is robots.txt.

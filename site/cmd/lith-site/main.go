@@ -60,7 +60,7 @@ func serve(args []string) error {
 	workers := f.Int("workers", 2, "render workers")
 	synchronous := f.String("synchronous", "NORMAL", "NORMAL (a power loss can undo up to about 35 s of commits), or FULL (one fsync per batch)")
 	secure := f.Bool("secure", false, "served over HTTPS: a __Host- cookie and HSTS")
-	dev := f.Bool("dev", false, "development: show draft docs pages, read the docs from ./content on every request")
+	dev := f.Bool("dev", false, "development: show draft docs pages, read the docs from ./content on every request, serve scripts and stylesheets as written")
 	logFormat := f.String("log", "json", "json (one object per line on stdout, for journald) or text")
 	debugLog := f.Bool("debug", false, "log at debug level")
 	if err := parse(f, args); err != nil {

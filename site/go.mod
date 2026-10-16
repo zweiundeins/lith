@@ -13,10 +13,10 @@ require (
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/klauspost/compress v1.20.3
 	github.com/prometheus/client_golang v1.25.0
-	github.com/tdewolff/minify/v2 v2.24.19
 	github.com/yuin/goldmark v1.8.6
 	github.com/zweiundeins/lith v0.2.0
 	github.com/zweiundeins/lith/dbmetrics/prom v0.1.0
+	github.com/zweiundeins/lith/minify v0.0.0-00010101000000-000000000000
 	github.com/zweiundeins/lith/prom v0.2.0
 	modernc.org/sqlite v1.60.1
 )
@@ -136,6 +136,7 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
+	github.com/tdewolff/minify/v2 v2.24.19 // indirect
 	github.com/tdewolff/parse/v2 v2.8.16 // indirect
 	github.com/u-root/u-root v0.16.0 // indirect
 	github.com/u-root/uio v0.0.0-20240224005618-d2acac8f3701 // indirect
@@ -179,5 +180,6 @@ require (
 replace (
 	github.com/zweiundeins/lith => ../
 	github.com/zweiundeins/lith/dbmetrics/prom => ../dbmetrics/prom
+	github.com/zweiundeins/lith/minify => ../minify
 	github.com/zweiundeins/lith/prom => ../prom
 )
