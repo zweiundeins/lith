@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash/maphash"
 	"net/http"
@@ -409,5 +410,179 @@ func TestStaticHashLen(t *testing.T) {
 			}()
 			StaticHashLen(n)
 		}()
+	}
+}
+
+// squeeze is a stand-in minifier: it drops the spaces and newlines, and
+// records what it was given.
+type squeeze struct {
+	mu    sync.Mutex
+	given map[string]string // a file's first line to the media type it came with
+}
+
+func (q *squeeze) minify(mediatype string, b []byte) ([]byte, error) {
+	q.mu.Lock()
+	if q.given == nil {
+		q.given = map[string]string{}
+	}
+	first, _, _ := bytes.Cut(b, []byte("\n"))
+	q.given[string(first)] = mediatype
+	q.mu.Unlock()
+	switch {
+	case bytes.HasPrefix(b, []byte("// broken")):
+		return nil, errors.New("unexpected token")
+	case bytes.HasPrefix(b, []byte("// tight")):
+		return b[:len(b)-len(b)/25], nil // 4% smaller
+	}
+	return squeezed(b), nil
+}
+
+func squeezed(b []byte) []byte {
+	return []byte(strings.NewReplacer(" ", "", "\n", "").Replace(string(b)))
+}
+
+func source(first string) []byte {
+	return []byte(first + "\n" + strings.Repeat("const answer = 42;\n", 60))
+}
+
+func TestStaticMinify(t *testing.T) {
+	var q squeeze
+	css := []byte("/* site */\n" + strings.Repeat(".card { color: red; }\n", 60))
+	files := fstest.MapFS{
+		"js/app.js":          {Data: source("// app")},
+		"js/module.mjs":      {Data: source("// module")},
+		"css/site.css":       {Data: css},
+		"vendor/lib.min.js":  {Data: source("// vendored")},
+		"vendor/lib.min.css": {Data: source("/* vendored css */")},
+		"js/broken.js":       {Data: source("// broken")},
+		"js/tight.js":        {Data: source("// tight")},
+		"data.json":          {Data: source(`{"json": 1}`)},
+		"img/logo.png":       {Data: png},
+		"js/empty.js":        {Data: nil},
+		"js/minified.js":     {Data: []byte("x=1;")},
+		"vendor/datastar.js": {Data: source("// datastar")},
+		"robots.txt":         {Data: []byte("User-agent: *\n")},
+		"css/print.CSS":      {Data: []byte("/* print */\n" + strings.Repeat("body { margin: 0; }\n", 40))},
+		"js/a.min.bundle.js": {Data: source("// min mid-name")},
+		"js/datastar-min.js": {Data: source("// dash min")},
+	}
+	s, err := NewStatic(files, "/static/", Minify(q.minify))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string][]byte{
+		"js/app.js":          squeezed(source("// app")),
+		"js/module.mjs":      squeezed(source("// module")),
+		"css/site.css":       squeezed(css),
+		"css/print.CSS":      squeezed(files["css/print.CSS"].Data),
+		"js/a.min.bundle.js": squeezed(source("// min mid-name")),
+		"js/datastar-min.js": squeezed(source("// dash min")),
+		"vendor/datastar.js": squeezed(source("// datastar")),
+		// As written: named minified, failed, saved too little, not JS or CSS.
+		"vendor/lib.min.js":  source("// vendored"),
+		"vendor/lib.min.css": source("/* vendored css */"),
+		"js/broken.js":       source("// broken"),
+		"js/tight.js":        source("// tight"),
+		"js/minified.js":     []byte("x=1;"),
+		"js/empty.js":        nil,
+		"data.json":          source(`{"json": 1}`),
+		"img/logo.png":       png,
+	} {
+		sum := sha256.Sum256(want)
+		url := s.URL(name)
+		if hash := hex.EncodeToString(sum[:])[:12]; !strings.Contains(url, "."+hash+".") {
+			t.Errorf("%s: URL %s, want the hash %s of the bytes served", name, url, hash)
+		}
+		w := serveStatic(s, url)
+		if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), want) || w.Header().Get("ETag") != `"`+etagOf(sum)+`"` {
+			t.Errorf("%s: %d, ETag %s, %d bytes, want %d", name, w.Code, w.Header().Get("ETag"), w.Body.Len(), len(want))
+		}
+	}
+	for first, mediatype := range map[string]string{"// app": "text/javascript", "// module": "text/javascript", "/* site */": "text/css", "/* print */": "text/css", "// broken": "text/javascript"} {
+		if q.given[first] != mediatype {
+			t.Errorf("%s: the minifier got %q, want %s", first, q.given[first], mediatype)
+		}
+	}
+	for _, first := range []string{"// vendored", "/* vendored css */", `{"json": 1}`, "User-agent: *"} {
+		if mediatype, ok := q.given[first]; ok {
+			t.Errorf("%s: the minifier got it as %s", first, mediatype)
+		}
+	}
+
+	// The precompressed forms, a 304 and a range are of the minified bytes.
+	want := squeezed(source("// app"))
+	sum := sha256.Sum256(want)
+	url := s.URL("js/app.js")
+	w := serveStatic(s, url, "Accept-Encoding", "br")
+	if w.Header().Get("Content-Encoding") != "br" || !bytes.Equal(decode(t, "br", w.Body.Bytes()), want) || w.Header().Get("ETag") != `"`+etagOf(sum)+`-br"` {
+		t.Errorf("brotli: %v", w.Header())
+	}
+	if br, _ := Precompress(want); !bytes.Equal(w.Body.Bytes(), br) {
+		t.Error("brotli: not the precompressed form of the minified bytes")
+	}
+	w = serveStatic(s, url, "Accept-Encoding", "gzip")
+	if w.Header().Get("Content-Encoding") != "gzip" || !bytes.Equal(decode(t, "gzip", w.Body.Bytes()), want) {
+		t.Errorf("gzip: %v", w.Header())
+	}
+	for _, path := range []string{url, "/static/js/app.js", "/static/js/app.000000000000.js"} {
+		if w := serveStatic(s, path, "If-None-Match", `"`+etagOf(sum)+`"`); w.Code != http.StatusNotModified {
+			t.Errorf("%s with the minified bytes' ETag: %d", path, w.Code)
+		}
+		if w := serveStatic(s, path); !bytes.Equal(w.Body.Bytes(), want) {
+			t.Errorf("%s: not the minified bytes", path)
+		}
+	}
+	written := sha256.Sum256(source("// app"))
+	if w := serveStatic(s, url, "If-None-Match", `"`+etagOf(written)+`"`); w.Code != 200 {
+		t.Errorf("the ETag of the file as written: %d", w.Code)
+	}
+	w = serveStatic(s, url, "Range", "bytes=5-14")
+	if w.Code != http.StatusPartialContent || w.Body.String() != string(want[5:15]) {
+		t.Errorf("a range: %d %q, want %q", w.Code, w.Body, want[5:15])
+	}
+	w = serveStatic(s, s.URL("img/logo.png"), "Range", "bytes=0-3")
+	if w.Code != http.StatusPartialContent || w.Body.String() != "\x89PNG" {
+		t.Errorf("a range of the png: %d %q", w.Code, w.Body)
+	}
+}
+
+func TestStaticAddMinifies(t *testing.T) {
+	var q squeeze
+	s, err := NewStatic(nil, "/gen/", Minify(q.minify))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := []byte("/* bundle */\n" + strings.Repeat(".card { color: red; }\n", 60))
+	s.Add("site.css", bundle)
+	s.Add("lith/plugin.js", source("// plugin"))
+	s.Add("vendor/lib.min.js", source("// vendored"))
+	s.Add("broken.js", source("// broken"))
+	for name, want := range map[string][]byte{
+		"site.css":          squeezed(bundle),
+		"lith/plugin.js":    squeezed(source("// plugin")),
+		"vendor/lib.min.js": source("// vendored"),
+		"broken.js":         source("// broken"),
+	} {
+		sum := sha256.Sum256(want)
+		url := s.URL(name)
+		w := serveStatic(s, url, "Accept-Encoding", "br")
+		if !strings.Contains(url, "."+hex.EncodeToString(sum[:])[:12]+".") || !bytes.Equal(decode(t, "br", w.Body.Bytes()), want) {
+			t.Errorf("%s: URL %s, %d bytes, want %d", name, url, len(decode(t, "br", w.Body.Bytes())), len(want))
+		}
+	}
+
+	// Without Minify, or with a nil function, files go out as written.
+	for _, opts := range [][]StaticOption{nil, {Minify(nil)}} {
+		s, err := NewStatic(fstest.MapFS{"app.js": {Data: source("// app")}}, "/s/", opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Add("site.css", bundle)
+		if w := serveStatic(s, s.URL("app.js")); w.Body.String() != string(source("// app")) {
+			t.Errorf("%d options: app.js was changed", len(opts))
+		}
+		if w := serveStatic(s, s.URL("site.css")); w.Body.String() != string(bundle) {
+			t.Errorf("%d options: the added CSS was changed", len(opts))
+		}
 	}
 }

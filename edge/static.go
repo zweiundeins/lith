@@ -23,11 +23,13 @@ import (
 // name with another number of hex digits, from 8 to 64), comes with no-cache
 // and its ETag, so browsers ask each time and mostly get a 304. Text files go
 // out precompressed (see Precompress), compressed in the background from the
-// start; other files go out as they are, with ranges.
+// start; other files go out as they are, with ranges. With Minify, its
+// JavaScript and CSS go out minified.
 type Static struct {
 	fsys    fs.FS
 	prefix  string
 	hashLen int
+	minify  func(mediatype string, b []byte) ([]byte, error)
 
 	mu     sync.RWMutex
 	files  map[string]*staticFile // by name
@@ -41,7 +43,7 @@ type staticFile struct {
 	text                bool   // served precompressed
 }
 
-// A StaticOption changes how NewStatic names files.
+// A StaticOption changes how NewStatic names or serves files.
 type StaticOption func(*Static)
 
 // StaticHashLen puts n hex digits of a file's SHA-256 in the names URL makes,
@@ -54,9 +56,27 @@ func StaticHashLen(n int) StaticOption {
 	return func(s *Static) { s.hashLen = n }
 }
 
+// Minify has Static minify its JavaScript and CSS with fn: the files of
+// fsys as NewStatic reads them, and those Add gives it. That happens before
+// a file is named and compressed, so its URL, its ETag and its
+// precompressed forms are all of the minified bytes. fn gets the media
+// type, text/javascript or text/css, and the file as written, and returns
+// it minified; lith/minify's Bytes is such a function, and so is the Bytes
+// method of a tdewolff/minify M. A nil fn minifies nothing.
+//
+// A file goes out as written when fn fails on it or saves less than a
+// twentieth of it, and fn never sees a file named *.min.js or *.min.css:
+// code that came minified, such as a vendored Datastar build, stays byte
+// for byte the file its integrity hash was made from. Leave Minify out in
+// development, for files that the browser's devtools show as written.
+func Minify(fn func(mediatype string, b []byte) ([]byte, error)) StaticOption {
+	return func(s *Static) { s.minify = fn }
+}
+
 // NewStatic reads every file of fsys, to serve them under prefix, such as
-// "/static/". Mount it there, without http.StripPrefix. fsys may be nil, for
-// a Static that serves only what Add gives it.
+// "/static/", and minifies them with Minify's function. Mount it there,
+// without http.StripPrefix. fsys may be nil, for a Static that serves only
+// what Add gives it.
 func NewStatic(fsys fs.FS, prefix string, opts ...StaticOption) (*Static, error) {
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
@@ -99,9 +119,10 @@ func NewStatic(fsys fs.FS, prefix string, opts ...StaticOption) (*Static, error)
 
 // Add serves data as the file name, in place of a file of that name. URL
 // names the new content at once, and the URL of the content it replaces
-// gets the new one with no-cache, like a hash from before a deploy. Add may
-// run while s serves; s keeps data, which must not change after. It panics
-// on a name that fs.ValidPath refuses.
+// gets the new one with no-cache, like a hash from before a deploy. With
+// Minify, it serves data minified. Add may run while s serves; s keeps data,
+// which must not change after. It panics on a name that fs.ValidPath
+// refuses.
 func (s *Static) Add(name string, data []byte) {
 	if !fs.ValidPath(name) || name == "." {
 		panic(fmt.Sprintf("edge: Static.Add(%q): not a file name", name))
@@ -119,10 +140,26 @@ func (s *Static) Add(name string, data []byte) {
 }
 
 func (s *Static) newFile(name string, b []byte) *staticFile {
-	f := &staticFile{name: name, ctype: staticType(name, b), sum: sha256.Sum256(b), body: b}
+	ctype := staticType(name, b)
+	b = s.minified(name, ctype, b)
+	f := &staticFile{name: name, ctype: ctype, sum: sha256.Sum256(b), body: b}
 	f.hashed = hashName(name, hex.EncodeToString(f.sum[:])[:s.hashLen])
 	f.text = compressible(f.ctype)
 	return f
+}
+
+// minified returns b as Minify's function minifies it, or b itself.
+func (s *Static) minified(name, ctype string, b []byte) []byte {
+	mediatype, _, _ := strings.Cut(ctype, ";")
+	if s.minify == nil || mediatype != "text/javascript" && mediatype != "text/css" ||
+		strings.HasSuffix(strings.TrimSuffix(name, path.Ext(name)), ".min") {
+		return b
+	}
+	m, err := s.minify(mediatype, b)
+	if err != nil || len(m) >= len(b) || len(b)-len(m) < len(b)/20 {
+		return b
+	}
+	return m
 }
 
 // warm compresses a text file ahead of its first request.
