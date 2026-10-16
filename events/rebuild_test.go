@@ -247,9 +247,14 @@ func TestNewProjectorOnOldEvents(t *testing.T) {
 	if n := len(with.titles(t)); n != 0 {
 		t.Fatalf("%d titles before the build", n)
 	}
+	f.touched()
 	r := with.run(t, events.Options{Batch: 50})
 	waitFor(t, "the build", func() bool { return status(r, "card_titles").Status == "live" })
 	with.wantTitles(t, same)
+	// The batches fill a table no page reads: only the swap tells them.
+	if got := f.touched(); !slices.Equal(got, []string{"lith:projection:card_titles"}) {
+		t.Errorf("the build touched %v", got)
+	}
 }
 
 // A projection table with a trigger cannot be copied: the rebuild says so
