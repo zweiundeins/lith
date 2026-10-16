@@ -19,12 +19,14 @@ func signals(tab string) string {
 // first byte more than 300 ms after its request, or under 100 KB/s.
 const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(c.effectiveType) : !!n && n.transferSize > 0 && (n.responseStart - n.requestStart > 300 || n.transferSize < 100 * (n.responseEnd - n.responseStart)))(navigator.connection, performance.getEntriesByType('navigation')[0])`
 
-// openStream opens the tab's stream on the element with id "stream", with
-// net=slow on a slow link (edge.SlowLink). retry 'error' retries through
-// network errors, 502s and 503s and never gives up, but leaves a stream
-// the server ends closed: on a deploy the server ends it with
-// sse.Reconnect, which runs this again.
-const openStream = `@get('/stream?tab=' + $_tab + ($_slow ? '&net=slow' : ''), {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
+// openStream opens the tab's stream on the element with id "stream". On a
+// slow link, measured as the page starts or by newest-frame.js once the
+// page falls behind, it sends Save-Data: on (edge.SlowLink). The URL stays
+// the same, so a stream opened again aborts the old request. retry 'error'
+// retries through network errors, 502s and 503s and never gives up, but
+// leaves a stream the server ends closed: on a deploy the server ends it
+// with sse.Reconnect, which runs this again.
+const openStream = `@get('/stream?tab=' + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
 
 // sign sends the form with a new op id unless one is pending. The tab's
 // stream brings the op's outcome back as $_ack.

@@ -47,6 +47,12 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger) (*Ser
 	if err != nil {
 		return nil, err
 	}
+	// lith's newest-frame.js, which the page loads after Datastar.
+	js, err := fs.ReadFile(live.Scripts, live.NewestFrame)
+	if err != nil {
+		return nil, err
+	}
+	static.Add("lith/"+live.NewestFrame, js)
 	return &Server{
 		db: db, w: w, hub: hub, log: log, static: static,
 		limit: edge.NewLimiter(0.5, 5), // per client address: five signatures at once, then one every two seconds
@@ -74,11 +80,13 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		return views.Guestbook(views.Page{
-			Tab:     newID(),
-			CSS:     s.static.URL("style.css"),
-			JS:      s.static.URL("vendor/datastar-rocket.js"),
-			Entries: list,
-			Total:   total,
+			Tab:         newID(),
+			Nonce:       edge.Nonce(ctx),
+			CSS:         s.static.URL("style.css"),
+			JS:          s.static.URL("vendor/datastar-rocket.js"),
+			NewestFrame: s.static.URL("lith/" + live.NewestFrame),
+			Entries:     list,
+			Total:       total,
 		}).Render(ctx, &buf)
 	})
 	if err != nil {

@@ -9,7 +9,8 @@ import (
 // NetworkHints are the client hints SlowLink reads besides Save-Data, for
 // an Accept-CH header on documents: Chromium then sends them with the
 // requests that follow, the page's stream among them. Other browsers send
-// none, and the page's own measurement (net=slow) stands in for them.
+// none, and the page's own measurement (Save-Data: on on its stream's
+// request) stands in for them.
 const NetworkHints = "ECT, RTT, Downlink"
 
 // The thresholds of a slow link: a round trip over 300 ms or less than
@@ -21,14 +22,17 @@ const (
 )
 
 // SlowLink reports whether r says its client is on a slow link. Any of
-// these does: the query parameter net=slow, which a page adds to its
-// stream's URL from its own measurement (navigator.connection's saveData
-// or an effective type of 2g or 3g, or where that is missing, a document
-// that took over 300 ms to its first byte or came at under 100 KB/s); the
-// header Save-Data: on; Chromium's client hints, after an Accept-CH of
+// these does: the header Save-Data: on, which a browser sends when its user
+// asked to save data, and a lith page sends on its stream's request from
+// its own measurement (navigator.connection's saveData or an effective type
+// of 2g or 3g, or where that is missing, a document that took over 300 ms
+// to its first byte or came at under 100 KB/s), or once it fell behind its
+// stream (live.NewestFrame); Chromium's client hints, after an Accept-CH of
 // NetworkHints: ECT slow-2g, 2g or 3g, RTT over 300 (ms), Downlink under
-// 0.8 (Mbit/s). A client that claims a slow link without one only gets
-// fewer frames (live.Spec.Slow), which costs the server less.
+// 0.8 (Mbit/s); the query parameter net=slow, which pages put in their
+// stream's URL before they sent Save-Data, for those still open from then.
+// A client that claims a slow link without one only gets fewer frames
+// (live.Spec.Slow), which costs the server less.
 func SlowLink(r *http.Request) bool {
 	if r.URL.Query().Get("net") == "slow" {
 		return true

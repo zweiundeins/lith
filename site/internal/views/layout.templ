@@ -40,6 +40,9 @@ templ Document(s Shell, body templ.Component) {
 			// import 'datastar', which it maps to the build loaded here.
 			@importMap(s)
 			<script type="module" src={ s.Assets.Datastar.URL } integrity={ s.Assets.Datastar.Integrity }></script>
+			if s.Stream != "" {
+				<script type="module" src={ s.Assets.NewestFrame }></script>
+			}
 			for _, c := range s.Components {
 				<script type="module" src={ c.URL } integrity={ c.Integrity }></script>
 			}
@@ -47,6 +50,7 @@ templ Document(s Shell, body templ.Component) {
 		<body
 			if s.Stream != "" {
 				data-signals={ pageSignals(s.Tab) }
+				data-newest-frame
 			}
 		>
 			<a class="skip-link" href="#main">Skip to the content</a>

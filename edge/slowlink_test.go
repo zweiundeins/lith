@@ -13,9 +13,9 @@ func TestSlowLink(t *testing.T) {
 		want    bool
 	}{
 		{"nothing said", "/stream?tab=t1", nil, false},
-		{"the page measured a slow link", "/stream?tab=t1&net=slow", nil, true},
+		{"net=slow, from a page of an earlier template", "/stream?tab=t1&net=slow", nil, true},
 		{"another value of net", "/stream?tab=t1&net=fast", nil, false},
-		{"Save-Data", "/stream", map[string]string{"Save-Data": "on"}, true},
+		{"Save-Data, from the browser or the page", "/stream?tab=t1", map[string]string{"Save-Data": "on"}, true},
 		{"Save-Data in capitals", "/stream", map[string]string{"Save-Data": " ON "}, true},
 		{"Save-Data off", "/stream", map[string]string{"Save-Data": "off"}, false},
 		{"ECT 4g", "/stream", map[string]string{"ECT": "4g", "RTT": "100", "Downlink": "10"}, false},

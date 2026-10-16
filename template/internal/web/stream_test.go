@@ -3,12 +3,14 @@ package web_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +45,7 @@ func TestSignOnTheStream(t *testing.T) {
 		t.Fatalf("page: %d\n%s", res.StatusCode, page)
 	}
 
-	events := listen(t, c, base+"/stream?tab=tab1")
+	events := listen(t, c, base+"/stream?tab=tab1", nil)
 	next(t, events, `<section id="entries"`)
 	next(t, events, `"_ack":""`)
 
@@ -61,8 +63,9 @@ func TestSignOnTheStream(t *testing.T) {
 }
 
 // TestSlowLink checks the page's part of a slow link: it asks for
-// Chromium's network hints and opens its stream with net=slow when it
-// measured a slow link; such a stream brings the same views.
+// Chromium's network hints, and its stream sends Save-Data: on at the same
+// URL when the page measured a slow link or fell behind its stream; such a
+// stream brings the same views.
 func TestSlowLink(t *testing.T) {
 	base := start(t)
 	res, err := http.Get(base + "/")
@@ -74,12 +77,44 @@ func TestSlowLink(t *testing.T) {
 	if got := res.Header.Get("Accept-CH"); got != edge.NetworkHints {
 		t.Errorf("Accept-CH: %q", got)
 	}
-	if !strings.Contains(string(page), "_slow: ((c, n) =&gt;") || !strings.Contains(string(page), "$_slow ? &#39;&amp;net=slow&#39;") {
+	if !strings.Contains(string(page), "_slow: ((c, n) =&gt;") || !strings.Contains(string(page), "@get(&#39;/stream?tab=&#39; + $_tab, {headers: $_slow ? {&#39;Save-Data&#39;: &#39;on&#39;} : {}") {
 		t.Errorf("the page does not measure its link:\n%s", page)
 	}
-	events := listen(t, http.DefaultClient, base+"/stream?tab=tab1&net=slow")
+	events := listen(t, http.DefaultClient, base+"/stream?tab=tab1", http.Header{"Save-Data": {"on"}})
 	next(t, events, `<section id="entries"`)
 	next(t, events, `"_ack":""`)
+}
+
+// TestNewestFrame checks that the page loads lith's newest-frame.js after
+// Datastar, with an import map that maps 'datastar' to Datastar's URL, and
+// turns it on on its body; the plugin goes out under its content's hash,
+// immutable.
+func TestNewestFrame(t *testing.T) {
+	base := start(t)
+	res, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	page := string(b)
+	m := regexp.MustCompile(`<script type="importmap" nonce="[^"]*">(.*?)</script>\s*<script type="module" src="(/static/vendor/datastar-rocket\.[0-9a-f]{12}\.js)"></script>\s*<script type="module" src="(/static/lith/newest-frame\.[0-9a-f]{12}\.js)"></script>`).FindStringSubmatch(page)
+	if m == nil || !strings.Contains(page, "<body data-newest-frame>") {
+		t.Fatalf("the page does not load newest-frame.js after Datastar, or does not turn it on:\n%s", page)
+	}
+	var importMap struct{ Imports map[string]string }
+	if err := json.Unmarshal([]byte(m[1]), &importMap); err != nil || importMap.Imports["datastar"] != m[2] {
+		t.Errorf("import map %s (%v), Datastar at %s", m[1], err, m[2])
+	}
+	res, err = http.Get(base + m[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/javascript") || !strings.Contains(string(js), "name: 'newest-frame'") {
+		t.Errorf("%s: %d, %s, %s\n%.200s", m[3], res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("Content-Type"), js)
+	}
 }
 
 // start serves the routes behind the part of the edge an action needs: a
@@ -124,14 +159,18 @@ func start(t *testing.T) string {
 	return srv.URL
 }
 
-// listen opens a stream and sends each of its events to the channel.
-func listen(t *testing.T, c *http.Client, url string) <-chan string {
+// listen opens a stream, with header on its request, and sends each of its
+// events to the channel.
+func listen(t *testing.T, c *http.Client, url string, header http.Header) <-chan string {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for k, v := range header {
+		req.Header[k] = v
 	}
 	req.Header.Set("Accept-Encoding", "identity")
 	res, err := c.Do(req)
