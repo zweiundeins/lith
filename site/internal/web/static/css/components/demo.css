@@ -83,7 +83,8 @@
 		}
 	}
 
-	/* "live" in the stage's corner, lit while the tab's stream is open. */
+	/* "live" in the stage's corner, lit while the tab's stream is open, or
+	 * the demo's own word ($_badge) while its stage shows something else. */
 	.live-badge {
 		position: absolute;
 		inset-block-start: var(--lith-space-3);
@@ -109,6 +110,13 @@
 			background: var(--lith-ok);
 			box-shadow: 0 0 8px var(--lith-ok);
 			animation: blink 2s steps(2, jump-none) infinite;
+		}
+
+		/* $_live and $_badge: the stream is open, but the stage holds
+		 * something other than now, such as the town's past. */
+		&.is-held::before {
+			background: var(--lith-accent);
+			box-shadow: 0 0 8px var(--lith-glow-color);
 		}
 	}
 

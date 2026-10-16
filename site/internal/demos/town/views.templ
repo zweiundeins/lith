@@ -12,6 +12,7 @@ templ Stage(b Bounds, m moment, me string) {
 		@spriteSheet
 		<style data-text={ waiting }></style>
 		<span hidden data-effect={ greet }></span>
+		<span hidden data-effect={ badge }></span>
 		<div class="town__layout">
 			<div class="town__main">
 				<fieldset class="town-tools">
@@ -90,7 +91,7 @@ templ When(m moment) {
 			}
 		} else if m.Gone != 0 {
 			<b>Position { grouped(m.Gone) } is gone</b>
-			<span>the town keeps its newest { grouped(Kept) } events: this is the oldest</span>
+			<span>the town keeps its newest { grouped(Kept) } events and a snapshot of each tile from before them: the slider starts here</span>
 		} else if len(m.Earlier) > 0 {
 			<b>{ stamp(m.Earlier[0].At) }</b>
 			<span>position { grouped(m.At) }</span>

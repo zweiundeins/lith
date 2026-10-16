@@ -110,9 +110,10 @@ const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(
 
 // pageSignals are the signals every streaming page starts with: the tab
 // id, local to the browser (_), and sent along by the actions that need
-// it, and whether the link is slow.
+// it, whether the link is slow, and the word a demo's badge says in place
+// of "live", such as the town's "past" (empty: live).
 func pageSignals(tab string) string {
-	return "{_tab: " + jsString(tab) + ", _slow: " + slowLink + "}"
+	return "{_tab: " + jsString(tab) + ", _slow: " + slowLink + ", _badge: ''}"
 }
 
 func jsString(s string) string {

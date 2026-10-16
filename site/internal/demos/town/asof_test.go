@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,14 +131,15 @@ func TestAsOf(t *testing.T) {
 	})
 }
 
-// TestPrune keeps the newest events: the slider's start moves to the
-// oldest kept, the town as of every kept position stays as it was, the
-// history keeps no row that ended before it, and changes go on deciding
-// from the state rows.
-func TestPrune(t *testing.T) {
+// TestCompact keeps the newest events and closes the books on the older
+// ones: the slider's start moves to the newest snapshot, the town as of
+// every position from there on stays as it was, in the history table, in
+// a replay of the log and in each tile's StateAt; the history keeps no row
+// that ended before the start; a rebuild of both projectors makes the
+// tables they made before; and changes go on deciding from the state rows.
+func TestCompact(t *testing.T) {
 	e := demotest.Open(t, Demo)
-	start := time.Now().Add(-time.Hour)
-	build(t, e, 400, 12, 2, start)
+	build(t, e, 400, 12, 2, time.Now().Add(-time.Hour))
 	var before Bounds
 	was := map[int64]Town{}
 	e.View(t, func(ctx context.Context, tx *sql.Tx) (err error) {
@@ -150,40 +154,98 @@ func TestPrune(t *testing.T) {
 		return nil
 	})
 	e.Touched()
-	e.Do(t, writer.Func(func(tx *writer.Tx) error { return prune(tx, time.Now(), 100) }))
-	if got := e.Touched(); len(got) != 2 || got[1] != TopicPruned {
-		t.Errorf("a prune touched %v", got)
+	e.Do(t, writer.Func(func(tx *writer.Tx) error { return compact(tx, 100) }))
+	if got := e.Touched(); !slices.Equal(got, []string{events.Topic, TopicPruned}) {
+		t.Errorf("a compaction touched %v", got)
 	}
-	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
-		b, err := bounds(ctx, tx)
-		if err != nil {
+	var b Bounds
+	e.View(t, func(ctx context.Context, tx *sql.Tx) (err error) {
+		if b, err = bounds(ctx, tx); err != nil {
 			return err
 		}
-		var n, stale int
-		tx.QueryRow(`SELECT count(*) FROM lith_events`).Scan(&n)
+		var n, snapshots, stale int
+		tx.QueryRow(`SELECT count(*), count(*) FILTER (WHERE type = 'town.snapshot') FROM lith_events`).Scan(&n, &snapshots)
 		tx.QueryRow(`SELECT count(*) FROM town_history WHERE valid_to <= ?`, b.First).Scan(&stale)
-		if n != 100 || b.Head != before.Head || b.First != before.Head-99 || stale != 0 {
-			t.Fatalf("after the prune: %d events, %+v, %d rows ended before the first", n, b, stale)
+		if n != 100+snapshots || snapshots == 0 || snapshots > 12 || b.Head != before.Head || b.First != before.Head-100 || stale != 0 {
+			t.Fatalf("after the compaction: %d events, %d of them snapshots, %+v, %d rows ended before the first", n, snapshots, b, stale)
 		}
-		for p := b.First; p <= b.Head; p++ {
-			got, err := townAt(ctx, tx, p)
-			if err != nil {
-				return err
-			}
-			if got != was[p] {
-				return fmt.Errorf("at %d after the prune\n%v\nbefore\n%v", p, got, was[p])
-			}
-		}
-		// Before the first: the oldest kept, marked gone.
+		return checkTown(ctx, tx, b, was)
+	})
+	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
+		// Before the first: the first, marked gone, its event the newest
+		// snapshot.
 		m, err := momentAt(ctx, tx, b.First-1)
 		if err != nil {
 			return err
 		}
-		if m.Gone != b.First-1 || m.Town != was[b.First] || m.Earlier[0].Position != b.First {
-			t.Errorf("a position pruned: gone %d, first event %d", m.Gone, m.Earlier[0].Position)
+		if _, ok := m.Earlier[0].Data.(Snapshot); m.Gone != b.First-1 || m.Town != was[b.First] || m.Earlier[0].Position != b.First || !ok {
+			t.Errorf("a position compacted: gone %d, first event %+v", m.Gone, m.Earlier[0])
 		}
 		return nil
 	})
+
+	// A rebuild of both projectors from the compacted log, as a new
+	// version of them would run.
+	tables := func() []string {
+		var rows []string
+		e.View(t, func(ctx context.Context, tx *sql.Tx) error {
+			for _, q := range []string{
+				`SELECT tile || ' ' || kind || ' ' || who || ' ' || version || ' ' || at FROM town_tiles ORDER BY tile`,
+				`SELECT tile || ' ' || kind || ' ' || who || ' ' || valid_from || ' ' || coalesce(valid_to, 0) FROM town_history ORDER BY tile, valid_from`,
+			} {
+				r, err := tx.Query(q)
+				if err != nil {
+					return err
+				}
+				for r.Next() {
+					var line string
+					if err := r.Scan(&line); err != nil {
+						return err
+					}
+					rows = append(rows, line)
+				}
+				if err := r.Close(); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		return rows
+	}
+	made := tables()
+	e.Do(t, writer.Func(func(tx *writer.Tx) error {
+		_, err := tx.Exec(`UPDATE lith_projections SET version = 0 WHERE name IN ('town_tiles', 'town_history')`)
+		return err
+	}))
+	ctx, stop := context.WithCancel(context.Background())
+	runner := events.NewRunner(Events, e.DB, e.W, events.Options{Batch: 7, Log: slog.New(slog.DiscardHandler)})
+	done := make(chan error, 1)
+	go func() { done <- runner.Run(ctx) }()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		live := 0
+		for _, p := range runner.Stats().Projectors {
+			if p.Status == "live" {
+				live++
+			}
+		}
+		if live == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no rebuild: %+v", runner.Stats())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	stop()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := tables(); !slices.Equal(got, made) {
+		t.Errorf("after the rebuild\n%s\nbefore\n%s", strings.Join(got, "\n"), strings.Join(made, "\n"))
+	}
+	e.View(t, func(ctx context.Context, tx *sql.Tx) error { return checkTown(ctx, tx, b, was) })
+
 	// The tiles decide from their state rows, whose first events are gone.
 	town, _ := readTown(t, e, ada)
 	for i, x := range town[:12] {
@@ -194,13 +256,42 @@ func TestPrune(t *testing.T) {
 		e.Do(t, change(ada, fmt.Sprint("after", i), i, kind, x.Version))
 		got, s := readTown(t, e, ada)
 		if got[i].Kind != kind || s.Refusal != "" {
-			t.Errorf("tile %d after the prune: %+v, tab %+v", i, got[i], s)
+			t.Errorf("tile %d after the compaction: %+v, tab %+v", i, got[i], s)
 		}
 	}
-	// A second prune with nothing to drop touches nothing.
+	// A second compaction with nothing to drop touches nothing.
 	e.Touched()
-	e.Do(t, writer.Func(func(tx *writer.Tx) error { return prune(tx, time.Now(), 200) }))
+	e.Do(t, writer.Func(func(tx *writer.Tx) error { return compact(tx, 200) }))
 	if got := e.Touched(); len(got) != 0 {
-		t.Errorf("a prune that dropped nothing touched %v", got)
+		t.Errorf("a compaction that dropped nothing touched %v", got)
 	}
+}
+
+// checkTown checks the town at every position from the slider's start to
+// its end against was: from the history table, from a replay of the log,
+// and every tile's StateAt.
+func checkTown(ctx context.Context, tx *sql.Tx, b Bounds, was map[int64]Town) error {
+	for p := b.First; p <= b.Head; p++ {
+		got, err := townAt(ctx, tx, p)
+		if err != nil {
+			return err
+		}
+		replayed, err := replayAt(ctx, tx, p)
+		if err != nil {
+			return err
+		}
+		if got != was[p] || replayed != was[p] {
+			return fmt.Errorf("at %d the history table has\n%v\nthe replay\n%v\nbefore\n%v", p, got, replayed, was[p])
+		}
+		for i := range 12 {
+			s, _, err := events.StateAt(ctx, Events, tx, PlaceTile, TileStream.ID(int64(i)), p)
+			if err != nil {
+				return err
+			}
+			if s.Kind != got[i].Kind {
+				return fmt.Errorf("at %d tile %d is %q, in the history table %q", p, i, s.Kind, got[i].Kind)
+			}
+		}
+	}
+	return nil
 }

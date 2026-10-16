@@ -4,4 +4,4 @@ In the next tick, at most 50 ms later, the town now renders once for every tab a
 
 When you drag the slider, the page posts a numbered position at most once a tick. A `Seek` command stores it as your tab's state and moves your tab's stream from the views of one position to those of the next. The town as of a position is a view of its own, shared by every tab at that position and read from the history table with one query. New events leave it alone.
 
-Every five minutes a sweep keeps the newest 5,000 events, and the slider starts at the oldest of them.
+Every five minutes a sweep keeps the newest 5,000 events and compacts the older ones: each tile keeps its last change before them as a snapshot, so a rebuild makes the same town, and the slider starts at the newest snapshot.

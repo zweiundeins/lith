@@ -34,8 +34,17 @@ type Cleared struct {
 	Was string `json:"was"`
 }
 
-func (Built) tileEvent()   {}
-func (Cleared) tileEvent() {}
+// Snapshot is what stood on a tile when the sweep closed the books on its
+// older events (events.Compact): it takes the place of the tile's last
+// change before the newest Kept events, with its position, its time and
+// who made it.
+type Snapshot struct {
+	Kind string `json:"kind"`
+}
+
+func (Built) tileEvent()    {}
+func (Cleared) tileEvent()  {}
+func (Snapshot) tileEvent() {}
 
 // TileStream is the kind of the tiles' streams: a stream per tile, by its
 // number.
@@ -46,8 +55,9 @@ func defineTile[T TileEvent](name string) events.Type[int64, TileEvent, T] {
 }
 
 var (
-	TileBuilt   = defineTile[Built]("town.built")
-	TileCleared = defineTile[Cleared]("town.cleared")
+	TileBuilt    = defineTile[Built]("town.built")
+	TileCleared  = defineTile[Cleared]("town.cleared")
+	TileSnapshot = defineTile[Snapshot]("town.snapshot")
 )
 
 // tile is what a change decides on: what stands on the tile, folded from
@@ -88,9 +98,14 @@ func evolve(s tile, e TileEvent) tile {
 		s.Kind = e.Kind
 	case Cleared:
 		s.Kind = Grass
+	case Snapshot:
+		s.Kind = e.Kind
 	}
 	return s
 }
+
+// snapshotOf is a tile's snapshot of its state.
+func snapshotOf(s tile) Snapshot { return Snapshot{Kind: s.Kind} }
 
 // tiles keeps town_tiles, the town now: every event writes its tile's row
 // and touches Topic, which the views of the town now and of the slider's
@@ -101,6 +116,9 @@ var tiles = events.NewProjector(TileStream, "town_tiles", 1,
 	}),
 	events.Handle(TileCleared, func(tx *writer.Tx, r events.Record[int64, Cleared]) error {
 		return setTile(tx, r.ID, Grass, r.Actor, r.Version, r.At.UnixMilli())
+	}),
+	events.Handle(TileSnapshot, func(tx *writer.Tx, r events.Record[int64, Snapshot]) error {
+		return setTile(tx, r.ID, r.Data.Kind, r.Actor, r.Version, r.At.UnixMilli())
 	}),
 ).Tables("town_tiles")
 
@@ -113,9 +131,10 @@ func setTile(tx *writer.Tx, id int64, kind, who string, version, at int64) error
 }
 
 // history keeps town_history, every tile's past: an event ends the row of
-// what stood on the tile at the event's position, and a Built starts the
-// next row there. It touches nothing: no view of a position before the
-// event changes, and the town now is town_tiles.
+// what stood on the tile at the event's position, and a Built, or a
+// snapshot of something, starts the next row there. It touches nothing:
+// no view of a position before the event changes, and the town now is
+// town_tiles.
 var history = events.NewProjector(TileStream, "town_history", 1,
 	events.Handle(TileBuilt, func(tx *writer.Tx, r events.Record[int64, Built]) error {
 		if err := endRow(tx, r.ID, r.Position); err != nil {
@@ -127,6 +146,14 @@ var history = events.NewProjector(TileStream, "town_history", 1,
 	}),
 	events.Handle(TileCleared, func(tx *writer.Tx, r events.Record[int64, Cleared]) error {
 		return endRow(tx, r.ID, r.Position)
+	}),
+	events.Handle(TileSnapshot, func(tx *writer.Tx, r events.Record[int64, Snapshot]) error {
+		if err := endRow(tx, r.ID, r.Position); err != nil || r.Data.Kind == Grass {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO town_history (tile, kind, who, valid_from) VALUES (?, ?, ?, ?)`,
+			r.ID, r.Data.Kind, r.Actor, r.Position)
+		return err
 	}),
 ).Tables("town_history")
 

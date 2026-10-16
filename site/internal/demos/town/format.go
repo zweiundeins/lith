@@ -90,6 +90,8 @@ func what(e Event) string {
 		return s
 	case Cleared:
 		return "cleared " + kindPhrase(d.Was) + " from " + at
+	case Snapshot:
+		return "last changed " + at + " to " + kindPhrase(d.Kind) + " (a snapshot)"
 	}
 	return "changed " + at
 }

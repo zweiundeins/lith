@@ -25,8 +25,9 @@ const (
 	Cols  = 12
 	Rows  = 8
 	Tiles = Cols * Rows
-	// Kept is how many events the sweep keeps, the newest: the slider
-	// starts at the oldest of them.
+	// Kept is how many events the sweep keeps, the newest, besides a
+	// snapshot of each tile from before them: the slider starts at the
+	// newest snapshot.
 	Kept = 5000
 	// Earlier is how many events the page lists up to its position, the
 	// one at the position first; Later how many after it.

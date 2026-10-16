@@ -1,6 +1,14 @@
 ## The events
 
-The town is 12 by 8 tiles, and each tile is a stream of lith's event log (`lith/events`): kind `town.tile`, keyed by the tile's number. A stream holds two types of event, stored as JSON in `lith_events` under their names:
+The town is 12 by 8 tiles, and each tile is a stream of lith's event log (`lith/events`), keyed by the tile's number:
+
+```go title=events.go
+// TileStream is the kind of the tiles' streams: a stream per tile, by its
+// number.
+var TileStream = events.NewStream[int64, TileEvent]("town.tile")
+```
+
+A change causes one of two types of event, stored as JSON in `lith_events` under their names. A third type, the snapshot, comes from the sweep ([Retention](#retention)).
 
 ```go title=events.go
 // Built is something put on a tile, over what stood there.
@@ -13,13 +21,6 @@ type Built struct {
 type Cleared struct {
 	Was string `json:"was"`
 }
-
-func (Built) tileEvent()   {}
-func (Cleared) tileEvent() {}
-
-// TileStream is the kind of the tiles' streams: a stream per tile, by its
-// number.
-var TileStream = events.NewStream[int64, TileEvent]("town.tile")
 ```
 
 Every event has a position in the log, which grows with each event and is never handed out twice. The slider moves through these positions.
@@ -85,6 +86,14 @@ var history = events.NewProjector(TileStream, "town_history", 1,
 	}),
 	events.Handle(TileCleared, func(tx *writer.Tx, r events.Record[int64, Cleared]) error {
 		return endRow(tx, r.ID, r.Position)
+	}),
+	events.Handle(TileSnapshot, func(tx *writer.Tx, r events.Record[int64, Snapshot]) error {
+		if err := endRow(tx, r.ID, r.Position); err != nil || r.Data.Kind == Grass {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO town_history (tile, kind, who, valid_from) VALUES (?, ?, ?, ?)`,
+			r.ID, r.Data.Kind, r.Actor, r.Position)
+		return err
 	}),
 ).Tables("town_history")
 ```
@@ -164,28 +173,46 @@ Around the position the page lists the event at it, the four before it and the t
 
 ## Building in the past
 
-A tab in the past builds nothing: its tiles take no clicks, the palette is off, and a line under the slider says to press **Now**. The server refuses a change from a tab whose position is not now as well. Building on the town as it was would decide on a state the town is no longer in.
+A tab in the past builds nothing: its tiles take no clicks, the palette is off, and a line under the slider says to press **Now**. The badge in the stage's corner says past instead of live: the tab's stream is open, but the town it shows is not the town now. The server refuses a change from a tab whose position is not now as well. Building on the town as it was would decide on a state the town is no longer in.
 
 ## Retention
 
-Every event is kept until 5,000 newer ones exist. Every five minutes the sweep deletes the oldest beyond them with `events.Prune`, and the history rows that ended at or before the oldest event kept, which no position on the slider reaches any more. The slider starts at the oldest kept event.
+Every event is kept until 5,000 newer ones exist. Every five minutes the sweep closes the books on the older ones with `events.Compact`: each tile that loses events keeps one, its last change before the newest 5,000, rewritten in place as a snapshot of what stood on the tile then. The snapshot keeps the event's position, version, time and builder; only its type and its data change. It is the one place where lith rewrites a stored event.
+
+```go title=events.go
+// Snapshot is what stood on a tile when the sweep closed the books on its
+// older events (events.Compact): it takes the place of the tile's last
+// change before the newest Kept events, with its position, its time and
+// who made it.
+type Snapshot struct {
+	Kind string `json:"kind"`
+}
+```
+
+A snapshot is an event type of the tile's stream like the others. The decider's `evolve` sets the tile from it, and both projectors handle it, so a rebuild of either from the log makes the town it made before. Without the snapshots, a tile whose last change was older than the newest 5,000 events would come back as grass.
 
 ```go title=commands.go
-	if _, err := events.Prune(Events, tx, TileStream, now, int(n-keep)); err != nil {
-		return err
-	}
-	b, err := bounds(tx.Context(), tx)
+func compact(tx *writer.Tx, keep int) error {
+	from, _, err := events.Bounds(tx.Context(), tx, TileStream)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM town_history WHERE valid_to <= ?`, b.First); err != nil {
+	if _, err := events.Compact(Events, tx, TileSnapshot, events.Retention{Newest: keep}, PlaceTile, snapshotOf); err != nil {
+		return err
+	}
+	first, _, err := events.Bounds(tx.Context(), tx, TileStream)
+	if err != nil || first == from {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM town_history WHERE valid_to <= ?`, first); err != nil {
 		return err
 	}
 	tx.Touch(TopicPruned)
 	return nil
+}
 ```
 
-`Prune` keeps each tile's state row, so changes go on deciding as before, and the town now stays as it is. What it cannot keep is the past it deletes: a rebuild of a projector after a prune sees only the events kept, so a tile whose last change is older than them would come back as grass, and `events.StateAt` refuses a tile that lost its first events. The town is a demo, and its history is a window of the last 5,000 changes. An app whose history must stay keeps its events, or deletes whole streams with their rows.
+`events.Bounds` gives the slider its ends, with no query of the demo's own on `lith_events`. After a compaction its first position is the newest snapshot: from there on every tile reads as it stood, in the history table, in a replay of the log and in `events.StateAt`, and the demo's test checks all three after a compaction and again after a rebuild of both projectors. The history drops the rows that ended before it, which no position on the slider reaches any more. A tile keeps one snapshot at most, so the log holds 5,000 events and 96 snapshots at most. The tiles' state rows stay as they are, so changes go on deciding as before.
 
 ## Measured
 

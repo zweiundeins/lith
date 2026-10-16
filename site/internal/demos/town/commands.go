@@ -242,31 +242,28 @@ func Seed(now time.Time) writer.Func {
 }
 
 // sweep keeps the newest Kept events.
-func sweep(tx *writer.Tx, now time.Time) error { return prune(tx, now, Kept) }
+func sweep(tx *writer.Tx, _ time.Time) error { return compact(tx, Kept) }
 
-// prune keeps the newest keep events. events.Prune keeps each tile's
-// state row, so changes go on deciding as before, and town_tiles as it
-// is; the history drops the rows that ended at or before the oldest event
-// kept, which no position on the slider reaches any more.
-func prune(tx *writer.Tx, now time.Time, keep int64) error {
-	var n int64
-	if err := tx.QueryRow(`SELECT count(*) FROM lith_events WHERE stream = ?`, TileStream.Kind()).Scan(&n); err != nil {
-		if noEvents(err) {
-			return nil
-		}
-		return err
-	}
-	if n <= keep {
-		return nil
-	}
-	if _, err := events.Prune(Events, tx, TileStream, now, int(n-keep)); err != nil {
-		return err
-	}
-	b, err := bounds(tx.Context(), tx)
+// compact keeps the newest keep events and closes the books on the older
+// ones: each tile that loses events keeps its last change before them,
+// rewritten as a snapshot of what stood on the tile then. A rebuild of
+// either projector makes the town it made before, and the slider starts
+// at the newest snapshot, where the town is whole. The history drops the
+// rows that ended before it, which no position on the slider reaches any
+// more.
+func compact(tx *writer.Tx, keep int) error {
+	from, _, err := events.Bounds(tx.Context(), tx, TileStream)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM town_history WHERE valid_to <= ?`, b.First); err != nil {
+	if _, err := events.Compact(Events, tx, TileSnapshot, events.Retention{Newest: keep}, PlaceTile, snapshotOf); err != nil {
+		return err
+	}
+	first, _, err := events.Bounds(tx.Context(), tx, TileStream)
+	if err != nil || first == from {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM town_history WHERE valid_to <= ?`, first); err != nil {
 		return err
 	}
 	tx.Touch(TopicPruned)

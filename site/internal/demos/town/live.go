@@ -3,7 +3,6 @@ package town
 import (
 	"context"
 	"database/sql"
-	"math"
 	"slices"
 
 	"github.com/a-h/templ"
@@ -21,7 +20,7 @@ func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component
 	if err != nil {
 		return nil, err
 	}
-	m, err := momentNow(ctx, q)
+	m, err := momentWithin(ctx, q, b, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +118,7 @@ func nowView() live.View {
 		Key:    nowKey,
 		Topics: []string{Topic, TopicPruned},
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
-			m, err := momentNow(ctx, demo.Querier(ctx, tx))
+			m, err := momentAt(ctx, demo.Querier(ctx, tx), 0)
 			if err != nil {
 				return nil, err
 			}
@@ -172,27 +171,37 @@ type moment struct {
 	At      int64 // 0: now
 	Town    Town
 	Earlier []Event // the newest first, the one at the position first of all
-	// Gone is a position the sweep dropped: the page shows the oldest
-	// kept instead.
+	// Gone is a position before the slider's start, which the sweep
+	// compacted: the page shows the start instead.
 	Gone   int64
 	people people
 }
 
-func momentNow(ctx context.Context, q sqlite.Querier) (moment, error) {
-	m := moment{people: people{}}
-	var err error
-	if m.Town, err = townNow(ctx, q); err != nil {
-		return m, err
-	}
-	m.Earlier, err = eventsUpTo(ctx, q, math.MaxInt64, Earlier)
-	return m, err
-}
-
+// momentAt reads the town at position p, or now (0).
 func momentAt(ctx context.Context, q sqlite.Querier, p int64) (moment, error) {
-	m := moment{At: p, people: people{}}
 	b, err := bounds(ctx, q)
 	if err != nil {
+		return moment{}, err
+	}
+	return momentWithin(ctx, q, b, p)
+}
+
+// momentWithin reads the town at position p, or now (0), within the
+// slider's bounds b: now from town_tiles, a position from the history
+// table.
+func momentWithin(ctx context.Context, q sqlite.Querier, b Bounds, p int64) (moment, error) {
+	m := moment{At: p, people: people{}}
+	var err error
+	if p == 0 {
+		m.Town, err = townNow(ctx, q)
+		if err != nil || b.Head == 0 {
+			return m, err
+		}
+		m.Earlier, err = eventsUpTo(ctx, q, b.Head, Earlier)
 		return m, err
+	}
+	if b.Head == 0 {
+		return m, nil
 	}
 	if p < b.First {
 		m.Gone, p = p, b.First

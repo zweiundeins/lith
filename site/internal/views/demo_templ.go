@@ -110,7 +110,7 @@ func Demo(d DemoPage) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</p></header><div class=\"demo-body\"><section class=\"demo-stage\" aria-labelledby=\"demo-stage-title\"><h2 id=\"demo-stage-title\" class=\"visually-hidden\">The demo</h2><p class=\"live-badge\" data-class:is-live=\"$_live\" data-text=\"$_live ? 'live' : 'connecting'\">live</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</p></header><div class=\"demo-body\"><section class=\"demo-stage\" aria-labelledby=\"demo-stage-title\"><h2 id=\"demo-stage-title\" class=\"visually-hidden\">The demo</h2><p class=\"live-badge\" data-class:is-live=\"$_live && !$_badge\" data-class:is-held=\"$_live && !!$_badge\" data-text=\"$_live ? $_badge || 'live' : 'connecting'\">live</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

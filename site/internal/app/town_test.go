@@ -100,10 +100,10 @@ func TestTownActions(t *testing.T) {
 
 // TestTown drives the town in Chromium, in two browser contexts, so two
 // sessions: Ada builds a house that Bob sees arrive; Bob drags the slider
-// back and sees the town as it was, his tiles closed to changes; Ada plants
-// a tree, which moves the end of Bob's slider and nothing else he sees;
-// Bob presses Now and is live again, and sees Ada's next change. No
-// console reports an error.
+// back and sees the town as it was, his tiles closed to changes and his
+// badge saying past; Ada plants a tree, which moves the end of Bob's
+// slider and nothing else he sees; Bob presses Now and is live again, and
+// sees Ada's next change. No console reports an error.
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run 'TestTown$'
 func TestTown(t *testing.T) {
@@ -134,19 +134,25 @@ func TestTown(t *testing.T) {
 		townPress(t, bob, "ArrowRight")
 	}
 	bob.Wait(t, `document.querySelector('#town-map').dataset.at === '9'`, 5*time.Second)
+	bob.Wait(t, `document.querySelector('.live-badge').textContent === 'past'`, 2*time.Second)
 	var past struct {
-		Bridge, House, Water, Disabled, Hint, Here string
-		Tools                                      bool
+		Bridge, House, Water, Disabled, Hint, Here, Badge string
+		Tools                                             bool
 	}
 	bob.Eval(t, `(() => {
 		const k = (t) => document.querySelector('#town-map [data-t="' + t + '"]').dataset.k
 		return {Bridge: k(44), House: k(0), Water: k(91), Disabled: document.querySelector('#town-map [data-t="5"]').getAttribute('aria-disabled'),
 			Hint: getComputedStyle(document.querySelector('.town-past')).display, Here: document.querySelector('#town-earlier [data-here]').textContent,
-			Tools: document.querySelector('.town-tool input').disabled}
+			Badge: document.querySelector('.live-badge').className, Tools: document.querySelector('.town-tool input').disabled}
 	})()`, &past)
 	if past.Bridge != "water" || past.House != "grass" || past.Water != "water" || past.Disabled != "true" || past.Hint == "none" || !past.Tools ||
-		!strings.Contains(past.Here, "The town flooded H8") {
+		!strings.Contains(past.Here, "The town flooded H8") || past.Badge != "live-badge is-held" {
 		t.Errorf("Bob's town at 9: %+v", past)
+	}
+	var adaBadge string
+	ada.Eval(t, `document.querySelector('.live-badge').textContent + ' ' + document.querySelector('.live-badge').className`, &adaBadge)
+	if adaBadge != "live live-badge is-live" {
+		t.Errorf("Ada's badge, at now: %s", adaBadge)
 	}
 	// A click on the past changes nothing.
 	townClick(t, bob, 5)
@@ -167,10 +173,10 @@ func TestTown(t *testing.T) {
 		t.Errorf("the town at 9 rendered %d times", n)
 	}
 	if dir := os.Getenv("LITH_SITE_SHOTS"); dir != "" {
-		bob.Eval(t, `document.querySelector('.town').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
+		bob.Eval(t, `document.querySelector('.demo-stage').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
 		time.Sleep(300 * time.Millisecond)
 		bob.Screenshot(t, filepath.Join(dir, "town-past.png"), false)
-		ada.Eval(t, `document.querySelector('.town').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
+		ada.Eval(t, `document.querySelector('.demo-stage').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
 		time.Sleep(300 * time.Millisecond)
 		ada.Screenshot(t, filepath.Join(dir, "town-live.png"), false)
 	}
@@ -179,6 +185,7 @@ func TestTown(t *testing.T) {
 	bob.Eval(t, `document.querySelector('.town-time .btn').click()`, nil)
 	bob.Wait(t, `document.querySelector('#town-map').dataset.at === '0' && document.querySelector('#town-map [data-t="1"]').dataset.k === 'tree'`, 5*time.Second)
 	bob.Wait(t, `getComputedStyle(document.querySelector('.town-past')).display === 'none' && document.querySelector('.town-slider').value === document.querySelector('.town-slider').max`, 2*time.Second)
+	bob.Wait(t, `document.querySelector('.live-badge.is-live:not(.is-held)').textContent === 'live'`, 2*time.Second)
 	townTool(t, ada, "water")
 	townClick(t, ada, 2) // a tree in the starting town
 	bob.Wait(t, `document.querySelector('#town-map [data-t="2"]').dataset.k === 'water'`, 5*time.Second)
@@ -265,7 +272,7 @@ func townPress(t *testing.T, p *browser.Page, key string) {
 }
 
 // TestTownShots writes screenshots of the town: in the light theme, now
-// and back at position 20, and on a phone.
+// and back in the past, its badge saying so, and on a phone.
 //
 //	LITH_SITE_SHOTS=/tmp/shots LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestTownShots
 func TestTownShots(t *testing.T) {
@@ -281,11 +288,13 @@ func TestTownShots(t *testing.T) {
 	p.Navigate(t, base+"/demos/town")
 	p.Wait(t, `document.querySelector('.live-badge.is-live') && document.querySelector('#town-map [data-t="44"]').dataset.k === 'bridge'`, 10*time.Second)
 	p.Eval(t, "document.fonts.ready.then(() => true)", nil)
-	p.Eval(t, `document.querySelector('.town').scrollIntoView({block: 'center', behavior: 'instant'})`, nil)
+	p.Eval(t, `document.querySelector('.demo-stage').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
 	time.Sleep(300 * time.Millisecond)
 	p.Screenshot(t, filepath.Join(dir, "town-live-light.png"), false)
 	townDrag(t, p, 0.5)
 	p.Wait(t, `document.querySelector('#town-map').dataset.at !== '0' && document.querySelector('.town-board').getAttribute('aria-busy') !== 'true'`, 5*time.Second)
+	p.Wait(t, `document.querySelector('.live-badge.is-held')`, 2*time.Second)
+	p.Eval(t, `document.querySelector('.demo-stage').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
 	time.Sleep(500 * time.Millisecond)
 	p.Screenshot(t, filepath.Join(dir, "town-past-light.png"), false)
 
@@ -293,7 +302,7 @@ func TestTownShots(t *testing.T) {
 	m.Call(t, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 2, "mobile": true})
 	m.Navigate(t, base+"/demos/town")
 	m.Wait(t, `document.querySelector('.live-badge.is-live')`, 10*time.Second)
-	m.Eval(t, `document.querySelector('.town').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
+	m.Eval(t, `document.querySelector('.demo-stage').scrollIntoView({block: 'start', behavior: 'instant'})`, nil)
 	time.Sleep(300 * time.Millisecond)
 	m.Screenshot(t, filepath.Join(dir, "town-mobile.png"), false)
 	var overflow bool

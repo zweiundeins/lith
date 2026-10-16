@@ -106,6 +106,10 @@ const waiting = `$_town.ptile < 0 ? '' : '#town-map [data-t="' + $_town.ptile + 
 // shown at once.
 const posLabel = `+$_town.want >= $_town.head ? 'Now' : 'Position ' + (+$_town.want).toLocaleString('en')`
 
+// badge has the stage's badge say "past" while the tab shows the past:
+// its stream is open, but what the stage shows is not live.
+const badge = `$_badge = $_town.at !== 0 ? 'past' : ''`
+
 // pending is true while a seek waits for the server.
 const pending = `$_town.mine !== $_town.seq ? 'true' : false`
 

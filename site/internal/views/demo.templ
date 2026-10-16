@@ -21,7 +21,7 @@ templ Demo(d DemoPage) {
 		<div class="demo-body">
 			<section class="demo-stage" aria-labelledby="demo-stage-title">
 				<h2 id="demo-stage-title" class="visually-hidden">The demo</h2>
-				<p class="live-badge" data-class:is-live="$_live" data-text="$_live ? 'live' : 'connecting'">live</p>
+				<p class="live-badge" data-class:is-live="$_live && !$_badge" data-class:is-held="$_live && !!$_badge" data-text="$_live ? $_badge || 'live' : 'connecting'">live</p>
 				@d.Stage
 			</section>
 			<aside class="panel" aria-labelledby="server-title">

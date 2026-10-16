@@ -41,7 +41,7 @@ A demo is one package under `internal/demos/<slug>` that exports a `demo.Demo`, 
 - `Embed`: a small live part for a slot of the landing page (below).
 - `Sweep`: keeps the demo's tables small, run as a command every five minutes. `demo.KeepNewest(tx, table, n)` and `demo.DeleteOlder(tx, table, column, t)` do the usual cases; touch your topics when rows went.
 - `Components`: the Starbase components the demo renders, by slug (below).
-- `Events`: the demo's `lith/events` store, if it keeps an event log. The site runs an `events.Runner` on it beside the writer (stopped before the writer closes), which rebuilds a projector whose version changed, and exports its numbers as `lith_site_events_*`. One demo keeps events at most (`demos.Check`); the town (`internal/demos/town`) is the example: a stream per tile, a decider, an inline projector for now and one with `valid_from`/`valid_to` positions for the past.
+- `Events`: the demo's `lith/events` store, if it keeps an event log. The site runs an `events.Runner` on it beside the writer (stopped before the writer closes), which rebuilds a projector whose version changed, and exports its numbers as `lith_site_events_*`. One demo keeps events at most (`demos.Check`); the town (`internal/demos/town`) is the example: a stream per tile, a decider, an inline projector for now and one with `valid_from`/`valid_to` positions for the past, `events.Bounds` for the slider's ends, and a sweep that compacts the log to its newest events and a snapshot of each tile (`events.Compact`).
 
 ### Commands and handlers
 
@@ -105,7 +105,7 @@ Chromium-based browsers get all of it, which `TestTransitionTypes` checks. Safar
 
 ## Live views and reconnecting
 
-- A page that streams sets `Shell.Stream`: the frame renders `<div id="stream" data-indicator:_live data-init="@get(...)">` with `retry: 'error'`. Its id is the stream's `live.Spec.Reconnect`: when the server stops, each stream's last event re-creates that element and the page reconnects to the next process. `$_live` is true while the stream is open (the "live" badge reads it).
+- A page that streams sets `Shell.Stream`: the frame renders `<div id="stream" data-indicator:_live data-init="@get(...)">` with `retry: 'error'`. Its id is the stream's `live.Spec.Reconnect`: when the server stops, each stream's last event re-creates that element and the page reconnects to the next process. `$_live` is true while the stream is open (the "live" badge reads it). A demo whose stage shows something other than now sets `$_badge`, a page signal, to the word the badge says instead (the town's `past`); `''` is live again.
 - One stream per tab (`Spec.ID` is the tab id); the site writes each tick's frames in one write (`frameWriter`).
 - The hub hibernates a stream's encoder after a minute without frames and shares a memory budget among the streams: their encoders, 32 KiB each besides, and the frames of views that two or more streams watch (half of GOMEMLIMIT); a tab's own view keeps no frame once its stream has it. Each stream gets a window that holds its largest write, and no less than 2^17 (`MinWindow: 17`): the checkbox grid sends its twelve tiles in turn, and a tile refers back to its own last frame, 104 KB back. Keep what a frame refers back to under 128 KB, or raise `MinWindow`.
 - What must survive a deploy is a row, written by a command: a tab's state in `site_tabs` (`demo.SaveTab`), never a map in memory.
