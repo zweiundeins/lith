@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -171,12 +172,17 @@ func (r *Runner) setup(ctx context.Context, wake map[string]func()) (map[string]
 	err := r.w.Do(ctx, writer.Func(func(tx *writer.Tx) error {
 		clear(rows)
 		l := r.st.local(tx)
+		l.log = r.opts.Log
 		if err := r.st.tables(tx, l); err != nil {
 			return err
 		}
 		l.forget()
-		if _, err := r.st.running(tx, l); err != nil {
+		_, broken, err := r.st.running(tx, l)
+		if err != nil {
 			return err
+		}
+		if kinds := slices.Sorted(maps.Keys(broken)); len(kinds) > 0 {
+			return broken[kinds[0]]
 		}
 		if _, err := tx.Exec(`UPDATE lith_projections SET status = ? WHERE status LIKE 'parked:%'`, statusLive); err != nil {
 			return err
@@ -456,7 +462,8 @@ func (r *Runner) batch(tx *writer.Tx, p *projector, pos int64) (next int64, done
 			return pos, false, err
 		}
 	}
-	if err := p.replay(r.st, tx, evs); err != nil {
+	// No page reads the copy: only the swap's topic tells them.
+	if err := tx.Untouched(func(tx *writer.Tx) error { return p.replay(r.st, tx, evs) }); err != nil {
 		return pos, false, err
 	}
 	next = pos

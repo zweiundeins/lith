@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -78,9 +79,8 @@ func (f *fixture) wantTitles(t testing.TB, fn func(string) string) {
 
 // A new version of a projector is rebuilt into a copy of its table while
 // commands go on, and the copy takes the table's place at once: pages see
-// the old table, its titles in lower case, or the new one, every title in
-// upper case, never a table that is half of each. Views on the table read
-// the new one after the swap.
+// the old table, with the new events on it, or the new one, never a copy
+// half built. Views on the table read the new one after the swap.
 func TestRebuild(t *testing.T) {
 	f := open(t, titles(1, same))
 	const cards = 1000
@@ -95,7 +95,7 @@ func TestRebuild(t *testing.T) {
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	var reads, mixed, readErrs atomic.Int64
+	var reads, half, fresh, readErrs atomic.Int64
 	for range 4 {
 		wg.Go(func() {
 			for {
@@ -104,9 +104,11 @@ func TestRebuild(t *testing.T) {
 					return
 				default:
 				}
-				var n, upper, view int
+				var n, old, newer, view int
+				var last string
 				err := f.db.View(context.Background(), func(tx *sql.Tx) error {
-					err := tx.QueryRow(`SELECT count(*), coalesce(sum(title = upper(title)), 0) FROM card_titles`).Scan(&n, &upper)
+					err := tx.QueryRow(`SELECT count(*), count(*) FILTER (WHERE id <= ?), count(*) FILTER (WHERE id > ?),
+						coalesce(max(title) FILTER (WHERE id = ?), '') FROM card_titles`, cards, cards, cards).Scan(&n, &old, &newer, &last)
 					if err != nil {
 						return err
 					}
@@ -116,8 +118,10 @@ func TestRebuild(t *testing.T) {
 				case err != nil:
 					readErrs.Add(1)
 					t.Log(err)
-				case upper != 0 && upper != n || view != n:
-					mixed.Add(1)
+				case old != cards || view != n:
+					half.Add(1)
+				case newer > 0 && last == strings.ToLower(last):
+					fresh.Add(1) // the old table, with cards made since
 				}
 				reads.Add(1)
 			}
@@ -153,8 +157,9 @@ func TestRebuild(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	if mixed.Load() != 0 || readErrs.Load() != 0 || reads.Load() == 0 {
-		t.Errorf("of %d reads, %d saw a table half rebuilt and %d failed", reads.Load(), mixed.Load(), readErrs.Load())
+	if half.Load() != 0 || readErrs.Load() != 0 || fresh.Load() == 0 {
+		t.Errorf("of %d reads, %d saw a table half rebuilt, %d failed, and %d saw new cards on the old table",
+			reads.Load(), half.Load(), readErrs.Load(), fresh.Load())
 	}
 	v2.wantTitles(t, strings.ToUpper)
 	schema := v2.schema(t)
@@ -263,5 +268,69 @@ func TestRebuildRefusesTriggers(t *testing.T) {
 	waitFor(t, "the error", func() bool { return strings.Contains(status(r, "card_titles").Error, "trigger") })
 	if got := v2.titles(t); got[1] != "card 1" {
 		t.Errorf("card_titles %v", got)
+	}
+}
+
+// While a projector rebuilds, the events of new commands reach its live
+// table, so pages stay current, and its topics go out. A handler that
+// fails there is logged and does not fail the command.
+func TestRebuildKeepsPagesCurrent(t *testing.T) {
+	f := open(t, titles(1, same))
+	f.createMany(t, 1, 10)
+	var logs strings.Builder
+	var mu sync.Mutex
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(writerFunc(func(p []byte) (int, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return logs.Write(p)
+	}), nil)))
+	defer slog.SetDefault(prev)
+
+	v2 := f.reopen(titles(2, strings.ToUpper)) // no runner: it stays rebuilding
+	v2.create(t, 11, "new")
+	v2.rename(t, 1, "renamed")
+	if got := v2.titles(t); got[11] != "NEW" || got[1] != "RENAMED" || got[2] != "card 2" {
+		t.Errorf("card_titles during the rebuild: %v", got)
+	}
+	if got := f.touched(); !slices.Contains(got, "card:11") || !slices.Contains(got, "card:1") {
+		t.Errorf("touched %v", got)
+	}
+	v2.create(t, 12, "fail")
+	if got := v2.titles(t); got[12] != "" {
+		t.Errorf("the failed handler's row is there: %v", got)
+	}
+	if n := v2.count(t, `SELECT count(*) FROM lith_events WHERE stream_id = 12`); n != 1 {
+		t.Errorf("%d events of the command whose handler failed", n)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(logs.String(), "failed on its live table") || !strings.Contains(logs.String(), "card_titles") {
+		t.Errorf("logged %q", logs.String())
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+// A projector whose table is missing stops the commands of its own stream
+// kind, with an error that names the table, and Run; other kinds go on.
+func TestMissingTable(t *testing.T) {
+	notes := events.NewProjector(Notes, "note_list", 1, events.Handle(Added, func(*writer.Tx, events.Record[int64, NoteAdded]) error {
+		return nil
+	})).Tables("note_list")
+	f := open(t, titles(1, same), notes, upcastV1, upcastV2)
+	f.create(t, 1, "a card")
+	err := f.do(t, func(tx *writer.Tx) error {
+		return events.Append(f.st, tx, Notes.ID(1), events.Any, events.Meta{}, events.One[NoteEvent](NoteAdded{Body: "x"}))
+	})
+	if err == nil || !strings.Contains(err.Error(), "no table note_list") {
+		t.Errorf("a note without its table: %v", err)
+	}
+	f.rename(t, 1, "renamed")
+	r := events.NewRunner(f.st, f.db, f.w, events.Options{Log: slog.New(slog.DiscardHandler)})
+	if err := r.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "no table note_list") {
+		t.Errorf("Run: %v", err)
 	}
 }

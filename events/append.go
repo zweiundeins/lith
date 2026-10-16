@@ -44,7 +44,7 @@ func Execute[K Key, C, E, S any](st *Store, tx *writer.Tx, d Decider[C, E, S], i
 	if err := checkDecider[S](st, id.s.kind, d.Version); err != nil {
 		return err
 	}
-	l, live, err := st.prepare(tx)
+	l, live, err := st.prepare(tx, id.s.kind)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func Execute[K Key, C, E, S any](st *Store, tx *writer.Tx, d Decider[C, E, S], i
 // projectors, in the command's transaction. The stream's state row, if a
 // decider made one, is dropped: its next Execute folds the events again.
 func Append[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E], want Expected, meta Meta, evs ...E) error {
-	l, live, err := st.prepare(tx)
+	l, live, err := st.prepare(tx, id.s.kind)
 	if err != nil {
 		return err
 	}
@@ -247,14 +247,23 @@ func appendEvents[K Key, E any](st *Store, tx *writer.Tx, l *local, id StreamID[
 	return recs, nil
 }
 
-// project runs the live inline projectors of the stream kind.
+// project runs the inline projectors of the stream kind. A projector
+// that rebuilds runs too, on its live table, so pages stay current, but in
+// a savepoint of its own: its new handlers may not fit the old table, and
+// a failure there is logged and leaves the command to go on. Its rebuild
+// applies every event to the copy all the same.
 func project[K Key, E any](st *Store, tx *writer.Tx, live map[string]bool, kind string, recs []Record[K, E]) error {
 	for _, p := range st.inline[kind] {
-		if !live[p.name] {
-			continue // rebuilding: the rebuild applies the events
+		pr := p.typed.(*Projector[K, E])
+		if live[p.name] {
+			if err := pr.project(tx, recs); err != nil {
+				return err
+			}
+			continue
 		}
-		if err := p.typed.(*Projector[K, E]).project(tx, recs); err != nil {
-			return err
+		err := tx.Savepoint(func(tx *writer.Tx) error { return pr.project(tx, recs) })
+		if err != nil {
+			st.local(tx).logger().Warn("events: a projector that rebuilds failed on its live table", "projector", p.name, "err", err)
 		}
 	}
 	return nil
@@ -273,7 +282,7 @@ func nullable(s string) any {
 // projector that has not reached them never sees them. It returns how many
 // events it deleted.
 func Forget[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E]) (int64, error) {
-	if _, _, err := st.prepare(tx); err != nil {
+	if _, _, err := st.prepare(tx, ""); err != nil {
 		return 0, err
 	}
 	key := keyValue(id.key)
@@ -302,7 +311,7 @@ func Forget[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E]) (int64, e
 // deletes no event that a catch-up projector of the kind, or a rebuild
 // under way, has not passed.
 func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], before time.Time, limit int) (int64, error) {
-	if _, _, err := st.prepare(tx); err != nil {
+	if _, _, err := st.prepare(tx, ""); err != nil {
 		return 0, err
 	}
 	cutoff := int64(math.MaxInt64)

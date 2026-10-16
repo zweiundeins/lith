@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sync"
 
@@ -189,6 +190,11 @@ func checkDecider[S any](st *Store, kind string, version int) error {
 
 // local is what the store knows of one writer's database.
 type local struct {
+	// broken holds, by stream kind, why its projectors cannot run, such
+	// as a missing table: commands on that kind fail with it.
+	broken map[string]error
+	log    *slog.Logger // the runner's, nil without one
+
 	ready bool            // the tables exist, committed
 	live  map[string]bool // inline projectors that run, by name; nil until known
 	gen   int             // counts the changes of live
@@ -202,6 +208,13 @@ func (st *Store) local(tx *writer.Tx) *local {
 	l := &local{}
 	tx.SetLocal(st, l)
 	return l
+}
+
+func (l *local) logger() *slog.Logger {
+	if l.log != nil {
+		return l.log
+	}
+	return slog.Default()
 }
 
 // forget drops what l knows of the projectors' statuses: the next command
@@ -226,21 +239,30 @@ func (st *Store) tables(tx *writer.Tx, l *local) error {
 	return nil
 }
 
-// running returns the inline projectors that run in this database: those
-// whose table is live, not rebuilding. It records new projectors and
-// changed versions in lith_projections. What it finds is kept for the
-// commands that follow once the batch has committed, unless a status
-// changed meanwhile.
-func (st *Store) running(tx *writer.Tx, l *local) (map[string]bool, error) {
+// running returns the inline projectors whose table is live, not
+// rebuilding, and by stream kind why a kind's projectors cannot run. It
+// records new projectors and changed versions in lith_projections. What
+// it finds is kept for the commands that follow once the batch has
+// committed, unless a status changed meanwhile.
+func (st *Store) running(tx *writer.Tx, l *local) (map[string]bool, map[string]error, error) {
 	if l.live != nil {
-		return l.live, nil
+		return l.live, l.broken, nil
 	}
 	gen := l.gen
 	live := map[string]bool{}
+	var broken map[string]error
 	for _, p := range st.projectors {
 		status, err := st.status(tx, p)
+		var missing *noTableError
+		if errors.As(err, &missing) {
+			if broken == nil {
+				broken = map[string]error{}
+			}
+			broken[p.kind] = errors.Join(broken[p.kind], err)
+			continue
+		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !p.catchUp && status == statusLive {
 			live[p.name] = true
@@ -248,10 +270,10 @@ func (st *Store) running(tx *writer.Tx, l *local) (map[string]bool, error) {
 	}
 	tx.AfterCommit(func() {
 		if l.gen == gen {
-			l.live = live
+			l.live, l.broken = live, broken
 		}
 	})
-	return live, nil
+	return live, broken, nil
 }
 
 // status returns p's status, recording p when it is new and its version
@@ -298,6 +320,13 @@ func (st *Store) status(tx *writer.Tx, p *projector) (string, error) {
 	return status, err
 }
 
+// noTableError is a projector's table that does not exist.
+type noTableError struct{ projector, table string }
+
+func (e *noTableError) Error() string {
+	return fmt.Sprintf("events: projector %s has no table %s: create it in a migration", e.projector, e.table)
+}
+
 // checkTables reports a table of p that does not exist.
 func (st *Store) checkTables(tx *writer.Tx, p *projector) error {
 	for _, t := range p.tables {
@@ -307,14 +336,15 @@ func (st *Store) checkTables(tx *writer.Tx, p *projector) error {
 			return err
 		}
 		if n == 0 {
-			return fmt.Errorf("events: projector %s has no table %s: create it in a migration", p.name, t)
+			return &noTableError{p.name, t}
 		}
 	}
 	return nil
 }
 
-// prepare makes the tables and returns the inline projectors that run.
-func (st *Store) prepare(tx *writer.Tx) (*local, map[string]bool, error) {
+// prepare makes the tables and returns the inline projectors that run,
+// or why the projectors of kind cannot run. An empty kind checks none.
+func (st *Store) prepare(tx *writer.Tx, kind string) (*local, map[string]bool, error) {
 	if err := st.ready(); err != nil {
 		return nil, nil, err
 	}
@@ -322,6 +352,9 @@ func (st *Store) prepare(tx *writer.Tx) (*local, map[string]bool, error) {
 	if err := st.tables(tx, l); err != nil {
 		return nil, nil, err
 	}
-	live, err := st.running(tx, l)
+	live, broken, err := st.running(tx, l)
+	if err == nil {
+		err = broken[kind]
+	}
 	return l, live, err
 }
