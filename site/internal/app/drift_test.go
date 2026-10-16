@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,40 +40,76 @@ import (
 // HTTP/2 between the browser and the site, as in production. It only
 // reports, and writes every second's numbers to LIFE_DRIFT_OUT if set.
 //
+// More switches, for comparing the layers that can keep a page current:
+// LIFE_DRIFT_PLUGIN is how the page has newest-frame.js: "reopen" (as it
+// ships), "noreopen" (it skips frames, but never asks for a slow stream)
+// or "off". LIFE_DRIFT_CACHE sets the stream's Cache-Control ("no-cache",
+// or "none" for no header; lith sends no-store). LIFE_DRIFT_RTT, such as
+// 100ms, puts a link with that round trip time in front of the browser.
+// LIFE_DRIFT_COST, in ms, makes each board frame the page applies cost its
+// main thread that much more, which works in Firefox too (LITH_BROWSER=
+// firefox), where LIFE_DRIFT=1 then. LIFE_DRIFT_TRACE, a file, records a
+// performance trace of the page, LIFE_DRIFT_TRACE_FOR long (default 20s),
+// starting LIFE_DRIFT_TRACE_AT into the run (default 30s): JSON for
+// DevTools' Performance panel or ui.perfetto.dev, with User Timing marks
+// for each read of the stream and each frame applied (traceMarks).
+//
 //	LIFE_DRIFT=10 CADDY=$(which caddy) LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifeDrift -v -timeout 30m
 func TestLifeDrift(t *testing.T) {
 	if os.Getenv("LIFE_DRIFT") == "" {
 		t.Skip("set LIFE_DRIFT to the CPU slowdown to measure")
 	}
-	browser.SkipFirefox(t, "the Firefox driver cannot slow the CPU")
+	cost, _ := strconv.ParseFloat(os.Getenv("LIFE_DRIFT_COST"), 64)
+	if cost == 0 {
+		browser.SkipFirefox(t, "the Firefox driver cannot slow the CPU; set LIFE_DRIFT_COST")
+	}
 	rate, _ := strconv.ParseFloat(os.Getenv("LIFE_DRIFT"), 64)
 	span := 5 * time.Minute
 	if d, err := time.ParseDuration(os.Getenv("LIFE_DRIFT_FOR")); err == nil {
 		span = d
 	}
 	slow := os.Getenv("LIFE_DRIFT_SLOW") == "1"
+	plugin := os.Getenv("LIFE_DRIFT_PLUGIN")
+	rtt, _ := time.ParseDuration(os.Getenv("LIFE_DRIFT_RTT"))
+	tracePath := os.Getenv("LIFE_DRIFT_TRACE")
+	traceAt, traceFor := 30*time.Second, 20*time.Second
+	if d, err := time.ParseDuration(os.Getenv("LIFE_DRIFT_TRACE_AT")); err == nil {
+		traceAt = d
+	}
+	if d, err := time.ParseDuration(os.Getenv("LIFE_DRIFT_TRACE_FOR")); err == nil {
+		traceFor = d
+	}
 
 	a, _ := apptest.Start(t)
 	// The site again on a port of its own, behind a writer that times the
 	// stream's writes.
-	var wm writeMeter
+	wm := writeMeter{cache: os.Getenv("LIFE_DRIFT_CACHE")}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: wm.wrap(a.Handler()), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: wm.wrap(pluginMode(plugin, a.Handler())), ReadHeaderTimeout: 5 * time.Second}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
 	sitePort := ln.Addr().(*net.TCPAddr).Port
 	base, front := "http://"+ln.Addr().String(), sitePort
+	scheme := "http://"
+	caddyPID := 0
 	if caddy := os.Getenv("CADDY"); caddy != "" {
 		front = freePort(t)
-		base = "https://127.0.0.1:" + strconv.Itoa(front)
-		startCaddy(t, caddy, front, sitePort)
+		base, scheme = "https://127.0.0.1:"+strconv.Itoa(front), "https://"
+		caddyPID = startCaddy(t, caddy, front, sitePort)
+	}
+	var link *delayLink
+	if rtt > 0 {
+		var port int
+		link, port = startDelayLink(t, front, rtt)
+		base = scheme + "127.0.0.1:" + strconv.Itoa(port)
 	}
 
 	b := browser.Start(t)
 	p := b.NewPage(t, 1440, 900)
+	chromium := p.Engine() == "chromium"
 	p.Call(t, "Security.setIgnoreCertificateErrors", map[string]any{"ignore": true})
 	var mu sync.Mutex
 	streams := map[string]string{}
@@ -124,14 +161,26 @@ func TestLifeDrift(t *testing.T) {
 		}
 	})
 	p.Call(t, "Network.enable", nil)
-	link := "4g"
+	effective := "4g"
 	if slow {
-		link = "3g"
+		effective = "3g"
 	}
-	p.Call(t, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": `Object.defineProperty(Navigator.prototype, 'connection', {get: () => ({effectiveType: '` + link + `', saveData: false})})`})
+	p.Call(t, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": `Object.defineProperty(Navigator.prototype, 'connection', {get: () => ({effectiveType: '` + effective + `', saveData: false})})`})
 	if rate > 1 {
 		p.Call(t, "Emulation.setCPUThrottlingRate", map[string]any{"rate": rate})
 	}
+	if cost > 0 {
+		p.AddInitScript(t, newestFrameProbe+"\nwindow.__nf.cost = "+strconv.FormatFloat(cost, 'f', -1, 64))
+	}
+	var trace *pageTrace
+	if tracePath != "" && chromium {
+		p.AddInitScript(t, traceMarks)
+		trace = newPageTrace(p, tracePath)
+	}
+	if chromium {
+		p.Call(t, "Performance.enable", nil)
+	}
+	p.AddInitScript(t, appliedLog)
 
 	// The board's generation, read often, and when it reached each.
 	var board boardClock
@@ -173,8 +222,6 @@ func TestLifeDrift(t *testing.T) {
 			}
 		}
 	}()
-	// A frame the page applies changes the generation's text once.
-	p.Eval(t, `window.applied_ = 0; new MutationObserver(rs => { const dd = document.querySelector('#life-stats dd'); for (const r of rs) if (r.target === dd || r.target.parentNode === dd) window.applied_++ }).observe(document.getElementById('life-stats'), {subtree: true, childList: true, characterData: true}); 0`, nil)
 
 	var out *os.File
 	if path := os.Getenv("LIFE_DRIFT_OUT"); path != "" {
@@ -182,34 +229,89 @@ func TestLifeDrift(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer out.Close()
-		fmt.Fprintln(out, "t,board,page,lag_gen,lag_s,applied,dropped,sent,renders,wrote,received,write_ms,write_max_ms,site_sendq,proxy_recvq,proxy_sendq,browser_recvq,streams")
+		fmt.Fprintln(out, "t,board,page,lag_gen,lag_s,applied,dropped,sent,renders,wrote,received,write_ms,write_max_ms,site_sendq,proxy_recvq,proxy_sendq,browser_recvq,streams,busy_pct,site_cpu_ms,caddy_cpu_ms,requests,request_bytes,link_up,link_down,deferred")
 	}
 	start := time.Now()
 	h0 := a.Hub().Stats()
 	var lastApplied float64
 	var lastWrite writeStats
-	t.Logf("CPU %gx, %s, hint %v", rate, base, slow)
-	t.Logf("| t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv |")
+	busy := func() float64 {
+		if !chromium {
+			return 0
+		}
+		var r struct {
+			Metrics []struct {
+				Name  string
+				Value float64
+			}
+		}
+		json.Unmarshal(p.Call(t, "Performance.getMetrics", nil), &r)
+		for _, m := range r.Metrics {
+			if m.Name == "TaskDuration" {
+				return m.Value
+			}
+		}
+		return 0
+	}
+	lastBusy := busy()
+	lastSelf, lastCaddy := cpuTime(caddyPID)
+	cpu0, caddy0 := lastSelf, lastCaddy
+	var busies []float64
+	var shown appliedFrames
+	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor)
+	t.Logf("| t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy %% |")
+	// The trace starts and ends on time, while the loop below may wait
+	// seconds for the page.
+	traced := make(chan struct{})
+	if trace != nil && span > traceAt {
+		go func() {
+			defer close(traced)
+			st := goT{t}
+			time.Sleep(time.Until(start.Add(traceAt)))
+			// Chromium answers once the page's main thread has started
+			// to record, which can take seconds when it is behind.
+			trace.start(st)
+			began := time.Now()
+			t.Logf("trace started at %.1f s", began.Sub(start).Seconds())
+			time.Sleep(time.Until(began.Add(traceFor)))
+			n := trace.end(st)
+			t.Logf("trace: %s, %.1f MB, ended at %.1f s", tracePath, float64(n)/1e6, time.Since(start).Seconds())
+		}()
+	} else {
+		close(traced)
+	}
+	last := start
 	for i := 1; time.Since(start) < span; i++ {
 		time.Sleep(time.Until(start.Add(time.Duration(i) * time.Second)))
-		var shown struct {
-			Gen     string
-			Applied float64
-		}
-		p.Eval(t, `({gen: document.querySelector('#life-stats dd').textContent, applied: window.applied_})`, &shown)
-		now := time.Since(start)
-		g, _ := strconv.ParseInt(strings.ReplaceAll(shown.Gen, ",", ""), 10, 64)
-		pg := g
+		// The page answers once its main thread is free, which can be
+		// seconds later: the frames it applied carry their own times.
+		shown.drain(t, p)
+		at := time.Now()
+		now := at.Sub(start)
+		dt := at.Sub(last).Seconds()
+		last = at
+		pg := shown.gen
 		bg := board.now()
 		lagS := board.since(pg)
 		h := a.Hub().Stats()
 		ws := wm.stats()
 		q := queues(sitePort, front)
-		row := []any{now.Seconds(), bg, pg, bg - pg, lagS.Seconds(), shown.Applied - lastApplied,
+		row := []any{now.Seconds(), bg, pg, bg - pg, lagS.Seconds(), (float64(shown.n) - lastApplied) / dt,
 			h.FramesDropped - h0.FramesDropped, h.FramesSent - h0.FramesSent, h.Renders - h0.Renders,
 			ws.bytes, received.Load(), float64(ws.blocked-lastWrite.blocked) / 1e6, float64(ws.max) / 1e6,
 			q.siteSend, q.proxyRecv, q.proxySend, q.browserRecv, ws.streams}
-		lastApplied, lastWrite = shown.Applied, ws
+		bz := busy()
+		self, cad := cpuTime(caddyPID)
+		reqs, reqBytes := wm.requests.read()
+		var up, down int64
+		if link != nil {
+			up, down = link.up.Load(), link.down.Load()
+		}
+		busyPct := (bz - lastBusy) * 100 / dt
+		row = append(row, busyPct, float64(self-lastSelf)/1e6, float64(cad-lastCaddy)/1e6, reqs, reqBytes, up, down, h.RendersDeferred-h0.RendersDeferred)
+		busies = append(busies, busyPct)
+		lastBusy, lastSelf, lastCaddy = bz, self, cad
+		lastApplied, lastWrite = float64(shown.n), ws
 		wm.resetMax()
 		if out != nil {
 			var cells []string
@@ -218,10 +320,41 @@ func TestLifeDrift(t *testing.T) {
 			}
 			fmt.Fprintln(out, strings.Join(cells, ","))
 		}
-		if i%15 == 0 || i <= 3 {
-			t.Logf("| %3.0f | %d | %d | %d | %.1f | %.1f | %d | %.0f | %.0f | %.0f (%.0f) | %.0f, %.0f, %.0f, %.0f |", now.Seconds(), bg, pg, bg-pg, lagS.Seconds(),
+		if i%15 == 0 || i <= 3 || dt > 3 {
+			t.Logf("| %3.0f | %d | %d | %d | %.1f | %.1f | %d | %.0f | %.0f | %.0f (%.0f) | %.0f, %.0f, %.0f, %.0f | %.0f |", now.Seconds(), bg, pg, bg-pg, lagS.Seconds(),
 				row[5], row[6], float64(ws.bytes)/1000, float64(received.Load())/1000, row[11], row[12],
-				float64(q.siteSend)/1000, float64(q.proxyRecv)/1000, float64(q.proxySend)/1000, float64(q.browserRecv)/1000)
+				float64(q.siteSend)/1000, float64(q.proxyRecv)/1000, float64(q.proxySend)/1000, float64(q.browserRecv)/1000, busyPct)
+		}
+	}
+	<-traced
+	// How far behind the board the page was at every second, by the
+	// newest frame it had applied then.
+	lags, applieds := shown.grid(start, time.Now(), &board)
+	if path := os.Getenv("LIFE_DRIFT_OUT"); path != "" {
+		f, err := os.Create(strings.TrimSuffix(path, ".csv") + ".lag.csv")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintln(f, "t,lag_s,applied")
+		for i := range lags {
+			fmt.Fprintf(f, "%d,%.3f,%.0f\n", i+1, lags[i], applieds[i])
+		}
+		f.Close()
+	}
+	for i := 29; i < len(lags); i += 30 {
+		t.Logf("behind the board after %d s: %.1f s", i+1, lags[i])
+	}
+	{
+		secs := time.Since(start).Seconds()
+		self, cad := cpuTime(caddyPID)
+		reqs, reqBytes := wm.requests.read()
+		h := a.Hub().Stats()
+		t.Logf("summary: lag median %.2f s, max %.2f s; applied %.2f frames/s; main thread busy %.0f%%; site CPU %.1f%%, Caddy CPU %.1f%%; lith wrote %.2f KB/s; %d frames sent, %d dropped, %d renders deferred; %.2f other requests/s, %.0f B each",
+			median(lags), slices.Max(append(lags, 0)), mean(applieds), mean(busies), float64(self-cpu0)/1e9/secs*100, float64(cad-caddy0)/1e9/secs*100,
+			float64(wm.stats().bytes)/1000/secs, h.FramesSent-h0.FramesSent, h.FramesDropped-h0.FramesDropped, h.RendersDeferred-h0.RendersDeferred,
+			float64(reqs)/secs, float64(reqBytes)/float64(max(reqs, 1)))
+		if link != nil {
+			t.Logf("link: %.2f KB/s up, %.2f KB/s down", float64(link.up.Load())/1000/secs, float64(link.down.Load())/1000/secs)
 		}
 	}
 	mu.Lock()
@@ -235,6 +368,87 @@ func TestLifeDrift(t *testing.T) {
 	if errs := p.Errors(); len(errs) > 0 {
 		t.Logf("the page: %v", errs)
 	}
+}
+
+func median(xs []float64) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	s := slices.Sorted(slices.Values(xs))
+	return s[len(s)/2]
+}
+
+func mean(xs []float64) float64 {
+	var sum float64
+	for _, x := range xs {
+		sum += x
+	}
+	return sum / float64(max(len(xs), 1))
+}
+
+// appliedLog runs before the page's scripts. Its listener on document,
+// added after Datastar's, notes the time and the generation each board
+// frame shows once Datastar has applied it.
+const appliedLog = `(() => {
+  const log = window.__drift = []
+  const board = d => !!d && d.type === 'datastar-patch-elements' && typeof (d.argsRaw || {}).elements === 'string' && d.argsRaw.elements.includes('id="life-board"')
+  let on = false
+  addEventListener('datastar-fetch', () => {
+    if (on) return
+    on = true
+    document.addEventListener('datastar-fetch', e => {
+      if (!board(e.detail)) return
+      const dd = document.querySelector('#life-stats dd')
+      log.push([performance.timeOrigin + performance.now(), dd ? dd.textContent : ''])
+    })
+  }, true)
+})()`
+
+// appliedFrames are the board frames the page applied, with when.
+type appliedFrames struct {
+	at   []time.Time
+	gens []int64
+	n    int   // frames applied
+	gen  int64 // the newest generation applied
+}
+
+// drain takes the frames the page applied since the last call.
+func (a *appliedFrames) drain(t *testing.T, p *browser.Page) {
+	var got [][2]any
+	p.Eval(t, `window.__drift ? window.__drift.splice(0) : []`, &got)
+	for _, e := range got {
+		ms, _ := e[0].(float64)
+		s, _ := e[1].(string)
+		g, err := strconv.ParseInt(strings.ReplaceAll(s, ",", ""), 10, 64)
+		if err != nil {
+			continue
+		}
+		a.at = append(a.at, time.UnixMicro(int64(ms*1000)))
+		a.gens = append(a.gens, g)
+		a.n++
+		a.gen = g
+	}
+}
+
+// grid is, for every second from start to end, how long ago the board
+// passed the generation the page had applied last by then, and how many
+// frames it applied in that second.
+func (a *appliedFrames) grid(start, end time.Time, b *boardClock) (lags, applied []float64) {
+	j := 0
+	g := int64(-1)
+	for T := start.Add(time.Second); !T.After(end); T = T.Add(time.Second) {
+		n := 0
+		for ; j < len(a.at) && !a.at[j].After(T); j++ {
+			g = a.gens[j]
+			n++
+		}
+		lag := 0.0
+		if g >= 0 {
+			lag = b.sinceAt(g, T).Seconds()
+		}
+		lags, applied = append(lags, lag), append(applied, float64(n))
+	}
+	return lags, applied
 }
 
 // boardClock follows the board's generation.
@@ -266,6 +480,17 @@ func (c *boardClock) now() int64 {
 	return c.values[len(c.values)-1]
 }
 
+// sinceAt is how long before at the board passed generation g.
+func (c *boardClock) sinceAt(g int64, at time.Time) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	i := sort.Search(len(c.values), func(i int) bool { return c.values[i] > g })
+	if i >= len(c.values) || c.times[i].After(at) {
+		return 0
+	}
+	return at.Sub(c.times[i])
+}
+
 // since is how long ago the board passed generation g.
 func (c *boardClock) since(g int64) time.Duration {
 	c.mu.Lock()
@@ -278,9 +503,13 @@ func (c *boardClock) since(g int64) time.Duration {
 }
 
 // writeMeter times the writes and flushes of the site's stream responses.
+// It sets the stream's Cache-Control to cache (cacheControl), and counts
+// the other requests besides the documents (requests).
 type writeMeter struct {
-	mu sync.Mutex
-	s  writeStats
+	mu       sync.Mutex
+	s        writeStats
+	cache    string
+	requests requestMeter
 }
 
 type writeStats struct {
@@ -314,6 +543,9 @@ func (m *writeMeter) add(n int, d time.Duration) {
 func (m *writeMeter) wrap(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/stream") {
+			if r.Method != http.MethodGet {
+				m.requests.add(r)
+			}
 			h.ServeHTTP(w, r)
 			return
 		}
@@ -323,16 +555,32 @@ func (m *writeMeter) wrap(h http.Handler) http.Handler {
 			m.s.slowAt = time.Now()
 		}
 		m.mu.Unlock()
-		h.ServeHTTP(&timedWriter{ResponseWriter: w, m: m}, r)
+		h.ServeHTTP(&timedWriter{ResponseWriter: w, m: m, cache: m.cache}, r)
 	})
 }
 
 type timedWriter struct {
 	http.ResponseWriter
-	m *writeMeter
+	m      *writeMeter
+	cache  string
+	headed bool
+}
+
+// head sets the Cache-Control before the headers go out.
+func (w *timedWriter) head() {
+	if !w.headed {
+		w.headed = true
+		cacheControl(w.Header(), w.cache)
+	}
+}
+
+func (w *timedWriter) WriteHeader(code int) {
+	w.head()
+	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *timedWriter) Write(p []byte) (int, error) {
+	w.head()
 	t0 := time.Now()
 	n, err := w.ResponseWriter.Write(p)
 	w.m.add(n, time.Since(t0))
@@ -340,6 +588,7 @@ func (w *timedWriter) Write(p []byte) (int, error) {
 }
 
 func (w *timedWriter) FlushError() error {
+	w.head()
 	t0 := time.Now()
 	err := http.NewResponseController(w.ResponseWriter).Flush()
 	w.m.add(0, time.Since(t0))
@@ -406,7 +655,7 @@ func freePort(t *testing.T) int {
 
 // startCaddy runs Caddy on 127.0.0.1:port with its own certificate (tls
 // internal) in front of the site, as deploy/lith-site.caddy configures it.
-func startCaddy(t *testing.T, bin string, port, site int) {
+func startCaddy(t *testing.T, bin string, port, site int) (pid int) {
 	t.Helper()
 	dir := t.TempDir()
 	conf := fmt.Sprintf(`{
@@ -448,7 +697,7 @@ https://127.0.0.1:%d {
 		c, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(port))
 		if err == nil {
 			c.Close()
-			return
+			return cmd.Process.Pid
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("caddy did not start: %s", logs.String())
