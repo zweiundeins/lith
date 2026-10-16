@@ -104,7 +104,7 @@ header_up X-Real-IP {http.request.remote.host}
 
 ## Slow links
 
-`edge.SlowLink(r)` reports whether a request says its client is on a slow link: the query parameter `net=slow`, which a page adds to its stream's URL from its own measurement, the `Save-Data: on` header, or Chromium's client hints `ECT` (slow-2g, 2g or 3g), `RTT` (over 300 ms) and `Downlink` (under 0.8 Mbit/s). Chromium sends those hints once a document asked for them with `Accept-CH`, whose value is `edge.NetworkHints`. A stream handler passes the answer to `live.Spec.Slow` ([Streams: slow links](/docs/guides/streams#slow-links)).
+`edge.SlowLink(r)` reports whether a request says its client is on a slow link: the `Save-Data: on` header, which a browser sends when its user asked to save data, and a lith page sends on its stream's request when it measured a slow link as it started or fell behind its stream later (`live.NewestFrame`); Chromium's client hints `ECT` (slow-2g, 2g or 3g), `RTT` (over 300 ms) and `Downlink` (under 0.8 Mbit/s); or the query parameter `net=slow`, which pages put in their stream's URL before they sent `Save-Data`, so that tabs still open from then keep their slow stream. Chromium sends those hints once a document asked for them with `Accept-CH`, whose value is `edge.NetworkHints`. A stream handler passes the answer to `live.Spec.Slow` ([Streams: slow links](/docs/guides/streams#slow-links)).
 
 ## Rate limits
 

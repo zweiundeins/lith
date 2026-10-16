@@ -65,7 +65,8 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    unscanned row keeps it busy. `db.R` is `query_only`; `db.W` belongs to
    the writer and migrations.
 9. **Every stream is bounded**: a cap on open streams, a deadline on every
-   network write, the newest frame wins, shutdown cancels streams.
+   network write, the newest frame wins (in the page too, with
+   `newest-frame.js`), shutdown cancels streams.
 10. **Keys are rowids or time-ordered.** Random tokens go on small tables; a
     bulk insert sorts its batch by key first.
 11. **Measure.** Writer `Stats()`, the hub's `Stats()` (read transactions,
@@ -78,7 +79,7 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 | --- | --- |
 | `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
-| `live` | views and topics, the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats |
+| `live` | views and topics, the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) |
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget, write deadlines, `ReadSignals` for any method |
 | `edge` | sessions cookie, CSRF, client IP, slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression, precompressed static files, rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |

@@ -295,11 +295,17 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   `Options.HeartbeatSignal: "_ping"` the hub patches `$_ping` every
   Heartbeat (20 s), frames or not, with a number that grows, instead of an
   SSE comment, which Datastar never shows the page.
-- A page on a slow link opens its stream with `net=slow`: the template
-  measures once into `$_slow` (data-signals: navigator.connection's
-  saveData or 2g/3g, else Navigation Timing), sends `Accept-CH:
-  edge.NetworkHints` on documents, and its handler passes
-  `Slow: edge.SlowLink(r)` in the Spec (performance.md).
+- A page on a slow link asks for a slow stream with `Save-Data: on`, at
+  the same URL: the template measures once into `$_slow` (data-signals:
+  navigator.connection's saveData or 2g/3g, else Navigation Timing), its
+  `@get` sends `headers: $_slow ? {'Save-Data': 'on'} : {}`, its
+  documents send `Accept-CH: edge.NetworkHints`, and its handler passes
+  `Slow: edge.SlowLink(r)` in the Spec. lith's `newest-frame.js`
+  (`live.Scripts`, `live.NewestFrame`) sets `$_slow` when the page falls
+  behind: add it to the app's `edge.Static` (`Add("lith/"+live.NewestFrame,
+  ...)`), load it as a module after Datastar through the import map that
+  maps `'datastar'` (with the CSP nonce), and put `data-newest-frame` on
+  `<body>` (performance.md, datastar.md).
 
 ## Tab state and preferences
 
