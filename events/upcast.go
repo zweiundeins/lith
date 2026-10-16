@@ -15,12 +15,13 @@ type Upcaster struct {
 }
 
 // Upcast reads every stored event of type from as an event of type to,
-// converted by fn. Stored events are never changed: an event shape that
-// needs more than a new optional field (which old events decode without)
-// gets a new type, and the old type stays defined for the events stored
-// with it. Projectors and deciders then see only the new type, and a
-// command can no longer append the old one. Upcasters chain: from v1 to
-// v2 and from v2 to v3 reads v1 as v3.
+// converted by fn. Stored events are never changed, but for the snapshots
+// that Compact writes: an event shape that needs more than a new optional
+// field (which old events decode without) gets a new type, and the old
+// type stays defined for the events stored with it. Projectors and
+// deciders then see only the new type, and a command can no longer append
+// the old one. Upcasters chain: from v1 to v2 and from v2 to v3 reads v1
+// as v3.
 func Upcast[K Key, E, Old, New any](from Type[K, E, Old], to Type[K, E, New], fn func(Old) New) Upcaster {
 	return Upcaster{kind: from.s.kind, stream: from.s, from: from.name, to: to.name, fn: func(v any) any { return fn(v.(Old)) }}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/zweiundeins/lith/writer"
@@ -152,6 +151,10 @@ func state[K Key, C, E, S any](st *Store, tx *writer.Tx, d Decider[C, E, S], id 
 	if s, err = initial(d); err != nil {
 		return s, 0, false, err
 	}
+	through, err := compacted(tx.Context(), tx, id.s.kind)
+	if err != nil {
+		return s, 0, false, err
+	}
 	rows, err := tx.Query(`SELECT position, version, type, data, at, actor, correlation, causation
 		FROM lith_events WHERE stream = ? AND stream_id = ? ORDER BY version`, id.s.kind, key)
 	if err != nil {
@@ -164,7 +167,8 @@ func state[K Key, C, E, S any](st *Store, tx *writer.Tx, d Decider[C, E, S], id 
 		if err != nil {
 			return s, 0, false, err
 		}
-		if last == 0 && ev.Version != 1 {
+		// A stream that starts with a snapshot (Compact) folds from it.
+		if last == 0 && ev.Version != 1 && ev.Position > through {
 			if stored {
 				// Retention took the stream's first events: keep the state
 				// folded before, with the version it has now.
@@ -283,77 +287,4 @@ func nullable(s string) any {
 		return nil
 	}
 	return s
-}
-
-// Forget deletes every event of a stream and its state row, as a person's
-// erasure asks. Nothing can be rebuilt from them afterwards: delete what
-// the projections hold of the stream in the same command. A catch-up
-// projector that has not reached them never sees them. It returns how many
-// events it deleted.
-func Forget[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E]) (int64, error) {
-	if _, _, err := st.prepare(tx, ""); err != nil {
-		return 0, err
-	}
-	key := keyValue(id.key)
-	res, err := tx.Exec(`DELETE FROM lith_events WHERE stream = ? AND stream_id = ?`, id.s.kind, key)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	if _, err := tx.Exec(`DELETE FROM lith_event_state WHERE stream = ? AND stream_id = ?`, id.s.kind, key); err != nil {
-		return 0, err
-	}
-	tx.Touch(Topic)
-	return n, nil
-}
-
-// Prune deletes up to limit (all for 0) of the events of stream kind s
-// stored before the time before, oldest first, and returns how many it
-// deleted: retention for a kind whose history need not stay, sent from a
-// sweep. It keeps the state rows and the projections built from the
-// events, so commands and pages go on as before; but a rebuild or a new
-// projector sees only the events kept, and a decider whose Version changes
-// keeps the state of a stream that lost its first events as it was. It
-// deletes no event that a catch-up projector of the kind, or a rebuild
-// under way, has not passed.
-func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], before time.Time, limit int) (int64, error) {
-	if _, _, err := st.prepare(tx, ""); err != nil {
-		return 0, err
-	}
-	cutoff := int64(math.MaxInt64)
-	err := tx.QueryRow(`SELECT position FROM lith_events WHERE stream = ? AND at >= ? ORDER BY position LIMIT 1`,
-		s.kind, before.UnixMilli()).Scan(&cutoff)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return 0, err
-	}
-	for _, p := range st.projectors {
-		if p.kind != s.kind {
-			continue
-		}
-		var pos int64
-		var status string
-		err := tx.QueryRow(`SELECT position, status FROM lith_projections WHERE name = ?`, p.name).Scan(&pos, &status)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return 0, err
-		}
-		if p.catchUp || status == statusRebuilding {
-			cutoff = min(cutoff, pos+1)
-		}
-	}
-	if limit <= 0 {
-		limit = -1
-	}
-	res, err := tx.Exec(`DELETE FROM lith_events WHERE position IN
-		(SELECT position FROM lith_events WHERE stream = ? AND position < ? ORDER BY position LIMIT ?)`, s.kind, cutoff, limit)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
-	if n > 0 {
-		tx.Touch(Topic)
-	}
-	return n, err
 }

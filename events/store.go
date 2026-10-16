@@ -48,6 +48,12 @@ var schema = []string{
 	position INTEGER NOT NULL,
 	status   TEXT NOT NULL
 ) STRICT`,
+	// Every event of a kind stored at or before its compacted position is
+	// a snapshot (Compact).
+	`CREATE TABLE IF NOT EXISTS lith_event_kinds (
+	stream    TEXT PRIMARY KEY,
+	compacted INTEGER NOT NULL
+) STRICT, WITHOUT ROWID`,
 }
 
 // A projector's status in lith_projections.

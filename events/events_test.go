@@ -154,6 +154,23 @@ CREATE TABLE title_history (
 	valid_to   INTEGER,          -- the position of the next one, NULL while current
 	PRIMARY KEY (card_id, valid_from)
 ) STRICT, WITHOUT ROWID;
+
+-- An account's balance now, and every balance it had between two positions.
+CREATE TABLE balances (
+	id      INTEGER PRIMARY KEY,
+	balance INTEGER NOT NULL,
+	moves   INTEGER NOT NULL,
+	version INTEGER NOT NULL,
+	actor   TEXT NOT NULL
+) STRICT;
+CREATE TABLE balance_history (
+	account_id INTEGER NOT NULL,
+	balance    INTEGER NOT NULL,
+	actor      TEXT NOT NULL,
+	valid_from INTEGER NOT NULL,
+	valid_to   INTEGER,
+	PRIMARY KEY (account_id, valid_from)
+) STRICT, WITHOUT ROWID;
 `
 
 type fixture struct {
@@ -609,9 +626,26 @@ func TestReadsBeforeTheTables(t *testing.T) {
 		for _, err := range events.Since(ctx, tx, 0) {
 			return err
 		}
+		for _, err := range events.SinceUntil(ctx, tx, 0, 10) {
+			return err
+		}
+		for _, err := range events.LoadUntil(ctx, f.st, tx, Cards.ID(1), 0, 10) {
+			return err
+		}
+		s, version, err := events.StateAt(ctx, f.st, tx, rename, Cards.ID(1), 10)
+		if err != nil || s != (card{}) || version != 0 {
+			return fmt.Errorf("StateAt: %+v at %d, %v", s, version, err)
+		}
+		first, last, err := events.Bounds(ctx, tx, Cards)
+		if err != nil || first != 0 || last != 0 {
+			return fmt.Errorf("Bounds: %d to %d, %v", first, last, err)
+		}
 		return nil
 	})
 	if err != nil {
 		t.Error(err)
+	}
+	if n := f.count(t, `SELECT count(*) FROM sqlite_schema WHERE name LIKE 'lith_%'`); n != 0 {
+		t.Errorf("the reads made %d tables", n)
 	}
 }

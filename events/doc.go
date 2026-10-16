@@ -114,23 +114,34 @@
 // Load reads a stream's events and Since every event after a position,
 // both as iterators over the transaction they are given. Pages render
 // from projections: a stream's history only grows. LoadUntil, SinceUntil
-// and StateAt read as of a position, for a page that shows the past.
+// and StateAt read as of a position, for a page that shows the past, and
+// Bounds has the first and the last position of a kind, the ends of a
+// slider. Before the first command made the tables, the reads find no
+// events and no error.
 //
 // # Retention
 //
-// Forget deletes a stream's events and Prune a kind's older ones. A
-// projection keeps what it built from them, but a rebuild after that sees
-// only the events that are left: keep personal data out of events, or
-// forget the whole stream with its rows in the projections.
+// Forget deletes a stream's events, and Prune the events of a kind that a
+// Retention lets go: those stored before a time, those beyond the newest
+// N, or those both rules let go. A projection keeps what it built from
+// them, but a rebuild after Prune sees only the events that are left.
+// Compact closes the books instead: each stream that loses events keeps
+// its last one, rewritten in place as a snapshot of its state, an event
+// type the app defines on the stream like any other. A rebuild then makes
+// what it made before, and as-of reads stay right from the newest
+// snapshot on. That rewrite is the one place where a stored event
+// changes. Keep personal data out of events, or forget the whole stream
+// with its rows in the projections.
 //
 // # Tables
 //
-// The first command that needs them creates three tables:
+// The first command that needs them creates four tables:
 // lith_events (the position, from AUTOINCREMENT so that it is never
 // reused, the stream's kind and key, its version, the type, the JSON
 // data, the time in Unix milliseconds, the actor, correlation and
-// causation), lith_event_state (each stream's folded state) and
-// lith_projections (each projector's version, position and status).
+// causation), lith_event_state (each stream's folded state),
+// lith_projections (each projector's version, position and status) and
+// lith_event_kinds (the position up to which Compact rewrote a kind).
 // Positions commit in order, so a reader that keeps the last position it
 // saw misses no event.
 package events
