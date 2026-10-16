@@ -467,8 +467,8 @@ func (c Rename) Apply(tx *writer.Tx) error {
   or `.ThenError(t, err)`; no database.
 - A new optional field needs nothing. Any other shape change is a new type
   name plus `events.Upcast(old, new, fn)` passed to `events.New`; never edit
-  stored events. Keep a JSON sample per type in `testdata` and run
-  `eventstest.Samples`.
+  stored events (`events.Compact`'s snapshots are the one exception). Keep a
+  JSON sample per type in `testdata` and run `eventstest.Samples`.
 
 ## Projections of events
 
@@ -516,16 +516,28 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   (the log after a position) are iterators over any `sqlite.Querier`, for a
   history page, a feed near the end of the log, tests and tools.
 - As of a position (a slider back in time): `events.LoadUntil`,
-  `events.SinceUntil`, `events.StateAt` (a decider's state then). A page of
-  many entities reads a history projection whose rows carry `valid_from`
-  and `valid_to` positions: `WHERE valid_from <= ?1 AND (valid_to IS NULL OR
-  valid_to > ?1)`. At 10,000 events: 0.46 ms a look, against 12.6 ms for a
-  replay of the log (bench/RESULTS.md).
+  `events.SinceUntil`, `events.StateAt` (a decider's state then), and
+  `events.Bounds(ctx, q, Cards)` for the slider's ends (first and last
+  position, 0 and 0 without events), never a query of the app's own on
+  `lith_events`. A page of many entities reads a history projection whose
+  rows carry `valid_from` and `valid_to` positions: `WHERE valid_from <= ?1
+  AND (valid_to IS NULL OR valid_to > ?1)`. At 10,000 events: 0.46 ms a
+  look, against 12.6 ms for a replay of the log (bench/RESULTS.md).
+- Reads before the first command made the tables (`Load`, `LoadUntil`,
+  `Since`, `SinceUntil`, `StateAt`, `Bounds`) find no events and no error:
+  no `no such table` check in app code.
 - Retention: `events.Forget(store, tx, id)` deletes a stream (erasure; delete
-  its projection rows in the same command), `events.Prune(store, tx, Cards,
-  before, limit)` a kind's old events, never past a catch-up projector.
-  Events gone cannot be rebuilt. Positions are `AUTOINCREMENT` and never
-  reused.
+  its projection rows in the same command). `events.Prune(store, tx, Cards,
+  events.Retention{Since: t, Newest: n, Limit: l})` deletes a kind's events
+  that every rule set lets go, never past a catch-up projector; a rebuild
+  then misses them. `events.Compact(store, tx, CardSnapshot, keep, decider,
+  func(s card) CardSnapshot {...})` is Prune that keeps each stream's state:
+  its last pruned event is rewritten in place (same position, version,
+  metadata) as a snapshot event the app defines on the stream, which
+  `Evolve` and every projector handle. The one deliberate rewrite of a
+  stored event. Rebuilds make the same tables; as-of reads stay right from
+  `Bounds`' first position (the newest snapshot) on. Positions are
+  `AUTOINCREMENT` and never reused.
 
 ## Backups
 

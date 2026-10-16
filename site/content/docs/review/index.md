@@ -80,10 +80,10 @@ rg -n 'events\.(Load|Since)\(' --type go -g '!*_test.go'
 
 ### A write to the event tables
 
-`lith_events`, `lith_event_state` and `lith_projections` belong to `lith/events`. A statement of the app's own that writes them skips the version check, the state row and the projectors, and an `UPDATE` changes history that projections were built from.
+`lith_events`, `lith_event_state`, `lith_projections` and `lith_event_kinds` belong to `lith/events`. A statement of the app's own that writes them skips the version check, the state row and the projectors, and an `UPDATE` changes history that projections were built from: `events.Compact` is the one place that rewrites an event, as a snapshot of the stream's state.
 
 ```sh
-rg -n '(INSERT INTO|UPDATE|DELETE FROM) lith_(events|event_state|projections)' --type go
+rg -n '(INSERT INTO|UPDATE|DELETE FROM) lith_(events|event_state|event_kinds|projections)' --type go
 ```
 
 ### A projector that writes a table it does not name

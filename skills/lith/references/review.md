@@ -43,10 +43,10 @@ pattern matches.
 - `rg -n 'events\.(Load|Since)\(' --type go -g '!*_test.go'`: a render that
   loads a stream, or reads the log from its start, grows with the history.
   Render from a projection; a feed reads `Since` from near the end.
-- `rg -n '(INSERT INTO|UPDATE|DELETE FROM) lith_(events|event_state|projections)' --type go`:
+- `rg -n '(INSERT INTO|UPDATE|DELETE FROM) lith_(events|event_state|event_kinds|projections)' --type go`:
   only `lith/events` writes its tables (`Execute`, `Append`, `Forget`,
-  `Prune`, the Runner). A write of the app's own skips the version check, the
-  state row and the projectors.
+  `Prune`, `Compact`, the Runner). A write of the app's own skips the version
+  check, the state row and the projectors.
 - A projector with `Tables` writes only those tables: a rebuild runs its
   handlers over every event again, and a write anywhere else happens twice.
 

@@ -7,7 +7,7 @@ description: Event sourcing with lith/events: streams in the app's SQLite file, 
 order: 2
 ---
 
-`lith/events` keeps an event log in the app's own database, beside its other tables. A command appends events to a stream inside its `Apply`, and the events, the stream's state and the inline projections commit in the command's savepoint, or not at all. The module adds nothing between a handler and the writer: it is a few functions that a command calls, three tables, and a `Runner` that rebuilds and catches up in the background.
+`lith/events` keeps an event log in the app's own database, beside its other tables. A command appends events to a stream inside its `Apply`, and the events, the stream's state and the inline projections commit in the command's savepoint, or not at all. The module adds nothing between a handler and the writer: it is a few functions that a command calls, four tables, and a `Runner` that rebuilds and catches up in the background.
 
 The writer applies one command at a time. A stream's version cannot change between the read and the append, so there is no retry loop. Positions are handed out and committed in one order, so a reader that keeps the last position it saw misses nothing. And an inline projection commits with its events, so a page never sees an event without its effect.
 
@@ -231,6 +231,8 @@ A failed event is tried again after `Options.Backoff` (a second), then after twi
 
 `events.Load` yields a stream's events and `events.Since` every event after a position, as iterators over the transaction they are given: a GET's, a render's `sqlite.QuerierFrom(ctx)`, a command's. Breaking off the loop closes the rows. `Load` decodes and upcasts each event; `Since` gives them as stored, as `events.Raw`, for an activity feed whose view lists `events.Topic`, and `events.Decode` turns one into its type.
 
+The tables come with the first command that needs them, so a page can render before they exist: the first page of a new app, or one that renders while the app starts. Until then the reads find no events and return no error, `Load`, `LoadUntil`, `Since`, `SinceUntil`, `StateAt` and `Bounds` alike, and the page needs no check of its own.
+
 Pages render from projections. A render that replays a stream grows with its history: the [review checklist](/docs/review) flags it.
 
 ## Looking back to a position
@@ -239,6 +241,7 @@ A position names a moment of the whole log, so a page can show the app as it sto
 
 - `events.LoadUntil(ctx, store, q, id, after, upto)` yields a stream's events stored up to position `upto`, and `events.SinceUntil(ctx, q, after, upto)` every event between two positions.
 - `events.StateAt(ctx, store, q, decider, id, upto)` folds a stream's events up to `upto` into the decider's state: what a command on it decided from at the time, with the stream's version then.
+- `events.Bounds(ctx, q, Cards)` returns the first and the last position of a kind, 0 and 0 without events: the ends of a slider, with a seek in the log's index for each and no query of the app's own on `lith_events`. After `Compact`, the first is the newest snapshot ([Retention](#retention)).
 - A projection as of a position is a table of its own whose rows carry the positions between which they held. A change ends the current row at the event's position and starts the next row there, and one query reads the rows that held at a position:
 
 ```go source=events/asof_test.go
@@ -283,7 +286,7 @@ What a look costs on the development machine, for 100 cards and a log of 10,000 
 
 ## Event shapes that change
 
-A new optional field needs nothing: old events decode without it, at its zero value. A change beyond that gets a new type with a new name, such as `card.renamed.v2`, and an upcaster reads the old type as the new one: `events.Upcast(old, new, fn)`, passed to `events.New`, with `fn` turning the old struct into the new. Stored events are never changed. Projectors and deciders see only the newest type, and a command can no longer append the old one. Upcasters chain, from v1 to v2 to v3.
+A new optional field needs nothing: old events decode without it, at its zero value. A change beyond that gets a new type with a new name, such as `card.renamed.v2`, and an upcaster reads the old type as the new one: `events.Upcast(old, new, fn)`, passed to `events.New`, with `fn` turning the old struct into the new. Stored events are never changed. Projectors and deciders see only the newest type, and a command can no longer append the old one. The one exception to stored events never changing is `Compact`'s snapshots ([Retention](#retention)). Upcasters chain, from v1 to v2 to v3.
 
 Each event type keeps a JSON sample in `testdata`, as it was first stored, and a test decodes and upcasts every sample. A field renamed instead of upcast then fails in CI, not on old rows in production:
 
@@ -300,9 +303,10 @@ func TestEventSamples(t *testing.T) {
 Event tables grow like any other, and each stream kind needs a rule for what it keeps:
 
 - `events.Forget(store, tx, id)` deletes a stream's events and its state row: a person's erasure, or a card archived long ago. Nothing can be rebuilt from them afterwards, so the command deletes the projections' rows of the stream too.
-- `events.Prune(store, tx, Cards, before, limit)` deletes a kind's events stored before a time, oldest first, for a sweep. It keeps the state rows and the projections, so commands and pages go on as before, but a rebuild or a new projector sees only the events left, and a decider whose version changes keeps the state of a stream that lost its first events as it was. It deletes nothing a catch-up projector of the kind, or a rebuild under way, has not passed.
+- `events.Prune(store, tx, Cards, keep)` deletes the events of a kind that an `events.Retention` lets go, oldest first, for a sweep. `Since` keeps the events stored from a time on and `Newest` the newest so many; with both, an event goes only when both let it go. `Limit` caps the events one call takes, so that a sweep spreads a long backlog over its runs. `Prune` keeps the state rows and the projections, so commands and pages go on as before, but a rebuild or a new projector sees only the events left: a stream whose events all went comes back as if it had none, and a decider whose version changes keeps the state of a stream that lost its first events as it was.
+- `events.Compact(store, tx, snapshot, keep, decider, of)` is `Prune` that closes the books: the streams that lose events keep their state in a snapshot ([below](#closing-the-books)).
 
-A stream whose events are gone cannot be rebuilt. Keep personal data out of events where history must stay, or delete whole streams with their projections' rows. The board's sweep forgets the streams of cards archived a month ago, in the same command that deletes their history:
+Neither `Prune` nor `Compact` deletes an event that a catch-up projector of the kind, or a rebuild under way, has not passed. Keep personal data out of events where history must stay, or delete whole streams with their projections' rows. The board's sweep forgets the streams of cards archived a month ago, in the same command that deletes their history:
 
 ```go source=site/internal/docs/example/board/commands.go
 func forgetCards(tx *writer.Tx, before int64) error {
@@ -333,15 +337,35 @@ func forgetCards(tx *writer.Tx, before int64) error {
 
 Positions use `AUTOINCREMENT`, so a position is never handed out twice, also after retention deleted the newest events: a catch-up projector that keeps its position never skips the event that would otherwise take a deleted one's place.
 
+### Closing the books
+
+A rebuild after `Prune` misses what the deleted events said. `events.Compact` keeps it: each stream that loses events keeps one, its last event that the retention lets go, rewritten in place as a snapshot of the stream's state as of that event. The snapshot is an event type of the stream, defined like any other. The decider's `Evolve` sets the state from it, and every projector of the stream handles or ignores it, which `events.New` checks as for every type. `Compact` folds each stream's state with the decider, as `StateAt` does, and a function of the app makes the snapshot from it. The site's [Town in time](/demos/town) keeps its newest 5,000 events and a snapshot of each tile from before them:
+
+```go source=site/internal/demos/town/events.go
+// snapshotOf is a tile's snapshot of its state.
+func snapshotOf(s tile) Snapshot { return Snapshot{Kind: s.Kind} }
+```
+
+```go source=site/internal/demos/town/commands.go
+	if _, err := events.Compact(Events, tx, TileSnapshot, events.Retention{Newest: keep}, PlaceTile, snapshotOf); err != nil {
+		return err
+	}
+```
+
+Rewriting a stored event is the one deliberate exception to events never changing. The snapshot keeps the event's position, version, time and metadata, and only its type and data change: it holds what the events it replaces held, at the place of the last of them. A rebuild, a new projector, and a decider whose version changed all fold from it. The town's test rebuilds both its projectors after a compaction and finds the tables they had; without the snapshots, a tile whose last change was older than the newest 5,000 events comes back as grass.
+
+Positions stay in order, so reads as of a position stay right from the newest snapshot on. `events.Bounds` returns it as the kind's first position, and from there `StateAt`, `LoadUntil`, a replay of the log and a history table read what they read before; `StateAt` refuses a position before a stream's snapshot, whose state there is gone. A stream keeps one snapshot at most, so the snapshots that stay are bounded by the number of streams, and a later `Compact` rewrites only the streams that lost events since. It refuses a stream whose first events `Prune` took, as it cannot fold that stream's state.
+
 ## The tables
 
-The first command that needs them creates three tables, as `writer.Once` creates `lith_ops`:
+The first command that needs them creates four tables, as `writer.Once` creates `lith_ops`:
 
 | Table | Holds |
 | --- | --- |
 | `lith_events` | an event per row: its position, the stream's kind and key, its version, its type, its JSON, the time in Unix milliseconds, the actor, correlation and causation |
 | `lith_event_state` | a row per stream: its version, the decider's version it was folded with, and the state as JSON |
 | `lith_projections` | a row per projector: its version, its position (a catch-up projector's checkpoint, a rebuild's progress) and its status |
+| `lith_event_kinds` | a row per stream kind that `Compact` closed the books on: the position up to which its events are snapshots |
 
 The tables are the app's to read: a query of its own over `lith_events`, such as the newest events first for a feed, goes through the read pool like any other.
 

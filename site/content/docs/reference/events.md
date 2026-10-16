@@ -89,15 +89,15 @@ Runner.Stats also has the last position committed and how far each catch-up proj
 
 #### Reads {#hdr-Reads}
 
-Load reads a stream's events and Since every event after a position, both as iterators over the transaction they are given. Pages render from projections: a stream's history only grows. LoadUntil, SinceUntil and StateAt read as of a position, for a page that shows the past.
+Load reads a stream's events and Since every event after a position, both as iterators over the transaction they are given. Pages render from projections: a stream's history only grows. LoadUntil, SinceUntil and StateAt read as of a position, for a page that shows the past, and Bounds has the first and the last position of a kind, the ends of a slider. Before the first command made the tables, the reads find no events and no error.
 
 #### Retention {#hdr-Retention}
 
-Forget deletes a stream's events and Prune a kind's older ones. A projection keeps what it built from them, but a rebuild after that sees only the events that are left: keep personal data out of events, or forget the whole stream with its rows in the projections.
+Forget deletes a stream's events, and Prune the events of a kind that a Retention lets go: those stored before a time, those beyond the newest N, or those both rules let go. A projection keeps what it built from them, but a rebuild after Prune sees only the events that are left. Compact closes the books instead: each stream that loses events keeps its last one, rewritten in place as a snapshot of its state, an event type the app defines on the stream like any other. A rebuild then makes what it made before, and as-of reads stay right from the newest snapshot on. That rewrite is the one place where a stored event changes. Keep personal data out of events, or forget the whole stream with its rows in the projections.
 
 #### Tables {#hdr-Tables}
 
-The first command that needs them creates three tables: lith\_events (the position, from AUTOINCREMENT so that it is never reused, the stream's kind and key, its version, the type, the JSON data, the time in Unix milliseconds, the actor, correlation and causation), lith\_event\_state (each stream's folded state) and lith\_projections (each projector's version, position and status). Positions commit in order, so a reader that keeps the last position it saw misses no event.
+The first command that needs them creates four tables: lith\_events (the position, from AUTOINCREMENT so that it is never reused, the stream's kind and key, its version, the type, the JSON data, the time in Unix milliseconds, the actor, correlation and causation), lith\_event\_state (each stream's folded state), lith\_projections (each projector's version, position and status) and lith\_event\_kinds (the position up to which Compact rewrote a kind). Positions commit in order, so a reader that keeps the last position it saw misses no event.
 
 ## Constants
 
@@ -134,6 +134,14 @@ func Append[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E], want Expe
 
 Append appends events that need no decision, such as an import's or a migration's, after checking the expected version, and runs the inline projectors, in the command's transaction. The stream's state row, if a decider made one, is dropped, so the stream's next Execute refolds it from all its events.
 
+### func Bounds {#Bounds}
+
+```go
+func Bounds[K Key, E any](ctx context.Context, q sqlite.Querier, s *Stream[K, E]) (first, last int64, err error)
+```
+
+Bounds returns the positions of the first and the last event of stream kind s, 0 and 0 without any: the ends of a slider over its history. After Compact, first is the newest snapshot, the oldest position at which every stream of the kind reads as it stood; the snapshots before it are of streams that did not change between them and it. It reads through q, with a seek in the log's index for each end.
+
 ### func CheckSample {#CheckSample}
 
 ```go
@@ -141,6 +149,18 @@ func CheckSample[K Key, E any](st *Store, s *Stream[K, E], name string, data []b
 ```
 
 CheckSample decodes a JSON sample of an event as Decode does, but refuses a field that the type of name lacks: a test that keeps a sample of each type, as it was stored, fails when a field is renamed instead of upcast.
+
+### func Compact {#Compact}
+
+```go
+func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E, T], keep Retention, d Decider[C, E, S], of func(S) T) (int64, error)
+```
+
+Compact is Prune that closes the books: each stream that loses events keeps one, its last event that keep lets go, rewritten in place as a snapshot of the stream's state as of that event. The snapshot is an event of type snapshot, which the app defines on the stream like any other; of makes it from the state that d folds, as StateAt does. It keeps the event's position, version, time and metadata, and only its type and data change. d's Evolve sets the state from a snapshot, and every projector of the stream handles or ignores it, as New checks: a rebuild or a new projector makes from it what the events it replaces made, and a decider whose Version changes folds from it.
+
+Rewriting a stored event is the one deliberate exception to events never changing: the snapshot holds what the events it replaces held, at the place of the last of them. Positions stay in order, so StateAt, LoadUntil and a projection that keeps positions read as before from Bounds' first position on, the newest snapshot. Each stream keeps one snapshot at most, so the snapshots are bounded by the number of streams; a later call replaces the snapshot of a stream that loses events again, and leaves the others alone.
+
+Compact returns how many events it deleted. Like Prune, it keeps the state rows and the projections, and goes no further than a catch-up projector of the kind, or a rebuild under way, has passed. It refuses a stream whose first events Prune took, as it cannot fold its state.
 
 ### func Decode {#Decode}
 
@@ -172,7 +192,7 @@ Forget deletes every event of a stream and its state row, as a person's erasure 
 func Load[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id StreamID[K, E], after int64) iter.Seq2[Record[K, E], error]
 ```
 
-Load yields the events of a stream after version after (0 for all), in order, decoded and upcast, read through q: a GET's transaction, a live Render's sqlite.QuerierFrom(ctx), a command's \*writer.Tx. Breaking off the loop closes the rows. A render reads a projection rather than replaying a stream, whose history only grows; Load is for a stream's own history page, a test, a tool.
+Load yields the events of a stream after version after (0 for all), in order, decoded and upcast, read through q: a GET's transaction, a live Render's sqlite.QuerierFrom(ctx), a command's \*writer.Tx. Breaking off the loop closes the rows. A render reads a projection rather than replaying a stream, whose history only grows; Load is for a stream's own history page, a test, a tool. After Compact, a stream that lost events starts at its snapshot. A database whose tables the first command has not made yet has no events.
 
 ### func LoadUntil {#LoadUntil}
 
@@ -197,10 +217,10 @@ events.Append(st, tx, Cards.ID(7), events.Any, meta, events.One[CardEvent](CardR
 ### func Prune {#Prune}
 
 ```go
-func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], before time.Time, limit int) (int64, error)
+func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], keep Retention) (int64, error)
 ```
 
-Prune deletes up to limit (all for 0) of the events of stream kind s stored before the time before, oldest first, and returns how many it deleted: retention for a kind whose history need not stay, sent from a sweep. It keeps the state rows and the projections built from the events, so commands and pages go on as before; but a rebuild or a new projector sees only the events kept, and a decider whose Version changes keeps the state of a stream that lost its first events as it was. It deletes no event that a catch-up projector of the kind, or a rebuild under way, has not passed.
+Prune deletes the events of stream kind s that keep lets go, oldest first, and returns how many it deleted: retention for a kind whose history need not stay, sent from a sweep. It keeps the state rows and the projections built from the events, so commands and pages go on as before; but a rebuild or a new projector sees only the events kept, so a stream whose events all went comes back as if it had none, and a decider whose Version changes keeps the state of a stream that lost its first events as it was. Compact keeps what they need. Prune deletes no event that a catch-up projector of the kind, or a rebuild under way, has not passed.
 
 ### func Since {#Since}
 
@@ -208,7 +228,7 @@ Prune deletes up to limit (all for 0) of the events of stream kind s stored befo
 func Since(ctx context.Context, q sqlite.Querier, position int64) iter.Seq2[Raw, error]
 ```
 
-Since yields every event stored after position (0 for all), of every stream, in the order they were stored, as the table holds them: an activity feed is a view over it that lists Topic. Positions only grow, and they commit in order, so a reader that keeps the last position it saw misses no event. Breaking off the loop closes the rows.
+Since yields every event stored after position (0 for all), of every stream, in the order they were stored, as the table holds them: an activity feed is a view over it that lists Topic. Positions only grow, and they commit in order, so a reader that keeps the last position it saw misses no event. Breaking off the loop closes the rows. A database whose tables the first command has not made yet has no events.
 
 ### func SinceUntil {#SinceUntil}
 
@@ -224,7 +244,7 @@ SinceUntil is Since up to a position: every event stored after position after an
 func StateAt[K Key, C, E, S any](ctx context.Context, st *Store, q sqlite.Querier, d Decider[C, E, S], id StreamID[K, E], upto int64) (S, int64, error)
 ```
 
-StateAt folds a stream's events up to position upto into d's state: what a command on the stream decided from then, for a page that shows the past. It returns the stream's version then too. It reads through q and stores nothing, and it folds from the stream's first event, so it costs what the stream's history up to upto costs to read.
+StateAt folds a stream's events up to position upto into d's state: what a command on the stream decided from then, for a page that shows the past. It returns the stream's version then too. It reads through q and stores nothing, and it folds from the stream's first event, or its snapshot after Compact, so it costs what the stream's history up to upto costs to read. It fails where retention left no state to fold: a stream whose first events Prune took, or a position before the stream's snapshot.
 
 ## Types
 
@@ -502,6 +522,24 @@ type Record[K Key, T any] struct {
 
 Record is a stored event of a stream with ids of type K, its data a T.
 
+### type Retention {#Retention}
+
+```go
+type Retention struct {
+	// Since keeps the events stored at or after this time. Zero sets no
+	// rule of time.
+	Since time.Time
+	// Newest keeps this many of the kind's newest events. 0 sets no rule
+	// of count.
+	Newest int
+	// Limit is the most events one call takes, the oldest first (0: no
+	// limit), so that a sweep spreads a long backlog over its runs.
+	Limit int
+}
+```
+
+Retention says which events of a stream kind Prune and Compact keep. An event goes only when every rule that is set lets it go: with both, the events of the last 30 days stay, and the newest 1,000 also when they are older.
+
 ### type Runner {#Runner}
 
 ```go
@@ -729,7 +767,7 @@ Upcaster turns a stored event of an older type into the newer type as it is read
 func Upcast[K Key, E, Old, New any](from Type[K, E, Old], to Type[K, E, New], fn func(Old) New) Upcaster
 ```
 
-Upcast reads every stored event of type from as an event of type to, converted by fn. Stored events are never changed: an event shape that needs more than a new optional field (which old events decode without) gets a new type, and the old type stays defined for the events stored with it. Projectors and deciders then see only the new type, and a command can no longer append the old one. Upcasters chain: from v1 to v2 and from v2 to v3 reads v1 as v3.
+Upcast reads every stored event of type from as an event of type to, converted by fn. Stored events are never changed, but for the snapshots that Compact writes: an event shape that needs more than a new optional field (which old events decode without) gets a new type, and the old type stays defined for the events stored with it. Projectors and deciders then see only the new type, and a command can no longer append the old one. Upcasters chain: from v1 to v2 and from v2 to v3 reads v1 as v3.
 
 #### func (Upcaster) From {#Upcaster.From}
 
