@@ -22,6 +22,7 @@ type Landing struct {
 type Card struct {
 	Slug, Title, Summary string
 	Art                  string // SVG markup
+	Featured             bool   // first, and large
 }
 
 // idea is one letter of the name.

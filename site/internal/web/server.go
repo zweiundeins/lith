@@ -100,7 +100,7 @@ func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.L
 		}
 		s.demos = append(s.demos, site{
 			Demo:   d,
-			card:   views.Card{Slug: d.Slug, Title: d.Title, Summary: d.Summary, Art: art},
+			card:   views.Card{Slug: d.Slug, Title: d.Title, Summary: d.Summary, Art: art, Featured: d.Featured},
 			server: templ.Raw(server.HTML),
 			how:    templ.Raw(how.HTML),
 		})
@@ -239,6 +239,15 @@ func (s *Server) cards() []views.Card {
 	for i, d := range s.demos {
 		cards[i] = d.card
 	}
+	slices.SortStableFunc(cards, func(a, b views.Card) int {
+		switch {
+		case a.Featured == b.Featured:
+			return 0
+		case a.Featured:
+			return -1
+		}
+		return 1
+	})
 	return cards
 }
 

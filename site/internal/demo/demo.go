@@ -37,6 +37,9 @@ type Demo struct {
 	Slug string
 	// Title is the demo's name; Summary says in one line what it shows.
 	Title, Summary string
+	// Featured puts the demo's card first and large on /demos and the
+	// landing page.
+	Featured bool
 	// Art is a small pixel-art glyph as SVG markup (internal/pixelart), for
 	// the demo's card and the head of its page; "" takes the site's.
 	Art string

@@ -2,11 +2,64 @@
  * head of its demo's page when it is followed (view transitions). */
 @layer components {
 	.card-grid {
+		container: cards / inline-size;
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
 		gap: var(--lith-space-4);
 		padding: 0;
 		list-style: none;
+	}
+
+	/* A featured card comes first and takes four cells, so nine cards fill
+	 * every row: two columns from 35rem, two rows too from 53rem (n columns
+	 * of 17rem with 1rem gaps fit from 18n - 1 rem). */
+	.demo-card.demo-card--featured {
+		@container cards (width >= 35rem) {
+			grid-column: span 2;
+
+			& .demo-card__art svg {
+				block-size: 6rem;
+			}
+
+			& .demo-card__body .demo-card__title {
+				font-size: var(--lith-text-2xl);
+			}
+		}
+
+		@container cards (width >= 53rem) {
+			grid-row: span 2;
+			grid-template-rows: 1fr auto;
+
+			& .demo-card__stage {
+				block-size: auto;
+				min-block-size: 8.5rem;
+			}
+
+			& .demo-card__art svg {
+				block-size: 9rem;
+			}
+		}
+	}
+
+	/* The landing page has five columns once each is over 13.5rem: the
+	 * featured card takes two in the first row, and the others fill 3 + 5. */
+	@container page (width >= 76rem) {
+		.landing-demos .card-grid {
+			grid-template-columns: repeat(5, minmax(0, 1fr));
+		}
+
+		.landing-demos .demo-card.demo-card--featured {
+			grid-row: auto;
+			grid-template-rows: auto 1fr;
+
+			& .demo-card__stage {
+				block-size: 8.5rem;
+			}
+
+			& .demo-card__art svg {
+				block-size: 6rem;
+			}
+		}
 	}
 
 	.demo-card {

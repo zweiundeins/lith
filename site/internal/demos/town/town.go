@@ -85,6 +85,7 @@ var (
 var Demo = demo.Demo{
 	Slug:       Slug,
 	Title:      "Town in time",
+	Featured:   true,
 	Summary:    "Build a small town together: every tile you change is an event, and a slider takes your tab back to any of them while the others build on.",
 	Art:        art,
 	Migrations: mustSub("migrations"),

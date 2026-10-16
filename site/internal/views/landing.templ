@@ -113,7 +113,7 @@ templ LandingPage(l Landing) {
 		</div>
 	</section>
 	if len(l.Cards) > 0 {
-		<section class="wrap section" aria-labelledby="demos-title">
+		<section class="wrap section landing-demos" aria-labelledby="demos-title">
 			<header class="section__head reveal">
 				<h2 id="demos-title">Demos</h2>
 				<p>Each demo runs on this server, on lith, with the code that does it beside it.</p>
@@ -148,7 +148,7 @@ templ LandingPage(l Landing) {
 templ CardGrid(cards []Card, level int) {
 	<ul class="card-grid" role="list">
 		for _, c := range cards {
-			<li class="demo-card reveal" data-demo-card={ c.Slug }>
+			<li class={ "demo-card reveal", templ.KV("demo-card--featured", c.Featured) } data-demo-card={ c.Slug }>
 				<div class="demo-card__stage">
 					<div class="demo-card__art">
 						@Art(c.Art, "")
