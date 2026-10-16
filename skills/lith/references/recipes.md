@@ -319,11 +319,14 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   `@get` sends `headers: $_slow ? {'Save-Data': 'on'} : {}`, its
   documents send `Accept-CH: edge.NetworkHints`, and its handler passes
   `Slow: edge.SlowLink(r)` in the Spec. lith's `newest-frame.js`
-  (`live.Scripts`, `live.NewestFrame`) sets `$_slow` when the page falls
-  behind: add it to the app's `edge.Static` (`Add("lith/"+live.NewestFrame,
-  ...)`), load it as a module after Datastar through the import map that
-  maps `'datastar'` (with the CSP nonce), and put `data-newest-frame` on
-  `<body>` (performance.md, datastar.md).
+  (`live.Scripts`, `live.NewestFrame`, vendored from
+  github.com/mbolli/datastar-attribute-newest-frame) sets `$_slow` when the
+  page falls behind: add it to the app's `edge.Static`
+  (`Add("lith/"+live.NewestFrame, ...)`), load it as a module after
+  Datastar through the import map that maps `'datastar'` (with the CSP
+  nonce), and put `data-newest-frame__reopen` on `<body>` (performance.md,
+  datastar.md). Without `__reopen` it only dispatches
+  `newest-frame-behind`.
 
 ## Tab state and preferences
 

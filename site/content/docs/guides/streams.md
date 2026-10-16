@@ -181,9 +181,9 @@ On this site, every demo's stream and the landing page's pass `edge.SlowLink(r)`
 - With a slow stream the page applied the four frames a second it got and stayed 0.6 s behind at the median, 1.2 s at most. The frames dropped are the slow stream's frames between its four a second, which the hub then still rendered; it now defers those renders instead.
 - The measurement as the page starts looks at the link, not the CPU: on a fast link, a phone this slow opens a fast stream and falls behind as in the first column, unless the page watches its own lag.
 
-**What the page measures later: its own lag.** The browser holds the frames a page has not applied, so only the page can tell that it fell behind. Once it is behind, Chromium hands it 2 MiB of the stream per read, the size of the pipe between its network process and the page, about 45 frames of the Game of Life, and Datastar applies them all in one task, without a paint between ([Datastar notes](/docs/datastar#a-page-that-falls-behind-its-stream-stops-painting)). Firefox keeps the frames in its parent process and hands the page one per task; it never makes the server's writes wait, so a slow Firefox tab never shows on the server at all. lith ships a Datastar plugin for this, `newest-frame.js` (`live.NewestFrame`). With `data-newest-frame` on `<body>`, the page holds its stream's patch events and applies only the newest frame of each view among those that arrived together. After a batch it waits half as long as that batch took to apply, so frames take at most two thirds of the main thread, and Firefox gets the time to hand over what it holds. Signal patches, appends, removes, scripts and view transitions are never dropped, and the order is kept. A page that keeps up applies every frame, as it arrives.
+**What the page measures later: its own lag.** The browser holds the frames a page has not applied, so only the page can tell that it fell behind. Once it is behind, Chromium hands it 2 MiB of the stream per read, the size of the pipe between its network process and the page, about 45 frames of the Game of Life, and Datastar applies them all in one task, without a paint between ([Datastar notes](/docs/datastar#a-page-that-falls-behind-its-stream-stops-painting)). Firefox keeps the frames in its parent process and hands the page one per task; it never makes the server's writes wait, so a slow Firefox tab never shows on the server at all. lith ships a Datastar plugin for this, `newest-frame.js` (`live.NewestFrame`), the build of [datastar-attribute-newest-frame](https://github.com/mbolli/datastar-attribute-newest-frame) that lith vendors; that repository has its source, its tests and a live demo. With `data-newest-frame__reopen` on `<body>`, the page holds its stream's patch events and applies only the newest frame of each view among those that arrived together. After a batch it waits half as long as that batch took to apply, so frames take at most two thirds of the main thread, and Firefox gets the time to hand over what it holds. Signal patches, appends, removes, scripts and view transitions are never dropped, and the order is kept. A page that keeps up applies every frame, as it arrives.
 
-When the page drops more than half of its frames over 3 s, at least 10, the plugin sets `$_slow` and opens the stream again from a copy of its element. The new request sends `Save-Data: on`, and the server answers with a slow stream at the same URL. Datastar aborts the request in flight only when the new one goes to the same URL: a stream opened at another URL leaves the old one open, and the frames the browser holds of it keep arriving. The plugin asks once, and a page that measured a slow link as it started never asks.
+When the page drops more than half of its frames over 3 s, at least 10, the plugin dispatches `newest-frame-behind` on the stream's element, and `__reopen` has it set `$_slow` and open the stream again from a copy of its element. The new request sends `Save-Data: on`, and the server answers with a slow stream at the same URL. Datastar aborts the request in flight only when the new one goes to the same URL: a stream opened at another URL leaves the old one open, and the frames the browser holds of it keep arriving. The plugin asks once, and a page that measured a slow link as it started never asks.
 
 The template serves the plugin with its other static files, by its content's hash and as immutable:
 
@@ -196,17 +196,17 @@ The template serves the plugin with its other static files, by its content's has
 	static.Add("lith/"+live.NewestFrame, js)
 ```
 
-The page loads it after Datastar, through an import map that maps `'datastar'` to Datastar's URL, since the plugin imports from it, and turns it on on its body:
+The page loads it after Datastar, through an import map that maps `'datastar'` to Datastar's URL, since the plugin imports from it, and turns it on on its body, with `__reopen`:
 
 ```templ source=template/internal/views/guestbook.templ
 			@importMap(p)
 			<script type="module" src={ p.JS }></script>
 			<script type="module" src={ p.NewestFrame }></script>
 		</head>
-		<body data-newest-frame>
+		<body data-newest-frame__reopen>
 ```
 
-The import map is an inline script, so it carries the request's CSP nonce (`edge.Nonce`). The plugin is 7.4 KB as written and 2.6 KB with brotli; `edge.Minify(minify.Bytes)` takes it to 2.8 KB, 1.3 KB with brotli, as the template and this site serve it.
+The import map is an inline script, so it carries the request's CSP nonce (`edge.Nonce`). lith vendors the plugin's minified build, 3.0 KB and 1.5 KB with brotli, which `edge.Minify(minify.Bytes)` leaves as it is.
 
 Measured on 2026-10-16 on the development machine with the plugin in this site's pages, with `TestLifeDrift` as above: headless Chromium 154 with its CPU slowed 15 times, on an unthrottled link behind Caddy, for 2 minutes. The page asked for a slow stream 1.6 s into the measurement and stayed 0.68 s behind the board at the median, 1.08 s at most, applying about 2.8 frames a second; in the run without the plugin above, it was 42.6 s behind after 2 minutes. Firefox has no CPU throttling, so `TestNewestFrameSlowStream` makes every frame the page applies cost its main thread 300 ms more, alike in both engines: headless Chromium 154 and Firefox 158 each asked for a slow stream 2.8 s after the stream opened, and were 0.77 s and 0.61 s behind the board 4 s later. At full speed both applied every frame (`TestNewestFrame`).
 

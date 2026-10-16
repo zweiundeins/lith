@@ -8,6 +8,10 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `live`: `newest-frame.js` (`live.NewestFrame`) now lives in a repository of its own, github.com/mbolli/datastar-attribute-newest-frame (the npm package `@mbolli/datastar-attribute-newest-frame`), with its TypeScript source, its tests and a live demo; lith vendors its minified build, and `live/VERSION` names the commit. Setting `$_slow` and opening the stream again now takes the modifier `__reopen`: an app made from the template changes `data-newest-frame` on its `<body>` to `data-newest-frame__reopen`, as the template and the site do. Without it the plugin only dispatches `newest-frame-behind` on the stream's element, with the frames and the skipped frames of the last 3 s in its detail. The build is 2,964 bytes, 1,501 under brotli, and goes out as vendored, since `edge.Minify` would take only 1.3% off.
+
 ## v0.3.0 (2026-10-16)
 
 The new package `events` adds event sourcing to the writer, with inline and catch-up projectors, rebuilds, retention and reads as of any position. A page that is too slow for its stream now stays close to the present with `newest-frame.js`, a Datastar plugin that lith serves. It applies only the newest frame of each view, and asks for a slower stream when it skips most of them. No API was removed. What to check in an app:

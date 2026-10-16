@@ -158,7 +158,8 @@ minutes, with no frame dropped and no write waiting (Chromium grants an
 HTTP/2 stream 6 MiB; over HTTP/1.1 the kernel buffers held it); with
 a slow stream it stayed within 1.2 s (`TestLifeDrift`, 2026-10-15). The
 start-up measurement sees the link, not the CPU; `newest-frame.js`
-(`live.NewestFrame`, `data-newest-frame` on body) sees the page's own lag:
+(`live.NewestFrame`, `data-newest-frame__reopen` on body, vendored from
+github.com/mbolli/datastar-attribute-newest-frame) sees the page's own lag:
 it applies each view's newest frame, waits after a batch half as long as
 the batch took, and after dropping over half the frames for 3 s sets
 `$_slow` and reopens the stream. Chromium hands a page that is behind

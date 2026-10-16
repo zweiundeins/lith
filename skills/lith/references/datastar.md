@@ -90,10 +90,12 @@ look there before changing the behaviour.
   the browser holds the frames (Chromium hands the page 2 MiB per read,
   about 45 Game of Life frames applied in one task without a paint; Firefox
   holds them in its parent process and hands over one per task). Load
-  `newest-frame.js` (`live.NewestFrame`) after Datastar through the import
-  map and put `data-newest-frame` on `<body>`: it applies each view's
-  newest frame, waits after a batch half as long as the batch took, and
-  after dropping over half the frames for 3 s sets `$_slow` and opens the
+  `newest-frame.js` (`live.NewestFrame`, vendored from
+  github.com/mbolli/datastar-attribute-newest-frame) after Datastar through
+  the import map and put `data-newest-frame__reopen` on `<body>`: it
+  applies each view's newest frame, waits after a batch half as long as the
+  batch took, and after dropping over half the frames for 3 s dispatches
+  `newest-frame-behind` and, with `__reopen`, sets `$_slow` and opens the
   stream again, which sends `Save-Data: on` at the same URL. A new URL
   would leave the old request open, its buffered frames still arriving.
   [lith]
