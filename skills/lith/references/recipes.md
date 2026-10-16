@@ -83,6 +83,24 @@ h = edge.Recover(log, h)
 h = edge.LogRequests(log, h)
 ```
 
+Static files go out under hashed, immutable URLs, precompressed, and
+minified with `edge.Minify(minify.Bytes)` (`github.com/zweiundeins/lith/minify`,
+a nested module). Leave the option out in development (the template's
+`-dev`), so the browser's devtools show the files as written:
+
+```go
+var opts []edge.StaticOption
+if !dev {
+	opts = append(opts, edge.Minify(minify.Bytes))
+}
+static, err := edge.NewStatic(files, "/static/", opts...) // mount at GET /static/
+url := static.URL("style.css")                           // /static/style.3f2a9c1b2d4e.css
+```
+
+A file named `*.min.js` or `*.min.css`, or one that minifying shrinks by
+less than a twentieth, goes out as written: a vendored build keeps the
+bytes its integrity hash pins.
+
 ## A command
 
 A command is a value with `Apply`. Checks that read before they write go

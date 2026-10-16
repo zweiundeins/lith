@@ -206,7 +206,7 @@ The page loads it after Datastar, through an import map that maps `'datastar'` t
 		<body data-newest-frame>
 ```
 
-The import map is an inline script, so it carries the request's CSP nonce (`edge.Nonce`). The plugin is 7.4 KB as written and 2.6 KB with brotli; this site minifies it with its own scripts, to 1.3 KB with brotli.
+The import map is an inline script, so it carries the request's CSP nonce (`edge.Nonce`). The plugin is 7.4 KB as written and 2.6 KB with brotli; `edge.Minify(minify.Bytes)` takes it to 2.8 KB, 1.3 KB with brotli, as the template and this site serve it.
 
 Measured on 2026-10-16 on the development machine with the plugin in this site's pages, with `TestLifeDrift` as above: headless Chromium 154 with its CPU slowed 15 times, on an unthrottled link behind Caddy, for 2 minutes. The page asked for a slow stream 1.6 s into the measurement and stayed 0.68 s behind the board at the median, 1.08 s at most, applying about 2.8 frames a second; in the run without the plugin above, it was 42.6 s behind after 2 minutes. Firefox has no CPU throttling, so `TestNewestFrameSlowStream` makes every frame the page applies cost its main thread 300 ms more, alike in both engines: headless Chromium 154 and Firefox 158 each asked for a slow stream 2.8 s after the stream opened, and were 0.77 s and 0.61 s behind the board 4 s later. At full speed both applied every frame (`TestNewestFrame`).
 

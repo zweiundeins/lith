@@ -37,6 +37,7 @@ HTML with templ, and each app keeps its own pages and domain model.
 | [`backup`](backup) | Litestream to S3: restore if missing, attach, snapshots, daily verify (its own module) |
 | [`dbmetrics/prom`](dbmetrics/prom) | a Prometheus observer for `dbmetrics` (its own module) |
 | [`prom`](prom) | the writer's, the hub's and the stream budget's numbers in Prometheus (its own module) |
+| [`minify`](minify) | JavaScript and CSS minified with tdewolff/minify for `edge.Static`, before it hashes and precompresses them (its own module) |
 
 Everything is pure Go and builds with `CGO_ENABLED=0`.
 

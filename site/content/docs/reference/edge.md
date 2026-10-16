@@ -19,6 +19,7 @@ CSRF                 Go's CrossOriginProtection rules, strict on missing headers
 SecurityHeaders, CSP starbase's per-request nonce and sources, hyperlith's policy as data, kanban's other headers
 Compress, Negotiate  starbase's GET and HEAD rule, kanban's Accept-Encoding parsing, and an Unwrap instead of a list of paths that bypass it
 Static, Precompress  starbase's precompress package, content ETags with no-cache, kanban's hashed immutable URLs
+Minify               lith's site, which minified its scripts and its CSS bundle with tdewolff/minify before naming them
 Limiter              starbase's token bucket, swept as it goes, a clock step that resets and refills nothing, and a sliding window for five messages an hour
 Health, Ready        liveness and readiness probes, with checks registered by the app
 Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
@@ -416,7 +417,7 @@ type Static struct {
 }
 ```
 
-Static serves the files of an fs.FS, and those Add gives it, under a URL prefix. URL names a file by its content, as in /static/site.3f2a9c1b2d4e.css, and that answer is immutable: browsers keep it for a year without asking again. A file asked for by its plain name, or by a hash that is no longer its content (a page from before a deploy, or a name with another number of hex digits, from 8 to 64), comes with no-cache and its ETag, so browsers ask each time and mostly get a 304. Text files go out precompressed (see Precompress), compressed in the background from the start; other files go out as they are, with ranges.
+Static serves the files of an fs.FS, and those Add gives it, under a URL prefix. URL names a file by its content, as in /static/site.3f2a9c1b2d4e.css, and that answer is immutable: browsers keep it for a year without asking again. A file asked for by its plain name, or by a hash that is no longer its content (a page from before a deploy, or a name with another number of hex digits, from 8 to 64), comes with no-cache and its ETag, so browsers ask each time and mostly get a 304. Text files go out precompressed (see Precompress), compressed in the background from the start; other files go out as they are, with ranges. With Minify, its JavaScript and CSS go out minified.
 
 #### func NewStatic {#NewStatic}
 
@@ -424,7 +425,7 @@ Static serves the files of an fs.FS, and those Add gives it, under a URL prefix.
 func NewStatic(fsys fs.FS, prefix string, opts ...StaticOption) (*Static, error)
 ```
 
-NewStatic reads every file of fsys, to serve them under prefix, such as "/static/". Mount it there, without http.StripPrefix. fsys may be nil, for a Static that serves only what Add gives it.
+NewStatic reads every file of fsys, to serve them under prefix, such as "/static/", and minifies them with Minify's function. Mount it there, without http.StripPrefix. fsys may be nil, for a Static that serves only what Add gives it.
 
 #### func (*Static) Add {#Static.Add}
 
@@ -432,7 +433,7 @@ NewStatic reads every file of fsys, to serve them under prefix, such as "/static
 func (s *Static) Add(name string, data []byte)
 ```
 
-Add serves data as the file name, in place of a file of that name. URL names the new content at once, and the URL of the content it replaces gets the new one with no-cache, like a hash from before a deploy. Add may run while s serves; s keeps data, which must not change after. It panics on a name that fs.ValidPath refuses.
+Add serves data as the file name, in place of a file of that name. URL names the new content at once, and the URL of the content it replaces gets the new one with no-cache, like a hash from before a deploy. With Minify, it serves data minified. Add may run while s serves; s keeps data, which must not change after. It panics on a name that fs.ValidPath refuses.
 
 #### func (*Static) ServeHTTP {#Static.ServeHTTP}
 
@@ -454,7 +455,17 @@ URL returns the hashed, immutable URL of the named file, or its plain URL when t
 type StaticOption func(*Static)
 ```
 
-A StaticOption changes how NewStatic names files.
+A StaticOption changes how NewStatic names or serves files.
+
+#### func Minify {#Minify}
+
+```go
+func Minify(fn func(mediatype string, b []byte) ([]byte, error)) StaticOption
+```
+
+Minify has Static minify its JavaScript and CSS with fn: the files of fsys as NewStatic reads them, and those Add gives it. That happens before a file is named and compressed, so its URL, its ETag and its precompressed forms are all of the minified bytes. fn gets the media type, text/javascript or text/css, and the file as written, and returns it minified; lith/minify's Bytes is such a function, and so is the Bytes method of a tdewolff/minify M. A nil fn minifies nothing.
+
+A file goes out as written when fn fails on it or saves less than a twentieth of it, and fn never sees a file named \*.min.js or \*.min.css: code that came minified, such as a vendored Datastar build, stays byte for byte the file its integrity hash was made from. Leave Minify out in development, for files that the browser's devtools show as written.
 
 #### func StaticHashLen {#StaticHashLen}
 
