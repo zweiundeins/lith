@@ -14,6 +14,7 @@ import (
 	"github.com/tdewolff/minify/v2/css"
 	"github.com/tdewolff/minify/v2/js"
 	"github.com/zweiundeins/lith/edge"
+	"github.com/zweiundeins/lith/live"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/pixelart"
@@ -106,6 +107,7 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 		CSS:         s.static.URL("site.css"),
 		Datastar:    views.Script{URL: datastar, Integrity: s.starbase.Lock.Datastar.Integrity},
 		Transitions: s.static.URL("js/transitions.js"),
+		NewestFrame: s.static.URL("lith/" + live.NewestFrame),
 		Font:        s.static.URL("fonts/pixelify-sans.woff2"),
 		Icon:        s.static.URL("art/logo.svg"),
 		ImportMap:   string(importMap),
@@ -168,14 +170,11 @@ func bundle(files fs.FS, list []demo.Demo, url func(string) string) ([]byte, err
 }
 
 // minifyScripts serves the site's own scripts, js/*.js, minified in place
-// of the files as written. The vendored ones come minified.
+// of the files as written, and lith's (live.Scripts) minified as lith/*.js.
+// The vendored ones come minified.
 func minifyScripts(files fs.FS, static *edge.Static) error {
-	names, err := fs.Glob(files, "js/*.js")
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		src, err := fs.ReadFile(files, name)
+	add := func(fsys fs.FS, name, as string) error {
+		src, err := fs.ReadFile(fsys, name)
 		if err != nil {
 			return err
 		}
@@ -183,9 +182,19 @@ func minifyScripts(files fs.FS, static *edge.Static) error {
 		if err := js.Minify(nil, &out, bytes.NewReader(src), nil); err != nil {
 			return fmt.Errorf("minifying %s: %w", name, err)
 		}
-		static.Add(name, out.Bytes())
+		static.Add(as, out.Bytes())
+		return nil
 	}
-	return nil
+	names, err := fs.Glob(files, "js/*.js")
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := add(files, name, name); err != nil {
+			return err
+		}
+	}
+	return add(live.Scripts, live.NewestFrame, "lith/"+live.NewestFrame)
 }
 
 // robots is robots.txt.

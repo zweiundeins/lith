@@ -102,7 +102,7 @@ An encoder's heap, 0.4 MiB and more per stream, buys little when the events are 
 
 A phone pays for each frame twice: its bytes on the wire, and the work of its main thread to apply it. A stream that knows its client is slow takes fewer frames.
 
-**What the page measures.** The page measures once, as it starts, into a local signal, and opens its stream with `net=slow` when the link is slow; its own URL stays as it is. Where the browser has `navigator.connection` (Chromium), the link is slow when the user asked to save data or the browser calls it 2g or 3g. Firefox and Safari have no such API, and there Navigation Timing tells: the document's first byte more than 300 ms after its request, or the document coming at under 100 KB/s. The thresholds sit just past where `navigator.connection` turns from 4g to 3g, a round trip of 270 ms or 700 kbit/s. The template's page puts the measurement in its `data-signals` as `_slow`, and its stream's element reads it:
+**What the page measures as it starts.** The page measures its link once, as it starts, into a local signal, and its stream's request sends `Save-Data: on` when the link is slow; the stream's URL and the page's own stay as they are. Where the browser has `navigator.connection` (Chromium), the link is slow when the user asked to save data or the browser calls it 2g or 3g. Firefox and Safari have no such API, and there Navigation Timing tells: the document's first byte more than 300 ms after its request, or the document coming at under 100 KB/s. The thresholds sit just past where `navigator.connection` turns from 4g to 3g, a round trip of 270 ms or 700 kbit/s. The template's page puts the measurement in its `data-signals` as `_slow`, and its stream's element reads it:
 
 ```go source=template/internal/views/expr.go
 // slowLink is true on a slow link, measured once as the page starts. Where
@@ -111,17 +111,19 @@ A phone pays for each frame twice: its bytes on the wire, and the work of its ma
 // first byte more than 300 ms after its request, or under 100 KB/s.
 const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(c.effectiveType) : !!n && n.transferSize > 0 && (n.responseStart - n.requestStart > 300 || n.transferSize < 100 * (n.responseEnd - n.responseStart)))(navigator.connection, performance.getEntriesByType('navigation')[0])`
 
-// openStream opens the tab's stream on the element with id "stream", with
-// net=slow on a slow link (edge.SlowLink). retry 'error' retries through
-// network errors, 502s and 503s and never gives up, but leaves a stream
-// the server ends closed: on a deploy the server ends it with
-// sse.Reconnect, which runs this again.
-const openStream = `@get('/stream?tab=' + $_tab + ($_slow ? '&net=slow' : ''), {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
+// openStream opens the tab's stream on the element with id "stream". On a
+// slow link, measured as the page starts or by newest-frame.js once the
+// page falls behind, it sends Save-Data: on (edge.SlowLink). The URL stays
+// the same, so a stream opened again aborts the old request. retry 'error'
+// retries through network errors, 502s and 503s and never gives up, but
+// leaves a stream the server ends closed: on a deploy the server ends it
+// with sse.Reconnect, which runs this again.
+const openStream = `@get('/stream?tab=' + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
 ```
 
 The measurement is a Datastar expression, so it needs no script beyond the CSP's `'unsafe-eval'`, which Datastar needs anyway. It runs in `data-signals`, not in the stream's `data-init`, which runs again on every reconnect.
 
-**What the server reads.** `edge.SlowLink(r)` reports a slow link for `net=slow`, for the `Save-Data: on` header, and for Chromium's client hints: `ECT` of slow-2g, 2g or 3g, `RTT` over 300 ms, `Downlink` under 0.8 Mbit/s. Chromium sends the hints with every request once a document has asked for them with `Accept-CH: ECT, RTT, Downlink` (`edge.NetworkHints`), the stream's request included, so they cover a page whose own measurement missed. The template's documents send that header, and its stream handler passes the answer on:
+**What the server reads.** `edge.SlowLink(r)` reports a slow link for the `Save-Data: on` header, which browsers also send when their user asked to save data, for Chromium's client hints: `ECT` of slow-2g, 2g or 3g, `RTT` over 300 ms, `Downlink` under 0.8 Mbit/s, and for the query parameter `net=slow`, which pages put in their stream's URL before they sent `Save-Data`, so that tabs still open from then keep their slow stream. Chromium sends the hints with every request once a document has asked for them with `Accept-CH: ECT, RTT, Downlink` (`edge.NetworkHints`), the stream's request included, so they cover a page whose own measurement missed. The template's documents send that header, and its stream handler passes the answer on:
 
 ```go source=template/internal/web/server.go
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
@@ -161,9 +163,9 @@ On this site, every demo's stream and the landing page's pass `edge.SlowLink(r)`
 - The landing page sends more than four frames a second: its counter and the stream inspector's report change once a second, are due at once, and take the cursors' newest frame along.
 - Measured again on 2026-10-15, one run, with slow streams as they are now, without the denser level and with the render skip, the slow rows came out within those ranges or next to them: the Game of Life 2.8 and 3.2 KB/s with its main thread 52 and 53% busy, the landing page 0.4 KB/s with 46 and 50%.
 
-**A slow phone on a fast network.** The server cannot tell such a phone by its writes. A frame of the Game of Life is about 700 bytes on the wire, and the buffers between the server and the page hold minutes of them, so a page that applies frames more slowly than they come falls further and further behind, and the server's writes never wait. Measured on 2026-10-15 on the development machine (`TestLifeDrift` in `site/internal/app`), headless Chromium 154 on an unthrottled link with its CPU slowed 15 times, the least of 4, 6, 10, 15 and 20 at which the page could not keep up: it applied 7 of the board's 10 frames a second, where at 10 times it applied all ten and stayed 2 to 3 s behind. The board got a fresh soup every 15 s, so it stayed as busy as a new one. Every second the test compared the board's generation with the one the page showed, for 5 minutes, behind Caddy 2.10.2 with TLS and HTTP/2, as this site runs, and without Caddy, with `navigator.connection` saying 4g, and saying 3g, which has the page open its stream with `net=slow`:
+**A slow phone on a fast network.** The server cannot tell such a phone by its writes. A frame of the Game of Life is about 700 bytes on the wire, and the buffers between the server and the page hold minutes of them, so a page that applies frames more slowly than they come falls further and further behind, and the server's writes never wait. Measured on 2026-10-15 on the development machine (`TestLifeDrift` in `site/internal/app`), headless Chromium 154 on an unthrottled link with its CPU slowed 15 times, the least of 4, 6, 10, 15 and 20 at which the page could not keep up: it applied 7 of the board's 10 frames a second, where at 10 times it applied all ten and stayed 2 to 3 s behind. The board got a fresh soup every 15 s, so it stayed as busy as a new one. Every second the test compared the board's generation with the one the page showed, for 5 minutes, behind Caddy 2.10.2 with TLS and HTTP/2, as this site runs, and without Caddy, with `navigator.connection` saying 4g, and saying 3g, which has the page ask for a slow stream (then with `net=slow`), all without the plugin below:
 
-| Behind the board after | Caddy, 4g | Caddy, 3g: `net=slow` | Without Caddy, 4g | Without Caddy, 3g: `net=slow` |
+| Behind the board after | Caddy, 4g | Caddy, 3g: slow stream | Without Caddy, 4g | Without Caddy, 3g: slow stream |
 | --- | --- | --- | --- | --- |
 | 30 s | 13.7 s (138 generations) | 0.7 s (7) | 13.3 s (133) | 0.9 s (10) |
 | 1 minute | 23.1 s (232) | 0.9 s (10) | 22.5 s (225) | 0.6 s (7) |
@@ -174,10 +176,39 @@ On this site, every demo's stream and the landing page's pass `edge.SlowLink(r)`
 | Frames dropped in 5 minutes | 0 | 1,829 | 0 | 1,828 |
 | Longest write of the site | 0.16 ms | 0.13 ms | 0.12 ms | 0.14 ms |
 
-- How far behind is how long ago the board showed the generation the page showed. Without `net=slow` the page applied about 7 frames a second and fell 3 generations further behind every second, for the whole five minutes, with Caddy and without it. The hub dropped no frame, and no write of the site's waited.
+- How far behind is how long ago the board showed the generation the page showed. Without a slow stream the page applied about 7 frames a second and fell 3 generations further behind every second, for the whole five minutes, with Caddy and without it. The hub dropped no frame, and no write of the site's waited.
 - The frames waited where the server cannot see them. Behind Caddy, Chromium took the stream as it came over HTTP/2 and held what the page had not applied, and the sockets' kernel buffers stayed empty: Chromium grants an HTTP/2 stream a window of 6 MiB, which this backlog, about 2 KB a second, would fill in about 50 minutes, before Caddy and the socket to the site hold more. Without Caddy, over HTTP/1.1, Chromium stopped reading the socket, and the frames waited in the kernel: the browser's receive buffer filled at about 110 KB, and the site's send buffer took the rest, up to 528 KB and still growing, which it may until `tcp_wmem`'s maximum, 16 MiB on the development machine and 4 MiB on this site's server.
-- With `net=slow` the page applied the four frames a second it got and stayed 0.6 s behind at the median, 1.2 s at most. The frames dropped are the slow stream's frames between its four a second, which the hub then still rendered; it now defers those renders instead.
-- The page measures its link, not its CPU: on a fast link, a phone this slow opens its stream without `net=slow` and falls behind as in the first column.
+- With a slow stream the page applied the four frames a second it got and stayed 0.6 s behind at the median, 1.2 s at most. The frames dropped are the slow stream's frames between its four a second, which the hub then still rendered; it now defers those renders instead.
+- The measurement as the page starts looks at the link, not the CPU: on a fast link, a phone this slow opens a fast stream and falls behind as in the first column, unless the page watches its own lag.
+
+**What the page measures later: its own lag.** The browser holds the frames a page has not applied, so only the page can tell that it fell behind. Once it is behind, Chromium hands it 2 MiB of the stream per read, the size of the pipe between its network process and the page, about 45 frames of the Game of Life, and Datastar applies them all in one task, without a paint between ([Datastar notes](/docs/datastar#a-page-that-falls-behind-its-stream-stops-painting)). Firefox keeps the frames in its parent process and hands the page one per task; it never makes the server's writes wait, so a slow Firefox tab never shows on the server at all. lith ships a Datastar plugin for this, `newest-frame.js` (`live.NewestFrame`). With `data-newest-frame` on `<body>`, the page holds its stream's patch events and applies only the newest frame of each view among those that arrived together. After a batch it waits half as long as that batch took to apply, so frames take at most two thirds of the main thread, and Firefox gets the time to hand over what it holds. Signal patches, appends, removes, scripts and view transitions are never dropped, and the order is kept. A page that keeps up applies every frame, as it arrives.
+
+When the page drops more than half of its frames over 3 s, at least 10, the plugin sets `$_slow` and opens the stream again from a copy of its element. The new request sends `Save-Data: on`, and the server answers with a slow stream at the same URL. Datastar aborts the request in flight only when the new one goes to the same URL: a stream opened at another URL leaves the old one open, and the frames the browser holds of it keep arriving. The plugin asks once, and a page that measured a slow link as it started never asks.
+
+The template serves the plugin with its other static files, by its content's hash and as immutable:
+
+```go source=template/internal/web/server.go
+	// lith's newest-frame.js, which the page loads after Datastar.
+	js, err := fs.ReadFile(live.Scripts, live.NewestFrame)
+	if err != nil {
+		return nil, err
+	}
+	static.Add("lith/"+live.NewestFrame, js)
+```
+
+The page loads it after Datastar, through an import map that maps `'datastar'` to Datastar's URL, since the plugin imports from it, and turns it on on its body:
+
+```templ source=template/internal/views/guestbook.templ
+			@importMap(p)
+			<script type="module" src={ p.JS }></script>
+			<script type="module" src={ p.NewestFrame }></script>
+		</head>
+		<body data-newest-frame>
+```
+
+The import map is an inline script, so it carries the request's CSP nonce (`edge.Nonce`). The plugin is 7.4 KB as written and 2.6 KB with brotli; this site minifies it with its own scripts, to 1.3 KB with brotli.
+
+Measured on 2026-10-16 on the development machine with the plugin in this site's pages, with `TestLifeDrift` as above: headless Chromium 154 with its CPU slowed 15 times, on an unthrottled link behind Caddy, for 2 minutes. The page asked for a slow stream 1.6 s into the measurement and stayed 0.68 s behind the board at the median, 1.08 s at most, applying about 2.8 frames a second; in the run without the plugin above, it was 42.6 s behind after 2 minutes. Firefox has no CPU throttling, so `TestNewestFrameSlowStream` makes every frame the page applies cost its main thread 300 ms more, alike in both engines: headless Chromium 154 and Firefox 158 each asked for a slow stream 2.8 s after the stream opened, and were 0.77 s and 0.61 s behind the board 4 s later. At full speed both applied every frame (`TestNewestFrame`).
 
 ## Streams without the hub
 

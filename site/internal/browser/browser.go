@@ -5,7 +5,8 @@
 //
 // Chromium runs with its sandbox, or without it where the machine has none
 // and LITH_CHROME_NO_SANDBOX=1 (as root it never has one). A test that finds
-// no Chromium is skipped; CHROME names the binary.
+// no Chromium is skipped; CHROME names the binary. LITH_BROWSER=firefox
+// runs the same tests in Firefox over WebDriver BiDi (firefox.go).
 package browser
 
 import (
@@ -35,6 +36,11 @@ type Browser struct {
 	calls map[int]chan message
 	pages map[string]*Page
 	err   error
+
+	engine string          // "chromium" or "firefox"
+	ff     *bidi           // Firefox's WebDriver BiDi connection
+	warned map[string]bool // DevTools commands Firefox ignored, logged once
+	front  string          // the Firefox window in front
 }
 
 type message struct {
@@ -64,11 +70,15 @@ func Find(t testing.TB) string {
 	return ""
 }
 
-// Start launches headless Chromium for the test; it ends with the test.
+// Start launches headless Chromium for the test, or Firefox when
+// LITH_BROWSER=firefox; it ends with the test.
 func Start(t testing.TB) *Browser {
 	t.Helper()
 	if testing.Short() {
-		t.Skip("starts Chromium")
+		t.Skip("starts a browser")
+	}
+	if Engine() == "firefox" {
+		return startFirefox(t)
 	}
 	chrome := Find(t)
 	args := []string{
@@ -91,7 +101,7 @@ func Start(t testing.TB) *Browser {
 	}
 	cmd := exec.Command(chrome, args...)
 	cmd.ExtraFiles = []*os.File{toChrome, fromChrome}
-	b := &Browser{cmd: cmd, w: ourW, r: bufio.NewReaderSize(ourR, 1<<20), stderr: &strings.Builder{}, calls: map[int]chan message{}, pages: map[string]*Page{}}
+	b := &Browser{cmd: cmd, w: ourW, r: bufio.NewReaderSize(ourR, 1<<20), stderr: &strings.Builder{}, calls: map[int]chan message{}, pages: map[string]*Page{}, engine: "chromium"}
 	cmd.Stderr = &lockedWriter{b: b.stderr}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -132,9 +142,14 @@ func (w *lockedWriter) Write(p []byte) (int, error) {
 	return w.b.Write(p)
 }
 
-// Stderr is what Chromium wrote to its standard error.
+// Stderr is what the browser wrote to its standard error (Firefox: and to
+// its standard output).
 func (b *Browser) Stderr() string {
-	if lw, ok := b.cmd.Stderr.(*lockedWriter); ok {
+	lw, ok := b.cmd.Stderr.(*lockedWriter)
+	if !ok {
+		lw, ok = b.cmd.Stdout.(*lockedWriter)
+	}
+	if ok {
 		lw.mu.Lock()
 		defer lw.mu.Unlock()
 	}
@@ -232,6 +247,14 @@ type Page struct {
 // its own: its cookies, and so its session, are its alone.
 func (b *Browser) NewPage(t testing.TB, width, height int) *Page {
 	t.Helper()
+	if b.ff != nil {
+		return b.newFirefoxPage(t, width, height)
+	}
+	return b.newChromiumPage(t, width, height)
+}
+
+func (b *Browser) newChromiumPage(t testing.TB, width, height int) *Page {
+	t.Helper()
 	res, err := b.call("", "Target.createBrowserContext", map[string]any{"disposeOnDetach": true})
 	if err != nil {
 		t.Fatal(err)
@@ -266,6 +289,9 @@ func (b *Browser) NewPage(t testing.TB, width, height int) *Page {
 // Call sends a DevTools command to the page.
 func (p *Page) Call(t testing.TB, method string, params any) json.RawMessage {
 	t.Helper()
+	if p.b.ff != nil {
+		return p.callFirefox(t, method, params)
+	}
 	res, err := p.b.call(p.session, method, params)
 	if err != nil {
 		t.Fatal(err)
@@ -292,6 +318,10 @@ func (p *Page) event(method string, params json.RawMessage) {
 	p.mu.Unlock()
 	for _, f := range on {
 		f(params)
+	}
+	if p.b.ff != nil {
+		p.firefoxEvent(method, params)
+		return
 	}
 	switch method {
 	case "Page.loadEventFired":
@@ -373,6 +403,11 @@ func (p *Page) Navigate(t testing.TB, url string) {
 	case <-p.loaded:
 	default:
 	}
+	if p.b.ff != nil {
+		p.BiDi(t, "browsingContext.navigate", map[string]any{"context": p.session, "url": url, "wait": "none"})
+		p.WaitLoad(t)
+		return
+	}
 	res := p.Call(t, "Page.navigate", map[string]any{"url": url})
 	var nav struct{ ErrorText string }
 	json.Unmarshal(res, &nav)
@@ -402,6 +437,9 @@ func (p *Page) Eval(t testing.TB, expr string, out any) {
 }
 
 func (p *Page) eval(expr string, out any) error {
+	if p.b.ff != nil {
+		return p.evalFirefox(expr, out, 60*time.Second)
+	}
 	res, err := p.b.call(p.session, "Runtime.evaluate", map[string]any{"expression": expr, "awaitPromise": true, "returnByValue": true, "userGesture": true})
 	if err != nil {
 		return err
@@ -445,6 +483,10 @@ func (p *Page) Wait(t testing.TB, expr string, timeout time.Duration) {
 // Screenshot writes a PNG of the viewport, or of the whole page.
 func (p *Page) Screenshot(t testing.TB, path string, fullPage bool) {
 	t.Helper()
+	if p.b.ff != nil {
+		p.screenshotFirefox(t, path, nil, fullPage)
+		return
+	}
 	params := map[string]any{"format": "png"}
 	if fullPage {
 		res := p.Call(t, "Page.getLayoutMetrics", nil)
@@ -470,6 +512,12 @@ func (p *Page) Screenshot(t testing.TB, path string, fullPage bool) {
 // Close closes the tab.
 func (p *Page) Close(t testing.TB) {
 	t.Helper()
+	if p.b.ff != nil {
+		if _, err := p.b.ff.call("browsingContext.close", map[string]any{"context": p.session}, 30*time.Second); err != nil {
+			t.Log(err)
+		}
+		return
+	}
 	if _, err := p.b.call("", "Target.closeTarget", map[string]any{"targetId": p.target}); err != nil && !errors.Is(err, io.EOF) {
 		t.Log(err)
 	}
@@ -481,6 +529,10 @@ func (p *Page) ShotElement(t testing.TB, selector, path string, scale float64) {
 	t.Helper()
 	var r struct{ X, Y, W, H float64 }
 	p.Eval(t, `(() => { const e = document.querySelector(`+jsQuote(selector)+`); e.scrollIntoView({block: 'center'}); const b = e.getBoundingClientRect(); return {x: b.left + scrollX, y: b.top + scrollY, w: b.width, h: b.height} })()`, &r)
+	if p.b.ff != nil {
+		p.screenshotFirefox(t, path, map[string]any{"type": "box", "x": r.X, "y": r.Y, "width": r.W, "height": r.H}, true)
+		return
+	}
 	res := p.Call(t, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": true, "clip": map[string]any{"x": r.X, "y": r.Y, "width": r.W, "height": r.H, "scale": scale}})
 	var shot struct{ Data string }
 	json.Unmarshal(res, &shot)
@@ -503,6 +555,14 @@ func jsQuote(s string) string {
 func (p *Page) Press(t testing.TB, key string) {
 	t.Helper()
 	codes := map[string]int{"Escape": 27, "Enter": 13, "Tab": 9}
+	if p.b.ff != nil {
+		v := keyValue(key)
+		if err := p.focus(); err != nil {
+			t.Fatal(err)
+		}
+		p.BiDi(t, "input.performActions", map[string]any{"context": p.session, "actions": []any{map[string]any{"type": "key", "id": "keyboard", "actions": []any{map[string]any{"type": "keyDown", "value": v}, map[string]any{"type": "keyUp", "value": v}}}}})
+		return
+	}
 	for _, typ := range []string{"rawKeyDown", "keyUp"} {
 		p.Call(t, "Input.dispatchKeyEvent", map[string]any{"type": typ, "key": key, "code": key, "windowsVirtualKeyCode": codes[key]})
 	}

@@ -140,11 +140,12 @@ HTML, about 4,000 frames a second, i5-13500, 2026-10-14; brotli from
 
 Slow links: the page measures once into `$_slow` (navigator.connection's
 saveData or 2g/3g; where it is missing, Navigation Timing: first byte over
-300 ms after the request, or under 100 KB/s) and opens its stream with
-`net=slow`. Documents send `Accept-CH: ECT, RTT, Downlink`
-(`edge.NetworkHints`); `edge.SlowLink(r)` reads net=slow, `Save-Data: on`
-and those hints (ECT 2g/3g, RTT over 300, Downlink under 0.8), and the
-handler passes it as `live.Spec.Slow`. A slow stream gets each view's
+300 ms after the request, or under 100 KB/s), and its stream's request
+sends `Save-Data: on` while `$_slow` is true, at the same URL. Documents
+send `Accept-CH: ECT, RTT, Downlink` (`edge.NetworkHints`);
+`edge.SlowLink(r)` reads `Save-Data: on`, those hints (ECT 2g/3g, RTT over
+300, Downlink under 0.8) and net=slow (pages from before Save-Data), and
+the handler passes it as `live.Spec.Slow`. A slow stream gets each view's
 newest frame 250 ms apart, about 4 a second (a view's first frame, or one
 of a view quiet for 250 ms, goes at once and takes the waiting frames
 along; heartbeats unchanged). On lith's site, a Game of Life tab on a phone
@@ -155,8 +156,19 @@ on a fast link: at CPU 15x, unthrottled, behind Caddy (HTTP/2) or not, the
 tab applied 7 of 10 frames a second and fell 94 to 98 s behind in 5
 minutes, with no frame dropped and no write waiting (Chromium grants an
 HTTP/2 stream 6 MiB; over HTTP/1.1 the kernel buffers held it); with
-net=slow it stayed within 1.2 s (`TestLifeDrift`, 2026-10-15). The page
-measures its link, not its CPU.
+a slow stream it stayed within 1.2 s (`TestLifeDrift`, 2026-10-15). The
+start-up measurement sees the link, not the CPU; `newest-frame.js`
+(`live.NewestFrame`, `data-newest-frame` on body) sees the page's own lag:
+it applies each view's newest frame, waits after a batch half as long as
+the batch took, and after dropping over half the frames for 3 s sets
+`$_slow` and reopens the stream. Chromium hands a page that is behind
+2 MiB per read (about 45 frames in one task, no paint); Firefox holds the
+backlog in its parent process, one frame per task, and never makes a write
+wait. With the plugin, at CPU 15x behind Caddy, the tab switched within
+2 s and stayed 0.68 s behind at the median, 1.08 s at most, over 2 minutes
+(42.6 s without); at 300 ms extra per frame, Chromium 154 and Firefox 158
+switched after 2.8 s and stayed within 0.8 s (`TestLifeDrift`,
+`TestNewestFrameSlowStream`, 2026-10-16).
 
 ## Render loop
 

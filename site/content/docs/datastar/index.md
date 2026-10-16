@@ -176,6 +176,14 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Fix.** A stream that opens with `@query` sets `openWhenHidden: false`, unless it should run in the background.
 
+### A page that falls behind its stream stops painting
+
+**Symptom.** On a slow phone, a page with a busy stream shows frames from further and further back, a minute behind after a few minutes, while the server reports nothing wrong. In Chromium the page also stops painting for seconds at a time and ignores input; in Firefox it keeps painting, just as far behind.
+
+**Cause.** Datastar applies every event of the stream, in order, as it reads them. When the main thread is slower than the stream, the frames queue in the browser, and the server's writes never wait: the buffers on the way hold minutes of a page's frames. Once the page is behind, every read in Chromium returns 2 MiB, the size of the pipe between its network process and the page: about 45 frames of the Game of Life, which Datastar applies in one task, 7 s of morphing at 150 ms a frame, with no paint between. Firefox keeps the frames in its parent process and hands the page one at a time, each in a task of its own. No browser API tells a page that it is behind its stream: Long Animation Frames report a frame after it painted, and a stream's response never ends, so Resource Timing never records it.
+
+**Fix.** Load lith's `newest-frame.js` (`live.NewestFrame`) as a module after Datastar, through the import map that maps `'datastar'`, and put `data-newest-frame` on `<body>`. It holds the stream's patch events and applies only the newest frame of each view among those that arrived together, and after a batch it waits half as long as that batch took to apply, which gives Firefox the time to hand over what it holds. A page that keeps up applies every frame. When the page drops more than half of its frames for 3 s, the plugin sets `$_slow` and opens the stream again; the stream's `@get` sends `Save-Data: on` while `$_slow` is true (`headers: $_slow ? {'Save-Data': 'on'} : {}`), and the server's `edge.SlowLink` gives it a slow stream. Keep the stream's URL the same: Datastar cancels the request in flight only when the new one goes to the same URL, and a stream opened at another URL leaves the old one open, its buffered frames still arriving ([Streams: slow links](/docs/guides/streams#slow-links)).
+
 ### Elements patched from an action's answer get overwritten
 
 **Symptom.** An action patches an element in its answer, and the next frame puts the old content back.

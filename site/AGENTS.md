@@ -8,7 +8,7 @@ All commands run in `site/`.
 
 - `go tool task dev`: serves http://127.0.0.1:8097 (metrics on 127.0.0.1:8197) and rebuilds on every change (air). It runs with `-dev`: the docs are read from `content/docs` on every request and drafts show.
 - `go tool task test`: vet, gofmt, `go test -race ./...`. The gofmt on PATH may be Go 1.26's, which rejects lith's generic methods: the task uses `$(go env GOROOT)/bin/gofmt`.
-- Tests that drive headless Chromium (`internal/app`: `TestBrowser`, `TestStarbaseComponents`, `TestTransitionTypes`) skip without Chromium; on a machine without a sandbox, set `LITH_CHROME_NO_SANDBOX=1`.
+- Tests that drive headless Chromium (`internal/app`: `TestBrowser`, `TestStarbaseComponents`, `TestTransitionTypes`) skip without Chromium; on a machine without a sandbox, set `LITH_CHROME_NO_SANDBOX=1`. `LITH_BROWSER=firefox` runs them in headless Firefox instead, over WebDriver BiDi (`FIREFOX` names the binary, `LITH_FIREFOX_NO_SANDBOX=1` turns its content sandbox off). The driver translates the DevTools commands BiDi has a counterpart for and logs the rest; what Firefox or the driver lacks (element-scoped and cross-document view transitions, touch, reduced-motion, CPU and network emulation) skips there with `browser.SkipFirefox`, and so does a test that needs a page to keep its focus while another acts (in Firefox only the window in front has it).
 - `go tool task shots`: screenshots of the pages and of their transitions in `tmp/shots`. Look at your pages before you call them done.
 - `go tool templ generate` after editing a `.templ` file; the `_templ.go` files are committed.
 - `go tool task build`: the static binary. `deploy/README.md` installs and deploys it.
@@ -25,7 +25,7 @@ All commands run in `site/`.
 - `internal/demo`: the kit every demo is built with. `internal/demos`: the list. `internal/demos/<slug>`: one demo each. `internal/demo/demotest`: a database and a writer for a demo's tests.
 - `internal/migrate` and `migrations`: migrations in scopes (below).
 - `internal/starbase`, `cmd/vendor-starbase` and `internal/web/static/vendor/starbase`: Starbase's components (below).
-- `internal/pixelart`: the pixel art (the monolith, the demos' glyphs, the PNGs), `internal/metrics`: the HTTP metrics, `internal/browser`: headless Chromium for tests.
+- `internal/pixelart`: the pixel art (the monolith, the demos' glyphs, the PNGs), `internal/metrics`: the HTTP metrics, `internal/browser`: headless Chromium, or Firefox, for tests.
 
 ## Adding a demo
 
@@ -68,7 +68,7 @@ The hero's slot is `.hero__party`: a full-width layer behind the hero's content,
 
 - Commands and views: `demotest.Open(t, Demo)` gives a migrated database and a running writer; `Touched()` returns the topics committed (see `guestbook_test.go`).
 - Streams over HTTP: `apptest.Start(t)` runs the site; `internal/app/app_test.go` has `listen`, `next` and `post`.
-- In Chromium: `internal/browser` (pages in separate browser contexts, so separate sessions; `Eval`, `Wait`, `Press`, `Screenshot`, `Errors`). A demo is done when two pages see each other's changes and the console stays empty.
+- In Chromium, or in Firefox with `LITH_BROWSER=firefox`: `internal/browser` (pages in separate browser contexts, so separate sessions; `Eval`, `Wait`, `Press`, `Screenshot`, `Errors`). A demo is done when two pages see each other's changes and the console stays empty.
 
 ## Design system
 
@@ -107,6 +107,7 @@ Chromium-based browsers get all of it, which `TestTransitionTypes` checks. Safar
 
 - A page that streams sets `Shell.Stream`: the frame renders `<div id="stream" data-indicator:_live data-init="@get(...)">` with `retry: 'error'`. Its id is the stream's `live.Spec.Reconnect`: when the server stops, each stream's last event re-creates that element and the page reconnects to the next process. `$_live` is true while the stream is open (the "live" badge reads it). A demo whose stage shows something other than now sets `$_badge`, a page signal, to the word the badge says instead (the town's `past`); `''` is live again.
 - One stream per tab (`Spec.ID` is the tab id); the site writes each tick's frames in one write (`frameWriter`).
+- A page that streams loads lith's `newest-frame.js` (`live.NewestFrame`, minified with the site's scripts and served as `/static/lith/newest-frame.<hash>.js`) after Datastar and has `data-newest-frame` on `<body>`: it applies the newest frame of each view and, when the page falls behind, sets `$_slow` and opens the stream again, which then sends `Save-Data: on` at the same URL. `TestNewestFrame` and `TestNewestFrameSlowStream` check it in both engines.
 - The hub hibernates a stream's encoder after a minute without frames and shares a memory budget among the streams: their encoders, 32 KiB each besides, and the frames of views that two or more streams watch (half of GOMEMLIMIT); a tab's own view keeps no frame once its stream has it. Each stream gets a window that holds its largest write, and no less than 2^17 (`MinWindow: 17`): the checkbox grid sends its twelve tiles in turn, and a tile refers back to its own last frame, 104 KB back. Keep what a frame refers back to under 128 KB, or raise `MinWindow`.
 - What must survive a deploy is a row, written by a command: a tab's state in `site_tabs` (`demo.SaveTab`), never a map in memory.
 

@@ -18,6 +18,7 @@ type Assets struct {
 	CSS         string // the stylesheet bundle
 	Datastar    Script // the vendored Datastar build
 	Transitions string // transitions.js: view transitions and the display menu
+	NewestFrame string // lith's newest-frame.js (live.NewestFrame), for pages that stream
 	Font        string // Pixelify Sans, preloaded for the display text
 	Icon        string // the logo as an SVG file, the favicon
 	// ImportMap maps 'datastar' to Datastar's URL for the Starbase
@@ -94,12 +95,14 @@ func colorScheme(theme string) string {
 // Its data-indicator keeps $_live true while the stream is open.
 const StreamID = "stream"
 
-// openStream opens the tab's stream, with net=slow on a slow link
-// (edge.SlowLink). retry 'error' keeps trying through a restart's 502s and
-// 503s and never gives up; a stream the server ends stays closed, except
-// through sse.Reconnect.
+// openStream opens the tab's stream. On a slow link, measured as the page
+// starts or by newest-frame.js once the page falls behind, it sends
+// Save-Data: on (edge.SlowLink). The URL stays the same, so a stream opened
+// again aborts the old request. retry 'error' keeps trying through a
+// restart's 502s and 503s and never gives up; a stream the server ends
+// stays closed, except through sse.Reconnect.
 func openStream(url string) string {
-	return "@get(" + jsString(url+"?tab=") + " + $_tab + ($_slow ? '&net=slow' : ''), {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})"
+	return "@get(" + jsString(url+"?tab=") + " + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})"
 }
 
 // slowLink is true on a slow link, measured once as the page starts. Where

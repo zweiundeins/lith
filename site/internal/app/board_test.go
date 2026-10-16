@@ -165,32 +165,42 @@ func TestBoard(t *testing.T) {
 	ada.Wait(t, `!document.querySelector('.bd').classList.contains('is-dragging') && document.querySelector('.bd-ghost').style.display === 'none'`, 2*time.Second)
 
 	// A phone drags Set up the sweep by its grip, from done into doing.
-	phone := b.NewPage(t, 390, 844)
-	phone.Call(t, "Emulation.setTouchEmulationEnabled", map[string]any{"enabled": true, "maxTouchPoints": 5})
-	phone.Call(t, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 2, "mobile": true})
-	phone.Navigate(t, base+"/demos/board")
-	phone.Wait(t, `document.querySelector('.live-badge.is-live') && matchMedia('(pointer: coarse)').matches`, 10*time.Second)
-	boardTouchDrag(t, phone, "#board-card-10 .bd-card__grip", `[data-lane="1"] .bd-slot:last-child`)
-	bob.Wait(t, `document.querySelector('#board-card-10')?.closest('[data-lane]')?.dataset.lane === '1'`, 5*time.Second)
+	t.Run("phone", func(t *testing.T) {
+		browser.SkipFirefox(t, "the Firefox driver cannot emulate a touch screen (pointer: coarse)")
+		phone := b.NewPage(t, 390, 844)
+		phone.Call(t, "Emulation.setTouchEmulationEnabled", map[string]any{"enabled": true, "maxTouchPoints": 5})
+		phone.Call(t, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 2, "mobile": true})
+		phone.Navigate(t, base+"/demos/board")
+		phone.Wait(t, `document.querySelector('.live-badge.is-live') && matchMedia('(pointer: coarse)').matches`, 10*time.Second)
+		boardTouchDrag(t, phone, "#board-card-10 .bd-card__grip", `[data-lane="1"] .bd-slot:last-child`)
+		bob.Wait(t, `document.querySelector('#board-card-10')?.closest('[data-lane]')?.dataset.lane === '1'`, 5*time.Second)
+		if errs := phone.Errors(); len(errs) > 0 {
+			t.Errorf("the phone: %d errors:\n%v", len(errs), errs)
+		}
+	})
 
 	// Bob picks up Sketch the monolith; Ada moves it to done meanwhile; Bob
 	// drops it in doing: refused, and only Bob hears why.
-	boardFocus(t, bob, 1)
-	boardPress(t, bob, " ")
-	boardFocus(t, ada, 1)
-	boardPress(t, ada, " ")
-	boardPress(t, ada, "ArrowRight")
-	boardPress(t, ada, "ArrowRight")
-	boardPress(t, ada, " ")
-	bob.Wait(t, `document.querySelector('#board-card-1')?.closest('[data-lane]')?.dataset.lane === '2'`, 5*time.Second)
-	boardPress(t, bob, "ArrowRight")
-	boardPress(t, bob, " ")
-	bob.Wait(t, `document.querySelector('#board-outcome.is-refused')?.textContent.includes('moved “Sketch the monolith” first. It is in Done now.')`, 5*time.Second)
-	bob.Wait(t, `!document.querySelector('style[data-text]').textContent.includes('--bd-wait')`, 2*time.Second)
-	ada.Eval(t, `document.querySelector('#board-outcome').textContent`, &outcome)
-	if !strings.Contains(outcome, "You moved “Sketch the monolith” to Done.") {
-		t.Errorf("Ada's outcome: %q", outcome)
-	}
+	t.Run("refused", func(t *testing.T) {
+		browser.SkipFirefox(t, "in Firefox only the window in front has focus, and Bob's card goes back when Ada acts")
+		boardFocus(t, bob, 1)
+		boardPress(t, bob, " ")
+		boardFocus(t, ada, 1)
+		boardPress(t, ada, " ")
+		boardPress(t, ada, "ArrowRight")
+		boardPress(t, ada, "ArrowRight")
+		boardPress(t, ada, " ")
+		bob.Wait(t, `document.querySelector('#board-card-1')?.closest('[data-lane]')?.dataset.lane === '2'`, 5*time.Second)
+		boardPress(t, bob, "ArrowRight")
+		boardPress(t, bob, " ")
+		bob.Wait(t, `document.querySelector('#board-outcome.is-refused')?.textContent.includes('moved “Sketch the monolith” first. It is in Done now.')`, 5*time.Second)
+		bob.Wait(t, `!document.querySelector('style[data-text]').textContent.includes('--bd-wait')`, 2*time.Second)
+		var outcome string
+		ada.Eval(t, `document.querySelector('#board-outcome').textContent`, &outcome)
+		if !strings.Contains(outcome, "You moved “Sketch the monolith” to Done.") {
+			t.Errorf("Ada's outcome: %q", outcome)
+		}
+	})
 
 	// The landing page's miniature, and the numbers.
 	home := b.NewPage(t, 1280, 900)
@@ -199,7 +209,7 @@ func TestBoard(t *testing.T) {
 	home.Wait(t, `document.querySelector('[data-demo="board"] .bd-embed__head.is-live')`, 10*time.Second)
 	ada.Wait(t, `document.querySelector('#board-stats .bd-tick__step--render dd')?.textContent === '1'`, 5*time.Second)
 
-	for name, p := range map[string]*browser.Page{"Ada": ada, "Bob": bob, "the phone": phone, "the landing page": home} {
+	for name, p := range map[string]*browser.Page{"Ada": ada, "Bob": bob, "the landing page": home} {
 		if errs := p.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %d errors:\n%v", name, len(errs), errs)
 		}

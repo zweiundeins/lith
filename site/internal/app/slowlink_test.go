@@ -16,9 +16,10 @@ import (
 	"github.com/zweiundeins/lith/site/internal/browser"
 )
 
-// TestSlowLinkStream reads the Game of Life on two streams at once: one
-// with net=slow, as a page on a slow link opens it, gets the board four
-// times a second at most, the other every generation. Documents ask for
+// TestSlowLinkStream reads the Game of Life on several streams at once:
+// one with Save-Data: on, as a page on a slow link opens it, gets the board
+// four times a second at most, and so does one with net=slow, as pages
+// opened it before; another gets every generation. Documents ask for
 // Chromium's network hints, and a stream whose request carries a slow one
 // is slow too.
 func TestSlowLinkStream(t *testing.T) {
@@ -66,29 +67,32 @@ func TestSlowLinkStream(t *testing.T) {
 			return n
 		}
 	}
-	slow := count(base+"/demos/life/stream?tab=slow1&net=slow", http.Header{})
-	hinted := count(base+"/demos/life/stream?tab=slow2", http.Header{"Ect": {"3g"}})
+	slow := count(base+"/demos/life/stream?tab=slow1", http.Header{"Save-Data": {"on"}})
+	old := count(base+"/demos/life/stream?tab=slow2&net=slow", http.Header{})
+	hinted := count(base+"/demos/life/stream?tab=slow3", http.Header{"Ect": {"3g"}})
 	fast := count(base+"/demos/life/stream?tab=fast1", http.Header{})
 	time.Sleep(3 * time.Second)
-	s, h, f := slow(), hinted(), fast()
+	s, o, h, f := slow(), old(), hinted(), fast()
 	// A frame a generation, ten a second; the first frame and then four
 	// a second on a slow link.
-	if s > 14 || h > 14 || f < 20 || s < 4 || h < 4 {
-		t.Errorf("in 3 s, the board's frames: %d with net=slow, %d with ECT 3g, %d without", s, h, f)
+	if s > 14 || o > 14 || h > 14 || f < 20 || s < 4 || o < 4 || h < 4 {
+		t.Errorf("in 3 s, the board's frames: %d with Save-Data, %d with net=slow, %d with ECT 3g, %d without", s, o, h, f)
 	}
 }
 
 // TestSlowLinkPage opens the Game of Life in Chromium on a link that
 // DevTools throttles as its Slow 4G preset: the page finds it slow, its
-// stream asks with net=slow while the page's own URL stays as it was, and
-// the board, which steps ten times a second, changes four times a second
-// at most. Without navigator.connection, as in Firefox and Safari,
-// Navigation Timing tells the same; where the page's measurement says
-// nothing, Chromium's network hints, which the document asked for, still
-// do. Unthrottled, the page is fast.
+// stream's request carries Save-Data: on at the URL it has on a fast link,
+// the page's own URL stays as it was, and the board, which steps ten times
+// a second, changes four times a second at most. Without
+// navigator.connection, as in Firefox and Safari, Navigation Timing tells
+// the same; where the page's measurement says nothing, Chromium's network
+// hints, which the document asked for, still do. Unthrottled, the page is
+// fast.
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestSlowLinkPage
 func TestSlowLinkPage(t *testing.T) {
+	browser.SkipFirefox(t, "the Firefox driver cannot throttle the network")
 	a, base := apptest.Start(t)
 	b := browser.Start(t)
 	const (
@@ -96,10 +100,10 @@ func TestSlowLinkPage(t *testing.T) {
 		says4G    = `Object.defineProperty(Navigator.prototype, 'connection', {get: () => ({effectiveType: '4g', saveData: false})})`
 	)
 	for _, c := range []struct {
-		name          string
-		throttle      bool
-		script        string
-		netSlow, slow bool // net=slow in the stream's URL; a slow stream
+		name           string
+		throttle       bool
+		script         string
+		saveData, slow bool // Save-Data: on on the stream's request; a slow stream
 	}{
 		{"unthrottled", false, "", false, false},
 		{"Slow 4G", true, "", true, true},
@@ -113,11 +117,16 @@ func TestSlowLinkPage(t *testing.T) {
 			var mu sync.Mutex
 			var streams []string
 			p.OnEvent("Network.requestWillBeSent", func(params json.RawMessage) {
-				var e struct{ Request struct{ URL string } }
+				var e struct {
+					Request struct {
+						URL     string
+						Headers map[string]string
+					}
+				}
 				json.Unmarshal(params, &e)
 				if strings.Contains(e.Request.URL, "/stream?") {
 					mu.Lock()
-					streams = append(streams, e.Request.URL)
+					streams = append(streams, e.Request.URL+saveData(e.Request.Headers))
 					mu.Unlock()
 				}
 			})
@@ -145,7 +154,7 @@ func TestSlowLinkPage(t *testing.T) {
 			mu.Lock()
 			got := strings.Join(streams, " ")
 			mu.Unlock()
-			if search != "" || strings.Contains(got, "net=slow") != c.netSlow {
+			if search != "" || strings.Contains(got, "net=slow") || strings.Contains(got, "Save-Data: on") != c.saveData {
 				t.Errorf("the page's query %q, its stream %s", search, got)
 			}
 			if c.slow && fps > 4.5 || !c.slow && fps < 7 {
@@ -156,4 +165,15 @@ func TestSlowLinkPage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// saveData is " Save-Data: <value>" when a request's DevTools headers have
+// Save-Data, else "".
+func saveData(headers map[string]string) string {
+	for k, v := range headers {
+		if strings.EqualFold(k, "Save-Data") {
+			return " Save-Data: " + v
+		}
+	}
+	return ""
 }

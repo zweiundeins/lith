@@ -9,10 +9,12 @@ import (
 
 // Page is what the guestbook's document shows.
 type Page struct {
-	Tab     string // new for every document: names the tab's stream and state
-	CSS, JS string // URLs of the stylesheet and of Datastar
-	Entries []guestbook.Entry
-	Total   int
+	Tab         string // new for every document: names the tab's stream and state
+	Nonce       string // the request's CSP nonce, for the import map
+	CSS, JS     string // URLs of the stylesheet and of Datastar
+	NewestFrame string // URL of lith's newest-frame.js (live.NewestFrame)
+	Entries     []guestbook.Entry
+	Total       int
 }
 
 templ Guestbook(p Page) {
@@ -25,9 +27,11 @@ templ Guestbook(p Page) {
 			<title>Guestbook</title>
 			<link rel="icon" href="data:,"/>
 			<link rel="stylesheet" href={ p.CSS }/>
+			@importMap(p)
 			<script type="module" src={ p.JS }></script>
+			<script type="module" src={ p.NewestFrame }></script>
 		</head>
-		<body>
+		<body data-newest-frame>
 			<main data-signals={ signals(p.Tab) }>
 				<div id="stream" hidden data-init={ openStream }></div>
 				<h1>Guestbook</h1>

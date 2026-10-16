@@ -31,17 +31,20 @@ import (
 // fresh soup every 15 s keeps the board busy. Every second it compares the
 // generation on the board with the one the page shows, and reads the
 // frames the hub dropped, the bytes the site wrote to the stream, how long
-// its writes blocked and what the sockets hold. LIFE_DRIFT is the CPU slowdown, LIFE_DRIFT_FOR how long (default
-// 5m), LIFE_DRIFT_SLOW=1 lets the page ask for a slow stream, and CADDY,
-// the path of a caddy binary, puts Caddy with TLS and HTTP/2 between the
-// browser and the site, as in production. It only reports, and writes
-// every second's numbers to LIFE_DRIFT_OUT if set.
+// its writes blocked and what the sockets hold, and whether the page,
+// with newest-frame.js, asked for a slow stream. LIFE_DRIFT is the CPU
+// slowdown, LIFE_DRIFT_FOR how long (default 5m), LIFE_DRIFT_SLOW=1 has
+// navigator.connection say 3g, so the page opens a slow stream from the
+// start, and CADDY, the path of a caddy binary, puts Caddy with TLS and
+// HTTP/2 between the browser and the site, as in production. It only
+// reports, and writes every second's numbers to LIFE_DRIFT_OUT if set.
 //
 //	LIFE_DRIFT=10 CADDY=$(which caddy) LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifeDrift -v -timeout 30m
 func TestLifeDrift(t *testing.T) {
 	if os.Getenv("LIFE_DRIFT") == "" {
 		t.Skip("set LIFE_DRIFT to the CPU slowdown to measure")
 	}
+	browser.SkipFirefox(t, "the Firefox driver cannot slow the CPU")
 	rate, _ := strconv.ParseFloat(os.Getenv("LIFE_DRIFT"), 64)
 	span := 5 * time.Minute
 	if d, err := time.ParseDuration(os.Getenv("LIFE_DRIFT_FOR")); err == nil {
@@ -222,7 +225,12 @@ func TestLifeDrift(t *testing.T) {
 		}
 	}
 	mu.Lock()
-	t.Logf("stream: %s, %s; %d stream requests", proto, coding, wm.stats().streams)
+	ws := wm.stats()
+	slowAfter := "never"
+	if !ws.slowAt.IsZero() {
+		slowAfter = fmt.Sprintf("after %.1f s", ws.slowAt.Sub(start).Seconds())
+	}
+	t.Logf("stream: %s, %s; %d stream requests; a slow stream (Save-Data) %s", proto, coding, ws.streams, slowAfter)
 	mu.Unlock()
 	if errs := p.Errors(); len(errs) > 0 {
 		t.Logf("the page: %v", errs)
@@ -280,6 +288,7 @@ type writeStats struct {
 	blocked time.Duration // in writes and flushes, in all
 	max     time.Duration // the longest since resetMax
 	streams int
+	slowAt  time.Time // the first stream request with Save-Data: on
 }
 
 func (m *writeMeter) stats() writeStats {
@@ -310,6 +319,9 @@ func (m *writeMeter) wrap(h http.Handler) http.Handler {
 		}
 		m.mu.Lock()
 		m.s.streams++
+		if m.s.slowAt.IsZero() && strings.EqualFold(r.Header.Get("Save-Data"), "on") {
+			m.s.slowAt = time.Now()
+		}
 		m.mu.Unlock()
 		h.ServeHTTP(&timedWriter{ResponseWriter: w, m: m}, r)
 	})

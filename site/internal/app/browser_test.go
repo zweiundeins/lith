@@ -55,8 +55,9 @@ func TestBrowser(t *testing.T) {
 	// keeps taking clicks while one runs.
 	bob.Eval(t, `(() => {
 		window.vts = []
+		// Firefox has no element-scoped view transitions: wrap only what exists.
 		const el = HTMLElement.prototype.startViewTransition
-		HTMLElement.prototype.startViewTransition = function (...args) { vts.push('#' + this.id); return el.apply(this, args) }
+		if (el) HTMLElement.prototype.startViewTransition = function (...args) { vts.push('#' + this.id); return el.apply(this, args) }
 		const doc = document.startViewTransition
 		document.startViewTransition = function (...args) { vts.push('document'); return doc.apply(this, args) }
 	})()`, nil)
@@ -73,7 +74,12 @@ func TestBrowser(t *testing.T) {
 	bob.Wait(t, `document.querySelector('#guestbook-entries li[data-fresh]')`, time.Second)
 	var vts []string
 	bob.Eval(t, `vts`, &vts)
-	if !slices.Contains(vts, "#guestbook-entries") || slices.Contains(vts, "document") {
+	if browser.Engine() == "firefox" {
+		// Without startViewTransition on elements, Datastar morphs at once.
+		if len(vts) > 0 {
+			t.Errorf("the entry arrived in the view transitions %q, want none", vts)
+		}
+	} else if !slices.Contains(vts, "#guestbook-entries") || slices.Contains(vts, "document") {
 		t.Errorf("the entry arrived in the view transitions %q, want one scoped to #guestbook-entries", vts)
 	}
 	var outcome string

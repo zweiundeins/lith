@@ -67,12 +67,15 @@ func TestSlowLinkCost(t *testing.T) {
 			p.OnEvent("Network.requestWillBeSent", func(params json.RawMessage) {
 				var e struct {
 					RequestID string
-					Request   struct{ URL string }
+					Request   struct {
+						URL     string
+						Headers map[string]string
+					}
 				}
 				json.Unmarshal(params, &e)
 				if strings.Contains(e.Request.URL, "/stream?") {
 					mu.Lock()
-					streams[e.RequestID] = e.Request.URL
+					streams[e.RequestID] = e.Request.URL + saveData(e.Request.Headers)
 					mu.Unlock()
 				}
 			})
@@ -156,7 +159,7 @@ func TestSlowLinkCost(t *testing.T) {
 			mu.Lock()
 			kind := "fast"
 			for _, u := range streams {
-				if strings.Contains(u, "net=slow") {
+				if strings.Contains(u, "Save-Data: on") {
 					kind = "slow"
 				}
 			}

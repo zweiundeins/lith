@@ -152,31 +152,37 @@ func TestCursorParty(t *testing.T) {
 
 	// Reduced motion: no trail, no easing. And in the smooth style the
 	// arrow has straight edges.
-	still := b.NewPage(t, 1280, 900)
-	still.Call(t, "Emulation.setEmulatedMedia", map[string]any{"features": []map[string]string{{"name": "prefers-reduced-motion", "value": "reduce"}}})
-	still.Navigate(t, base+"/")
-	still.Eval(t, `document.cookie = 'lith-style=smooth; Path=/'`, nil)
-	still.Navigate(t, base+"/demos/cursor-party")
-	deeSel := `document.querySelector('#cursor-party-` + deeID + `')`
-	still.Wait(t, deeSel, 5*time.Second)
-	var motion struct {
-		Trail, Arrow string
-		Ease         float64 // the tag's longest transition, in seconds
-	}
-	still.Eval(t, `(() => {
-		const c = `+deeSel+`, b = c.querySelector('b'), d = getComputedStyle(b).transitionDuration.split(',').map(parseFloat)
-		return {trail: getComputedStyle(c, '::before').display, arrow: getComputedStyle(b, '::before').maskImage, ease: Math.max(...d)}
-	})()`, &motion)
-	if motion.Trail != "none" || motion.Ease > 0.001 || !strings.Contains(motion.Arrow, "M0 0L16 15.5") {
-		t.Errorf("with reduced motion, smooth: %+v", motion)
-	}
+	t.Run("reduced motion", func(t *testing.T) {
+		browser.SkipFirefox(t, "the Firefox driver cannot emulate prefers-reduced-motion")
+		still := b.NewPage(t, 1280, 900)
+		still.Call(t, "Emulation.setEmulatedMedia", map[string]any{"features": []map[string]string{{"name": "prefers-reduced-motion", "value": "reduce"}}})
+		still.Navigate(t, base+"/")
+		still.Eval(t, `document.cookie = 'lith-style=smooth; Path=/'`, nil)
+		still.Navigate(t, base+"/demos/cursor-party")
+		deeSel := `document.querySelector('#cursor-party-` + deeID + `')`
+		still.Wait(t, deeSel, 5*time.Second)
+		var motion struct {
+			Trail, Arrow string
+			Ease         float64 // the tag's longest transition, in seconds
+		}
+		still.Eval(t, `(() => {
+			const c = `+deeSel+`, b = c.querySelector('b'), d = getComputedStyle(b).transitionDuration.split(',').map(parseFloat)
+			return {trail: getComputedStyle(c, '::before').display, arrow: getComputedStyle(b, '::before').maskImage, ease: Math.max(...d)}
+		})()`, &motion)
+		if motion.Trail != "none" || motion.Ease > 0.001 || !strings.Contains(motion.Arrow, "M0 0L16 15.5") {
+			t.Errorf("with reduced motion, smooth: %+v", motion)
+		}
+		if errs := still.Errors(); len(errs) > 0 {
+			t.Errorf("the still page: %v", errs)
+		}
+	})
 
 	// Ada has rested for a few seconds: her cursor fades on Bob's page,
 	// then leaves it.
 	bob.Wait(t, sel+`?.hasAttribute('data-idle')`, 5*time.Second)
 	bob.Wait(t, `!`+sel, 5*time.Second)
 
-	for name, p := range map[string]*browser.Page{"Ada": ada, "Bob": bob, "Cleo": cleo, "Dee": dee, "the still page": still} {
+	for name, p := range map[string]*browser.Page{"Ada": ada, "Bob": bob, "Cleo": cleo, "Dee": dee} {
 		if errs := p.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %v", name, errs)
 		}
