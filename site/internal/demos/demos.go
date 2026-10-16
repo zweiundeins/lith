@@ -34,11 +34,13 @@ var All = []demo.Demo{
 }
 
 // Check validates every demo, and that no two share a slug or a slot of
-// the landing page.
+// the landing page, and that one keeps events at most: the site runs one
+// events.Runner and exports one store's numbers.
 func Check(list []demo.Demo) error {
 	var errs []error
 	slugs := map[string]bool{}
 	slots := map[demo.Slot]string{}
+	keeps := ""
 	for i := range list {
 		d := &list[i]
 		if err := d.Validate(); err != nil {
@@ -53,6 +55,12 @@ func Check(list []demo.Demo) error {
 				errs = append(errs, fmt.Errorf("demos %q and %q both embed in the %s slot", other, d.Slug, d.Embed.Slot))
 			}
 			slots[d.Embed.Slot] = d.Slug
+		}
+		if d.Events != nil {
+			if keeps != "" {
+				errs = append(errs, fmt.Errorf("demos %q and %q both keep events: the site runs one store", keeps, d.Slug))
+			}
+			keeps = d.Slug
 		}
 	}
 	return errors.Join(errs...)

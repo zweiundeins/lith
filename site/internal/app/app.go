@@ -21,6 +21,7 @@ import (
 	"github.com/zweiundeins/lith/dbmetrics"
 	dbprom "github.com/zweiundeins/lith/dbmetrics/prom"
 	"github.com/zweiundeins/lith/edge"
+	"github.com/zweiundeins/lith/events"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/prom"
 	"github.com/zweiundeins/lith/sqlite"
@@ -63,6 +64,9 @@ type App struct {
 	handler http.Handler
 	metrics http.Handler
 	log     *slog.Logger
+	// runner keeps the projectors of the demos' event store current, nil
+	// when no demo keeps events.
+	runner *events.Runner
 
 	writerUp, hubUp atomic.Bool
 	hubCtx          context.Context
@@ -72,6 +76,8 @@ type App struct {
 	jobsCtx         context.Context
 	stopJobs        context.CancelFunc
 	jobs            sync.WaitGroup
+	stopRunner      context.CancelFunc
+	runnerDone      chan struct{}
 }
 
 // dbMetrics times every statement of every database the process opens; it
@@ -142,6 +148,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return nil, errors.Join(err, w.Close(), db.Close())
 	}
 	a := &App{cfg: cfg, db: db, w: w, hub: hub, log: cfg.Log}
+	sources := prom.Sources{Writer: w, Hub: hub}
+	for _, d := range cfg.Demos {
+		if d.Events != nil {
+			a.runner = events.NewRunner(d.Events, db, w, events.Options{Log: cfg.Log})
+			sources.Events, sources.Store = a.runner, d.Events
+		}
+	}
 
 	httpMetrics := metrics.NewHTTP(Namespace)
 	h := metrics.Route(site.Routes())
@@ -170,7 +183,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		prom.New(Namespace, prom.Sources{Writer: w, Hub: hub}),
+		prom.New(Namespace, sources),
 		dbMetrics,
 		httpMetrics,
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
@@ -205,8 +218,9 @@ func (a *App) DB() *sqlite.DB         { return a.db }
 func (a *App) Writer() *writer.Writer { return a.w }
 func (a *App) Hub() *live.Hub         { return a.hub }
 
-// Start runs the writer, the hub and the sweep. The writer runs until
-// Close, so actions still write while the HTTP server drains.
+// Start runs the writer, the hub, the sweep and the events runner. The
+// writer runs until Close, so actions still write while the HTTP server
+// drains.
 func (a *App) Start() {
 	a.writerDone = make(chan struct{})
 	a.writerUp.Store(true)
@@ -228,6 +242,17 @@ func (a *App) Start() {
 	}()
 	a.jobsCtx, a.stopJobs = context.WithCancel(context.Background())
 	a.jobs.Go(func() { a.sweep(a.jobsCtx) })
+	if a.runner != nil {
+		var ctx context.Context
+		ctx, a.stopRunner = context.WithCancel(context.Background())
+		a.runnerDone = make(chan struct{})
+		go func() {
+			defer close(a.runnerDone)
+			if err := a.runner.Run(ctx); err != nil {
+				a.log.Error("events runner", "err", err)
+			}
+		}()
+	}
 }
 
 // StopStreams ends every stream, each with sse.Reconnect as its last
@@ -240,13 +265,18 @@ func (a *App) StopStreams() {
 	}
 }
 
-// Close stops the sweep, lets the writer apply what is queued, and closes
-// the database. Call it after the HTTP server's Shutdown.
+// Close stops the sweep and the events runner, lets the writer apply what
+// is queued, and closes the database. Call it after the HTTP server's
+// Shutdown.
 func (a *App) Close() error {
 	a.StopStreams()
 	if a.stopJobs != nil {
 		a.stopJobs()
 		a.jobs.Wait()
+	}
+	if a.stopRunner != nil {
+		a.stopRunner() // before the writer closes
+		<-a.runnerDone
 	}
 	err := a.w.Close()
 	if a.writerDone != nil {

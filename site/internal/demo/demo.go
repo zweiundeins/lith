@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/zweiundeins/lith/events"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/writer"
 )
@@ -66,6 +67,11 @@ type Demo struct {
 	// Sweep keeps the demo's tables small. The site runs it as a command
 	// every few minutes (SweepEvery), with the time of the run.
 	Sweep func(tx *writer.Tx, now time.Time) error
+	// Events is the demo's event store, if it keeps an event log
+	// (lith/events): the site runs an events.Runner on it beside the
+	// writer, which rebuilds a projector whose version changed, and
+	// exports its numbers. One demo of the site keeps events at most.
+	Events *events.Store
 }
 
 // Part is a live region of a page. Render draws it into the GET document,

@@ -50,7 +50,7 @@ reg := prometheus.NewRegistry()
 reg.MustRegister(
 	collectors.NewGoCollector(),
 	collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	prom.New(Namespace, prom.Sources{Writer: w, Hub: hub}),
+	prom.New(Namespace, sources),
 	dbMetrics,
 	httpMetrics,
 	prometheus.NewGaugeFunc(prometheus.GaugeOpts{
@@ -60,7 +60,19 @@ reg.MustRegister(
 )
 ```
 
-`dbMetrics` is `dbprom.New(Namespace)`, from the module `lith/dbmetrics/prom`. An app on `lith/events` also passes its runner and its store, `prom.Sources{Writer: w, Hub: hub, Events: runner, Store: store}`; this site keeps no events. `dbmetrics` also logs every statement that takes 100 ms or more at Warn, with its SQL text and never its arguments (`Options.SlowThreshold`, negative to turn it off).
+`dbMetrics` is `dbprom.New(Namespace)`, from the module `lith/dbmetrics/prom`. `sources` holds the writer and the hub, and an app on `lith/events` adds its runner and its store; this site does for the event store of a demo that keeps one:
+
+```go source=site/internal/app/app.go
+sources := prom.Sources{Writer: w, Hub: hub}
+for _, d := range cfg.Demos {
+	if d.Events != nil {
+		a.runner = events.NewRunner(d.Events, db, w, events.Options{Log: cfg.Log})
+		sources.Events, sources.Store = a.runner, d.Events
+	}
+}
+```
+
+`dbmetrics` also logs every statement that takes 100 ms or more at Warn, with its SQL text and never its arguments (`Options.SlowThreshold`, negative to turn it off).
 
 The metrics, with the namespace `app`:
 
