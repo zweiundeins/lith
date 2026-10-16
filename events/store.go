@@ -74,6 +74,7 @@ type Store struct {
 	once     sync.Once
 	checkErr error
 	states   sync.Map // stream kind: stateType, the deciders' state seen first
+	counts   counts
 }
 
 // Part is what New takes: a *Projector or an Upcaster.
@@ -199,6 +200,7 @@ type local struct {
 	live  map[string]bool // inline projectors that run, by name; nil until known
 	gen   int             // counts the changes of live
 	wake  map[string]func()
+	heads *heads // the runner's, nil without one
 }
 
 func (st *Store) local(tx *writer.Tx) *local {

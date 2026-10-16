@@ -85,6 +85,8 @@ var store = events.Must(events.New(cardTitles))
 
 A Runner keeps the projectors current in a database. When an inline projector's version changes, it rebuilds the projector's tables: it fills a copy of each from every event, a command per batch, while pages read the old tables, which new events still reach, and swaps the copies in with the last batch. It runs the catch-up projectors from their checkpoints, woken by the commits that append their events; an event that keeps failing parks its projector, with the error in Stats.
 
+Runner.Stats also has the last position committed and how far each catch-up projector or rebuild is behind its stream kind, and Store.Stats counts the events appended, the conflicts and the refolds; lith/prom exports both.
+
 #### Reads {#hdr-Reads}
 
 Load reads a stream's events and Since every event after a position, both as iterators over the transaction they are given. Pages render from projections: a stream's history only grows. LoadUntil, SinceUntil and StateAt read as of a position, for a page that shows the past.
@@ -459,6 +461,11 @@ type ProjectorStats struct {
 	// Attempts counts the failures of the event a catch-up projector
 	// retries.
 	Attempts int
+	// Lag is how far a catch-up projector or a rebuild is behind the last
+	// event of its stream kind, in positions, which every kind shares: at
+	// most that many events are left. An inline projector that is live
+	// commits with its events and has none.
+	Lag int64
 }
 ```
 
@@ -541,6 +548,9 @@ Stats returns the runner's projectors as they stand.
 
 ```go
 type Stats struct {
+	// Head is the last position committed in the database, of any stream
+	// kind: read as Run starts, then moved by each commit that appends.
+	Head       int64
 	Projectors []ProjectorStats // by name
 }
 ```
@@ -572,6 +582,32 @@ func New(parts ...Part) (*Store, error)
 ```
 
 New makes a store of the projectors and upcasters. It refuses a projector that neither handles nor ignores an event type of its stream, two projectors with one name or one table, two streams with one kind, and an event type upcast twice. The first Execute, Append or Run checks once more, for event types defined after New ran.
+
+#### func (*Store) Stats {#Store.Stats}
+
+```go
+func (st *Store) Stats() StoreStats
+```
+
+Stats returns the store's counters.
+
+### type StoreStats {#StoreStats}
+
+```go
+type StoreStats struct {
+	// Appended counts the events committed, by stream kind. The kinds of
+	// the store's projectors and upcasters are there from the start.
+	Appended map[string]int64
+	// Conflicts counts the appends that ErrConflict refused.
+	Conflicts int64
+	// Refolds counts the streams whose state Execute folded again from
+	// their events, as their state row was missing or folded by another
+	// Version of the decider.
+	Refolds int64
+}
+```
+
+StoreStats are a store's counters since the process started, over every database the store serves.
 
 ### type Stream {#Stream}
 

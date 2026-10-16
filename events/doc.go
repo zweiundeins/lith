@@ -104,6 +104,11 @@
 // commits that append their events; an event that keeps failing parks its
 // projector, with the error in Stats.
 //
+// Runner.Stats also has the last position committed and how far each
+// catch-up projector or rebuild is behind its stream kind, and
+// Store.Stats counts the events appended, the conflicts and the refolds;
+// lith/prom exports both.
+//
 // # Reads
 //
 // Load reads a stream's events and Since every event after a position,

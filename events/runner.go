@@ -47,6 +47,7 @@ type Runner struct {
 	opts Options
 
 	started atomic.Bool
+	heads   *heads
 	mu      sync.Mutex
 	stats   map[string]*ProjectorStats
 	resume  map[string]chan struct{}
@@ -54,6 +55,9 @@ type Runner struct {
 
 // Stats are a runner's projectors as they stand.
 type Stats struct {
+	// Head is the last position committed in the database, of any stream
+	// kind: read as Run starts, then moved by each commit that appends.
+	Head       int64
 	Projectors []ProjectorStats // by name
 }
 
@@ -73,6 +77,11 @@ type ProjectorStats struct {
 	// Attempts counts the failures of the event a catch-up projector
 	// retries.
 	Attempts int
+	// Lag is how far a catch-up projector or a rebuild is behind the last
+	// event of its stream kind, in positions, which every kind shares: at
+	// most that many events are left. An inline projector that is live
+	// commits with its events and has none.
+	Lag int64
 }
 
 // NewRunner makes a runner of st's projectors on db, whose writer is w.
@@ -92,7 +101,7 @@ func NewRunner(st *Store, db *sqlite.DB, w *writer.Writer, opts Options) *Runner
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
-	return &Runner{st: st, db: db, w: w, opts: opts, stats: map[string]*ProjectorStats{}, resume: map[string]chan struct{}{}}
+	return &Runner{st: st, db: db, w: w, opts: opts, heads: newHeads(st), stats: map[string]*ProjectorStats{}, resume: map[string]chan struct{}{}}
 }
 
 // Run starts the runner's work and returns when ctx ends, once the work
@@ -155,7 +164,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	<-ctx.Done()
 	wg.Wait()
 	r.w.Do(context.WithoutCancel(ctx), writer.Func(func(tx *writer.Tx) error {
-		r.st.local(tx).wake = nil
+		l := r.st.local(tx)
+		l.wake, l.heads = nil, nil
 		return nil
 	}))
 	return nil
@@ -200,7 +210,10 @@ func (r *Runner) setup(ctx context.Context, wake map[string]func()) (map[string]
 			}
 			rows[p.name] = rw
 		}
-		l.wake = wake
+		if err := r.heads.read(tx); err != nil {
+			return err
+		}
+		l.wake, l.heads = wake, r.heads
 		return nil
 	}))
 	return rows, err
@@ -218,9 +231,13 @@ func (r *Runner) note(name string, fn func(s *ProjectorStats)) {
 func (r *Runner) Stats() Stats {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := Stats{}
+	s := Stats{Head: r.heads.all.Load()}
 	for _, p := range r.stats {
-		s.Projectors = append(s.Projectors, *p)
+		ps := *p
+		if ps.CatchUp || ps.Status == statusRebuilding {
+			ps.Lag = r.heads.lag(r.st.byName[ps.Name].kind, ps.Position)
+		}
+		s.Projectors = append(s.Projectors, ps)
 	}
 	slices.SortFunc(s.Projectors, func(a, b ProjectorStats) int { return strings.Compare(a.Name, b.Name) })
 	return s

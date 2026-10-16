@@ -53,7 +53,11 @@ func Execute[K Key, C, E, S any](st *Store, tx *writer.Tx, d Decider[C, E, S], i
 	if err != nil {
 		return err
 	}
+	if refolded && version > 0 {
+		st.counts.refolds.Add(1)
+	}
 	if err := want.check(id.s.kind, key, version); err != nil {
+		st.counts.conflicts.Add(1)
 		return err
 	}
 	evs, err := d.Decide(cmd, s)
@@ -95,6 +99,7 @@ func Append[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E], want Expe
 		return err
 	}
 	if err := want.check(id.s.kind, key, version); err != nil {
+		st.counts.conflicts.Add(1)
 		return err
 	}
 	if len(evs) == 0 {
@@ -244,6 +249,9 @@ func appendEvents[K Key, E any](st *Store, tx *writer.Tx, l *local, id StreamID[
 	tx.Touch(Topic)
 	if wake := l.wake[id.s.kind]; wake != nil {
 		tx.AfterCommit(wake)
+	}
+	if n := len(recs); n > 0 {
+		st.committed(tx, l, id.s.kind, n, recs[n-1].Position)
 	}
 	return recs, nil
 }
