@@ -30,7 +30,8 @@ func TestWrite(t *testing.T) {
 	}
 
 	gomod := read(t, dir, "go.mod")
-	if !strings.HasPrefix(gomod, "module example.com/acme/visitor-log\n") || !strings.HasSuffix(gomod, "\nreplace github.com/zweiundeins/lith => "+lith+"\n") {
+	replace := "\nreplace (\n\tgithub.com/zweiundeins/lith => " + lith + "\n\tgithub.com/zweiundeins/lith/minify => " + filepath.Join(lith, "minify") + "\n)\n"
+	if !strings.HasPrefix(gomod, "module example.com/acme/visitor-log\n") || !strings.HasSuffix(gomod, replace) {
 		t.Errorf("go.mod:\n%s", gomod)
 	}
 	main := read(t, dir, "cmd/visitor-log/main.go")
@@ -205,8 +206,8 @@ func read(t *testing.T, dir, name string) string {
 }
 
 // Without a checkout, go.mod requires the lith version lith-new ran from,
-// so that go mod tidy finds it; with one, the placeholder stays and a
-// replace points at the checkout.
+// and lith/minify of that version, so that go mod tidy finds them; with
+// one, the placeholders stay and replace directives point at the checkout.
 func TestWriteVersion(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "visitors")
 	p, err := newProject(dir, "example.com/acme/visitor-log", "", "")
@@ -218,7 +219,8 @@ func TestWriteVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	gomod := read(t, dir, "go.mod")
-	if !strings.Contains(gomod, "\tgithub.com/zweiundeins/lith v0.4.2\n") || strings.Contains(gomod, zeroVersion) || strings.Contains(gomod, "replace") {
+	if !strings.Contains(gomod, "\tgithub.com/zweiundeins/lith v0.4.2\n") || !strings.Contains(gomod, "\tgithub.com/zweiundeins/lith/minify v0.4.2\n") ||
+		strings.Contains(gomod, zeroVersion) || strings.Contains(gomod, "replace") {
 		t.Errorf("go.mod:\n%s", gomod)
 	}
 	var out bytes.Buffer
@@ -230,7 +232,7 @@ func TestWriteVersion(t *testing.T) {
 	p.version = ""
 	out.Reset()
 	p.next(&out)
-	if !strings.Contains(out.String(), "go get github.com/zweiundeins/lith@latest") {
+	if !strings.Contains(out.String(), "go get github.com/zweiundeins/lith@latest github.com/zweiundeins/lith/minify@latest\n") {
 		t.Errorf("next steps without a version:\n%s", out.String())
 	}
 }

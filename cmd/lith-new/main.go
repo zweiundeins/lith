@@ -31,6 +31,19 @@ const (
 	templateName   = "app"
 )
 
+// lithModules are lith's modules that the template requires, by their
+// directory in lith's repository: each at zeroVersion in go.mod.tmpl, and
+// tagged with every release.
+var lithModules = []string{".", "minify"}
+
+// moduleAt is the path of the lith module at dir.
+func moduleAt(dir string) string {
+	if dir == "." {
+		return lithModule
+	}
+	return lithModule + "/" + dir
+}
+
 const usage = `usage: lith-new [-lith dir] [-name name] <dir> <module path>
 
 lith-new copies lith's project template into dir, which must be new or empty,
@@ -39,12 +52,15 @@ deploy files and CI. The app is named after the module path's last element, or
 -name: its binary in cmd/<name>, the systemd units in deploy/, the <NAME>_
 environment variables.
 
-The new go.mod requires the lith that lith-new was run from: with
-go run github.com/zweiundeins/lith/cmd/lith-new@latest, the latest release.
-To work against a lith checkout instead, name it with -lith, or with LITH_DIR
-in the environment, and the new go.mod gets
+The new go.mod requires the lith that lith-new was run from, and lith/minify
+of the same version: with go run github.com/zweiundeins/lith/cmd/lith-new@latest,
+the latest release. To work against a lith checkout instead, name it with
+-lith, or with LITH_DIR in the environment, and the new go.mod gets
 
-	replace github.com/zweiundeins/lith => <the checkout's absolute path>
+	replace (
+		github.com/zweiundeins/lith => <the checkout's absolute path>
+		github.com/zweiundeins/lith/minify => <the checkout's absolute path>/minify
+	)
 
 Flags:
 `
@@ -184,9 +200,15 @@ func (p *project) write(tmpl fs.FS) error {
 			path = "go.mod"
 			switch {
 			case p.lith != "":
-				b = fmt.Appendf(b, "\nreplace %s => %s\n", lithModule, modPath(p.lith))
+				b = append(b, "\nreplace (\n"...)
+				for _, dir := range lithModules {
+					b = fmt.Appendf(b, "\t%s => %s\n", moduleAt(dir), modPath(filepath.Join(p.lith, dir)))
+				}
+				b = append(b, ")\n"...)
 			case p.version != "":
-				b = bytes.Replace(b, []byte(lithModule+" "+zeroVersion), []byte(lithModule+" "+p.version), 1)
+				for _, dir := range lithModules {
+					b = bytes.Replace(b, []byte(moduleAt(dir)+" "+zeroVersion), []byte(moduleAt(dir)+" "+p.version), 1)
+				}
 			}
 		}
 		mode := fs.FileMode(0o644)
@@ -258,12 +280,16 @@ func (p *project) next(w io.Writer) {
 	replace := ""
 	switch {
 	case p.lith != "":
-		fmt.Fprintf(w, "lith comes from %s, through a replace in go.mod.\n", p.lith)
-		fmt.Fprintln(w, "CI cannot reach that path: drop the replace before you push.")
+		fmt.Fprintf(w, "lith comes from %s, through replace directives in go.mod.\n", p.lith)
+		fmt.Fprintln(w, "CI cannot reach that path: drop them before you push.")
 	case p.version != "":
 		fmt.Fprintf(w, "go.mod requires lith %s.\n", p.version)
 	default:
-		replace = fmt.Sprintf("\tgo get %s@latest\n", lithModule)
+		replace = "\tgo get"
+		for _, dir := range lithModules {
+			replace += " " + moduleAt(dir) + "@latest"
+		}
+		replace += "\n"
 	}
 	fmt.Fprintf(w, `
 Next:

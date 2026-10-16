@@ -16,6 +16,7 @@ import (
 
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
+	"github.com/zweiundeins/lith/minify"
 	"github.com/zweiundeins/lith/sqlite"
 	"github.com/zweiundeins/lith/sse"
 	"github.com/zweiundeins/lith/writer"
@@ -38,12 +39,18 @@ type Server struct {
 }
 
 // New returns the server of the database that w writes and hub renders.
-func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger) (*Server, error) {
+// It serves its scripts and stylesheets minified, or as written with dev,
+// for the browser's devtools.
+func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev bool) (*Server, error) {
 	files, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return nil, err
 	}
-	static, err := edge.NewStatic(files, "/static/")
+	var opts []edge.StaticOption
+	if !dev {
+		opts = append(opts, edge.Minify(minify.Bytes))
+	}
+	static, err := edge.NewStatic(files, "/static/", opts...)
 	if err != nil {
 		return nil, err
 	}

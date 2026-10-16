@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
@@ -87,8 +88,8 @@ func TestSlowLink(t *testing.T) {
 
 // TestNewestFrame checks that the page loads lith's newest-frame.js after
 // Datastar, with an import map that maps 'datastar' to Datastar's URL, and
-// turns it on on its body; the plugin goes out under its content's hash,
-// immutable.
+// turns it on on its body; the plugin goes out minified, under its
+// content's hash, immutable.
 func TestNewestFrame(t *testing.T) {
 	base := start(t)
 	res, err := http.Get(base + "/")
@@ -112,8 +113,10 @@ func TestNewestFrame(t *testing.T) {
 	}
 	js, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/javascript") || !strings.Contains(string(js), "name: 'newest-frame'") {
-		t.Errorf("%s: %d, %s, %s\n%.200s", m[3], res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("Content-Type"), js)
+	written, _ := fs.ReadFile(live.Scripts, live.NewestFrame)
+	if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/javascript") ||
+		!regexp.MustCompile(`name:\s*["']newest-frame["']`).Match(js) || len(js) >= len(written) {
+		t.Errorf("%s: %d, %s, %s, %d bytes of %d\n%.200s", m[3], res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("Content-Type"), len(js), len(written), js)
 	}
 }
 
@@ -133,7 +136,7 @@ func start(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	site, err := web.New(db, w, hub, slog.Default())
+	site, err := web.New(db, w, hub, slog.Default(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

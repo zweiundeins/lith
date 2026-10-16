@@ -71,6 +71,7 @@ func serve(args []string) error {
 	synchronous := f.String("synchronous", "NORMAL", "NORMAL (a power loss can undo up to about 35 s of commits), or FULL (one fsync per batch, loses none)")
 	streams := f.Int("streams", 200, "how many streams may be open at once; more get 503")
 	secure := f.Bool("secure", false, "served over HTTPS: a __Host- cookie and HSTS")
+	dev := f.Bool("dev", false, "development: serve the static files as written, not minified")
 	debugLog := f.Bool("debug", false, "log at debug level")
 	if err := parse(f, args); err != nil {
 		return err
@@ -100,7 +101,7 @@ func serve(args []string) error {
 		return errors.Join(err, db.Close())
 	}
 	var ln net.Listener
-	site, err := web.New(db, w, hub, log)
+	site, err := web.New(db, w, hub, log, *dev)
 	if err == nil {
 		ln, err = listen(*addr)
 	}

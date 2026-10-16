@@ -6,7 +6,7 @@ tmp_dir = "tmp"
 [build]
   pre_cmd = ["go tool templ generate"]
   cmd = "go build -o ./tmp/app ./cmd/app"
-  entrypoint = ["./tmp/app", "serve", "-debug"]
+  entrypoint = ["./tmp/app", "serve", "-dev", "-debug"]
   include_ext = ["go", "templ", "css", "js", "sql"]
   exclude_dir = ["tmp", "data", "deploy", "benchmarks"]
   exclude_regex = ["_templ\\.go$", "_test\\.go$"]
