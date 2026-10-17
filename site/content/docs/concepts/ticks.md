@@ -36,7 +36,7 @@ In lith's load test, 200 streams watch one board of 139 KB while 800 commands a 
 
 A stream keeps only the newest frame of each view it watches. A slow client skips frames and holds up no one else; when it catches up, it gets the current state, which is all a page needs. Views that change in the same tick reach a stream together, in the order the stream watches them.
 
-A view does not render for streams that have not sent its last frame: while every stream that watches it still has a frame of it waiting, the view waits too, and the first stream that takes its frame has it rendered in the next tick, as it is then. A client whose writes block costs the server no renders, and a view that one stream keeps up with renders for all of them.
+A view does not render for streams that have not sent its last frame: while every stream that watches it still has a frame of it waiting, the view waits too, and the first stream that takes its frame has it rendered in the next tick, as it is then. A client whose writes block costs the server no renders, and a view that one stream keeps up with renders for all of them. A stream paced by its page's acknowledgements (`Spec.Window`) has its frames wait the same way while its window is full ([Streams: pacing a stream by the page](/docs/guides/streams#pacing-a-stream-by-the-page)).
 
 ## More than topics
 

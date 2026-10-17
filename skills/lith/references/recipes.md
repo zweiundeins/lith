@@ -326,7 +326,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   Datastar through the import map that maps `'datastar'` (with the CSP
   nonce), and put `data-newest-frame__reopen` on `<body>` (performance.md,
   datastar.md). Without `__reopen` it only dispatches
-  `newest-frame-behind`.
+  `newest-frame-behind`, which can instead pace the open stream by the
+  page's acknowledgements: give every stream `Spec.Ack` and
+  `Spec.Release`, put `data-on:newest-frame-behind` with a `@post` to a
+  route that calls `hub.Pace(tab, 1)` on `<body>`, not on the stream's
+  element, and a route for the acknowledgements that calls `hub.Ack`;
+  both check the session and are rate limited (performance.md).
 
 ## Tab state and preferences
 

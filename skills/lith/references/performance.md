@@ -153,23 +153,54 @@ along; heartbeats unchanged). On lith's site, a Game of Life tab on a phone
 to 56%, its stream from 5.2 to 6.2 KB/s to 2.7 to 2.9; the network was
 never the limit. Back-pressure does not tell a phone too slow for the page
 on a fast link: at CPU 15x, unthrottled, behind Caddy (HTTP/2) or not, the
-tab applied 7 of 10 frames a second and fell 94 to 98 s behind in 5
-minutes, with no frame dropped and no write waiting (Chromium grants an
-HTTP/2 stream 6 MiB; over HTTP/1.1 the kernel buffers held it); with
-a slow stream it stayed within 1.2 s (`TestLifeDrift`, 2026-10-15). The
-start-up measurement sees the link, not the CPU; `newest-frame.js`
-(`live.NewestFrame`, `data-newest-frame__reopen` on body, vendored from
-github.com/mbolli/datastar-attribute-newest-frame) sees the page's own lag:
-it applies each view's newest frame, waits after a batch half as long as
-the batch took, and after dropping over half the frames for 3 s sets
-`$_slow` and reopens the stream. Chromium hands a page that is behind
-2 MiB per read (about 45 frames in one task, no paint); Firefox holds the
-backlog in its parent process, one frame per task, and never makes a write
-wait. With the plugin, at CPU 15x behind Caddy, the tab switched within
-2 s and stayed 0.68 s behind at the median, 1.08 s at most, over 2 minutes
-(42.6 s without); at 300 ms extra per frame, Chromium 154 and Firefox 158
-switched after 2.8 s and stayed within 0.8 s (`TestLifeDrift`,
-`TestNewestFrameSlowStream`, 2026-10-16).
+tab applied about 7 of 10 frames a second with no frame dropped and no
+write waiting (Chromium grants an HTTP/2 stream 6 MiB; over HTTP/1.1 the
+kernel buffers held it). With the corrected `TestLifeDrift`, which takes
+the lag from times the page notes (the first version read the page only
+when its main thread was free, after 7 s tasks), it fell 27.15 s behind at
+the median and 50.0 s in 150 s, painting about every 7 s (2026-10-16,
+`bench/drift/RESULTS.md`). The start-up measurement sees the link, not
+the CPU; `newest-frame.js` (`live.NewestFrame`, `data-newest-frame__reopen`
+on body, vendored from github.com/mbolli/datastar-attribute-newest-frame)
+sees the page's own lag: it applies each view's newest frame, waits after
+a batch half as long as the batch took, and after dropping over half the
+frames for 3 s sets `$_slow` and reopens the stream. The wait caps
+applying frames at two thirds of the main thread, not the rendering that
+follows: at 15x the main thread stayed 97% busy, half morphing and half
+layout and paint, but painted every applied frame. Chromium hands a page
+that is behind 2 MiB per read (45 frames in one 7.2 s task, two paints in
+20 s); Firefox holds the backlog in its parent process, one frame per
+task, and never makes a write wait. With `__reopen`, at CPU 15x behind
+Caddy, the tab stayed 0.64 s behind at the median, 1.16 s at most, at 3.20
+KB/s; without `__reopen` 0.32 s at 7.09 KB/s (150 s, 3 runs); at 300 ms
+extra per frame, Chromium 154 and Firefox 158 switched after 2.8 s and
+stayed within 0.8 s (`TestNewestFrameSlowStream`, 2026-10-16). A frame's
+cost to the page is mostly the elements Datastar morphs, not its bytes
+(still being measured).
+
+Pacing by the page (streams guide, "Pacing a stream by the page"):
+`live.Spec.Window` sends at most W writes of frames the page has not
+acknowledged; each write ends with the event `Spec.Ack(token, n)` makes
+(on lith's site an `<i>` with `data-init` posting `/ack`, patched inner
+into the stream's element), and the app passes the post to
+`Hub.Ack(id, token, n)`. Frames wait in the stream's slot and renders defer
+as for any stream with a frame waiting; `live.AckTimeout` (10 s) sends
+anyway. A stream with `Spec.Ack` and no Window starts unpaced;
+`Hub.Pace(id, w)` paces it from its next write, which the page asks for
+from `data-on:newest-frame-behind` on `<body>` (never on the stream's
+element: its `@post` would cancel the stream's `@get`), with the plugin
+without `__reopen`. `Spec.Release` unpaces a page whose acknowledgements
+all came before the next frame was ready for that long, doubling per
+release up to 8x. At W=1 it is long polling over the open stream: one
+frame per round trip, newest state only, nothing while the view is still.
+Measured (2026-10-17, `bench/hybrid/RESULTS.md`): at CPU 15x paced from
+2.2 s in, 0.34 s behind at the median at 2.19 KB/s (`__reopen` 0.62 s,
+3.36 KB/s); fast phone at 300 ms RTT never paced, 10.07 frames a second
+(ack pacing from the start 2.82); slow for 60 s then fast, released 5 to 6
+s later; 1,000 in-process streams with a tenth slow, 250 acks a second and
+186% of a core against 9,200 and 452% pacing every stream. Release never
+happens on a round trip over one tick of the view; `/ack` and `/pace` need
+a session check and a rate limit.
 
 ## Render loop
 
