@@ -271,6 +271,7 @@ type stream struct {
 	every     time.Duration // the least time between two frames of a view (Spec.Slow), 0 for none
 	ack       func(token string, n int64) []byte
 	release   time.Duration // Spec.Release
+	slack     time.Duration // Spec.ReleaseSlack
 
 	mu sync.Mutex
 	// The views the stream watches, in the order it started watching
@@ -287,6 +288,10 @@ type stream struct {
 	heard, late            time.Time
 	full                   bool
 	releases               int
+	// With Spec.ReleaseSlack: when the newest paced writes went out, by n,
+	// and the fastest acknowledgement of one.
+	wroteAt [16]time.Time
+	fastest time.Duration
 }
 
 // New returns a hub; Run starts it.

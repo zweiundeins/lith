@@ -89,6 +89,13 @@ type Spec struct {
 	// a page at the edge of keeping up, paced again by Hub.Pace, does not
 	// switch back and forth every Release.
 	Release time.Duration
+	// ReleaseSlack, if positive, changes what Release counts as late: an
+	// acknowledgement that came more than ReleaseSlack after the fastest
+	// the stream has had, instead of one that came after the next frame
+	// was ready. The fastest acknowledgement stands for the round trip,
+	// so a page on a link whose round trip is longer than a view's tick
+	// can still be released once it applies its frames at once.
+	ReleaseSlack time.Duration
 }
 
 // AckKey is the key of the Frame that carries a stream's acknowledgement
@@ -167,7 +174,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		s.every = slowEvery
 	}
 	if spec.Ack != nil && spec.ID != "" {
-		s.ack, s.release = spec.Ack, spec.Release
+		s.ack, s.release, s.slack = spec.Ack, spec.Release, spec.ReleaseSlack
 		if spec.Window > 0 {
 			s.pace(int64(spec.Window), time.Now())
 		}
@@ -506,6 +513,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			s.mu.Lock()
 			s.written++
 			n := s.written
+			s.wroteAt[n%int64(len(s.wroteAt))] = now
 			if n-s.acked >= window {
 				s.heard = now // the window is full from now
 			}
@@ -608,7 +616,7 @@ func (h *Hub) Ack(id, token string, n int64) bool {
 	released := false
 	if s.window > 0 && n > s.acked && n <= s.written {
 		s.acked, s.heard = n, now
-		if s.waiting() {
+		if s.lateAck(n, now) {
 			s.late = now
 		} else if s.release > 0 && now.Sub(s.late) >= s.release<<min(s.releases, 3) {
 			s.window = 0
@@ -657,6 +665,22 @@ func (h *Hub) Pace(id string, window int) bool {
 // waits for an acknowledgement. s.mu is held, or s is not running yet.
 func (s *stream) pace(window int64, now time.Time) {
 	s.window, s.acked, s.heard, s.late = window, s.written, now, now
+}
+
+// lateAck reports whether the acknowledgement of write n, at now, counts
+// against Spec.Release (s.mu held).
+func (s *stream) lateAck(n int64, now time.Time) bool {
+	if s.slack <= 0 {
+		return s.waiting()
+	}
+	if s.written-n >= int64(len(s.wroteAt)) {
+		return true
+	}
+	d := now.Sub(s.wroteAt[n%int64(len(s.wroteAt))])
+	if s.fastest == 0 || d < s.fastest {
+		s.fastest = d
+	}
+	return d > s.fastest+s.slack
 }
 
 // waiting reports whether a frame waits to go out on s (s.mu held).

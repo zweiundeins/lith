@@ -35,7 +35,7 @@ func (s *Server) paceByAcks(spec *live.Spec) {
 	default:
 		spec.Window = s.cfg.AckWindow
 	}
-	spec.Release = s.cfg.AckRelease
+	spec.Release, spec.ReleaseSlack = s.cfg.AckRelease, s.cfg.AckReleaseSlack
 	spec.Ack = func(token string, n int64) []byte {
 		num := strconv.FormatInt(n, 10)
 		post := "@post('/ack?tab=" + tab + "&s=" + token + "&n=" + num + "', {requestCancellation: 'disabled'})"

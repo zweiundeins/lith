@@ -57,9 +57,12 @@ type Config struct {
 	// opened with Save-Data: on, which newest-frame.js's __reopen sends,
 	// in place of a slow stream; "inplace" has the page post /pace, and
 	// paces the stream it has open. AckRelease ends the pacing of a page
-	// that keeps up again (live.Spec.Release). For measurements.
-	Hybrid     string
-	AckRelease time.Duration
+	// that keeps up again (live.Spec.Release), AckReleaseSlack measures
+	// it against the page's fastest acknowledgement instead of the next
+	// frame (live.Spec.ReleaseSlack). For measurements.
+	Hybrid          string
+	AckRelease      time.Duration
+	AckReleaseSlack time.Duration
 }
 
 // Server holds what the handlers share.

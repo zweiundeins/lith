@@ -230,3 +230,43 @@ func TestReleaseBacksOff(t *testing.T) {
 		t.Errorf("the second release came %v after pacing again, want 200 ms or more", d)
 	}
 }
+
+// With ReleaseSlack, a page whose every acknowledgement takes as long as
+// the fastest one, a round trip longer than a tick, is released.
+func TestReleaseSlackAllowsTheRoundTrip(t *testing.T) {
+	h := start(t, Options{Tick: 10 * time.Millisecond})
+	c := serve(h, Spec{ID: "tab", Views: []View{clock("c")}, Window: 1, Ack: ackEvent, Release: 150 * time.Millisecond, ReleaseSlack: 30 * time.Millisecond}, "")
+	autoAck(t, h, c, "tab", 40*time.Millisecond)
+	waitFor(t, "the release", func() bool { return h.Stats().Releases == 1 })
+}
+
+// With ReleaseSlack, a page whose acknowledgements often come well after
+// its fastest stays paced.
+func TestReleaseSlackKeepsALatePagePaced(t *testing.T) {
+	h := start(t, Options{Tick: 10 * time.Millisecond})
+	c := serve(h, Spec{ID: "tab", Views: []View{clock("c")}, Window: 1, Ack: ackEvent, Release: 100 * time.Millisecond, ReleaseSlack: 30 * time.Millisecond}, "")
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	go func() {
+		var last int64
+		for i := 0; ; {
+			select {
+			case <-done:
+				return
+			case <-time.After(time.Millisecond):
+			}
+			token, ns := acks(c)
+			if len(ns) == 0 || ns[len(ns)-1] <= last {
+				continue
+			}
+			last = ns[len(ns)-1]
+			time.Sleep([]time.Duration{20, 90}[i%2] * time.Millisecond)
+			i++
+			h.Ack("tab", token, last)
+		}
+	}()
+	time.Sleep(700 * time.Millisecond)
+	if r := h.Stats().Releases; r != 0 {
+		t.Fatalf("%d releases of a page that was late", r)
+	}
+}
