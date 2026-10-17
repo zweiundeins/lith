@@ -54,11 +54,14 @@ app_writer_commands_total 3
 # HELP app_live_streams Streams open now.
 # TYPE app_live_streams gauge
 app_live_streams 0
+# HELP app_live_newest_frame_behind_total Reports from pages that fell behind their stream (newest-frame-behind, Hub.Behind).
+# TYPE app_live_newest_frame_behind_total counter
+app_live_newest_frame_behind_total 0
 # HELP app_sse_budget_limit_bytes The memory the streams may hold together, their encoders and the frames kept for them, 0 for none.
 # TYPE app_sse_budget_limit_bytes gauge
 app_sse_budget_limit_bytes 6.7108864e+07
 `
-	if err := testutil.GatherAndCompare(reg, strings.NewReader(want), "app_writer_commands_total", "app_live_streams", "app_sse_budget_limit_bytes"); err != nil {
+	if err := testutil.GatherAndCompare(reg, strings.NewReader(want), "app_writer_commands_total", "app_live_streams", "app_live_newest_frame_behind_total", "app_sse_budget_limit_bytes"); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := testutil.GatherAndCount(reg); err != nil || n < 17 {

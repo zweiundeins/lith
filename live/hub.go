@@ -164,12 +164,17 @@ type Stats struct {
 	// because every stream that watches it still had a frame of it waiting.
 	RendersDeferred int64
 	Overruns        int64 // ticks that took longer than Options.Tick
-	Acks            int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
-	Paces           int64 // streams that Hub.Pace started to pace
-	Releases        int64 // paced streams whose page kept up for Spec.Release
-	Streams         int
-	Views           int
-	ReadTxs         int64 // read transactions the render workers began
+	// Behind counts the reports, through Hub.Behind, that a stream's page
+	// fell behind it (newest-frame.js's newest-frame-behind), and
+	// BehindStreams the streams that reported at least once.
+	Behind        int64
+	BehindStreams int64
+	Acks          int64 // acknowledgements of streams with Spec.Window (Hub.Ack); experimental
+	Paces         int64 // streams that Hub.Pace started to pace; experimental
+	Releases      int64 // paced streams whose page kept up for Spec.Release; experimental
+	Streams       int
+	Views         int
+	ReadTxs       int64 // read transactions the render workers began
 	// RendersByKey counts the renders of each view watched now, by its
 	// key, since it was first watched.
 	RendersByKey map[string]int64
@@ -213,6 +218,7 @@ type Hub struct {
 	next    chan struct{}            // closed once the next tick that renders views has published its frames
 
 	ticks, renders, sent, dropped, deferred, overruns, readTxs, acks, paces, releases atomic.Int64
+	behind, behindStreams                                                             atomic.Int64
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
@@ -292,6 +298,8 @@ type stream struct {
 	// and the shortest round trip the page reported (Hub.RoundTrip).
 	wroteAt [16]time.Time
 	rtt     time.Duration
+	// behindAt is when Hub.Behind last counted a report of the page.
+	behindAt time.Time
 }
 
 // New returns a hub; Run starts it.
@@ -522,6 +530,8 @@ func (h *Hub) Stats() Stats {
 		FramesDropped:   h.dropped.Load(),
 		RendersDeferred: h.deferred.Load(),
 		Overruns:        h.overruns.Load(),
+		Behind:          h.behind.Load(),
+		BehindStreams:   h.behindStreams.Load(),
 		Acks:            h.acks.Load(),
 		Paces:           h.paces.Load(),
 		Releases:        h.releases.Load(),

@@ -38,7 +38,7 @@ type collector struct {
 
 	batches, commands, failures, busy, queue, batchMax, commitP99 *prometheus.Desc
 
-	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views *prometheus.Desc
+	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views, behind, behindStreams *prometheus.Desc
 
 	limit, reserved, frames, tier, refused, reopened *prometheus.Desc
 
@@ -57,43 +57,45 @@ func New(namespace string, s Sources) prometheus.Collector {
 		return prometheus.NewDesc(prometheus.BuildFQName(namespace, sub, name), help, labels, nil)
 	}
 	return &collector{
-		s:         s,
-		batches:   d("writer", "batches_total", "Transactions the writer ran, committed or not."),
-		commands:  d("writer", "commands_total", "Commands the writer ran, failed ones included."),
-		failures:  d("writer", "command_failures_total", "Commands that returned an error or panicked, or whose batch failed."),
-		busy:      d("writer", "busy_seconds_total", "Time the writer spent in batches."),
-		queue:     d("writer", "queue", "Commands waiting for the writer."),
-		batchMax:  d("writer", "batch_max", "The most commands one batch took."),
-		commitP99: d("writer", "commit_p99_seconds", "99th percentile of the last 1024 batches, from BEGIN to the end of COMMIT."),
-		ticks:     d("live", "ticks_total", "Ticks that rendered views."),
-		renders:   d("live", "renders_total", "Views rendered."),
-		sent:      d("live", "frames_sent_total", "Frames of views written to streams."),
-		dropped:   d("live", "frames_dropped_total", "Frames a newer one replaced before their stream sent them."),
-		deferred:  d("live", "renders_deferred_total", "Renders of dirty views put off while every stream watching the view had a frame of it waiting."),
-		overruns:  d("live", "tick_overruns_total", "Ticks that took longer than the tick."),
-		readTxs:   d("live", "read_txs_total", "Read transactions the render workers began."),
-		streams:   d("live", "streams", "Streams open now."),
-		views:     d("live", "views", "Views watched now."),
-		limit:     d("sse_budget", "limit_bytes", "The memory the streams may hold together, their encoders and the frames kept for them, 0 for none."),
-		reserved:  d("sse_budget", "reserved_bytes", "The memory the open streams hold: their encoders, 32 KiB each besides, and the frames kept for them."),
-		frames:    d("sse_budget", "frames_bytes", "The memory the frames kept for the streams hold (the newest of the hub's views that two or more streams watch)."),
-		tier:      d("sse_budget", "streams", "Open streams by what their encoder holds.", "setting"),
-		refused:   d("sse_budget", "refused_total", "Streams the budget turned away."),
-		reopened:  d("sse_budget", "reopened_total", "Streams the budget asked to open again for a better tier."),
-		appended:  d("events", "appended_total", "Events committed, by stream kind.", "stream"),
-		conflicts: d("events", "conflicts_total", "Appends refused because the stream was not at the expected version."),
-		refolds:   d("events", "refolds_total", "Streams whose state a command folded again from their events, as the state row was missing or from another decider version."),
-		head:      d("events", "head_position", "The last position committed in the database."),
-		position:  d("events", "projector_position", "A catch-up projector's checkpoint, or how far a rebuild got.", "projector"),
-		lag:       d("events", "projector_lag", "Positions between a catch-up projector or a rebuild and the last event of its stream kind; 0 for a live inline projector.", "projector"),
-		status:    d("events", "projector_status", "1 for the projector's status (live, rebuilding or parked), 0 for the others.", "projector", "status"),
-		attempts:  d("events", "projector_attempts", "Failures of the event a catch-up projector retries.", "projector"),
+		s:             s,
+		batches:       d("writer", "batches_total", "Transactions the writer ran, committed or not."),
+		commands:      d("writer", "commands_total", "Commands the writer ran, failed ones included."),
+		failures:      d("writer", "command_failures_total", "Commands that returned an error or panicked, or whose batch failed."),
+		busy:          d("writer", "busy_seconds_total", "Time the writer spent in batches."),
+		queue:         d("writer", "queue", "Commands waiting for the writer."),
+		batchMax:      d("writer", "batch_max", "The most commands one batch took."),
+		commitP99:     d("writer", "commit_p99_seconds", "99th percentile of the last 1024 batches, from BEGIN to the end of COMMIT."),
+		ticks:         d("live", "ticks_total", "Ticks that rendered views."),
+		renders:       d("live", "renders_total", "Views rendered."),
+		sent:          d("live", "frames_sent_total", "Frames of views written to streams."),
+		dropped:       d("live", "frames_dropped_total", "Frames a newer one replaced before their stream sent them."),
+		deferred:      d("live", "renders_deferred_total", "Renders of dirty views put off while every stream watching the view had a frame of it waiting."),
+		overruns:      d("live", "tick_overruns_total", "Ticks that took longer than the tick."),
+		readTxs:       d("live", "read_txs_total", "Read transactions the render workers began."),
+		streams:       d("live", "streams", "Streams open now."),
+		views:         d("live", "views", "Views watched now."),
+		behind:        d("live", "newest_frame_behind_total", "Reports from pages that fell behind their stream (newest-frame-behind, Hub.Behind)."),
+		behindStreams: d("live", "newest_frame_behind_streams_total", "Streams whose page reported at least once that it fell behind."),
+		limit:         d("sse_budget", "limit_bytes", "The memory the streams may hold together, their encoders and the frames kept for them, 0 for none."),
+		reserved:      d("sse_budget", "reserved_bytes", "The memory the open streams hold: their encoders, 32 KiB each besides, and the frames kept for them."),
+		frames:        d("sse_budget", "frames_bytes", "The memory the frames kept for the streams hold (the newest of the hub's views that two or more streams watch)."),
+		tier:          d("sse_budget", "streams", "Open streams by what their encoder holds.", "setting"),
+		refused:       d("sse_budget", "refused_total", "Streams the budget turned away."),
+		reopened:      d("sse_budget", "reopened_total", "Streams the budget asked to open again for a better tier."),
+		appended:      d("events", "appended_total", "Events committed, by stream kind.", "stream"),
+		conflicts:     d("events", "conflicts_total", "Appends refused because the stream was not at the expected version."),
+		refolds:       d("events", "refolds_total", "Streams whose state a command folded again from their events, as the state row was missing or from another decider version."),
+		head:          d("events", "head_position", "The last position committed in the database."),
+		position:      d("events", "projector_position", "A catch-up projector's checkpoint, or how far a rebuild got.", "projector"),
+		lag:           d("events", "projector_lag", "Positions between a catch-up projector or a rebuild and the last event of its stream kind; 0 for a live inline projector.", "projector"),
+		status:        d("events", "projector_status", "1 for the projector's status (live, rebuilding or parked), 0 for the others.", "projector", "status"),
+		attempts:      d("events", "projector_attempts", "Failures of the event a catch-up projector retries.", "projector"),
 	}
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99,
-		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views,
+		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views, c.behind, c.behindStreams,
 		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened,
 		c.appended, c.conflicts, c.refolds, c.head, c.position, c.lag, c.status, c.attempts} {
 		ch <- d
@@ -126,6 +128,8 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		counter(c.deferred, float64(st.RendersDeferred))
 		counter(c.overruns, float64(st.Overruns))
 		counter(c.readTxs, float64(st.ReadTxs))
+		counter(c.behind, float64(st.Behind))
+		counter(c.behindStreams, float64(st.BehindStreams))
 		gauge(c.streams, float64(st.Streams))
 		gauge(c.views, float64(st.Views))
 	}

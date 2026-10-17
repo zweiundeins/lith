@@ -277,3 +277,46 @@ func TestReleaseSlackKeepsALatePagePaced(t *testing.T) {
 		t.Fatalf("%d releases of a page that was late", r)
 	}
 }
+
+// Without a ReleaseSlack, a page that reports its round trip is measured
+// against it with DefaultReleaseSlack, and released; a negative slack
+// keeps the rule of the next frame, which a round trip longer than a tick
+// never passes.
+func TestReleaseSlackDefault(t *testing.T) {
+	for _, tc := range []struct {
+		slack    time.Duration
+		released bool
+	}{{0, true}, {-1, false}} {
+		h := start(t, Options{Tick: 10 * time.Millisecond})
+		c := serve(h, Spec{ID: "tab", Views: []View{clock("c")}, Window: 1, Ack: ackEvent, Release: 150 * time.Millisecond, ReleaseSlack: tc.slack}, "")
+		autoAck(t, h, c, "tab", 40*time.Millisecond)
+		waitFor(t, "an acknowledgement event", func() bool { _, ns := acks(c); return len(ns) > 0 })
+		h.RoundTrip("tab", 40*time.Millisecond)
+		if tc.released {
+			waitFor(t, "the release", func() bool { return h.Stats().Releases == 1 })
+			continue
+		}
+		time.Sleep(600 * time.Millisecond)
+		if r := h.Stats().Releases; r != 0 {
+			t.Errorf("ReleaseSlack %v: %d releases", tc.slack, r)
+		}
+	}
+}
+
+// Behind counts the reports of an open stream's page, one every 2 s at
+// most, and the streams that reported; an ID without a stream counts
+// nothing.
+func TestBehind(t *testing.T) {
+	h := start(t, Options{Tick: 10 * time.Millisecond})
+	c := serve(h, Spec{ID: "tab", Views: []View{clock("c")}}, "")
+	waitFor(t, "the first frame", func() bool { return len(clockFrames(c, "c")) > 0 })
+	if h.Behind("other") {
+		t.Error("a report for no stream was counted")
+	}
+	if !h.Behind("tab") || h.Behind("tab") {
+		t.Error("want the first report counted and the second, at once, not")
+	}
+	if st := h.Stats(); st.Behind != 1 || st.BehindStreams != 1 {
+		t.Errorf("Behind %d, BehindStreams %d", st.Behind, st.BehindStreams)
+	}
+}
