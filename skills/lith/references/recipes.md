@@ -76,7 +76,7 @@ The request edge, built from the inside out:
 ```go
 h := http.Handler(mux)
 h = edge.Sessions{Secure: !dev}.Handler(h)
-h = edge.CSRF{Datastar: []string{"POST /cmd/"}}.Handler(h)
+h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /behind"}}.Handler(h)
 h = edge.SecurityHeaders{CSP: edge.DefaultCSP()}.Handler(h)
 h = edge.Compress(h)
 h = edge.Recover(log, h)
@@ -320,18 +320,30 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   documents send `Accept-CH: edge.NetworkHints`, and its handler passes
   `Slow: edge.SlowLink(r)` in the Spec. lith's `newest-frame.js`
   (`live.Scripts`, `live.NewestFrame`, vendored from
-  github.com/mbolli/datastar-attribute-newest-frame) sets `$_slow` when the
-  page falls behind: add it to the app's `edge.Static`
+  github.com/mbolli/datastar-attribute-newest-frame) keeps a page that
+  falls behind close to the present: add it to the app's `edge.Static`
   (`Add("lith/"+live.NewestFrame, ...)`), load it as a module after
   Datastar through the import map that maps `'datastar'` (with the CSP
-  nonce), and put `data-newest-frame__reopen` on `<body>` (performance.md,
-  datastar.md). Without `__reopen` it only dispatches
-  `newest-frame-behind`, which can instead pace the open stream by the
-  page's acknowledgements: give every stream `Spec.Ack` and
-  `Spec.Release`, put `data-on:newest-frame-behind` with a `@post` to a
-  route that calls `hub.Pace(tab, 1)` on `<body>`, not on the stream's
-  element, and a route for the acknowledgements that calls `hub.Ack`;
-  both check the session and are rate limited (performance.md).
+  nonce), and put `data-newest-frame` on `<body>` (performance.md,
+  datastar.md). It dispatches `newest-frame-behind` when the page drops
+  most of its frames, every 3 s while behind. The template's `<body>`
+  posts it (`data-on:newest-frame-behind`, `@post` with
+  `requestCancellation: 'disabled'`, on `<body>`, never on the stream's
+  element) to `POST /behind`, which validates the tab id, limits each
+  session (`edge.Limiter`), calls `hub.Behind(tab)` and answers 204; prom
+  exports `<ns>_live_newest_frame_behind_total` and
+  `<ns>_live_newest_frame_behind_streams_total`. Read those before
+  anything heavier. `data-newest-frame__reopen` also sets `$_slow` and
+  opens a slow stream of four frames a second for good: not the default,
+  since at CPU 6x it held the page to 4 frames a second, 0.37 s behind,
+  where no fix was 0.10 s. Pacing by the page is experimental: the
+  recipe is the hybrid in place, every stream with `Spec.Ack` and
+  `Spec.Release` and no `Window` (`Spec.ReleaseSlack` defaults to
+  `live.DefaultReleaseSlack`, 100 ms), the behind route also calling
+  `hub.Pace(id, 1)`, each acknowledgement carrying the page's round trip
+  from Resource Timing for `hub.RoundTrip` before `hub.Ack`, and both
+  routes keyed by a stream ID that names the session and rate limited
+  per session (performance.md, the streams guide).
 
 ## Tab state and preferences
 

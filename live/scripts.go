@@ -22,8 +22,8 @@ var Scripts embed.FS
 // github.com/mbolli/datastar-attribute-newest-frame, which has its source,
 // tests and documentation; VERSION next to it names the commit. A page
 // loads it as a module after Datastar, through an import map that maps
-// 'datastar' to Datastar's URL, and turns it on with
-// data-newest-frame__reopen on its <body>.
+// 'datastar' to Datastar's URL, and turns it on with data-newest-frame on
+// its <body>.
 //
 // It holds the patch events of the stream that the element #stream opened
 // (data-newest-frame:feed__reopen names another id), and passes them on to
@@ -46,9 +46,17 @@ var Scripts embed.FS
 // applies each view's newest frame instead and stays within about a
 // second. When more than half of the frames of the last 3 s were dropped,
 // at least 10, it dispatches newest-frame-behind on the stream's element,
-// and with __reopen it sets $_slow and opens the stream again from a copy
-// of its element. The page's stream sends Save-Data: on while $_slow is
-// true, so the handler's edge.SlowLink gives it a slow stream (Spec.Slow)
-// at the same URL, and Datastar aborts the old request. It asks once; a
-// page that measured a slow link as it started never asks.
+// again every 3 s while the page stays behind. A listener on <body>, never
+// on the stream's element, whose @post would abort the stream, can post it
+// to a route that calls Hub.Behind, which counts the pages that fall
+// behind.
+//
+// With data-newest-frame__reopen it also sets $_slow and opens the stream
+// again from a copy of its element. The page's stream sends Save-Data: on
+// while $_slow is true, so the handler's edge.SlowLink gives it a slow
+// stream (Spec.Slow) at the same URL, and Datastar aborts the old request.
+// It asks once; a page that measured a slow link as it started never asks.
+// It is not the default: the slow stream's four frames a second are fixed,
+// fewer than a page only somewhat slow applies without it, and the page
+// never switches back.
 const NewestFrame = "newest-frame.js"

@@ -24,23 +24,31 @@ The hub keeps a view's newest frame while two or more streams watch it, so that 
 const AckKey = "live.ack"
 ```
 
-AckKey is the key of the Frame that carries a stream's acknowledgement event (Spec.Ack) to WriteTick or Write.
+AckKey is the key of the Frame that carries a stream's acknowledgement event (Spec.Ack) to WriteTick or Write. Experimental, as Spec.Window.
 
 ```go
 const AckTimeout = 10 * time.Second
 ```
 
-AckTimeout is how long a stream with Spec.Window waits for an acknowledgement before it sends its next write anyway.
+AckTimeout is how long a stream with Spec.Window waits for an acknowledgement before it sends its next write anyway. Experimental, as Spec.Window.
+
+```go
+const DefaultReleaseSlack = 100 * time.Millisecond
+```
+
+DefaultReleaseSlack is Spec.ReleaseSlack when it is 0: a page that applies a frame within 100 ms of its round trip keeps up with ten frames a second. Experimental, as Spec.Window.
 
 ```go
 const NewestFrame = "newest-frame.js"
 ```
 
-NewestFrame names newest-frame.js in Scripts, a Datastar plugin that does in the page what the hub does for a stream: the newest frame of a view wins. lith vendors its build from github.com/mbolli/datastar-attribute-newest-frame, which has its source, tests and documentation; VERSION next to it names the commit. A page loads it as a module after Datastar, through an import map that maps 'datastar' to Datastar's URL, and turns it on with data-newest-frame\_\_reopen on its \<body>.
+NewestFrame names newest-frame.js in Scripts, a Datastar plugin that does in the page what the hub does for a stream: the newest frame of a view wins. lith vendors its build from github.com/mbolli/datastar-attribute-newest-frame, which has its source, tests and documentation; VERSION next to it names the commit. A page loads it as a module after Datastar, through an import map that maps 'datastar' to Datastar's URL, and turns it on with data-newest-frame on its \<body>.
 
 It holds the patch events of the stream that the element #stream opened (data-newest-frame:feed\_\_reopen names another id), and passes them on to Datastar once each chunk of the stream is parsed, or at the next animation frame when it passed some on less than a frame before, and no sooner after a batch than half the time that batch took to apply. Of the element patches in such a batch that replace the same elements wholly, only the newest is applied: mode outer or replace of elements that all have ids, or mode inner with an id selector, without a script or a view transition. Signal patches and every other patch keep their order and are never dropped. A page that keeps up applies every frame.
 
-A page whose main thread is too slow for its stream falls behind, and the hub cannot tell: the browser and the kernel hold minutes of frames, and the server's writes never wait. Chromium then hands the page 2 MiB of the stream at each read, and Datastar applies all of it in one task without a paint between. Firefox holds the frames in its parent process and hands the page one at a time while its main thread is free, which the pause after a long batch leaves time for. With the plugin the page applies each view's newest frame instead and stays within about a second. When more than half of the frames of the last 3 s were dropped, at least 10, it dispatches newest-frame-behind on the stream's element, and with \_\_reopen it sets $\_slow and opens the stream again from a copy of its element. The page's stream sends Save-Data: on while $\_slow is true, so the handler's edge.SlowLink gives it a slow stream (Spec.Slow) at the same URL, and Datastar aborts the old request. It asks once; a page that measured a slow link as it started never asks.
+A page whose main thread is too slow for its stream falls behind, and the hub cannot tell: the browser and the kernel hold minutes of frames, and the server's writes never wait. Chromium then hands the page 2 MiB of the stream at each read, and Datastar applies all of it in one task without a paint between. Firefox holds the frames in its parent process and hands the page one at a time while its main thread is free, which the pause after a long batch leaves time for. With the plugin the page applies each view's newest frame instead and stays within about a second. When more than half of the frames of the last 3 s were dropped, at least 10, it dispatches newest-frame-behind on the stream's element, again every 3 s while the page stays behind. A listener on \<body>, never on the stream's element, whose @post would abort the stream, can post it to a route that calls Hub.Behind, which counts the pages that fall behind.
+
+With data-newest-frame\_\_reopen it also sets $\_slow and opens the stream again from a copy of its element. The page's stream sends Save-Data: on while $\_slow is true, so the handler's edge.SlowLink gives it a slow stream (Spec.Slow) at the same URL, and Datastar aborts the old request. It asks once; a page that measured a slow link as it started never asks. It is not the default: the slow stream's four frames a second are fixed, fewer than a page only somewhat slow applies without it, and the page never switches back.
 
 ## Variables
 
@@ -158,6 +166,16 @@ Ack acknowledges the writes of the stream with the ID and token up to the nth (S
 
 With Spec.Release, it also notes whether a frame was waiting for the acknowledgement, and ends the pacing once none has for long enough.
 
+Ack is experimental, as Spec.Window. An app's route that calls it must check that the stream belongs to the request's session and limit how often a client may call it.
+
+#### func (*Hub) Behind {#Hub.Behind}
+
+```go
+func (h *Hub) Behind(id string) bool
+```
+
+Behind counts a report that the page of the open stream with the ID fell behind it, as newest-frame.js tells with newest-frame-behind, in Stats.Behind, and the stream's first report in Stats.BehindStreams. It counts one report per stream every 2 s at most, so a page that sends more cannot inflate the counts, and none for an ID with no open stream. It reports whether it counted.
+
 #### func (*Hub) Budget {#Hub.Budget}
 
 ```go
@@ -206,13 +224,15 @@ func (h *Hub) Pace(id string, window int) bool
 
 Pace sets the window of the open stream with the ID (Spec.Window): a positive window paces it by the page's acknowledgements from its next write on, and 0 sends every frame again. The stream needs Spec.Ack. It reports whether such a stream is open. A stream paced already keeps its window and its count towards Spec.Release.
 
+Pace is experimental, as Spec.Window. An app's route that calls it must check that the stream belongs to the request's session and limit how often a client may call it.
+
 #### func (*Hub) RoundTrip {#Hub.RoundTrip}
 
 ```go
 func (h *Hub) RoundTrip(id string, rtt time.Duration)
 ```
 
-RoundTrip notes a round trip the page of the open stream with the ID measured, such as from the Resource Timing of its last acknowledgement. The stream keeps the shortest (Spec.ReleaseSlack).
+RoundTrip notes a round trip the page of the open stream with the ID measured, such as from the Resource Timing of its last acknowledgement. The stream keeps the shortest (Spec.ReleaseSlack). Experimental, as Spec.Window.
 
 #### func (*Hub) Run {#Hub.Run}
 
@@ -378,6 +398,10 @@ type Spec struct {
 	// others keep up with renders for them, and the frames in between drop
 	// (Stats.FramesDropped). Heartbeats go out as before.
 	Slow bool
+	// Window, Ack, Release and ReleaseSlack pace a stream by its page.
+	// They are experimental: their names and behaviour may change in a
+	// minor release. newest-frame.js without pacing is the default.
+	//
 	// Window, if positive, paces the stream by the page: at most Window
 	// writes of frames go out that the page has not acknowledged with
 	// Hub.Ack. Each write of frames ends with the event Ack makes for it,
@@ -410,13 +434,15 @@ type Spec struct {
 	// a page at the edge of keeping up, paced again by Hub.Pace, does not
 	// switch back and forth every Release.
 	Release time.Duration
-	// ReleaseSlack, if positive, changes what Release counts as late once
-	// the page has reported its round trip (Hub.RoundTrip): an
-	// acknowledgement that came more than ReleaseSlack after the round
-	// trip, from the write it acknowledges, instead of one that came
-	// after the next frame was ready. A page on a link whose round trip
-	// is longer than a view's tick can then still be released once it
-	// applies its frames within ReleaseSlack.
+	// ReleaseSlack changes what Release counts as late once the page has
+	// reported its round trip (Hub.RoundTrip): an acknowledgement that
+	// came more than ReleaseSlack after the round trip, from the write it
+	// acknowledges, instead of one that came after the next frame was
+	// ready. A page on a link whose round trip is longer than a view's
+	// tick can then still be released once it applies its frames within
+	// ReleaseSlack. 0 takes DefaultReleaseSlack; a negative slack keeps
+	// the rule of the next frame even when the page reports its round
+	// trip. Until the page reports one, the rule of the next frame holds.
 	ReleaseSlack time.Duration
 }
 ```
@@ -435,12 +461,17 @@ type Stats struct {
 	// because every stream that watches it still had a frame of it waiting.
 	RendersDeferred int64
 	Overruns        int64 // ticks that took longer than Options.Tick
-	Acks            int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
-	Paces           int64 // streams that Hub.Pace started to pace
-	Releases        int64 // paced streams whose page kept up for Spec.Release
-	Streams         int
-	Views           int
-	ReadTxs         int64 // read transactions the render workers began
+	// Behind counts the reports, through Hub.Behind, that a stream's page
+	// fell behind it (newest-frame.js's newest-frame-behind), and
+	// BehindStreams the streams that reported at least once.
+	Behind        int64
+	BehindStreams int64
+	Acks          int64 // acknowledgements of streams with Spec.Window (Hub.Ack); experimental
+	Paces         int64 // streams that Hub.Pace started to pace; experimental
+	Releases      int64 // paced streams whose page kept up for Spec.Release; experimental
+	Streams       int
+	Views         int
+	ReadTxs       int64 // read transactions the render workers began
 	// RendersByKey counts the renders of each view watched now, by its
 	// key, since it was first watched.
 	RendersByKey map[string]int64

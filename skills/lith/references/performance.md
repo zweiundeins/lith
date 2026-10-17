@@ -160,21 +160,28 @@ the lag from times the page notes (the first version read the page only
 when its main thread was free, after 7 s tasks), it fell 27.15 s behind at
 the median and 50.0 s in 150 s, painting about every 7 s (2026-10-16,
 `bench/drift/RESULTS.md`). The start-up measurement sees the link, not
-the CPU; `newest-frame.js` (`live.NewestFrame`, `data-newest-frame__reopen`
-on body, vendored from github.com/mbolli/datastar-attribute-newest-frame)
+the CPU; `newest-frame.js` (`live.NewestFrame`, `data-newest-frame` on
+body, vendored from github.com/mbolli/datastar-attribute-newest-frame)
 sees the page's own lag: it applies each view's newest frame, waits after
 a batch half as long as the batch took, and after dropping over half the
-frames for 3 s sets `$_slow` and reopens the stream. The wait caps
+frames for 3 s dispatches `newest-frame-behind`, which the template posts
+to `/behind` for `Hub.Behind` (`<ns>_live_newest_frame_behind_total`):
+the way to learn whether real users fall behind. The wait caps
 applying frames at two thirds of the main thread, not the rendering that
 follows: at 15x the main thread stayed 97% busy, half morphing and half
 layout and paint, but painted every applied frame. Chromium hands a page
 that is behind 2 MiB per read (45 frames in one 7.2 s task, two paints in
 20 s); Firefox holds the backlog in its parent process, one frame per
-task, and never makes a write wait. With `__reopen`, at CPU 15x behind
-Caddy, the tab stayed 0.64 s behind at the median, 1.16 s at most, at 3.20
-KB/s; without `__reopen` 0.32 s at 7.09 KB/s (150 s, 3 runs); at 300 ms
-extra per frame, Chromium 154 and Firefox 158 switched after 2.8 s and
-stayed within 0.8 s (`TestNewestFrameSlowStream`, 2026-10-16). A frame's
+task, and never makes a write wait. At CPU 15x behind Caddy the tab
+stayed 0.32 s behind at the median at 7.09 KB/s (150 s, 3 runs); with
+`__reopen`, which also sets `$_slow` and reopens a slow stream of 4 frames
+a second, 0.64 s at 3.20 KB/s. `__reopen` is not the default: at 6x it
+held the page to 4.03 frames a second, 0.37 s behind, where no fix was
+0.10 s and the plain plugin 0.06 s, and it never switches back (a page
+slow for 60 s stayed at 4.02 frames a second, `bench/gaps/RESULTS.md`).
+At 300 ms extra per frame, Chromium 154 and Firefox 158 with `__reopen`
+switched after 2.8 s and stayed within 0.8 s (`TestNewestFrameSlowStream`,
+2026-10-16). A frame's
 cost to the page is mostly its elements and their layout and paint, not
 its bytes or the morph alone: at 15x the site's board costs about 440 ms
 a rendered frame, 130 of it the morph; 4,000 bare `<p>` halve the HTML
@@ -184,7 +191,8 @@ breaks at 15x, with merged colour runs at 50x. Frames sent as signal
 patches (a canvas) are out of the plugin's reach: only `__reopen` or
 pacing help (`bench/frame-cost/RESULTS.md`, 2026-10-17).
 
-Pacing by the page (streams guide, "Pacing a stream by the page"):
+Pacing by the page (streams guide, "Pacing a stream by the page") is
+experimental, and neither the template nor the site turns it on.
 `live.Spec.Window` sends at most W writes of frames the page has not
 acknowledged; each write ends with the event `Spec.Ack(token, n)` makes
 (on lith's site an `<i>` with `data-init` posting `/ack`, patched inner
@@ -195,7 +203,8 @@ anyway. A stream with `Spec.Ack` and no Window starts unpaced;
 `Hub.Pace(id, w)` paces it from its next write, which the page asks for
 from `data-on:newest-frame-behind` on `<body>` (never on the stream's
 element: its `@post` would cancel the stream's `@get`), with the plugin
-without `__reopen`. `Spec.Release` unpaces a page whose acknowledgements
+without `__reopen`: the documented recipe, the hybrid in place.
+`Spec.Release` unpaces a page whose acknowledgements
 all came before the next frame was ready for that long, doubling per
 release up to 8x. At W=1 it is long polling over the open stream: one
 frame per round trip, newest state only, nothing while the view is still.
@@ -206,14 +215,16 @@ Measured (2026-10-17, `bench/hybrid/RESULTS.md`): at CPU 15x paced from
 s later; 1,000 in-process streams with a tenth slow, 250 acks a second and
 186% of a core against 9,200 and 452% pacing every stream. `Release`
 alone never releases on a round trip of a tick or more; `Spec.ReleaseSlack`
-with `Hub.RoundTrip` (the page reports its round trip from Resource
-Timing) does, 5 to 6 s after the page is fast at 100 and 300 ms, and
+(`live.DefaultReleaseSlack`, 100 ms, unless set) with `Hub.RoundTrip`
+(the page reports its round trip from Resource Timing, always when
+paced) does, 5 to 6 s after the page is fast at 100 and 300 ms, and
 never released a page that stayed slow (`bench/gaps/RESULTS.md`). At 15x
 on a 300 ms link a paced page gets 1.45 frames a second, 0.60 s behind,
 where the plain plugin stays 0.47 s behind at 7 KB/s. Input at 15x: 118 to
 142 ms to the handler at the median with any fix, Event Timing p98 448 to
-480 ms; 3 s and 6.4 s without. `/ack` and `/pace` need a session check and
-a rate limit.
+480 ms; 3 s and 6.4 s without. `/ack` and `/pace` need a session check
+(a stream ID that names the session, built the same way in both routes)
+and a rate limit per session.
 
 ## Render loop
 

@@ -430,7 +430,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 26
       },
@@ -496,8 +496,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 8,
         "y": 26
       },
       "fieldConfig": {
@@ -535,6 +535,63 @@
           "refId": "B",
           "expr": "sum by (app) (rate({__name__=\"${ns}_live_read_txs_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} read transactions/s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "Pages behind their stream",
+      "description": "Reports a second from pages that fell behind their stream (newest-frame.js's newest-frame-behind, which the template posts to /behind for Hub.Behind), and streams a second whose page reported for the first time. A page that stays behind reports every 3 s. Zero while every page keeps up.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic-by-name"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_newest_frame_behind_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} reports",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_newest_frame_behind_streams_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} streams",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus-ds"

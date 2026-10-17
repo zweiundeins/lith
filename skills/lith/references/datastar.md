@@ -92,18 +92,24 @@ look there before changing the behaviour.
   holds them in its parent process and hands over one per task). Load
   `newest-frame.js` (`live.NewestFrame`, vendored from
   github.com/mbolli/datastar-attribute-newest-frame) after Datastar through
-  the import map and put `data-newest-frame__reopen` on `<body>`: it
-  applies each view's newest frame, waits after a batch half as long as the
-  batch took, and after dropping over half the frames for 3 s dispatches
-  `newest-frame-behind` and, with `__reopen`, sets `$_slow` and opens the
-  stream again, which sends `Save-Data: on` at the same URL. A new URL
-  would leave the old request open, its buffered frames still arriving.
+  the import map and put `data-newest-frame` on `<body>`: it applies each
+  view's newest frame, waits after a batch half as long as the batch took,
+  and after dropping over half the frames for 3 s dispatches
+  `newest-frame-behind` on the stream's element, again every 3 s while
+  behind. Listen for it on `<body>`, never on the stream's element (its
+  `@post` would abort the stream's `@get`): the template posts it to
+  `/behind`, which counts it (`live.Hub.Behind`). With `__reopen` the
+  plugin also sets `$_slow` and opens the stream again, which sends
+  `Save-Data: on` at the same URL, for a slow stream of four frames a
+  second for good; not the default, since a page only somewhat slow gets
+  fewer frames from it. A new URL would leave the old request open, its
+  buffered frames still arriving.
   A trace at CPU 15x: every read exactly 2,097,152 bytes, 45 frames, one
   7.2 s task, two paints in 20 s. Without `no-store` on the stream,
   Chromium routes it through its HTTP cache, two or three reads land in one
   task and the freeze grows to 14.6 s: keep `no-store`. The server can also
   pace the stream by the page's acknowledgements once the plugin reports
-  the page behind (streams guide). [lith]
+  the page behind, an experimental option (streams guide). [lith]
 - An action's response carries nothing the view needs: the outcome arrives on
   the tab's stream. Patching elements from an action fights the next frame,
   which overwrites them. Signals from an action are fine (validation
