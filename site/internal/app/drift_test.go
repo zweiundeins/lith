@@ -24,6 +24,8 @@ import (
 	"github.com/zweiundeins/lith/site/internal/app"
 	"github.com/zweiundeins/lith/site/internal/app/apptest"
 	"github.com/zweiundeins/lith/site/internal/browser"
+	"github.com/zweiundeins/lith/site/internal/demo"
+	"github.com/zweiundeins/lith/site/internal/demos"
 	"github.com/zweiundeins/lith/site/internal/demos/life"
 )
 
@@ -72,6 +74,10 @@ import (
 // (live.Spec.ReleaseSlack). LIFE_DRIFT_INPUT=1 presses Shift every 500 ms
 // in Chromium and reports how long each press took to reach the page's
 // handler, and Event Timing's keydown entries (inputMeter).
+// LIFE_DRIFT_RENDER renders the board's frames in another markup
+// (life.Markup: cells, lean, svg or canvas), and LIFE_DRIFT_STATS=off
+// leaves the counters out of them. LIFE_DRIFT_SHOT, a PNG file, is a
+// picture of the board at the end.
 //
 //	LIFE_DRIFT=10 CADDY=$(which caddy) LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifeDrift -v -timeout 30m
 func TestLifeDrift(t *testing.T) {
@@ -121,8 +127,26 @@ func TestLifeDrift(t *testing.T) {
 			phases = append(phases, ph)
 		}
 	}
+	markup := life.Markup{Board: os.Getenv("LIFE_DRIFT_RENDER"), NoStats: os.Getenv("LIFE_DRIFT_STATS") == "off"}
+	var served []demo.Demo
+	if markup.Board != "" || markup.NoStats {
+		if markup.Board == "" {
+			markup.Board = "cells"
+		}
+		d, err := markup.Demo()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, x := range demos.All {
+			if x.Slug == life.Slug {
+				x = d
+			}
+			served = append(served, x)
+		}
+	}
 	a, _ := apptest.Start(t, func(c *app.Config) {
 		c.AckWindow, c.AckAfterPaint, c.Hybrid, c.AckRelease, c.AckReleaseSlack = ackWindow, ackPaint, hybrid, release, slack
+		c.Demos = served
 	})
 	// The site again on a port of its own, behind a writer that times the
 	// stream's writes.
@@ -325,7 +349,7 @@ func TestLifeDrift(t *testing.T) {
 	lastSelf, lastCaddy := cpuTime(caddyPID)
 	cpu0, caddy0 := lastSelf, lastCaddy
 	var busies []float64
-	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v, hybrid %q release %v slack %v, then %v, input %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint, hybrid, release, slack, phases, keys != nil)
+	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v, hybrid %q release %v slack %v, then %v, input %v, markup %q without counters %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint, hybrid, release, slack, phases, keys != nil, markup.Board, markup.NoStats)
 	stopKeys := make(chan struct{})
 	if keys != nil {
 		go keys.press(p, stopKeys)
@@ -418,6 +442,9 @@ func TestLifeDrift(t *testing.T) {
 	}
 	close(stopKeys)
 	<-traced
+	if path := os.Getenv("LIFE_DRIFT_SHOT"); path != "" {
+		p.ShotElement(t, ".life__field", path, 2)
+	}
 	// How far behind the board the page was at every second, by the
 	// newest frame it had applied then.
 	lags, applieds, painteds := shown.grid(start, time.Now(), &board)
@@ -496,22 +523,28 @@ func mean(xs []float64) float64 {
 	return sum / float64(max(len(xs), 1))
 }
 
-// appliedLog runs before the page's scripts. Its listener on document,
+// lifeBoardFrame tells a patch event of the board's frame: an element
+// patch with the board, or with LIFE_DRIFT_RENDER=canvas the signal patch
+// of its cells.
+const lifeBoardFrame = `d => !!d && (d.type === 'datastar-patch-elements' && typeof (d.argsRaw || {}).elements === 'string' && d.argsRaw.elements.includes('id="life-board"') || d.type === 'datastar-patch-signals' && typeof (d.argsRaw || {}).signals === 'string' && d.argsRaw.signals.includes('"_lifeb"'))`
+
+// appliedLog runs before the page's scripts. The generation of a frame is
+// the board's data-gen where it has one, else the first counter. Its listener on document,
 // added after Datastar's, notes the time and the generation each board
 // frame shows once Datastar has applied it. In Chromium it logs them to
 // the console, whose messages DevTools sends as they come: a page that is
 // behind its stream may not run an evaluation for minutes.
 const appliedLog = `(() => {
   const log = window.__drift = []
-  const board = d => !!d && d.type === 'datastar-patch-elements' && typeof (d.argsRaw || {}).elements === 'string' && d.argsRaw.elements.includes('id="life-board"')
+  const board = ` + lifeBoardFrame + `
   let on = false, painting = false
   addEventListener('datastar-fetch', () => {
     if (on) return
     on = true
     document.addEventListener('datastar-fetch', e => {
       if (!board(e.detail)) return
-      const dd = document.querySelector('#life-stats dd')
-      const f = [performance.timeOrigin + performance.now(), dd ? dd.textContent : '']
+      const b = document.getElementById('life-board'), dd = document.querySelector('#life-stats dd')
+      const f = [performance.timeOrigin + performance.now(), b && b.dataset.gen ? b.dataset.gen : dd ? dd.textContent : '']
       if (window.__driftConsole) console.debug('lith-drift', f[0], f[1])
       else log.push(f)
       if (painting) return

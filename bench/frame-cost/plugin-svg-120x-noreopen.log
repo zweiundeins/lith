@@ -1,0 +1,20 @@
+# 2026-10-17T14:37:11+00:00 c45d60f  14:37:12 up 92 days,  3:09,  0 users,  load average: 2.76, 2.16, 1.98
+# LIFE_DRIFT=120 LIFE_DRIFT_FOR=60s LIFE_DRIFT_PLUGIN=noreopen LIFE_DRIFT_RENDER=svg CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 120x, https://127.0.0.1:38541, hint false, plugin "noreopen", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 0 after paint false, markup "svg" without counters false
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 66 | 63 | 3 | 0.3 | 3.0 | 0 | 134 | 124 | 2 (0) | 0, 0, 0, 0 | 98 |
+    drift_test.go:377: |   2 | 77 | 73 | 4 | 0.3 | 2.0 | 0 | 152 | 146 | 0 (0) | 0, 0, 0, 0 | 102 |
+    drift_test.go:377: |   3 | 86 | 82 | 4 | 0.4 | 2.0 | 0 | 168 | 167 | 0 (0) | 0, 0, 0, 0 | 96 |
+    drift_test.go:377: |  15 | 207 | 202 | 5 | 0.4 | 2.0 | 0 | 300 | 301 | 0 (0) | 0, 0, 0, 0 | 84 |
+    drift_test.go:377: |  30 | 356 | 352 | 4 | 0.4 | 2.0 | 0 | 488 | 491 | 0 (0) | 0, 0, 0, 0 | 98 |
+    drift_test.go:377: |  45 | 506 | 504 | 2 | 0.2 | 2.0 | 0 | 687 | 694 | 0 (0) | 0, 0, 0, 0 | 107 |
+    drift_test.go:377: |  60 | 656 | 654 | 2 | 0.2 | 2.0 | 0 | 923 | 926 | 0 (0) | 0, 0, 1, 0 | 105 |
+    drift_test.go:401: behind the board after 30 s: 0.4 s
+    drift_test.go:401: behind the board after 60 s: 0.2 s
+    drift_test.go:408: summary: lag median 0.29 s, max 0.60 s; applied 2.33 frames/s; main thread busy 99%; site CPU 1.8%, Caddy CPU 0.2%; lith wrote 15.41 KB/s; 605 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (72.80s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	72.830s
+# 2026-10-17T14:38:26+00:00  14:38:26 up 92 days,  3:10,  0 users,  load average: 1.60, 1.94, 1.92

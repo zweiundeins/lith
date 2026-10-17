@@ -1,0 +1,20 @@
+# 2026-10-17T09:31:44+00:00 0a915ee+dirty  09:31:44 up 91 days, 22:04,  0 users,  load average: 2.08, 1.87, 1.82
+# LIFE_DRIFT=4 LIFE_DRIFT_FOR=60s LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_RENDER=lean CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 4x, https://127.0.0.1:39453, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 0 after paint false, markup "lean" without counters false
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 15 | 13 | 2 | 0.1 | 16.0 | 0 | 55 | 55 | 1 (0) | 0, 0, 0, 0 | 107 |
+    drift_test.go:377: |   2 | 25 | 24 | 1 | 0.0 | 11.0 | 0 | 81 | 81 | 0 (0) | 0, 0, 0, 0 | 99 |
+    drift_test.go:377: |   3 | 35 | 34 | 1 | 0.0 | 10.0 | 0 | 102 | 100 | 0 (0) | 0, 0, 0, 0 | 95 |
+    drift_test.go:377: |  15 | 155 | 154 | 1 | 0.0 | 10.0 | 0 | 293 | 293 | 0 (0) | 0, 0, 0, 0 | 85 |
+    drift_test.go:377: |  30 | 305 | 304 | 1 | 0.0 | 10.0 | 0 | 560 | 562 | 0 (0) | 0, 0, 0, 0 | 79 |
+    drift_test.go:377: |  45 | 455 | 454 | 1 | 0.0 | 9.0 | 0 | 805 | 809 | 0 (0) | 0, 0, 0, 0 | 74 |
+    drift_test.go:377: |  60 | 605 | 604 | 1 | 0.0 | 10.0 | 0 | 1074 | 1078 | 0 (0) | 0, 0, 1, 0 | 82 |
+    drift_test.go:401: behind the board after 30 s: 0.0 s
+    drift_test.go:401: behind the board after 60 s: 0.0 s
+    drift_test.go:408: summary: lag median 0.02 s, max 0.13 s; applied 10.17 frames/s; main thread busy 89%; site CPU 2.1%, Caddy CPU 0.1%; lith wrote 17.89 KB/s; 604 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (61.56s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	61.593s
+# 2026-10-17T09:32:48+00:00  09:32:48 up 91 days, 22:05,  0 users,  load average: 3.19, 2.21, 1.94

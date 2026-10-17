@@ -1,0 +1,17 @@
+=== RUN   TestFrameAnatomy
+    markup_test.go:65: | markup | counters | event bytes | elements | attributes | zstd bytes |
+    markup_test.go:97: | cells | true | 46450 | 4077 | 4088 | 709 |
+    markup_test.go:97: | cells | false | 45368 | 4051 | 4054 | 685 |
+    markup_test.go:97: | lean | true | 20623 | 4027 | 961 | 1810 |
+    markup_test.go:97: | lean | false | 19526 | 4001 | 926 | 1777 |
+    markup_test.go:97: | svg | true | 8718 | 34 | 59 | 1357 |
+    markup_test.go:97: | svg | false | 7622 | 8 | 24 | 1336 |
+    markup_test.go:97: | canvas | true | 5217 | 26 | 35 | 870 |
+    markup_test.go:97: | canvas | false | 4072 | 0 | 0 | 834 |
+    markup_test.go:97: | term | true | 55963 | 1971 | 1959 | 4138 |
+    markup_test.go:97: | term | false | 54867 | 1945 | 1924 | 4092 |
+    markup_test.go:97: | termruns | true | 11863 | 360 | 348 | 3008 |
+    markup_test.go:97: | termruns | false | 10766 | 334 | 313 | 2979 |
+--- PASS: TestFrameAnatomy (10.23s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/demos/life	10.232s

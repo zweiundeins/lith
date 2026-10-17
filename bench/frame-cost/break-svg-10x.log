@@ -1,0 +1,20 @@
+# 2026-10-17T09:51:36+00:00 0a915ee+dirty  09:51:36 up 91 days, 22:23,  0 users,  load average: 2.22, 2.02, 1.95
+# LIFE_DRIFT=10 LIFE_DRIFT_FOR=60s LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_RENDER=svg CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 10x, https://127.0.0.1:41787, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 0 after paint false, markup "svg" without counters false
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 11 | 11 | 0 | 0.0 | 14.0 | 0 | 37 | 34 | 1 (0) | 0, 0, 0, 0 | 66 |
+    drift_test.go:377: |   2 | 21 | 21 | 0 | 0.0 | 10.0 | 0 | 58 | 56 | 0 (0) | 0, 0, 0, 0 | 64 |
+    drift_test.go:377: |   3 | 31 | 31 | 0 | 0.0 | 10.0 | 0 | 77 | 76 | 0 (0) | 0, 0, 0, 0 | 64 |
+    drift_test.go:377: |  15 | 151 | 151 | 0 | 0.0 | 10.0 | 0 | 221 | 222 | 0 (0) | 0, 0, 0, 0 | 60 |
+    drift_test.go:377: |  30 | 301 | 301 | 0 | 0.0 | 10.0 | 0 | 427 | 429 | 0 (0) | 0, 0, 0, 0 | 61 |
+    drift_test.go:377: |  45 | 451 | 451 | 0 | 0.0 | 10.0 | 0 | 650 | 653 | 0 (0) | 0, 0, 0, 0 | 62 |
+    drift_test.go:377: |  60 | 601 | 601 | 0 | 0.0 | 10.0 | 0 | 861 | 866 | 0 (0) | 0, 0, 0, 0 | 63 |
+    drift_test.go:401: behind the board after 30 s: 0.0 s
+    drift_test.go:401: behind the board after 60 s: 0.0 s
+    drift_test.go:408: summary: lag median 0.00 s, max 0.00 s; applied 10.12 frames/s; main thread busy 63%; site CPU 2.1%, Caddy CPU 0.1%; lith wrote 14.39 KB/s; 605 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (61.72s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	61.755s
+# 2026-10-17T09:52:41+00:00  09:52:41 up 91 days, 22:25,  0 users,  load average: 2.11, 2.01, 1.96

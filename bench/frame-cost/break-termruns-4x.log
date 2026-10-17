@@ -1,0 +1,20 @@
+# 2026-10-17T12:42:15+00:00 0a915ee+dirty  12:42:15 up 92 days,  1:14,  0 users,  load average: 2.46, 2.22, 2.25
+# LIFE_DRIFT=4 LIFE_DRIFT_FOR=60s LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_RENDER=termruns LIFE_DRIFT_STATS=off CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 4x, https://127.0.0.1:40459, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 0 after paint false, markup "termruns" without counters true
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 10 | 10 | 0 | 0.0 | 11.0 | 0 | 33 | 30 | 0 (0) | 0, 0, 0, 0 | 37 |
+    drift_test.go:377: |   2 | 20 | 20 | 0 | 0.0 | 10.0 | 0 | 63 | 60 | 0 (0) | 0, 0, 0, 0 | 35 |
+    drift_test.go:377: |   3 | 30 | 30 | 0 | 0.0 | 10.0 | 0 | 92 | 89 | 0 (0) | 0, 0, 0, 0 | 34 |
+    drift_test.go:377: |  15 | 150 | 150 | 0 | 0.0 | 10.0 | 0 | 450 | 448 | 0 (0) | 0, 0, 0, 0 | 36 |
+    drift_test.go:377: |  30 | 300 | 300 | 0 | 0.0 | 10.0 | 0 | 897 | 896 | 0 (0) | 0, 0, 0, 0 | 39 |
+    drift_test.go:377: |  45 | 450 | 450 | 0 | 0.0 | 10.0 | 0 | 1344 | 1345 | 0 (0) | 0, 0, 0, 0 | 40 |
+    drift_test.go:377: |  60 | 600 | 600 | 0 | 0.0 | 10.0 | 0 | 1791 | 1793 | 0 (0) | 0, 0, 0, 0 | 39 |
+    drift_test.go:401: behind the board after 30 s: 0.0 s
+    drift_test.go:401: behind the board after 60 s: 0.0 s
+    drift_test.go:408: summary: lag median 0.00 s, max 0.00 s; applied 10.02 frames/s; main thread busy 36%; site CPU 2.1%, Caddy CPU 0.2%; lith wrote 29.84 KB/s; 600 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (61.24s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	61.263s
+# 2026-10-17T12:43:19+00:00  12:43:19 up 92 days,  1:15,  0 users,  load average: 3.31, 2.48, 2.34

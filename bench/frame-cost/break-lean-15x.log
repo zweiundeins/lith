@@ -1,0 +1,20 @@
+# 2026-10-17T09:37:03+00:00 0a915ee+dirty  09:37:03 up 91 days, 22:09,  0 users,  load average: 2.15, 2.05, 1.94
+# LIFE_DRIFT=15 LIFE_DRIFT_FOR=60s LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_RENDER=lean CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 15x, https://127.0.0.1:35747, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 0 after paint false, markup "lean" without counters false
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 38 | 15 | 23 | 2.2 | 17.0 | 0 | 111 | 76 | 1 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:377: |   2 | 48 | 24 | 24 | 2.3 | 9.0 | 0 | 136 | 76 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:377: |   3 | 58 | 28 | 30 | 2.9 | 4.0 | 0 | 157 | 76 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:377: |  15 | 178 | 123 | 55 | 5.4 | 10.0 | 0 | 333 | 288 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:377: |  30 | 328 | 248 | 80 | 7.9 | 9.0 | 0 | 578 | 510 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:377: |  45 | 478 | 377 | 101 | 10.0 | 9.0 | 0 | 858 | 732 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:377: |  60 | 628 | 498 | 130 | 12.9 | 6.0 | 0 | 1132 | 930 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:401: behind the board after 30 s: 7.9 s
+    drift_test.go:401: behind the board after 60 s: 12.9 s
+    drift_test.go:408: summary: lag median 7.93 s, max 12.94 s; applied 8.40 frames/s; main thread busy 100%; site CPU 2.0%, Caddy CPU 0.2%; lith wrote 18.90 KB/s; 605 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (65.27s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	65.317s
+# 2026-10-17T09:38:10+00:00  09:38:10 up 91 days, 22:10,  0 users,  load average: 2.16, 2.11, 1.97

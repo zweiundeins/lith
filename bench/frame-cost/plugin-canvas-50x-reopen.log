@@ -1,0 +1,20 @@
+# 2026-10-17T12:41:04+00:00 0a915ee+dirty  12:41:04 up 92 days,  1:13,  0 users,  load average: 2.21, 2.15, 2.23
+# LIFE_DRIFT=50 LIFE_DRIFT_FOR=60s LIFE_DRIFT_PLUGIN=reopen LIFE_DRIFT_RENDER=canvas CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 50x, https://127.0.0.1:35157, hint false, plugin "reopen", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 0 after paint false, markup "canvas" without counters false
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 58 | 52 | 6 | 0.6 | 24.0 | 0 | 59 | 54 | 2 (0) | 0, 0, 0, 0 | 85 |
+    drift_test.go:377: |   2 | 68 | 62 | 6 | 0.6 | 4.0 | 0 | 63 | 61 | 0 (0) | 0, 0, 0, 0 | 64 |
+    drift_test.go:377: |   3 | 78 | 72 | 6 | 0.6 | 4.0 | 0 | 67 | 64 | 0 (0) | 0, 0, 0, 0 | 76 |
+    drift_test.go:377: |  15 | 198 | 192 | 6 | 0.6 | 4.0 | 0 | 106 | 105 | 0 (0) | 0, 0, 0, 0 | 75 |
+    drift_test.go:377: |  30 | 348 | 340 | 8 | 0.7 | 3.0 | 0 | 155 | 154 | 0 (0) | 0, 0, 0, 0 | 72 |
+    drift_test.go:377: |  45 | 498 | 493 | 5 | 0.5 | 5.0 | 0 | 207 | 206 | 0 (0) | 0, 0, 0, 0 | 68 |
+    drift_test.go:377: |  60 | 648 | 643 | 5 | 0.4 | 5.0 | 0 | 255 | 255 | 0 (0) | 0, 0, 0, 0 | 74 |
+    drift_test.go:401: behind the board after 30 s: 0.7 s
+    drift_test.go:401: behind the board after 60 s: 0.4 s
+    drift_test.go:408: summary: lag median 0.55 s, max 0.76 s; applied 4.33 frames/s; main thread busy 73%; site CPU 1.7%, Caddy CPU 0.0%; lith wrote 4.24 KB/s; 242 frames sent, 0 dropped, 601 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 2 stream requests; a slow stream (Save-Data) after 0.1 s
+--- PASS: TestLifeDrift (68.22s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	68.250s
+# 2026-10-17T12:42:15+00:00  12:42:15 up 92 days,  1:14,  0 users,  load average: 2.15, 2.16, 2.23

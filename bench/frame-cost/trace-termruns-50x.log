@@ -1,0 +1,20 @@
+# 2026-10-17T14:34:27+00:00 c45d60f  14:34:28 up 92 days,  3:06,  0 users,  load average: 1.43, 1.81, 1.86
+# LIFE_DRIFT=50 LIFE_DRIFT_RENDER=termruns LIFE_DRIFT_TRACE=1 LIFE_DRIFT_TRACE_AT=30s LIFE_DRIFT_TRACE_FOR=20s LIFE_DRIFT_FOR=55s LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_STATS=off CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 50x, https://127.0.0.1:35947, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "/develop/_lith/lith-frame-cost/bench/frame-cost/trace-termruns-50x.trace.json" at 30s for 20s, ack window 0 after paint false, markup "termruns" without counters true
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 41 | 23 | 18 | 1.7 | 24.0 | 0 | 125 | 95 | 1 (0) | 0, 0, 0, 0 | 101 |
+    drift_test.go:377: |   2 | 50 | 31 | 19 | 1.9 | 8.0 | 0 | 155 | 95 | 0 (0) | 0, 0, 3, 0 | 117 |
+    drift_test.go:377: |   3 | 60 | 39 | 21 | 2.1 | 8.0 | 0 | 184 | 161 | 0 (0) | 0, 0, 0, 0 | 82 |
+    drift_test.go:377: |  15 | 180 | 143 | 37 | 3.7 | 7.0 | 0 | 542 | 511 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:377: |  30 | 330 | 281 | 49 | 4.9 | 2.0 | 0 | 989 | 977 | 0 (0) | 0, 0, 0, 0 | 99 |
+    drift_test.go:328: trace started at 39.0 s
+    drift_test.go:377: |  45 | 480 | 419 | 61 | 6.1 | 11.0 | 0 | 1436 | 1342 | 0 (0) | 0, 0, 0, 0 | 100 |
+    drift_test.go:331: trace: /develop/_lith/lith-frame-cost/bench/frame-cost/trace-termruns-50x.trace.json, 13.1 MB, ended at 59.5 s
+    drift_test.go:401: behind the board after 30 s: 4.9 s
+    drift_test.go:408: summary: lag median 4.30 s, max 9.11 s; applied 8.98 frames/s; main thread busy 100%; site CPU 2.0%, Caddy CPU 0.1%; lith wrote 31.38 KB/s; 595 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (66.22s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	66.256s
+# 2026-10-17T14:35:37+00:00  14:35:37 up 92 days,  3:07,  0 users,  load average: 1.66, 1.85, 1.87
