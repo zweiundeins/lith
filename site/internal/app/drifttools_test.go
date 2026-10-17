@@ -165,7 +165,7 @@ const traceMarks = `(() => {
   let n = 0
   const tidy = () => { if (++n % 2000 === 0) { P.clearMarks(); P.clearMeasures() } }
   const patch = d => !!d && typeof d.type === 'string' && d.type.startsWith('datastar-patch')
-  const board = d => d.type === 'datastar-patch-elements' && typeof (d.argsRaw || {}).elements === 'string' && d.argsRaw.elements.includes('id="life-board"')
+  const board = ` + lifeBoardFrame + `
   const name = d => board(d) ? 'board' : d.type.slice(9)
   const read = ReadableStreamDefaultReader.prototype.read
   ReadableStreamDefaultReader.prototype.read = function () {
