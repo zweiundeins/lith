@@ -1,0 +1,33 @@
+# 2026-10-17T16:03:18+00:00 36bedff  16:03:18 up 92 days,  4:35,  0 users,  load average: 1.51, 1.66, 1.78
+# LIVE_HYBRID_LOAD=200,1000 LIVE_HYBRID_LOAD_HTTP=1 LIVE_HYBRID_LOAD_ROUNDS=3
+=== RUN   TestHybridLoad
+    hybridload_unix_test.go:62: GOMAXPROCS 20, slow share 0.10, acknowledgements over HTTP true
+    hybridload_unix_test.go:63: | Mode | Streams | CPU (% of a core) | Acks/s | Wire KB/s | Frames sent/s | Frames dropped/s | Renders/s | Renders deferred/s |
+    hybridload_unix_test.go:68: | plugin | 200 | 47.7 | 0 | 3375 | 1990 | 0 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | reopen | 200 | 48.4 | 0 | 3175 | 1871 | 119 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | ack | 200 | 94.2 | 1841 | 3117 | 1841 | 149 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | hybrid | 200 | 49.2 | 50 | 3124 | 1841 | 149 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | plugin | 200 | 49.8 | 0 | 3375 | 1990 | 0 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | reopen | 200 | 47.4 | 0 | 3175 | 1871 | 119 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | ack | 200 | 97.7 | 1841 | 3117 | 1841 | 149 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | hybrid | 200 | 48.7 | 50 | 3124 | 1841 | 149 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | plugin | 200 | 48.6 | 0 | 3375 | 1990 | 0 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | reopen | 200 | 46.1 | 0 | 3175 | 1871 | 119 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | ack | 200 | 97.4 | 1841 | 3117 | 1841 | 149 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | hybrid | 200 | 51.2 | 50 | 3124 | 1841 | 149 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | plugin | 1000 | 149.8 | 0 | 16876 | 9949 | 0 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | reopen | 1000 | 161.3 | 0 | 15849 | 9351 | 600 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | ack | 1000 | 438.8 | 9205 | 15520 | 9163 | 742 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | hybrid | 1000 | 155.6 | 250 | 15559 | 9205 | 745 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | plugin | 1000 | 155.1 | 0 | 16873 | 9948 | 0 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | reopen | 1000 | 144.4 | 0 | 15869 | 9351 | 595 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | ack | 1000 | 448.9 | 9205 | 15586 | 9205 | 745 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | hybrid | 1000 | 151.9 | 245 | 15617 | 9202 | 745 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | plugin | 1000 | 141.7 | 0 | 16876 | 9950 | 0 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | reopen | 1000 | 155.2 | 0 | 15841 | 9350 | 595 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | ack | 1000 | 422.1 | 9205 | 15586 | 9205 | 745 | 9.9 | 0.0 |
+    hybridload_unix_test.go:68: | hybrid | 1000 | 193.1 | 250 | 15618 | 9205 | 745 | 9.9 | 0.0 |
+--- PASS: TestHybridLoad (600.80s)
+PASS
+ok  	github.com/zweiundeins/lith/live	600.959s
+# 2026-10-17T16:13:21+00:00  16:13:21 up 92 days,  4:45,  0 users,  load average: 4.85, 3.11, 2.28
