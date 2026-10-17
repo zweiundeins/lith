@@ -18,7 +18,7 @@ import (
 var (
 	token     = flag.String("token", "license.token", "licence token file")
 	dir       = flag.String("dir", "/tmp/sdeval-db", "directory for database files")
-	pluginSet = flag.String("plugins", "all", "plugins to enable: all, none, history, reactors")
+	pluginSet = flag.String("plugins", "all", "plugins to enable: all (history and reactors), none, history, reactors")
 	second    = flag.Bool("second", false, "try a second open of the same file")
 )
 
@@ -56,7 +56,7 @@ func run() error {
 		return err
 	}
 	_ = os.Remove(path)
-	opts := stardust.Options{}
+	opts := stardust.Options{Plugins: sdx.DefaultPlugins()}
 	switch *pluginSet {
 	case "none":
 		opts.Plugins = map[string]any{}

@@ -31,7 +31,7 @@ var (
 	warmup    = flag.Duration("warmup", time.Second, "time before measuring")
 	duration  = flag.Duration("duration", 5*time.Second, "measured time")
 	maxBatch  = flag.Int("maxbatch", 512, "most commands per batch in batched mode")
-	plugins   = flag.String("plugins", "default", "default (all included) or none")
+	plugins   = flag.String("plugins", "default", "default (history and reactors) or none")
 	iters     = flag.Int("iters", 500, "iterations for read and sub")
 	subs      = flag.Int("subs", 200, "subscriptions for subscale")
 	gap       = flag.Duration("gap", 60*time.Millisecond, "pause between commits in sub and subscale")
@@ -96,7 +96,7 @@ func run() error {
 		return err
 	}
 	path := filepath.Join(*dir, fmt.Sprintf("sd-%s-%s-%d-%d.db", *bench, *mode, *producers, os.Getpid()))
-	opts := stardust.Options{CommitBatch: *batchWin}
+	opts := stardust.Options{CommitBatch: *batchWin, Plugins: sdx.DefaultPlugins()}
 	if *plugins == "none" {
 		opts.Plugins = map[string]any{}
 	}

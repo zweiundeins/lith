@@ -32,10 +32,10 @@ var (
 	duration  = flag.Duration("duration", 5*time.Second, "measured time")
 	iters     = flag.Int("iters", 100, "commits for the delay bench")
 	gap       = flag.Duration("gap", 60*time.Millisecond, "pause between commits in the delay bench")
-	pluginSet = flag.String("plugins", "default", "default (all included) or none")
+	pluginSet = flag.String("plugins", "default", "default (history and reactors) or none")
 	batchWin  = flag.Duration("commitbatch", 0, "Options.CommitBatch (0: library default, 20 ms)")
-	noSync    = flag.Bool("nosync", false, "delay bench: do not call ReactorsSync after each commit")
-	forceSync = flag.Bool("forcesync", false, "delay bench: call ReactorsSync after each commit even without live mutations")
+	noSync    = flag.Bool("nosync", false, "delay bench: do not call reactors.sync after each commit")
+	forceSync = flag.Bool("forcesync", false, "delay bench: call reactors.sync after each commit even without live mutations")
 )
 
 func main() {
@@ -63,7 +63,7 @@ func run() error {
 	}
 	path := filepath.Join(*dir, fmt.Sprintf("reactors-%s-%s-%d.db", *bench, *reactor, os.Getpid()))
 	defer os.Remove(path)
-	opts := stardust.Options{CommitBatch: *batchWin}
+	opts := stardust.Options{CommitBatch: *batchWin, Plugins: sdx.DefaultPlugins()}
 	if *pluginSet == "none" {
 		opts.Plugins = map[string]any{}
 	}
@@ -142,7 +142,7 @@ func install(b *board, which string) error {
 		}
 	}
 	if which != "none" {
-		return b.db.ReactorsSync(5 * time.Second)
+		return sdx.ReactorsSync(b.db, 5*time.Second)
 	}
 	return nil
 }
@@ -167,7 +167,7 @@ func query(b *board, text string) (string, error) {
 }
 
 func status(b *board) string {
-	s, err := b.db.ReactorsStatus()
+	s, err := b.db.Reactors().Status()
 	if err != nil {
 		return "status: " + err.Error()
 	}
@@ -208,7 +208,7 @@ func semantics(b *board) error {
 		return err
 	}
 	fmt.Printf("moved card 0 to lane 3 in tx %d\n", c.Transaction)
-	if err := b.db.ReactorsSync(5 * time.Second); err != nil {
+	if err := sdx.ReactorsSync(b.db, 5*time.Second); err != nil {
 		return err
 	}
 	if err := show("after one move:"); err != nil {
@@ -223,7 +223,7 @@ func semantics(b *board) error {
 	if _, err := stardust.MergePatchValue(b.db, patch, nil); err != nil {
 		return err
 	}
-	if err := b.db.ReactorsSync(5 * time.Second); err != nil {
+	if err := sdx.ReactorsSync(b.db, 5*time.Second); err != nil {
 		return err
 	}
 	return show("after emptying lane 0:")
@@ -351,7 +351,7 @@ func write(b *board) error {
 	}
 	lagStatus := status(b)
 	drainStart := time.Now()
-	syncErr := b.db.ReactorsSync(time.Minute)
+	syncErr := sdx.ReactorsSync(b.db, time.Minute)
 	drain := time.Since(drainStart)
 	secs := w.End.Sub(w.Start).Seconds()
 	cpu := time.Duration(ru1.Utime.Nano() + ru1.Stime.Nano() - ru0.Utime.Nano() - ru0.Stime.Nano())
@@ -427,7 +427,7 @@ func delay(b *board) error {
 			return err
 		}
 		if (*reactor != "none" || *forceSync) && !*noSync {
-			if err := b.db.ReactorsSync(2 * time.Second); err != nil {
+			if err := sdx.ReactorsSync(b.db, 2*time.Second); err != nil {
 				return fmt.Errorf("sync: %w", err)
 			}
 		}
@@ -488,7 +488,7 @@ func failure(b *board) error {
 	}
 	c, err := move(b, 0, 3, 1)
 	fmt.Printf("triggering move: tx %d status %d err %v\n", c.Transaction, c.Status, err)
-	err = b.db.ReactorsSync(3 * time.Second)
+	err = sdx.ReactorsSync(b.db, 3*time.Second)
 	var se *stardust.Error
 	if errors.As(err, &se) {
 		fmt.Printf("sync: status %d code %q\n", se.Status, se.Code)
@@ -507,7 +507,7 @@ func failure(b *board) error {
 	if err := define(b, "kanban/conflict-b", "priority 1"); err != nil {
 		return err
 	}
-	err = b.db.ReactorsSync(10 * time.Second)
+	err = sdx.ReactorsSync(b.db, 10*time.Second)
 	fmt.Printf("after raising conflict-b's priority: sync %v in %v\n", err, time.Since(start).Round(time.Millisecond))
 	fmt.Println("counts:", counts())
 	fmt.Println("status:", status(b))

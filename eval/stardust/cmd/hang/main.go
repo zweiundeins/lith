@@ -47,7 +47,7 @@ func main() {
 	path := filepath.Join(*dir, "hang.db")
 	_ = os.Remove(path)
 	fmt.Println("threads before open:", threads())
-	db, err := stardust.Open(path, stardust.Options{CommitBatch: *batch})
+	db, err := stardust.Open(path, stardust.Options{CommitBatch: *batch, Plugins: sdx.DefaultPlugins()})
 	if err != nil {
 		fmt.Println("open:", err)
 		os.Exit(1)

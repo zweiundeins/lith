@@ -23,6 +23,6 @@ require (
 	modernc.org/sqlite v1.60.1 // indirect
 )
 
-replace stardust => /tmp/stardust-release/stardust-alpha-2610112101-linux-amd64/abi/bindings/go
+replace stardust => /tmp/stardust-release/stardust-alpha-2610171653/abi/bindings/go
 
 replace github.com/zweiundeins/lith => ../..

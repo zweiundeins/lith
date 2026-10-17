@@ -10,9 +10,12 @@ raw results. It is a module of its own and not part of lith.
 ## Setup
 
 - The Go binding ships in Stardust's release archive, not on a module proxy.
-  Unpack `stardust-alpha-2610112101-linux-amd64.zip` to `/tmp/stardust-release`,
+  Unpack `stardust-alpha-2610171653.zip` to `/tmp/stardust-release`,
   or point the `replace stardust` line in `go.mod` at the unpacked
   `abi/bindings/go`.
+- Since alpha-2610171653 a nil `Options.Plugins` enables no plugins. The
+  commands pass `sdx.DefaultPlugins()`, history and reactors, which is what
+  the first alpha enabled and what the results in `runs/` were measured with.
 - Put the licence token in `license.token` here (it is git-ignored). Every
   command reads it from there, or from its `-token` flag.
 - Build with cgo: `go build -o bin/ ./cmd/...`.

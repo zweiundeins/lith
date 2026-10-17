@@ -19,7 +19,7 @@ func main() {
 	}
 	path := filepath.Join("/tmp/sdeval-db", fmt.Sprintf("txcheck-%d.db", os.Getpid()))
 	defer os.Remove(path)
-	db, err := stardust.Open(path, stardust.Options{})
+	db, err := stardust.Open(path, stardust.Options{Plugins: sdx.DefaultPlugins()})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

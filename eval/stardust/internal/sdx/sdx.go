@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"stardust"
 )
@@ -57,4 +58,20 @@ func Text(d *stardust.Document) string {
 		return "<" + err.Error() + ">"
 	}
 	return string(b)
+}
+
+// ReactorsSync waits up to maxWait for live mutations to process every earlier commit.
+func ReactorsSync(db *stardust.Database, maxWait time.Duration) error {
+	options, err := stardust.Encode(map[string]time.Duration{"maxWait": maxWait})
+	if err != nil {
+		return err
+	}
+	defer options.Close()
+	return db.Reactors().Sync(options)
+}
+
+// DefaultPlugins are the plugins the first alpha enabled when Options.Plugins was nil.
+// Since alpha-2610171653 nil enables none.
+func DefaultPlugins() map[string]any {
+	return map[string]any{"history": map[string]any{}, "reactors": map[string]any{}}
 }
