@@ -3,7 +3,8 @@
 // every heading with a link to it ({#id} after a heading sets its own),
 // code blocks highlighted by chroma into classes that the stylesheet
 // colours with the semantic code tokens (--lith-code-*), so one block
-// reads in both themes, and charts drawn as SVG from ```chart blocks.
+// reads in both themes, charts drawn as SVG from ```chart blocks, and
+// tables that rate approaches by case from ```matrix blocks.
 //
 // A code block's info string may carry title=<label> for its caption, or
 // source=<path>: a file of lith's repository that holds the listing, which
@@ -174,6 +175,14 @@ func (r *blockRenderer) code(w util.BufWriter, src []byte, node ast.Node, enteri
 			return ast.WalkStop, err
 		}
 		w.WriteString(c.HTML())
+		return ast.WalkSkipChildren, nil
+	}
+	if lang == "matrix" {
+		m, err := ParseMatrix(code.String())
+		if err != nil {
+			return ast.WalkStop, err
+		}
+		w.WriteString(m.HTML())
 		return ast.WalkSkipChildren, nil
 	}
 	if source != "" {

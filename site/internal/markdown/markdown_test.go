@@ -96,6 +96,39 @@ func TestChart(t *testing.T) {
 	}
 }
 
+func TestMatrix(t *testing.T) {
+	src := "```matrix\ntitle: Slow pages\nsource: bench/drift/RESULTS.md bench/hybrid/RESULTS.md\ncolumns: Fast link | Far link\nnote: One run each.\n---\nNo fix | poor: 27.15 s behind | good: 10.07 fps\n`__reopen` | fair: 0.62 s | not measured\n```\n"
+	d, err := markdown.Render([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<figure class="chart matrix">`,
+		`<a href="https://github.com/zweiundeins/lith/blob/main/bench/hybrid/RESULTS.md">bench/hybrid/RESULTS.md</a>`,
+		`<th scope="col">Far link</th>`,
+		`<tr><th scope="row">No fix</th><td class="matrix__cell matrix__cell--poor"><span class="matrix__state">Poor</span> <span class="matrix__text">27.15 s behind</span></td>`,
+		`<th scope="row"><code>__reopen</code></th>`,
+		`<td class="matrix__cell matrix__cell--none"><span class="matrix__text">Not measured</span></td>`,
+		`<p class="matrix__note">One run each.</p>`,
+	} {
+		if !strings.Contains(d.HTML, want) {
+			t.Errorf("no %s in\n%s", want, d.HTML)
+		}
+	}
+	for name, src := range map[string]string{
+		"no separator": "title: T\nsource: s\ncolumns: A\nX | good: 1\n",
+		"no source":    "title: T\ncolumns: A\n---\nX | good: 1\n",
+		"no columns":   "title: T\nsource: s\n---\nX | good: 1\n",
+		"bad state":    "title: T\nsource: s\ncolumns: A\n---\nX | great: 1\n",
+		"cells":        "title: T\nsource: s\ncolumns: A | B\n---\nX | good: 1\n",
+		"no rows":      "title: T\nsource: s\ncolumns: A\n---\n",
+	} {
+		if _, err := markdown.Render([]byte("```matrix\n" + src + "```\n")); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
 func TestNumber(t *testing.T) {
 	for in, want := range map[string]string{"526": "526", "34893": "34,893", "1234567": "1,234,567", "3312.0": "3,312.0", "0.640": "0.640", "-1500": "-1,500", "2^19": "2^19"} {
 		if got := markdown.Number(in); got != want {

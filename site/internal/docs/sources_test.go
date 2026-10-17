@@ -139,6 +139,49 @@ func TestChartNumbers(t *testing.T) {
 	}
 }
 
+// TestMatrixNumbers checks that every number in a matrix's cells appears
+// in one of the files its source names, its thousands separators aside,
+// so a cell holds only what was measured.
+func TestMatrixNumbers(t *testing.T) {
+	r := root(t)
+	matrices := 0
+	for path, text := range pages(t) {
+		for _, m := range fence.FindAllStringSubmatch(text, -1) {
+			if lang, _, _ := markdown.Info(m[1]); lang != "matrix" {
+				continue
+			}
+			matrices++
+			x, err := markdown.ParseMatrix(m[2])
+			if err != nil {
+				t.Errorf("%s: %v", path, err)
+				continue
+			}
+			set := map[string]bool{}
+			for _, source := range x.Sources {
+				b, err := os.ReadFile(filepath.Join(r, filepath.FromSlash(source)))
+				if err != nil {
+					t.Errorf("%s: matrix source %s: %v", path, source, err)
+				}
+				for _, d := range digits.FindAllString(string(b), -1) {
+					set[strings.ReplaceAll(d, ",", "")] = true
+				}
+			}
+			for _, row := range x.Rows {
+				for _, c := range row.Cells {
+					for _, d := range digits.FindAllString(c.Text, -1) {
+						if !set[strings.ReplaceAll(d, ",", "")] {
+							t.Errorf("%s: matrix %q, row %q: %s is in none of %v", path, x.Title, row.Name, d, x.Sources)
+						}
+					}
+				}
+			}
+		}
+	}
+	if matrices == 0 {
+		t.Error("no matrices")
+	}
+}
+
 // TestBackupExample vets the Litestream example, a module of its own so
 // that the site never pulls in Litestream: the site's go vet does not
 // reach it. It needs that module's dependencies, from the module cache or

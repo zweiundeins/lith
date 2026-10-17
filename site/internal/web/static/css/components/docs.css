@@ -510,6 +510,175 @@
 		min-inline-size: 0;
 	}
 
+	/* Matrices (```matrix blocks): a chart's figure around a table that
+	 * rates each approach by case. A cell says its state in words and
+	 * marks it with a bar and a tint in the state's colour; the table
+	 * scrolls sideways where the column is narrower than it. */
+	.matrix {
+		--_good: var(--lith-ok);
+		--_fair: light-dark(oklch(50% 0.1 85), oklch(82% 0.13 90));
+		--_poor: var(--lith-danger);
+	}
+
+	.matrix__scroll {
+		overflow-x: auto;
+		background:
+			linear-gradient(to right, var(--lith-surface-inset) 40%, transparent) left / 2.5rem 100% no-repeat local,
+			linear-gradient(to left, var(--lith-surface-inset) 40%, transparent) right / 2.5rem 100% no-repeat local,
+			linear-gradient(to right, var(--lith-border-strong), transparent) left / 0.75rem 100% no-repeat scroll,
+			linear-gradient(to left, var(--lith-border-strong), transparent) right / 0.75rem 100% no-repeat scroll;
+
+		&:focus-visible {
+			outline: 2px solid var(--lith-focus);
+			outline-offset: -2px;
+		}
+	}
+
+	/* .matrix doubles the class, to outrank the prose's rules for tables
+	 * (prose.css). */
+	.matrix .matrix__table {
+		display: table;
+		inline-size: 100%;
+		min-inline-size: 52rem;
+		margin: 0;
+		border-collapse: separate;
+		border-spacing: 3px;
+		padding: var(--lith-space-2);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+		line-height: 1.4;
+		font-variant-numeric: tabular-nums;
+
+		& :is(th, td) {
+			min-inline-size: 0;
+			padding: var(--lith-space-2);
+			border: 0;
+			vertical-align: top;
+		}
+
+		& thead th {
+			color: var(--lith-text-muted);
+			font-weight: 600;
+			white-space: normal;
+		}
+
+		/* The approach stays in sight while the cases scroll past it. */
+		& tbody th {
+			position: sticky;
+			inset-inline-start: 0;
+			z-index: 1;
+			inline-size: 9rem;
+			background: var(--lith-surface-inset);
+			color: var(--lith-text-1);
+			white-space: normal;
+		}
+
+		& code {
+			font-size: 1em;
+		}
+	}
+
+	.matrix__cell { --_c: var(--lith-border-strong); }
+
+	.matrix .matrix__table .matrix__cell {
+		border-inline-start: 3px solid var(--_c);
+		background: color-mix(in oklch, var(--_c) 10%, transparent);
+		color: var(--lith-text-2);
+	}
+
+	.matrix__cell--good { --_c: var(--_good); }
+	.matrix__cell--fair { --_c: var(--_fair); }
+	.matrix__cell--poor { --_c: var(--_poor); }
+
+	.matrix .matrix__table .matrix__cell--none {
+		border-inline-start-style: dashed;
+		background: none;
+		color: var(--lith-text-muted);
+	}
+
+	.matrix__state {
+		display: block;
+		color: var(--_c);
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+	}
+
+	.matrix .matrix__note {
+		margin: 0;
+		padding: 0 var(--lith-space-4) var(--lith-space-3);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+	}
+
+	/* Diagrams: inline SVG in a chart's figure, its text in the text
+	 * tokens and the stage where frames wait in the accent, so it reads in
+	 * both themes; the plot scrolls sideways in a narrow column. */
+	.diagram__plot svg {
+		min-inline-size: 52rem;
+	}
+
+	.diagram svg {
+		& text {
+			fill: var(--lith-text-2);
+			font-family: var(--lith-font-ui);
+			font-size: 12px;
+		}
+
+		& .diagram__name {
+			fill: var(--lith-text-1);
+			font-weight: 600;
+		}
+
+		& .diagram__stage rect,
+		& .diagram__fix rect {
+			fill: var(--lith-surface-1);
+			stroke: var(--lith-border-strong);
+		}
+
+		& .diagram__fix rect {
+			stroke-dasharray: 4 3;
+		}
+
+		& .diagram__stage--wait rect {
+			fill: var(--lith-accent-subtle);
+			stroke: var(--lith-accent-strong);
+			stroke-width: 2;
+		}
+
+		& .diagram__wait {
+			fill: var(--lith-accent-text);
+			font-weight: 600;
+		}
+
+		& :is(.diagram__flow, .diagram__back, .diagram__link) {
+			fill: none;
+			stroke: var(--lith-text-muted);
+			stroke-width: 1.5;
+		}
+
+		& .diagram__link {
+			stroke-dasharray: 3 3;
+		}
+
+		& .diagram__head {
+			fill: var(--lith-text-muted);
+		}
+
+		& .diagram__label {
+			fill: var(--lith-text-muted);
+		}
+	}
+
+	.diagram .diagram__note {
+		margin: 0;
+		padding: var(--lith-space-3) var(--lith-space-4);
+		color: var(--lith-text-muted);
+		font-family: var(--lith-font-ui);
+		font-size: var(--lith-text-xs);
+	}
+
 	@media (forced-colors: active) {
 		.chart__mark,
 		.chart__key {

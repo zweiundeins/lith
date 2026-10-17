@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,9 +13,10 @@ import (
 )
 
 // TestShotsDocs writes screenshots of the docs' sections, the guides, the
-// charts and the reference among them, on desktop and mobile, in both
-// themes; go tool task shots runs it with TestShots. A chart is checked
-// close up as well, since a picture of the whole page shrinks it.
+// charts, a matrix and the reference among them, on desktop and mobile,
+// in both themes; go tool task shots runs it with TestShots. Charts and
+// the matrix are checked close up as well, since a picture of the whole
+// page shrinks them.
 //
 //	LITH_SITE_SHOTS=/tmp/shots LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestShotsDocs
 func TestShotsDocs(t *testing.T) {
@@ -46,6 +48,8 @@ func TestShotsDocs(t *testing.T) {
 		{"mobile-docs-guide", "/docs/guides/views", 390, 844, false, ""},
 		{"mobile-docs-chart-light", "/docs/performance/encoders", 390, 844, true, light},
 		{"mobile-docs-reference", "/docs/reference/writer", 390, 844, false, ""},
+		{"docs-guide-streams-matrix", "/docs/guides/streams", 1440, 900, false, ""},
+		{"mobile-docs-guide-streams-matrix-light", "/docs/guides/streams", 390, 844, false, light},
 	} {
 		p := b.NewPage(t, s.w, s.h)
 		if s.full {
@@ -62,7 +66,7 @@ func TestShotsDocs(t *testing.T) {
 		if errs := p.Errors(); len(errs) > 0 {
 			t.Errorf("%s: %v", s.name, errs)
 		}
-		if s.name == "docs-performance-writer" || s.name == "docs-performance-budget-light" {
+		if strings.HasPrefix(s.name, "docs-performance-") || strings.Contains(s.name, "-matrix") {
 			var n int
 			p.Eval(t, `(() => { const cs = document.querySelectorAll('.chart'); cs.forEach((c, i) => c.id = 'chart-' + i); return cs.length })()`, &n)
 			for i := range n {
