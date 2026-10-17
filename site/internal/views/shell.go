@@ -58,6 +58,10 @@ type Shell struct {
 	// page that does not stream. The page opens it with the tab id Tab.
 	Stream string
 	Tab    string
+	// Pace, when set, is a URL the page posts to, with its tab id, each
+	// time newest-frame.js reports that it is behind, in place of opening
+	// a slow stream (data-newest-frame without __reopen).
+	Pace string
 	// Components are the Starbase components' bundles the page loads.
 	Components []Script
 	// JSONLD is the page's structured data, a schema.org @graph as JSON.
@@ -117,6 +121,12 @@ const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(
 // of "live", such as the town's "past" (empty: live).
 func pageSignals(tab string) string {
 	return "{_tab: " + jsString(tab) + ", _slow: " + slowLink + ", _badge: ''}"
+}
+
+// pace posts the tab's id to url, without cancelling another request of
+// the element.
+func pace(url string) string {
+	return "@post(" + jsString(url+"?tab=") + " + $_tab, {requestCancellation: 'disabled'})"
 }
 
 func jsString(s string) string {

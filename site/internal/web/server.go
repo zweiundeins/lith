@@ -15,6 +15,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/zweiundeins/lith/edge"
@@ -51,6 +52,14 @@ type Config struct {
 	// measurements (TestLifeDrift), not in production.
 	AckWindow     int
 	AckAfterPaint bool
+	// Hybrid paces a stream only once its page reports that it is behind
+	// (newest-frame-behind), with AckWindow: "reopen" paces a stream
+	// opened with Save-Data: on, which newest-frame.js's __reopen sends,
+	// in place of a slow stream; "inplace" has the page post /pace, and
+	// paces the stream it has open. AckRelease ends the pacing of a page
+	// that keeps up again (live.Spec.Release). For measurements.
+	Hybrid     string
+	AckRelease time.Duration
 }
 
 // Server holds what the handlers share.
@@ -138,6 +147,9 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /demos/{slug}/stream", s.demoStream)
 	if s.cfg.AckWindow > 0 {
 		mux.HandleFunc("POST /ack", s.ack)
+	}
+	if s.cfg.AckWindow > 0 && s.cfg.Hybrid == "inplace" {
+		mux.HandleFunc("POST /pace", s.pace)
 	}
 	mux.Handle("GET /static/", s.static)
 	mux.HandleFunc("GET /favicon.ico", s.file("image/png", iconPNG32))
@@ -283,6 +295,9 @@ func (s *Server) demoPage(w http.ResponseWriter, r *http.Request) {
 	sh := s.shell(r, d.Title, d.Summary, "/demos/"+d.Slug, "demos")
 	sh.JSONLD = s.graph(s.webPage("/demos/"+d.Slug, d.Title, d.Summary))
 	sh.Stream, sh.Tab = "/demos/"+d.Slug+"/stream", viewer.Tab
+	if s.cfg.AckWindow > 0 && s.cfg.Hybrid == "inplace" {
+		sh.Pace = "/pace"
+	}
 	sh.Components = s.components(d.Components...)
 	s.page(w, r, sh, func(ctx context.Context, tx *sql.Tx) (templ.Component, error) {
 		stage, err := d.Page.Render(ctx, tx, viewer)

@@ -59,7 +59,14 @@ import (
 // LIFE_DRIFT_ACK, a number of writes, paces the stream by the page's
 // acknowledgements instead (web.Config.AckWindow), which the page sends
 // once it has applied a write, or with LIFE_DRIFT_ACK_AFTER=paint after
-// the paint that follows.
+// the paint that follows. LIFE_DRIFT_HYBRID paces the stream only once
+// the page reports that it is behind (web.Config.Hybrid, with a window of
+// LIFE_DRIFT_ACK or 1): "reopen" when the page, as it ships, opens its
+// stream again with Save-Data: on, "inplace" when the page, with
+// newest-frame.js but without __reopen, posts /pace. LIFE_DRIFT_RELEASE,
+// such as 5s, ends the pacing of a page that keeps up again
+// (live.Spec.Release). LIFE_DRIFT_THEN, such as 1@60s or 1@60s,15@120s,
+// sets the CPU slowdown to 1 at 60 s into the run (and to 15 at 120 s).
 //
 //	LIFE_DRIFT=10 CADDY=$(which caddy) LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifeDrift -v -timeout 30m
 func TestLifeDrift(t *testing.T) {
@@ -89,7 +96,27 @@ func TestLifeDrift(t *testing.T) {
 
 	ackWindow, _ := strconv.Atoi(os.Getenv("LIFE_DRIFT_ACK"))
 	ackPaint := os.Getenv("LIFE_DRIFT_ACK_AFTER") == "paint"
-	a, _ := apptest.Start(t, func(c *app.Config) { c.AckWindow, c.AckAfterPaint = ackWindow, ackPaint })
+	hybrid := os.Getenv("LIFE_DRIFT_HYBRID")
+	if hybrid != "" && ackWindow == 0 {
+		ackWindow = 1
+	}
+	release, _ := time.ParseDuration(os.Getenv("LIFE_DRIFT_RELEASE"))
+	type phase struct {
+		rate float64
+		at   time.Duration
+	}
+	var phases []phase
+	for _, s := range strings.Split(os.Getenv("LIFE_DRIFT_THEN"), ",") {
+		if r, at, ok := strings.Cut(s, "@"); ok {
+			var ph phase
+			ph.rate, _ = strconv.ParseFloat(r, 64)
+			ph.at, _ = time.ParseDuration(at)
+			phases = append(phases, ph)
+		}
+	}
+	a, _ := apptest.Start(t, func(c *app.Config) {
+		c.AckWindow, c.AckAfterPaint, c.Hybrid, c.AckRelease = ackWindow, ackPaint, hybrid, release
+	})
 	// The site again on a port of its own, behind a writer that times the
 	// stream's writes.
 	wm := writeMeter{cache: os.Getenv("LIFE_DRIFT_CACHE")}
@@ -251,13 +278,14 @@ func TestLifeDrift(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer out.Close()
-		fmt.Fprintln(out, "t,board,page,lag_gen,lag_s,applied,dropped,sent,renders,wrote,received,write_ms,write_max_ms,site_sendq,proxy_recvq,proxy_sendq,browser_recvq,streams,busy_pct,site_cpu_ms,caddy_cpu_ms,requests,request_bytes,link_up,link_down,deferred")
+		fmt.Fprintln(out, "t,board,page,lag_gen,lag_s,applied,dropped,sent,renders,wrote,received,write_ms,write_max_ms,site_sendq,proxy_recvq,proxy_sendq,browser_recvq,streams,busy_pct,site_cpu_ms,caddy_cpu_ms,requests,request_bytes,link_up,link_down,deferred,acks,paces,releases")
 	}
 	start := time.Now()
 	h0 := a.Hub().Stats()
 	var lastApplied float64
 	var lastWrite writeStats
 	var lastBusy float64
+	lastHub := h0
 	busy := func() float64 {
 		if !chromium {
 			return 0
@@ -284,7 +312,19 @@ func TestLifeDrift(t *testing.T) {
 	lastSelf, lastCaddy := cpuTime(caddyPID)
 	cpu0, caddy0 := lastSelf, lastCaddy
 	var busies []float64
-	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint)
+	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v, hybrid %q release %v, then %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint, hybrid, release, phases)
+	if len(phases) > 0 {
+		go func() {
+			for _, ph := range phases {
+				time.Sleep(time.Until(start.Add(ph.at)))
+				if _, err := p.TryCall("Emulation.setCPUThrottlingRate", map[string]any{"rate": ph.rate}); err != nil {
+					t.Logf("CPU slowdown %gx: %v", ph.rate, err)
+					return
+				}
+				t.Logf("CPU slowdown %gx from %.1f s", ph.rate, time.Since(start).Seconds())
+			}
+		}()
+	}
 	t.Logf("| t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy %% |")
 	// The trace starts and ends on time, while the loop below may wait
 	// seconds for the page.
@@ -336,7 +376,12 @@ func TestLifeDrift(t *testing.T) {
 			up, down = link.up.Load(), link.down.Load()
 		}
 		busyPct := (bz - lastBusy) * 100 / dt
-		row = append(row, busyPct, float64(self-lastSelf)/1e6, float64(cad-lastCaddy)/1e6, reqs, reqBytes, up, down, h.RendersDeferred-h0.RendersDeferred)
+		row = append(row, busyPct, float64(self-lastSelf)/1e6, float64(cad-lastCaddy)/1e6, reqs, reqBytes, up, down, h.RendersDeferred-h0.RendersDeferred,
+			h.Acks-h0.Acks, h.Paces-h0.Paces, h.Releases-h0.Releases)
+		if h.Paces != lastHub.Paces || h.Releases != lastHub.Releases {
+			t.Logf("hub at %.0f s: %d paced, %d released", now.Seconds(), h.Paces-h0.Paces, h.Releases-h0.Releases)
+		}
+		lastHub = h
 		busies = append(busies, busyPct)
 		lastBusy, lastSelf, lastCaddy = bz, self, cad
 		lastApplied, lastWrite = float64(sn), ws
@@ -357,15 +402,15 @@ func TestLifeDrift(t *testing.T) {
 	<-traced
 	// How far behind the board the page was at every second, by the
 	// newest frame it had applied then.
-	lags, applieds := shown.grid(start, time.Now(), &board)
+	lags, applieds, painteds := shown.grid(start, time.Now(), &board)
 	if path := os.Getenv("LIFE_DRIFT_OUT"); path != "" {
 		f, err := os.Create(strings.TrimSuffix(path, ".csv") + ".lag.csv")
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Fprintln(f, "t,lag_s,applied")
+		fmt.Fprintln(f, "t,lag_s,applied,painted")
 		for i := range lags {
-			fmt.Fprintf(f, "%d,%.3f,%.0f\n", i+1, lags[i], applieds[i])
+			fmt.Fprintf(f, "%d,%.3f,%.0f,%.0f\n", i+1, lags[i], applieds[i], painteds[i])
 		}
 		f.Close()
 	}
@@ -377,8 +422,8 @@ func TestLifeDrift(t *testing.T) {
 		self, cad := cpuTime(caddyPID)
 		reqs, reqBytes := wm.requests.read()
 		h := a.Hub().Stats()
-		t.Logf("summary: lag median %.2f s, max %.2f s; applied %.2f frames/s; main thread busy %.0f%%; site CPU %.1f%%, Caddy CPU %.1f%%; lith wrote %.2f KB/s; %d frames sent, %d dropped, %d renders deferred; %.2f other requests/s, %.0f B each; %d acks",
-			median(lags), slices.Max(append(lags, 0)), mean(applieds), mean(busies), float64(self-cpu0)/1e9/secs*100, float64(cad-caddy0)/1e9/secs*100,
+		t.Logf("summary: lag median %.2f s, max %.2f s; applied %.2f frames/s, painted %.2f; main thread busy %.0f%%; site CPU %.1f%%, Caddy CPU %.1f%%; lith wrote %.2f KB/s; %d frames sent, %d dropped, %d renders deferred; %.2f other requests/s, %.0f B each; %d acks",
+			median(lags), slices.Max(append(lags, 0)), mean(applieds), mean(painteds), mean(busies), float64(self-cpu0)/1e9/secs*100, float64(cad-caddy0)/1e9/secs*100,
 			float64(wm.stats().bytes)/1000/secs, h.FramesSent-h0.FramesSent, h.FramesDropped-h0.FramesDropped, h.RendersDeferred-h0.RendersDeferred,
 			float64(reqs)/secs, float64(reqBytes)/float64(max(reqs, 1)), h.Acks-h0.Acks)
 		if link != nil {
@@ -392,6 +437,13 @@ func TestLifeDrift(t *testing.T) {
 		slowAfter = fmt.Sprintf("after %.1f s", ws.slowAt.Sub(start).Seconds())
 	}
 	t.Logf("stream: %s, %s; %d stream requests; a slow stream (Save-Data) %s", proto, coding, ws.streams, slowAfter)
+	if ps := wm.requests.paced(); len(ps) > 0 {
+		var at []string
+		for _, p := range ps {
+			at = append(at, fmt.Sprintf("%.1f", p.Sub(start).Seconds()))
+		}
+		t.Logf("the page posted /pace at %s s", strings.Join(at, ", "))
+	}
 	mu.Unlock()
 	if errs := p.Errors(); len(errs) > 0 {
 		t.Logf("the page: %v", errs)
@@ -422,7 +474,7 @@ func mean(xs []float64) float64 {
 const appliedLog = `(() => {
   const log = window.__drift = []
   const board = d => !!d && d.type === 'datastar-patch-elements' && typeof (d.argsRaw || {}).elements === 'string' && d.argsRaw.elements.includes('id="life-board"')
-  let on = false
+  let on = false, painting = false
   addEventListener('datastar-fetch', () => {
     if (on) return
     on = true
@@ -432,17 +484,28 @@ const appliedLog = `(() => {
       const f = [performance.timeOrigin + performance.now(), dd ? dd.textContent : '']
       if (window.__driftConsole) console.debug('lith-drift', f[0], f[1])
       else log.push(f)
+      if (painting) return
+      painting = true
+      requestAnimationFrame(() => {
+        painting = false
+        const p = [performance.timeOrigin + performance.now(), 'paint']
+        if (window.__driftConsole) console.debug('lith-drift', p[0], p[1])
+        else log.push(p)
+      })
     })
   }, true)
 })()`
 
-// appliedFrames are the board frames the page applied, with when.
+// appliedFrames are the board frames the page applied, with when, and
+// the rendering updates that followed one (the requestAnimationFrame
+// callback after a frame, which runs right before the paint).
 type appliedFrames struct {
-	mu   sync.Mutex
-	at   []time.Time
-	gens []int64
-	n    int   // frames applied
-	gen  int64 // the newest generation applied
+	mu     sync.Mutex
+	at     []time.Time
+	gens   []int64
+	paints []time.Time
+	n      int   // frames applied
+	gen    int64 // the newest generation applied
 }
 
 // follow takes the frames from the page's console (Chromium).
@@ -462,6 +525,12 @@ func (a *appliedFrames) follow(t *testing.T, p *browser.Page) {
 }
 
 func (a *appliedFrames) add(ms float64, s string) {
+	if s == "paint" {
+		a.mu.Lock()
+		a.paints = append(a.paints, time.UnixMicro(int64(ms*1000)))
+		a.mu.Unlock()
+		return
+	}
 	g, err := strconv.ParseInt(strings.ReplaceAll(s, ",", ""), 10, 64)
 	if err != nil {
 		return
@@ -488,7 +557,9 @@ func (a *appliedFrames) drain(t *testing.T, p *browser.Page) {
 		return
 	}
 	// Not splice: a reply that comes too late loses no frame.
-	n, _ := a.read()
+	a.mu.Lock()
+	n := a.n + len(a.paints)
+	a.mu.Unlock()
 	var got [][2]any
 	if err := p.TryEval(`window.__drift ? window.__drift.slice(`+strconv.Itoa(n)+`) : []`, &got); err != nil {
 		t.Logf("the page: %v", err)
@@ -503,25 +574,32 @@ func (a *appliedFrames) drain(t *testing.T, p *browser.Page) {
 
 // grid is, for every second from start to end, how long ago the board
 // passed the generation the page had applied last by then, and how many
-// frames it applied in that second.
-func (a *appliedFrames) grid(start, end time.Time, b *boardClock) (lags, applied []float64) {
+// frames it applied and painted in that second.
+func (a *appliedFrames) grid(start, end time.Time, b *boardClock) (lags, applied, painted []float64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	j := 0
+	j, k := 0, 0
+	for k < len(a.paints) && !a.paints[k].After(start) {
+		k++
+	}
 	g := int64(-1)
 	for T := start.Add(time.Second); !T.After(end); T = T.Add(time.Second) {
-		n := 0
+		n, m := 0, 0
 		for ; j < len(a.at) && !a.at[j].After(T); j++ {
 			g = a.gens[j]
 			n++
 		}
+		for ; k < len(a.paints) && !a.paints[k].After(T); k++ {
+			m++
+		}
+		painted = append(painted, float64(m))
 		lag := 0.0
 		if g >= 0 {
 			lag = b.sinceAt(g, T).Seconds()
 		}
 		lags, applied = append(lags, lag), append(applied, float64(n))
 	}
-	return lags, applied
+	return lags, applied, painted
 }
 
 // boardClock follows the board's generation.

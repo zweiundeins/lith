@@ -16,12 +16,26 @@ import (
 // newest-frame.js: each write of frames ends with an element whose
 // data-init posts /ack for it, once Datastar has applied the write, or
 // after the next paint with Config.AckAfterPaint.
+//
+// With Config.Hybrid, a stream starts unpaced: "reopen" paces a stream
+// that the page opened again with Save-Data: on once it fell behind, in
+// place of the slow stream it would get, and "inplace" paces the stream
+// the page has open once the page posts /pace.
 func (s *Server) paceByAcks(spec *live.Spec) {
 	if s.cfg.AckWindow <= 0 {
 		return
 	}
 	tab, paint := spec.ID, s.cfg.AckAfterPaint
-	spec.Window = s.cfg.AckWindow
+	switch s.cfg.Hybrid {
+	case "reopen":
+		if spec.Slow {
+			spec.Slow, spec.Window = false, s.cfg.AckWindow
+		}
+	case "inplace":
+	default:
+		spec.Window = s.cfg.AckWindow
+	}
+	spec.Release = s.cfg.AckRelease
 	spec.Ack = func(token string, n int64) []byte {
 		num := strconv.FormatInt(n, 10)
 		post := "@post('/ack?tab=" + tab + "&s=" + token + "&n=" + num + "', {requestCancellation: 'disabled'})"
@@ -42,5 +56,12 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.Ack(q.Get("tab"), q.Get("s"), n)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// pace paces the tab's stream once its page reports that it is behind
+// (Config.Hybrid "inplace", live.Hub.Pace).
+func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
+	s.hub.Pace(r.URL.Query().Get("tab"), s.cfg.AckWindow)
 	w.WriteHeader(http.StatusNoContent)
 }

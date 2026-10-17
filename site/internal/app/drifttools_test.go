@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	goruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -174,6 +175,7 @@ const traceMarks = `(() => {
       return r
     })
   }
+  document.addEventListener('newest-frame-behind', () => P.mark('lith:behind'))
   const seen = new WeakSet() // newest-frame.js dispatches the events it applies again
   addEventListener('datastar-fetch', e => {
     if (!patch(e.detail) || seen.has(e.detail)) return
@@ -317,6 +319,7 @@ type requestMeter struct {
 	mu    sync.Mutex
 	n     int64
 	bytes int64
+	paces []time.Time // when a page posted /pace
 }
 
 func (m *requestMeter) add(r *http.Request) {
@@ -332,7 +335,16 @@ func (m *requestMeter) add(r *http.Request) {
 	m.mu.Lock()
 	m.n++
 	m.bytes += n
+	if r.URL.Path == "/pace" {
+		m.paces = append(m.paces, time.Now())
+	}
 	m.mu.Unlock()
+}
+
+func (m *requestMeter) paced() []time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.paces)
 }
 
 func (m *requestMeter) read() (int64, int64) {

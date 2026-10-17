@@ -53,10 +53,13 @@ type Config struct {
 	Log         *slog.Logger
 	// Demos are the demos to serve; nil serves demos.All.
 	Demos []demo.Demo
-	// AckWindow and AckAfterPaint pace the demos' streams by the pages'
-	// acknowledgements (web.Config), for measurements.
+	// AckWindow, AckAfterPaint, Hybrid and AckRelease pace the demos'
+	// streams by the pages' acknowledgements (web.Config), for
+	// measurements.
 	AckWindow     int
 	AckAfterPaint bool
+	Hybrid        string
+	AckRelease    time.Duration
 }
 
 // App is the running site.
@@ -147,7 +150,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	if err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	site, err := web.New(web.Config{Base: cfg.Base, Repo: cfg.Repo, Version: cfg.Version, Dev: cfg.Dev, AckWindow: cfg.AckWindow, AckAfterPaint: cfg.AckAfterPaint}, db, w, hub, cfg.Log, cfg.Demos)
+	site, err := web.New(web.Config{Base: cfg.Base, Repo: cfg.Repo, Version: cfg.Version, Dev: cfg.Dev, AckWindow: cfg.AckWindow, AckAfterPaint: cfg.AckAfterPaint, Hybrid: cfg.Hybrid, AckRelease: cfg.AckRelease}, db, w, hub, cfg.Log, cfg.Demos)
 	if err != nil {
 		return nil, errors.Join(err, w.Close(), db.Close())
 	}
