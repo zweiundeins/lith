@@ -102,9 +102,7 @@ An encoder's heap, 0.4 MiB and more per stream, buys little when the events are 
 
 A phone pays for each frame twice: its bytes on the wire, and the work of its main thread to apply it. A stream that knows its client is slow takes fewer frames.
 
-What a frame costs the main thread depends mostly on how many elements Datastar morphs, not on the frame's bytes. This is still being measured, and the numbers will follow here.
-
-<!-- TODO: the frame-cost measurements (elements morphed against bytes) go here. -->
+What a frame costs the page is mostly the number of its elements and their layout and paint, not its bytes, and not the morph alone. Measured on 2026-10-17 on the development machine with `TestLifeDrift` in headless Chromium 154 behind Caddy with HTTP/2 (`bench/frame-cost/RESULTS.md`): at 15 times CPU the site's Game of Life frame costs about 440 ms of the main thread when it is rendered, of which the morph is 130 ms; layout (94.4 ms), painting 4,000 gradient backgrounds (80.9 ms), the population sparkline (50.2 ms) and Datastar's MutationObserver (32.9 ms) take most of the rest. The board drawn with the least markup, 4,000 `<p>` without rows or ids, halves the HTML (20,623 bytes against 46,450) but keeps the 4,000 elements, sends 1,810 bytes a frame on the wire against 709, and is already behind at 12 times, where the site's breaks at 10. The board as one `<svg>` with a path per colour, 34 elements, keeps up without any fix at 15 times (lag 0.00 s, three runs of 150 s) and applies every frame up to 120 times. A terminal of 80 by 24 with one span per character, every cell new in every frame, breaks at 15 times; with one span per run of the same colours, at 50 times; where either breaks, `newest-frame.js` with `__reopen` and pacing by the page both bring it back within a second. A frame sent as a signal patch, such as the board drawn into a `<canvas>` by a `data-effect`, is out of `newest-frame.js`'s reach, since the plugin never drops a signal patch: only `__reopen` or pacing help such a page.
 
 **What the page measures as it starts.** The page measures its link once, as it starts, into a local signal, and its stream's request sends `Save-Data: on` when the link is slow; the stream's URL and the page's own stay as they are. Where the browser has `navigator.connection` (Chromium), the link is slow when the user asked to save data or the browser calls it 2g or 3g. Firefox and Safari have no such API, and there Navigation Timing tells: the document's first byte more than 300 ms after its request, or the document coming at under 100 KB/s. The thresholds sit just past where `navigator.connection` turns from 4g to 3g, a round trip of 270 ms or 700 kbit/s. The template's page puts the measurement in its `data-signals` as `_slow`, and its stream's element reads it:
 
@@ -250,24 +248,38 @@ Measured on 2026-10-16 on the development machine with the plugin in this site's
 
 ## Pacing a stream by the page
 
-`newest-frame.js` drops frames in the page: the server still sends every frame, and the page throws away those it cannot apply. With `__reopen` the page then moves to a slow stream of about four frames a second, whatever it could manage. A stream can also be paced by the page itself: the server sends the next frame only once the page says it has applied the last, so a slow page gets only the frames it applies. `live` has this as an option of `Spec`. This site has the wiring for it behind switches of `web.Config` (`AckWindow`, `AckAfterPaint`, `Hybrid`, `AckRelease`) that only its tests turn on; the site as it runs serves its pages with `__reopen`, as above.
+`newest-frame.js` drops frames in the page: the server still sends every frame, and the page throws away those it cannot apply. With `__reopen` the page then moves to a slow stream of about four frames a second, whatever it could manage. A stream can also be paced by the page itself: the server sends the next frame only once the page says it has applied the last, so a slow page gets only the frames it applies. `live` has this as an option of `Spec`. This site has the wiring for it behind switches of `web.Config` (`AckWindow`, `AckAfterPaint`, `Hybrid`, `AckRelease`, `AckReleaseSlack`) that only its tests turn on; the site as it runs serves its pages with `__reopen`, as above.
 
 What each approach gets, measured with `TestLifeDrift` and `TestHybridLoad` (details under [Measured](#measured)):
 
-<!-- TODO: fill the "Leaner frames" row once the frame-cost measurements are in. -->
-
 ```matrix
 title: A page too slow for its stream: what each approach gets
-source: bench/drift/RESULTS.md bench/hybrid/RESULTS.md
+source: bench/drift/RESULTS.md bench/hybrid/RESULTS.md bench/gaps/RESULTS.md bench/frame-cost/RESULTS.md
 columns: Slow phone, fast link: lag median, KB/s sent | Fast phone, 300 ms round trip: frames a second | Slow for 60 s, then fast: does it recover | 1,000 viewers, a tenth slow: requests a second, CPU | What it needs in the page and on the server
-note: The Game of Life (10 frames a second) in headless Chromium 154, behind Caddy over HTTP/2. Slow phone: CPU slowed 15 times, 150 s, median of three runs; no fix on 2026-10-16, the others on 2026-10-17. Round trip and recovery: one run each. 1,000 viewers: TestHybridLoad in one process without browsers, acknowledgements over HTTP, CPU in percent of one core. Good, fair and poor compare the approaches within a column.
+note: The Game of Life (10 frames a second) in headless Chromium 154, behind Caddy over HTTP/2, three runs each, the median. Slow phone: CPU slowed 15 times, 150 s; no fix on 2026-10-16, the others on 2026-10-17. Round trip: no CPU throttling, 90 s. Recovery: 15 times for 60 s, then not at all. 1,000 viewers: TestHybridLoad in one process without browsers, acknowledgements over HTTP, CPU in percent of one core. Leaner frames: the board as one SVG with a path per colour (bench/frame-cost). Good, fair and poor compare the approaches within a column.
 ---
-No fix | poor: 27.15 s behind, 7.19 KB/s | good: 10.07 | not measured | not measured | good: nothing
-`newest-frame.js` | fair: 0.28 s behind, but 7.01 KB/s | not measured | not measured | good: no requests, 199% | good: the plugin in the page
-`newest-frame.js` with `__reopen` | fair: 0.62 s behind, 3.36 KB/s | good: 10.07 | poor: no, it stays on the slow stream at 4.00 frames a second | not measured | good: the plugin, `Save-Data` on the stream's request, `Spec.Slow` from `edge.SlowLink`
-Ack pacing for every stream, W=1, after paint | good: 0.31 s behind, 1.93 KB/s | poor: 2.82 | not measured | poor: 9,200 requests, 452% | fair: nothing in the page beyond Datastar; `Spec.Window`, `Spec.Ack` and an `/ack` route
-Hybrid, in place | good: 0.34 s behind, 2.19 KB/s | good: 10.07, never paced | good: yes, released 5 to 6 s later, then 10.03 frames a second | good: 250 requests, 186% | fair: the plugin without `__reopen` and a listener on `<body>`; `Spec.Ack`, `Spec.Release`, `/ack` and `/pace` routes
-Leaner frames | measuring | measuring | measuring | measuring | measuring
+No fix | poor: 27.15 s behind, 7.19 KB/s | good: 10.07 | fair: yes, 7 s after the speed-up, from 20.88 s behind | good: no requests, 150%, the same server path as the plugin's | good: nothing
+`newest-frame.js` | fair: 0.28 s behind, but 7.01 KB/s | good: 10.07 | good: yes, at once, then 10.03 frames a second | good: no requests, 150% | good: the plugin in the page
+`newest-frame.js` with `__reopen` | fair: 0.62 s behind, 3.36 KB/s | good: 10.07 | poor: no, it stays on the slow stream at 4.02 frames a second | good: no requests, 155% | good: the plugin, `Save-Data` on the stream's request, `Spec.Slow` from `edge.SlowLink`
+Ack pacing for every stream, W=1, after paint | good: 0.31 s behind, 1.93 KB/s | poor: 2.83 | fair: yes, at once, but with 10.07 acknowledgements a second from then on | poor: 9,205 requests, 439% | fair: nothing in the page beyond Datastar; `Spec.Window`, `Spec.Ack` and an `/ack` route
+Hybrid, in place | good: 0.34 s behind, 2.19 KB/s | good: 10.07, never paced | good: yes, released at 66 s in all three runs, then 10.05 frames a second | good: 250 requests, 156% | fair: the plugin without `__reopen` and a listener on `<body>`; `Spec.Ack`, `Spec.Release`, `/ack` and `/pace` routes
+Leaner frames | good: 0.00 s behind, 1,304 B a frame, about 13 KB/s | not measured | not measured | not measured | fair: different markup, only where the view allows it
+```
+
+A slow phone pays in input too, and a far link makes it worse for the paced approaches:
+
+```matrix
+title: A slow phone: input, and a far link on top
+source: bench/gaps/RESULTS.md
+columns: Key press at 15 times: to the handler, median; Event Timing p98 | Slow phone, 300 ms round trip: lag median, frames a second, KB/s | Paced, then fast, 300 ms round trip: frames a second after
+note: The Game of Life in headless Chromium 154, behind Caddy over HTTP/2, CPU slowed 15 times, three runs each, 2026-10-17. Key press: Shift every 500 ms through DevTools, 150 s, all presses of three runs; Event Timing p98 counts presses without an entry as under 16 ms, and INP calls 200 to 500 ms "needs improvement". Far link: the delaying proxy, 150 s. Paced, then fast: 15 times for 60 s, then not at all.
+---
+No fix | poor: 2,970 ms; 6,368 ms | poor: 26.11 s behind, 7.13, 7.09 KB/s | not measured
+`newest-frame.js` | fair: 142 ms; 480 ms | good: 0.47 s behind, 2.74, but 6.91 KB/s | not measured
+`newest-frame.js` with `__reopen` | fair: 132 ms; 448 ms | fair: 0.80 s behind, 2.84, 3.30 KB/s | not measured
+Ack pacing for every stream, W=1, after paint | fair: 118 ms; 448 ms | fair: 0.55 s behind, 1.45, 1.21 KB/s | poor: 2.83, paced for good, as at 300 ms without throttling
+Hybrid, in place | fair: 118 ms; 464 ms | fair: 0.60 s behind, 1.45, 1.48 KB/s | poor: 2.82, never released
+Hybrid, in place, release against the round trip the page reports | not measured | fair: 0.64 s behind, 1.43, 1.45 KB/s | good: 9.37, released 5 to 6 s after the speed-up
 ```
 
 ### The window
@@ -279,10 +291,14 @@ While the window is full, the stream's frames wait in its one slot per view, and
 On this site the event is an element patched into the stream's element, whose `data-init` posts the acknowledgement, and two routes take the posts:
 
 ```go source=site/internal/web/ack.go
-	spec.Release = s.cfg.AckRelease
+	spec.Release, spec.ReleaseSlack = s.cfg.AckRelease, s.cfg.AckReleaseSlack
 	spec.Ack = func(token string, n int64) []byte {
 		num := strconv.FormatInt(n, 10)
-		post := "@post('/ack?tab=" + tab + "&s=" + token + "&n=" + num + "', {requestCancellation: 'disabled'})"
+		url := "'/ack?tab=" + tab + "&s=" + token + "&n=" + num + "'"
+		if s.cfg.AckReleaseSlack > 0 {
+			url += " + '&rtt=' + " + lastRoundTrip
+		}
+		post := "@post(" + url + ", {requestCancellation: 'disabled'})"
 		if paint {
 			post = "requestAnimationFrame(() => setTimeout(() => " + post + "))"
 		}
@@ -291,7 +307,13 @@ On this site the event is an element patched into the stream's element, whose `d
 	}
 }
 
-// ack takes a page's acknowledgement of its stream's writes (live.Hub.Ack).
+// lastRoundTrip is the round trip of the page's last /ack or /pace in ms,
+// from its Resource Timing, or 0. It clears the entries, so that the
+// buffer of 250 never fills with acknowledgements.
+const lastRoundTrip = `((x) => (performance.clearResourceTimings(), x ? Math.round(x.responseStart - x.requestStart) : 0))(performance.getEntriesByType('resource').findLast(r => r.name.includes('/ack?') || r.name.includes('/pace?')))`
+
+// ack takes a page's acknowledgement of its stream's writes (live.Hub.Ack),
+// and the round trip it reports (live.Hub.RoundTrip).
 func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
@@ -299,14 +321,10 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad ack", http.StatusBadRequest)
 		return
 	}
+	if ms, err := strconv.Atoi(q.Get("rtt")); err == nil && ms > 0 {
+		s.hub.RoundTrip(q.Get("tab"), time.Duration(ms)*time.Millisecond)
+	}
 	s.hub.Ack(q.Get("tab"), q.Get("s"), n)
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// pace paces the tab's stream once its page reports that it is behind
-// (Config.Hybrid "inplace", live.Hub.Pace).
-func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
-	s.hub.Pace(r.URL.Query().Get("tab"), s.cfg.AckWindow)
 	w.WriteHeader(http.StatusNoContent)
 }
 ```
@@ -347,7 +365,9 @@ The plugin dispatches the event on the stream's element, and it bubbles up to `<
 
 `Spec.Release` ends the pacing of a page that keeps up again. At each acknowledgement the hub notes whether a frame was already waiting for it to go out. Once no acknowledgement has come late for `Release` since the pacing began, the stream sets its window to 0 and sends every frame again (`Stats.Releases`). The page goes on watching, and if it falls behind again, the plugin reports and the page posts `/pace` again.
 
-Each release of the same stream doubles the time for the next, up to eight times `Release`: with the 5 s the measurements used, 5, 10, 20 and then 40 s, so a page that switches back and forth does so at most once per 40 s. The two rules also leave a wide gap between them. Pacing starts for a page that applies fewer than about half of the frames, and ends for one whose every acknowledgement comes before the next frame is ready, that is, one that applies all of them; a page in between stays as it is. In `TestLifeDrift` at 2 to 6 times CPU, one run each, no page switched back and forth: up to 5 times it was never paced, and at 6 times it was paced after 2.5 s and stayed paced at 6.5 frames a second.
+Each release of the same stream doubles the time for the next, up to eight times `Release`: with the 5 s the measurements used, 5, 10, 20 and then 40 s, so a page that switches back and forth does so at most once per 40 s. The two rules also leave a wide gap between them. Pacing starts for a page that applies fewer than about half of the frames, and ends for one whose every acknowledgement comes before the next frame is ready, that is, one that applies all of them; a page in between stays as it is. In `TestLifeDrift` from 2 to 15 times CPU no page switched back and forth: up to 5 times it was never paced, and from 6 times on it was paced 2.1 to 2.5 s in and stayed paced, at 6.71 frames a second at 6 times and 4.79 at 8 times (three runs each).
+
+An acknowledgement takes at least a round trip, and by then the hub has the next frame ready whenever the round trip is a tick of the view or longer (100 ms for the Game of Life). On such a link the rule above never releases: a page that fell behind once stays paced at about one frame per round trip, 2.82 a second at 300 ms, even after it is fast again. `Spec.ReleaseSlack` measures against the round trip instead: once the page has reported it with `Hub.RoundTrip(id, rtt)`, an acknowledgement is late only if it came more than `ReleaseSlack` after the round trip, counted from the write it acknowledges. On this site the page takes the round trip from the Resource Timing of its last `/ack` (from sending the request to the first byte of the answer, which the browser's network stack notes however busy the page is) and appends it to its next acknowledgement, and `/ack` passes it on. With `ReleaseSlack` at one tick, a page that was paced at 15 times and then became fast was released 5 to 6 s later at 100 and at 300 ms round trip, three runs each, and applied 9.72 and 9.37 frames a second after it; a page that stayed slow was never released, in nine runs. Taking the fastest acknowledgement as the round trip instead does not work: a page paced at one frame per round trip has time between frames, so its acknowledgements come at a steady delay, and that rule released a page still slowed 15 times.
 
 ### At W=1, a paced stream is long polling
 
@@ -357,17 +377,22 @@ Each acknowledgement is a request. Over HTTP/2 with TLS it carried about 117 byt
 
 ### Measured
 
-Measured on 2026-10-17 on the development machine with `TestLifeDrift` (`bench/hybrid/RESULTS.md`): the site's Game of Life, 10 generations a second and a fresh soup every 15 s, in headless Chromium 154, behind Caddy 2.10.2 with TLS and HTTP/2, `navigator.connection` saying 4g. The paced runs acknowledge after the paint with a window of one and `Release` at 5 s. "In place" is the wiring above; lag is how long ago the board passed the generation the page applied last.
+Measured on 2026-10-17 on the development machine with `TestLifeDrift` (`bench/hybrid/RESULTS.md`, and three runs of everything in `bench/gaps/RESULTS.md`): the site's Game of Life, 10 generations a second and a fresh soup every 15 s, in headless Chromium 154, behind Caddy 2.10.2 with TLS and HTTP/2, `navigator.connection` saying 4g. The paced runs acknowledge after the paint with a window of one and `Release` at 5 s. "In place" is the wiring above; lag is how long ago the board passed the generation the page applied last. Medians of three runs, the range in brackets.
 
-- **A slow phone on a fast link.** CPU slowed 15 times, 150 s, three runs, median with the range in brackets. Paced in place, the page posted `/pace` 2.2 s in and stayed 0.34 s behind at the median (0.30 to 0.37), 0.70 s at most, while the site wrote 2.19 KB/s. The plugin with `__reopen` stayed 0.62 s behind, 1.21 s at most, at 3.36 KB/s; without `__reopen`, 0.28 s and 1.03 s at 7.01 KB/s; ack pacing from the start, 0.31 s and 0.72 s at 1.93 KB/s. In every one of them the main thread stayed fully busy, half applying frames and half rendering them: pacing changes what the page receives, not what a frame costs it.
-- **A fast phone on a far link.** No CPU throttling, a proxy in front of Caddy that holds every chunk for half the round trip each way, 90 s, one run each. Paced in place, the page never reported itself behind and applied 10.07 frames a second at 100 and at 300 ms, as with the plugin alone. Ack pacing from the start capped it at 6.63 and 2.82 frames a second.
-- **A page slow for a while.** CPU slowed 15 times for 60 s, then not at all, one run. Paced in place, the stream was released between 65 and 66 s and the page applied 10.03 frames a second after it. When the CPU slowed down again at 120 s, the page posted `/pace` 2.1 s later and was paced as before. With `__reopen`, the page stayed on the slow stream at 4.00 frames a second for good, 0.30 s behind.
-- **Firefox 158**, which cannot slow its CPU, with each frame costing the page 150 ms more, one run: paced in place, 0.28 s behind at the median against 0.45 s with `__reopen`.
-- **Many viewers.** `TestHybridLoad` in `live`, without browsers: one view of about 48 KB of HTML at 10 frames a second, 1,000 zstd streams, a tenth of them acknowledging a write 400 ms after it went out and the rest after 20 ms, the acknowledgements as HTTP posts to a server in the same process, three rounds. Pacing every stream took 9,200 acknowledgements a second and 452% of a core, against 199% for sending every frame with no acknowledgements. Pacing only the slow tenth took 250 acknowledgements a second and 186%, and sent 7.5% fewer bytes than sending every frame. The test leaves out the network, Caddy, TLS and the browsers.
+- **A slow phone on a fast link.** CPU slowed 15 times, 150 s. Paced in place, the page posted `/pace` 2.2 s in and stayed 0.34 s behind at the median (0.30 to 0.37), 0.70 s at most, while the site wrote 2.19 KB/s. The plugin with `__reopen` stayed 0.62 s behind, 1.21 s at most, at 3.36 KB/s; without `__reopen`, 0.28 s and 1.03 s at 7.01 KB/s; ack pacing from the start, 0.31 s and 0.72 s at 1.93 KB/s. In every one of them the main thread stayed fully busy, half applying frames and half rendering them: pacing changes what the page receives, not what a frame costs it.
+- **Input on that phone.** Shift pressed every 500 ms through DevTools: without a fix a press reached the page's handler after 2,970 ms at the median and 6,581 ms at most, and Event Timing's p98 was 6,368 ms. With any of the fixes it took 118 to 142 ms at the median and at most 443 to 529 ms; the p98 was 448 to 480 ms, which INP calls "needs improvement", since rendering each frame still fills the main thread.
+- **A fast phone on a far link.** No CPU throttling, a proxy in front of Caddy that holds every chunk for half the round trip each way, 90 s. No fix, the plugin with and without `__reopen` and both hybrids applied 10.07 frames a second at 100 and at 300 ms, and the hybrids never paced. Ack pacing from the start capped the page at 6.61 and 2.83 frames a second, W=2 at 10.07 and 5.84.
+- **A slow phone on a far link.** CPU slowed 15 times and 100 or 300 ms round trip, 150 s. A paced page gets one frame per round trip plus the time to apply and paint it: paced in place, 2.08 frames a second at 100 ms and 1.45 at 300 ms, 0.38 and 0.60 s behind at 1.89 and 1.48 KB/s. The plugin without `__reopen` stayed 0.35 and 0.47 s behind at 7.01 and 6.91 KB/s, the lowest lag; with `__reopen`, 0.70 and 0.80 s at 3.3 KB/s. Without a fix, 25.61 and 26.11 s.
+- **A page slow for a while.** CPU slowed 15 times for 60 s, then not at all. Paced in place, the stream was released at 66 s in all three runs and the page applied 10.05 frames a second after it. With `__reopen` the page stayed on the slow stream at 4.02 frames a second for good, 0.30 s behind. Without a fix the page was 20.88 s behind at 60 s and current again 6 to 7 s after the speed-up: the backlog drains on its own. On a far link, `Release` alone kept the page paced at 6.62 frames a second at 100 ms and 2.82 at 300 ms; with `ReleaseSlack` it was released 5 to 6 s after the speed-up and applied 9.72 and 9.37.
+- **A page somewhat slow.** At 6 and 8 times the page without a fix applies every frame but paints only 6.49 and 2.56 a second, 0.10 and 0.37 s behind. `__reopen` then switches to the slow stream and makes it worse at 6 times, 0.37 s behind at 4.02 frames a second; paced in place it stays 0.09 and 0.13 s behind and paints every frame it gets, 6.70 and 4.78 a second. Below 6 times neither the plugin nor the hybrid switched.
+- **Firefox 158**, which cannot slow its CPU, with each frame costing the page 150 ms more: paced in place, 0.29 s behind at the median against 0.49 s with `__reopen`, and 32.04 s without a fix.
+- **Many viewers.** `TestHybridLoad` in `live`, without browsers: one view of about 48 KB of HTML at 10 frames a second, 1,000 zstd streams, a tenth of them acknowledging a write 400 ms after it went out and the rest after 20 ms, the acknowledgements as HTTP posts to a server in the same process. Sending every frame to every stream, as the server does for the plugin and for no fix alike, took 150% of a core; the slow tenth on the slow stream, as `__reopen` gets them, 155% and 6% fewer bytes; pacing every stream 9,205 acknowledgements a second and 439%; pacing only the slow tenth 250 acknowledgements a second and 156%. The test leaves out the network, Caddy, TLS and the browsers.
 
 ### What it leaves open
 
-- The release cannot happen on a round trip longer than one tick of the view, the time between two of its frames (100 ms for the Game of Life): every acknowledgement then arrives after the next frame is ready. A page on such a link that once fell behind stays paced at about one frame per round trip, 2.8 a second at 300 ms, until it opens its stream again.
+- With `Release` alone, the release cannot happen on a round trip of one tick of the view or longer (100 ms for the Game of Life): a page on such a link that once fell behind stays paced at about one frame per round trip until it opens its stream again. `ReleaseSlack` fixes that, but needs the page to report its round trip.
+- On a far link a paced page gets one frame per round trip: at 15 times and 300 ms it stays 0.60 s behind, where the plugin alone, without pacing, stays 0.47 s behind at four times the bytes.
+- The slow stream's four frames a second are fixed: a page that could apply six or seven gets fewer with `__reopen` than without a fix.
 - `/ack` and `/pace` on this site check only the tab id and the stream's token. In a real app both need the session check that the stream handler does, so that a tab can pace only its own stream, and a rate limit, since any page can send them.
 - For the first 2 s or so, until the plugin has seen enough frames to judge, a slow page gets the full stream.
 - An acknowledgement counts writes, not views: a write that holds frames of several views is one acknowledgement.

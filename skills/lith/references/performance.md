@@ -175,8 +175,14 @@ Caddy, the tab stayed 0.64 s behind at the median, 1.16 s at most, at 3.20
 KB/s; without `__reopen` 0.32 s at 7.09 KB/s (150 s, 3 runs); at 300 ms
 extra per frame, Chromium 154 and Firefox 158 switched after 2.8 s and
 stayed within 0.8 s (`TestNewestFrameSlowStream`, 2026-10-16). A frame's
-cost to the page is mostly the elements Datastar morphs, not its bytes
-(still being measured).
+cost to the page is mostly its elements and their layout and paint, not
+its bytes or the morph alone: at 15x the site's board costs about 440 ms
+a rendered frame, 130 of it the morph; 4,000 bare `<p>` halve the HTML
+but are already behind at 12x (the site's at 10x); one SVG with a path per
+colour, 34 elements, keeps up to 120x; a terminal of a span per character
+breaks at 15x, with merged colour runs at 50x. Frames sent as signal
+patches (a canvas) are out of the plugin's reach: only `__reopen` or
+pacing help (`bench/frame-cost/RESULTS.md`, 2026-10-17).
 
 Pacing by the page (streams guide, "Pacing a stream by the page"):
 `live.Spec.Window` sends at most W writes of frames the page has not
@@ -198,9 +204,16 @@ Measured (2026-10-17, `bench/hybrid/RESULTS.md`): at CPU 15x paced from
 3.36 KB/s); fast phone at 300 ms RTT never paced, 10.07 frames a second
 (ack pacing from the start 2.82); slow for 60 s then fast, released 5 to 6
 s later; 1,000 in-process streams with a tenth slow, 250 acks a second and
-186% of a core against 9,200 and 452% pacing every stream. Release never
-happens on a round trip over one tick of the view; `/ack` and `/pace` need
-a session check and a rate limit.
+186% of a core against 9,200 and 452% pacing every stream. `Release`
+alone never releases on a round trip of a tick or more; `Spec.ReleaseSlack`
+with `Hub.RoundTrip` (the page reports its round trip from Resource
+Timing) does, 5 to 6 s after the page is fast at 100 and 300 ms, and
+never released a page that stayed slow (`bench/gaps/RESULTS.md`). At 15x
+on a 300 ms link a paced page gets 1.45 frames a second, 0.60 s behind,
+where the plain plugin stays 0.47 s behind at 7 KB/s. Input at 15x: 118 to
+142 ms to the handler at the median with any fix, Event Timing p98 448 to
+480 ms; 3 s and 6.4 s without. `/ack` and `/pace` need a session check and
+a rate limit.
 
 ## Render loop
 
