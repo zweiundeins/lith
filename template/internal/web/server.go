@@ -36,6 +36,7 @@ type Server struct {
 	log    *slog.Logger
 	static *edge.Static
 	limit  *edge.Limiter
+	behind *edge.Limiter
 }
 
 // New returns the server of the database that w writes and hub renders.
@@ -62,7 +63,8 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev b
 	static.Add("lith/"+live.NewestFrame, js)
 	return &Server{
 		db: db, w: w, hub: hub, log: log, static: static,
-		limit: edge.NewLimiter(0.5, 5), // per client address: five signatures at once, then one every two seconds
+		limit:  edge.NewLimiter(0.5, 5), // per client address: five signatures at once, then one every two seconds
+		behind: edge.NewLimiter(1, 5),   // per session: a page reports every 3 s at most
 	}, nil
 }
 
@@ -72,6 +74,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /{$}", s.page)
 	mux.HandleFunc("GET /stream", s.stream)
 	mux.HandleFunc("POST /cmd/sign", s.sign)
+	mux.HandleFunc("POST /behind", s.reportBehind)
 	mux.Handle("GET /static/", s.static)
 	return mux
 }
@@ -154,6 +157,24 @@ func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.fail(w, r, err)
 	}
+}
+
+// reportBehind counts a report of the page that it fell behind its stream
+// (newest-frame-behind) in app_live_newest_frame_behind_total, through
+// live.Hub.Behind, which counts only for an open stream and once every 2 s
+// at most. The tab id is the check that the stream is the page's own: it
+// is random, and only that tab knows it. It answers 204, also to a session
+// over its limit, whose report it drops.
+func (s *Server) reportBehind(w http.ResponseWriter, r *http.Request) {
+	tab := r.URL.Query().Get("tab")
+	if !validID(tab) {
+		http.Error(w, "bad tab id", http.StatusBadRequest)
+		return
+	}
+	if s.behind.Allow(edge.SessionID(r.Context()), 1, time.Now()) {
+		s.hub.Behind(tab)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {

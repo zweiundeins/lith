@@ -65,8 +65,8 @@ func TestSignOnTheStream(t *testing.T) {
 
 // TestSlowLink checks the page's part of a slow link: it asks for
 // Chromium's network hints, and its stream sends Save-Data: on at the same
-// URL when the page measured a slow link or fell behind its stream; such a
-// stream brings the same views.
+// URL when the page measured a slow link; such a stream brings the same
+// views.
 func TestSlowLink(t *testing.T) {
 	base := start(t)
 	res, err := http.Get(base + "/")
@@ -88,8 +88,9 @@ func TestSlowLink(t *testing.T) {
 
 // TestNewestFrame checks that the page loads lith's newest-frame.js after
 // Datastar, with an import map that maps 'datastar' to Datastar's URL, and
-// turns it on on its body with __reopen; the plugin, a minified build, goes
-// out as vendored, under its content's hash, immutable.
+// turns it on on its body, which posts /behind when the plugin reports
+// that the page fell behind; the plugin, a minified build, goes out as
+// vendored, under its content's hash, immutable.
 func TestNewestFrame(t *testing.T) {
 	base := start(t)
 	res, err := http.Get(base + "/")
@@ -100,7 +101,7 @@ func TestNewestFrame(t *testing.T) {
 	res.Body.Close()
 	page := string(b)
 	m := regexp.MustCompile(`<script type="importmap" nonce="[^"]*">(.*?)</script>\s*<script type="module" src="(/static/vendor/datastar-rocket\.[0-9a-f]{12}\.js)"></script>\s*<script type="module" src="(/static/lith/newest-frame\.[0-9a-f]{12}\.js)"></script>`).FindStringSubmatch(page)
-	if m == nil || !strings.Contains(page, "<body data-newest-frame__reopen>") {
+	if m == nil || !strings.Contains(page, `<body data-newest-frame data-on:newest-frame-behind="@post(&#39;/behind?tab=&#39; + $_tab, {requestCancellation: &#39;disabled&#39;})">`) {
 		t.Fatalf("the page does not load newest-frame.js after Datastar, or does not turn it on:\n%s", page)
 	}
 	var importMap struct{ Imports map[string]string }
@@ -120,9 +121,49 @@ func TestNewestFrame(t *testing.T) {
 	}
 }
 
+// TestBehind posts the page's reports that it fell behind its stream: one
+// for its open stream counts, at once again does not, one for a tab without
+// a stream counts nothing, and a tab id that is not one is refused. Each
+// answers 204, and the hub counts what the metrics export.
+func TestBehind(t *testing.T) {
+	base, hub := startHub(t)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &http.Client{Jar: jar}
+	events := listen(t, c, base+"/stream?tab=tab1", nil)
+	next(t, events, `<section id="entries"`)
+	for _, tc := range []struct {
+		tab  string
+		code int
+	}{{"tab1", http.StatusNoContent}, {"tab1", http.StatusNoContent}, {"tab2", http.StatusNoContent}, {"no%20tab", http.StatusBadRequest}} {
+		if code := post(t, c, base+"/behind?tab="+tc.tab, "{}"); code != tc.code {
+			t.Errorf("tab %s: %d, want %d", tc.tab, code, tc.code)
+		}
+	}
+	if st := hub.Stats(); st.Behind != 1 || st.BehindStreams != 1 {
+		t.Errorf("Behind %d, BehindStreams %d, want 1 and 1", st.Behind, st.BehindStreams)
+	}
+	req, _ := http.NewRequest("POST", base+"/behind?tab=tab1", nil)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	if res, err := c.Do(req); err != nil || res.StatusCode != http.StatusForbidden {
+		t.Errorf("without Datastar-Request: %v, %v", res, err)
+	} else {
+		res.Body.Close()
+	}
+}
+
 // start serves the routes behind the part of the edge an action needs: a
 // session, and the CSRF check.
 func start(t *testing.T) string {
+	t.Helper()
+	base, _ := startHub(t)
+	return base
+}
+
+// startHub is start, and returns the hub as well.
+func startHub(t *testing.T) (string, *live.Hub) {
 	t.Helper()
 	db, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"), sqlite.Options{
 		Synchronous: "NORMAL",
@@ -150,7 +191,7 @@ func start(t *testing.T) string {
 
 	h := http.Handler(site.Routes())
 	h = edge.Sessions{}.Handler(h)
-	h = edge.CSRF{Datastar: []string{"POST /cmd/"}}.Handler(h)
+	h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /behind"}}.Handler(h)
 	srv := httptest.NewServer(h)
 	t.Cleanup(func() {
 		stopHub()
@@ -159,7 +200,7 @@ func start(t *testing.T) string {
 		w.Close()
 		db.Close()
 	})
-	return srv.URL
+	return srv.URL, hub
 }
 
 // listen opens a stream, with header on its request, and sends each of its
