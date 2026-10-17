@@ -36,6 +36,8 @@ The rule has a wide gap between switching on and switching off. The plugin repor
 
 After a release, the two differ. In **inplace** the plugin goes on watching, and if the page falls behind again it reports and posts again. In **reopen** the plugin has set `$_slow` and fired its one reopen, so it never asks again: a released stream stays unpaced for good, with the plugin dropping frames in the page.
 
+At W=1, a paced stream is long polling: each acknowledgement asks for the next frame, so the page gets at most one frame per round trip plus the time to apply it. It differs from ordinary polling in three ways. Nothing goes out while the view does not change. The frame arrives over the open SSE stream, not as the response to the acknowledgement (a 204). And the server always sends the newest state, never a queue. A larger W works like TCP's sliding window: more frames in flight hide the round trip, and the server notices a slow page later. For a page that keeps up, plain push needs no requests and has no round-trip cap, so the hybrid pushes by default and switches to long polling only while a page is behind.
+
 ## Slow CPU on a fast link
 
 15x CPU, Caddy, HTTP/2, 150 s, 3 runs each, the configurations in turn within a round. Median of the three runs, range in brackets. "Switch at" is when the page posted `/pace` or opened its stream with `Save-Data: on`. "Around the switch" is the 10 s from 5 s before to 5 s after; since the switch comes about 2 s after the page loads, that is the run's first 7 s.
