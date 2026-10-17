@@ -1,0 +1,20 @@
+# 2026-10-17T08:23:00+00:00 0a915ee+dirty  08:23:00 up 91 days, 20:55,  0 users,  load average: 1.98, 2.17, 1.77
+# LIFE_DRIFT=1 LIFE_DRIFT_RENDER=lean CADDY=/home/dev/.cache/lith-drift/caddy LIFE_DRIFT_TRACE=1 LIFE_DRIFT_TRACE_AT=30s LIFE_DRIFT_TRACE_FOR=20s LIFE_DRIFT_FOR=55s LIFE_DRIFT_PLUGIN=off
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 1x, https://127.0.0.1:39713, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "/develop/_lith/lith-frame-cost/bench/frame-cost/trace-lean-1x.trace.json" at 30s for 20s, ack window 0 after paint false, markup "lean" without counters false
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 9 | 9 | 0 | 0.0 | 11.0 | 0 | 31 | 28 | 1 (0) | 0, 0, 0, 0 | 53 |
+    drift_test.go:377: |   2 | 19 | 19 | 0 | 0.0 | 10.0 | 0 | 56 | 54 | 1 (0) | 0, 0, 0, 0 | 49 |
+    drift_test.go:377: |   3 | 29 | 29 | 0 | 0.0 | 10.0 | 0 | 78 | 76 | 1 (0) | 0, 0, 0, 0 | 42 |
+    drift_test.go:377: |  15 | 149 | 149 | 0 | 0.0 | 10.0 | 0 | 266 | 267 | 1 (0) | 0, 0, 0, 0 | 41 |
+    drift_test.go:377: |  30 | 299 | 299 | 0 | 0.0 | 10.0 | 0 | 525 | 528 | 1 (0) | 0, 0, 0, 0 | 43 |
+    drift_test.go:328: trace started at 30.0 s
+    drift_test.go:377: |  45 | 449 | 449 | 0 | 0.0 | 10.0 | 0 | 797 | 801 | 1 (0) | 0, 0, 0, 0 | 48 |
+    drift_test.go:331: trace: /develop/_lith/lith-frame-cost/bench/frame-cost/trace-lean-1x.trace.json, 239.7 MB, ended at 58.3 s
+    drift_test.go:401: behind the board after 30 s: 0.0 s
+    drift_test.go:408: summary: lag median 0.00 s, max 0.00 s; applied 10.07 frames/s; main thread busy 44%; site CPU 8.3%, Caddy CPU 0.5%; lith wrote 17.84 KB/s; 585 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (59.41s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	59.441s
+# 2026-10-17T08:24:02+00:00  08:24:02 up 91 days, 20:56,  0 users,  load average: 2.82, 2.45, 1.90

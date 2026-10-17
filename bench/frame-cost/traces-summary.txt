@@ -1,0 +1,198 @@
+## trace-canvas-15x.trace.json.gz
+20.0 s of the main thread: 3558 tasks, 98.0% busy; 197 over 50 ms, 12.93 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+       170 ms    3 frames  1 reads     15666 B  at 0.3 s
+       116 ms    2 frames  1 reads     10441 B  at 0.5 s
+        90 ms    1 frames  1 reads      5231 B  at 3.1 s
+        86 ms    1 frames  1 reads      5270 B  at 13.3 s
+        86 ms    1 frames  1 reads      5243 B  at 6.5 s
+        85 ms    1 frames  1 reads      5284 B  at 16.7 s
+        82 ms    1 frames  1 reads      4145 B  at 9.5 s
+        81 ms    1 frames  1 reads      5238 B  at 4.9 s
+board frames: 202 arrived, 202 applied (10.1/s), 1.02 per task that applied any (max 3); applying one took 20.0 ms at the median
+stream reads: 200, bytes per read min 1110, median 5259, max 15666
+paints: 371, between two: median 78 ms, p90 89 ms, max 193 ms; at most 3 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 20.7%, all 29.2% of the time
+time in: script 9.74 s (parse HTML 0.31 s), style 2.01 s, layout 2.07 s, paint 2.69 s, GC 0.12 s
+json {"trace": "trace-canvas-15x.trace.json.gz", "span_s": 19.99, "tasks": 3558, "busy_pct": 98.0, "long_tasks": 197, "long_task_s": 12.93, "longest_ms": [170, 116, 90, 86, 86], "frames_applied": 202, "frames_applied_per_s": 10.1, "frames_arrived": 202, "frames_per_task_with_frames_mean": 1.02, "frames_per_task_with_frames_max": 3, "reads": 200, "read_bytes_median": 5259, "read_bytes_max": 15666, "read_bytes_min": 1110, "paints": 371, "paint_gap_ms_median": 78, "paint_gap_ms_p90": 89, "paint_gap_ms_max": 193, "frames_per_paint_max": 3, "apply_board_pct": 20.7, "apply_all_pct": 29.2, "apply_board_ms_median": 20.0, "script_s": 9.74, "parse_html_s": 0.31, "style_s": 2.01, "layout_s": 2.07, "paint_s": 2.69, "gc_s": 0.12}
+
+## trace-canvas-1x.trace.json.gz
+20.0 s of the main thread: 10778 tasks, 26.9% busy; 0 over 50 ms, 0.0 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+board frames: 201 arrived, 201 applied (10.05/s), 1 per task that applied any (max 1); applying one took 1.8 ms at the median
+stream reads: 202, bytes per read min 1571, median 5251, max 5291
+paints: 1198, between two: median 17 ms, p90 18 ms, max 38 ms; at most 1 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 2.1%, all 3.3% of the time
+time in: script 1.24 s (parse HTML 0.04 s), style 0.82 s, layout 0.59 s, paint 1.5 s, GC 0.05 s
+json {"trace": "trace-canvas-1x.trace.json.gz", "span_s": 20.0, "tasks": 10778, "busy_pct": 26.9, "long_tasks": 0, "long_task_s": 0.0, "longest_ms": [], "frames_applied": 201, "frames_applied_per_s": 10.05, "frames_arrived": 201, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 202, "read_bytes_median": 5251, "read_bytes_max": 5291, "read_bytes_min": 1571, "paints": 1198, "paint_gap_ms_median": 17, "paint_gap_ms_p90": 18, "paint_gap_ms_max": 38, "frames_per_paint_max": 1, "apply_board_pct": 2.1, "apply_all_pct": 3.3, "apply_board_ms_median": 1.8, "script_s": 1.24, "parse_html_s": 0.04, "style_s": 0.82, "layout_s": 0.59, "paint_s": 1.5, "gc_s": 0.05}
+
+## trace-canvas-nostats-15x.trace.json.gz
+20.0 s of the main thread: 6656 tasks, 77.3% busy; 4 over 50 ms, 0.39 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+       202 ms    1 frames  1 reads      4073 B  at 0.0 s
+        84 ms    2 frames  1 reads      8146 B  at 0.2 s
+        57 ms    0 frames  0 reads         0 B  at 16.5 s
+        51 ms    1 frames  1 reads      4073 B  at 16.1 s
+board frames: 202 arrived, 202 applied (10.1/s), 1.0 per task that applied any (max 2); applying one took 11.8 ms at the median
+stream reads: 201, bytes per read min 4073, median 4073, max 8146
+paints: 0, between two: median 0 ms, p90 0 ms, max 0 ms; at most 0 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 12.6%, all 12.6% of the time
+time in: script 3.69 s (parse HTML 0.0 s), style 2.74 s, layout 0.0 s, paint 3.65 s, GC 0.12 s
+json {"trace": "trace-canvas-nostats-15x.trace.json.gz", "span_s": 20.0, "tasks": 6656, "busy_pct": 77.3, "long_tasks": 4, "long_task_s": 0.39, "longest_ms": [202, 84, 57, 51], "frames_applied": 202, "frames_applied_per_s": 10.1, "frames_arrived": 202, "frames_per_task_with_frames_mean": 1.0, "frames_per_task_with_frames_max": 2, "reads": 201, "read_bytes_median": 4073, "read_bytes_max": 8146, "read_bytes_min": 4073, "paints": 0, "paint_gap_ms_median": 0, "paint_gap_ms_p90": 0, "paint_gap_ms_max": 0, "frames_per_paint_max": 0, "apply_board_pct": 12.6, "apply_all_pct": 12.6, "apply_board_ms_median": 11.8, "script_s": 3.69, "parse_html_s": 0.0, "style_s": 2.74, "layout_s": 0.0, "paint_s": 3.65, "gc_s": 0.12}
+
+## trace-canvas-nostats-1x.trace.json.gz
+20.0 s of the main thread: 10237 tasks, 20.7% busy; 0 over 50 ms, 0.0 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+board frames: 202 arrived, 202 applied (10.1/s), 1 per task that applied any (max 1); applying one took 3.5 ms at the median
+stream reads: 202, bytes per read min 4073, median 4073, max 4073
+paints: 2, between two: median 17 ms, p90 17 ms, max 17 ms; at most 0 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 3.1%, all 3.1% of the time
+time in: script 0.83 s (parse HTML 0.0 s), style 0.98 s, layout 0.0 s, paint 1.05 s, GC 0.04 s
+json {"trace": "trace-canvas-nostats-1x.trace.json.gz", "span_s": 20.0, "tasks": 10237, "busy_pct": 20.7, "long_tasks": 0, "long_task_s": 0.0, "longest_ms": [], "frames_applied": 202, "frames_applied_per_s": 10.1, "frames_arrived": 202, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 202, "read_bytes_median": 4073, "read_bytes_max": 4073, "read_bytes_min": 4073, "paints": 2, "paint_gap_ms_median": 17, "paint_gap_ms_p90": 17, "paint_gap_ms_max": 17, "frames_per_paint_max": 0, "apply_board_pct": 3.1, "apply_all_pct": 3.1, "apply_board_ms_median": 3.5, "script_s": 0.83, "parse_html_s": 0.0, "style_s": 0.98, "layout_s": 0.0, "paint_s": 1.05, "gc_s": 0.04}
+
+## trace-cells-15x.trace.json
+19.7 s of the main thread: 65 tasks, 67.8% busy; 4 over 50 ms, 13.34 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+      6737 ms   45 frames  1 reads   2097152 B  at 6.6 s
+      5926 ms   38 frames  1 reads   2097152 B  at 13.7 s
+       431 ms    0 frames  0 reads         0 B  at 13.3 s
+       243 ms    0 frames  0 reads         0 B  at 6.3 s
+board frames: 129 arrived, 128 applied (6.51/s), 41.5 per task that applied any (max 45); applying one took 142.9 ms at the median
+stream reads: 3, bytes per read min 2097152, median 2097152, max 2097152
+paints: 2, between two: median 7136 ms, p90 7136 ms, max 7136 ms; at most 45 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 89.9%, all 89.9% of the time
+time in: script 19.24 s (parse HTML 2.59 s), style 0.01 s, layout 0.42 s, paint 0.23 s, GC 0.28 s
+json {"trace": "trace-cells-15x.trace.json", "span_s": 19.67, "tasks": 65, "busy_pct": 67.8, "long_tasks": 4, "long_task_s": 13.34, "longest_ms": [6737, 5926, 431, 243], "frames_applied": 128, "frames_applied_per_s": 6.51, "frames_arrived": 129, "frames_per_task_with_frames_mean": 41.5, "frames_per_task_with_frames_max": 45, "reads": 3, "read_bytes_median": 2097152, "read_bytes_max": 2097152, "read_bytes_min": 2097152, "paints": 2, "paint_gap_ms_median": 7136, "paint_gap_ms_p90": 7136, "paint_gap_ms_max": 7136, "frames_per_paint_max": 45, "apply_board_pct": 89.9, "apply_all_pct": 89.9, "apply_board_ms_median": 142.9, "script_s": 19.24, "parse_html_s": 2.59, "style_s": 0.01, "layout_s": 0.42, "paint_s": 0.23, "gc_s": 0.28}
+
+## trace-cells-1x.trace.json.gz
+20.0 s of the main thread: 99379 tasks, 50.6% busy; 0 over 50 ms, 0.0 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+board frames: 201 arrived, 201 applied (10.05/s), 1 per task that applied any (max 1); applying one took 18.8 ms at the median
+stream reads: 206, bytes per read min 4199, median 46484, max 46525
+paints: 1026, between two: median 17 ms, p90 42 ms, max 72 ms; at most 1 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 20.0%, all 20.0% of the time
+time in: script 4.83 s (parse HTML 1.13 s), style 0.53 s, layout 1.47 s, paint 2.42 s, GC 0.1 s
+json {"trace": "trace-cells-1x.trace.json.gz", "span_s": 19.99, "tasks": 99379, "busy_pct": 50.6, "long_tasks": 0, "long_task_s": 0.0, "longest_ms": [], "frames_applied": 201, "frames_applied_per_s": 10.05, "frames_arrived": 201, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 206, "read_bytes_median": 46484, "read_bytes_max": 46525, "read_bytes_min": 4199, "paints": 1026, "paint_gap_ms_median": 17, "paint_gap_ms_p90": 42, "paint_gap_ms_max": 72, "frames_per_paint_max": 1, "apply_board_pct": 20.0, "apply_all_pct": 20.0, "apply_board_ms_median": 18.8, "script_s": 4.83, "parse_html_s": 1.13, "style_s": 0.53, "layout_s": 1.47, "paint_s": 2.42, "gc_s": 0.1}
+
+## trace-cells-nostats-15x.trace.json
+19.9 s of the main thread: 78 tasks, 100.0% busy; 5 over 50 ms, 19.9 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+      7220 ms   46 frames  1 reads   2097152 B  at 7.5 s
+      6988 ms   46 frames  1 reads   2097152 B  at 0.0 s
+      4787 ms   32 frames  1 reads   2097152 B  at 15.1 s
+       468 ms    0 frames  0 reads         0 B  at 7.0 s
+       437 ms    0 frames  0 reads         0 B  at 14.7 s
+board frames: 125 arrived, 124 applied (6.23/s), 41.33 per task that applied any (max 46); applying one took 138.3 ms at the median
+stream reads: 3, bytes per read min 2097152, median 2097152, max 2097152
+paints: 2, between two: median 7653 ms, p90 7653 ms, max 7653 ms; at most 46 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 87.4%, all 87.4% of the time
+time in: script 18.82 s (parse HTML 2.48 s), style 0.65 s, layout 0.0 s, paint 0.25 s, GC 0.21 s
+json {"trace": "trace-cells-nostats-15x.trace.json", "span_s": 19.91, "tasks": 78, "busy_pct": 100.0, "long_tasks": 5, "long_task_s": 19.9, "longest_ms": [7220, 6988, 4787, 468, 437], "frames_applied": 124, "frames_applied_per_s": 6.23, "frames_arrived": 125, "frames_per_task_with_frames_mean": 41.33, "frames_per_task_with_frames_max": 46, "reads": 3, "read_bytes_median": 2097152, "read_bytes_max": 2097152, "read_bytes_min": 2097152, "paints": 2, "paint_gap_ms_median": 7653, "paint_gap_ms_p90": 7653, "paint_gap_ms_max": 7653, "frames_per_paint_max": 46, "apply_board_pct": 87.4, "apply_all_pct": 87.4, "apply_board_ms_median": 138.3, "script_s": 18.82, "parse_html_s": 2.48, "style_s": 0.65, "layout_s": 0.0, "paint_s": 0.25, "gc_s": 0.21}
+
+## trace-cells-nostats-1x.trace.json.gz
+20.0 s of the main thread: 91987 tasks, 37.6% busy; 0 over 50 ms, 0.0 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+board frames: 201 arrived, 201 applied (10.06/s), 1 per task that applied any (max 1); applying one took 14.9 ms at the median
+stream reads: 205, bytes per read min 798, median 45369, max 45369
+paints: 203, between two: median 100 ms, p90 106 ms, max 127 ms; at most 1 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 15.6%, all 15.6% of the time
+time in: script 3.76 s (parse HTML 0.78 s), style 1.51 s, layout 0.0 s, paint 1.48 s, GC 0.09 s
+json {"trace": "trace-cells-nostats-1x.trace.json.gz", "span_s": 19.99, "tasks": 91987, "busy_pct": 37.6, "long_tasks": 0, "long_task_s": 0.0, "longest_ms": [], "frames_applied": 201, "frames_applied_per_s": 10.06, "frames_arrived": 201, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 205, "read_bytes_median": 45369, "read_bytes_max": 45369, "read_bytes_min": 798, "paints": 203, "paint_gap_ms_median": 100, "paint_gap_ms_p90": 106, "paint_gap_ms_max": 127, "frames_per_paint_max": 1, "apply_board_pct": 15.6, "apply_all_pct": 15.6, "apply_board_ms_median": 14.9, "script_s": 3.76, "parse_html_s": 0.78, "style_s": 1.51, "layout_s": 0.0, "paint_s": 1.48, "gc_s": 0.09}
+
+## trace-lean-15x.trace.json
+19.9 s of the main thread: 376 tasks, 99.9% busy; 5 over 50 ms, 19.89 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+     10935 ms   82 frames  1 reads   1710227 B  at 0.0 s
+      5548 ms   47 frames  1 reads   2097152 B  at 14.4 s
+      2473 ms   21 frames  1 reads    386925 B  at 11.6 s
+       678 ms    0 frames  0 reads         0 B  at 10.9 s
+       255 ms    0 frames  0 reads         0 B  at 14.1 s
+board frames: 151 arrived, 150 applied (7.53/s), 50 per task that applied any (max 82); applying one took 111.7 ms at the median
+stream reads: 3, bytes per read min 386925, median 1710227, max 2097152
+paints: 2, between two: median 2754 ms, p90 2754 ms, max 2754 ms; at most 21 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 88.1%, all 88.1% of the time
+time in: script 19.52 s (parse HTML 2.38 s), style 0.01 s, layout 0.68 s, paint 0.2 s, GC 0.31 s
+json {"trace": "trace-lean-15x.trace.json", "span_s": 19.92, "tasks": 376, "busy_pct": 99.9, "long_tasks": 5, "long_task_s": 19.89, "longest_ms": [10935, 5548, 2473, 678, 255], "frames_applied": 150, "frames_applied_per_s": 7.53, "frames_arrived": 151, "frames_per_task_with_frames_mean": 50, "frames_per_task_with_frames_max": 82, "reads": 3, "read_bytes_median": 1710227, "read_bytes_max": 2097152, "read_bytes_min": 386925, "paints": 2, "paint_gap_ms_median": 2754, "paint_gap_ms_p90": 2754, "paint_gap_ms_max": 2754, "frames_per_paint_max": 21, "apply_board_pct": 88.1, "apply_all_pct": 88.1, "apply_board_ms_median": 111.7, "script_s": 19.52, "parse_html_s": 2.38, "style_s": 0.01, "layout_s": 0.68, "paint_s": 0.2, "gc_s": 0.31}
+
+## trace-lean-1x.trace.json.gz
+20.0 s of the main thread: 177097 tasks, 49.4% busy; 0 over 50 ms, 0.0 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+board frames: 201 arrived, 201 applied (10.06/s), 1 per task that applied any (max 1); applying one took 13.9 ms at the median
+stream reads: 203, bytes per read min 2921, median 20218, max 32981
+paints: 1180, between two: median 17 ms, p90 27 ms, max 45 ms; at most 1 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 14.3%, all 14.3% of the time
+time in: script 3.66 s (parse HTML 0.63 s), style 0.68 s, layout 1.8 s, paint 2.77 s, GC 0.1 s
+json {"trace": "trace-lean-1x.trace.json.gz", "span_s": 19.98, "tasks": 177097, "busy_pct": 49.4, "long_tasks": 0, "long_task_s": 0.0, "longest_ms": [], "frames_applied": 201, "frames_applied_per_s": 10.06, "frames_arrived": 201, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 203, "read_bytes_median": 20218, "read_bytes_max": 32981, "read_bytes_min": 2921, "paints": 1180, "paint_gap_ms_median": 17, "paint_gap_ms_p90": 27, "paint_gap_ms_max": 45, "frames_per_paint_max": 1, "apply_board_pct": 14.3, "apply_all_pct": 14.3, "apply_board_ms_median": 13.9, "script_s": 3.66, "parse_html_s": 0.63, "style_s": 0.68, "layout_s": 1.8, "paint_s": 2.77, "gc_s": 0.1}
+
+## trace-lean-nostats-15x.trace.json
+19.9 s of the main thread: 383 tasks, 100.0% busy; 5 over 50 ms, 19.88 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+      9649 ms   77 frames  1 reads   1595885 B  at 0.0 s
+      5967 ms   52 frames  1 reads   2097152 B  at 13.9 s
+      3083 ms   27 frames  1 reads    501267 B  at 10.5 s
+       817 ms    0 frames  0 reads         0 B  at 9.7 s
+       363 ms    0 frames  0 reads         0 B  at 13.6 s
+board frames: 157 arrived, 156 applied (7.84/s), 52 per task that applied any (max 77); applying one took 105.3 ms at the median
+stream reads: 3, bytes per read min 501267, median 1595885, max 2097152
+paints: 2, between two: median 3525 ms, p90 3525 ms, max 3525 ms; at most 27 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 86.3%, all 86.3% of the time
+time in: script 18.51 s (parse HTML 2.48 s), style 0.88 s, layout 0.0 s, paint 0.29 s, GC 0.37 s
+json {"trace": "trace-lean-nostats-15x.trace.json", "span_s": 19.9, "tasks": 383, "busy_pct": 100.0, "long_tasks": 5, "long_task_s": 19.88, "longest_ms": [9649, 5967, 3083, 817, 363], "frames_applied": 156, "frames_applied_per_s": 7.84, "frames_arrived": 157, "frames_per_task_with_frames_mean": 52, "frames_per_task_with_frames_max": 77, "reads": 3, "read_bytes_median": 1595885, "read_bytes_max": 2097152, "read_bytes_min": 501267, "paints": 2, "paint_gap_ms_median": 3525, "paint_gap_ms_p90": 3525, "paint_gap_ms_max": 3525, "frames_per_paint_max": 27, "apply_board_pct": 86.3, "apply_all_pct": 86.3, "apply_board_ms_median": 105.3, "script_s": 18.51, "parse_html_s": 2.48, "style_s": 0.88, "layout_s": 0.0, "paint_s": 0.29, "gc_s": 0.37}
+
+## trace-lean-nostats-1x.trace.json.gz
+20.0 s of the main thread: 157890 tasks, 38.5% busy; 1 over 50 ms, 0.08 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+        75 ms    1 frames  1 reads     17699 B  at 5.9 s
+board frames: 201 arrived, 202 applied (10.1/s), 1 per task that applied any (max 1); applying one took 14.8 ms at the median
+stream reads: 203, bytes per read min 1175, median 18891, max 32483
+paints: 204, between two: median 100 ms, p90 109 ms, max 156 ms; at most 1 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 14.1%, all 14.1% of the time
+time in: script 3.48 s (parse HTML 0.61 s), style 1.71 s, layout 0.0 s, paint 1.52 s, GC 0.1 s
+json {"trace": "trace-lean-nostats-1x.trace.json.gz", "span_s": 19.99, "tasks": 157890, "busy_pct": 38.5, "long_tasks": 1, "long_task_s": 0.08, "longest_ms": [75], "frames_applied": 202, "frames_applied_per_s": 10.1, "frames_arrived": 201, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 203, "read_bytes_median": 18891, "read_bytes_max": 32483, "read_bytes_min": 1175, "paints": 204, "paint_gap_ms_median": 100, "paint_gap_ms_p90": 109, "paint_gap_ms_max": 156, "frames_per_paint_max": 1, "apply_board_pct": 14.1, "apply_all_pct": 14.1, "apply_board_ms_median": 14.8, "script_s": 3.48, "parse_html_s": 0.61, "style_s": 1.71, "layout_s": 0.0, "paint_s": 1.52, "gc_s": 0.1}
+
+## trace-svg-15x.trace.json.gz
+20.0 s of the main thread: 5962 tasks, 94.0% busy; 5 over 50 ms, 0.41 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+       200 ms    1 frames  1 reads     17931 B  at 0.0 s
+        54 ms    1 frames  1 reads      8562 B  at 3.6 s
+        54 ms    1 frames  1 reads      4845 B  at 9.3 s
+        51 ms    1 frames  1 reads     10067 B  at 16.9 s
+        51 ms    1 frames  1 reads      7165 B  at 5.5 s
+board frames: 202 arrived, 202 applied (10.1/s), 1.0 per task that applied any (max 2); applying one took 12.2 ms at the median
+stream reads: 202, bytes per read min 600, median 7611, max 41169
+paints: 840, between two: median 16 ms, p90 51 ms, max 223 ms; at most 2 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 12.7%, all 12.7% of the time
+time in: script 6.44 s (parse HTML 0.64 s), style 2.81 s, layout 2.69 s, paint 4.43 s, GC 0.22 s
+json {"trace": "trace-svg-15x.trace.json.gz", "span_s": 20.0, "tasks": 5962, "busy_pct": 94.0, "long_tasks": 5, "long_task_s": 0.41, "longest_ms": [200, 54, 54, 51, 51], "frames_applied": 202, "frames_applied_per_s": 10.1, "frames_arrived": 202, "frames_per_task_with_frames_mean": 1.0, "frames_per_task_with_frames_max": 2, "reads": 202, "read_bytes_median": 7611, "read_bytes_max": 41169, "read_bytes_min": 600, "paints": 840, "paint_gap_ms_median": 16, "paint_gap_ms_p90": 51, "paint_gap_ms_max": 223, "frames_per_paint_max": 2, "apply_board_pct": 12.7, "apply_all_pct": 12.7, "apply_board_ms_median": 12.2, "script_s": 6.44, "parse_html_s": 0.64, "style_s": 2.81, "layout_s": 2.69, "paint_s": 4.43, "gc_s": 0.22}
+
+## trace-svg-1x.trace.json.gz
+20.0 s of the main thread: 10286 tasks, 29.4% busy; 0 over 50 ms, 0.0 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+board frames: 201 arrived, 201 applied (10.05/s), 1 per task that applied any (max 1); applying one took 3.4 ms at the median
+stream reads: 202, bytes per read min 2571, median 9147, max 20605
+paints: 1199, between two: median 17 ms, p90 20 ms, max 40 ms; at most 1 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 3.3%, all 3.3% of the time
+time in: script 1.56 s (parse HTML 0.18 s), style 1.11 s, layout 0.84 s, paint 1.51 s, GC 0.07 s
+json {"trace": "trace-svg-1x.trace.json.gz", "span_s": 20.01, "tasks": 10286, "busy_pct": 29.4, "long_tasks": 0, "long_task_s": 0.0, "longest_ms": [], "frames_applied": 201, "frames_applied_per_s": 10.05, "frames_arrived": 201, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 202, "read_bytes_median": 9147, "read_bytes_max": 20605, "read_bytes_min": 2571, "paints": 1199, "paint_gap_ms_median": 17, "paint_gap_ms_p90": 20, "paint_gap_ms_max": 40, "frames_per_paint_max": 1, "apply_board_pct": 3.3, "apply_all_pct": 3.3, "apply_board_ms_median": 3.4, "script_s": 1.56, "parse_html_s": 0.18, "style_s": 1.11, "layout_s": 0.84, "paint_s": 1.51, "gc_s": 0.07}
+
+## trace-svg-nostats-15x.trace.json.gz
+20.0 s of the main thread: 6598 tasks, 65.2% busy; 1 over 50 ms, 0.19 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+       187 ms    1 frames  1 reads     16771 B  at 0.0 s
+board frames: 202 arrived, 201 applied (10.05/s), 1.0 per task that applied any (max 2); applying one took 7.9 ms at the median
+stream reads: 201, bytes per read min 4249, median 6650, max 38323
+paints: 203, between two: median 100 ms, p90 103 ms, max 217 ms; at most 2 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 7.8%, all 7.8% of the time
+time in: script 4.82 s (parse HTML 0.52 s), style 2.98 s, layout 0.19 s, paint 2.87 s, GC 0.14 s
+json {"trace": "trace-svg-nostats-15x.trace.json.gz", "span_s": 20.0, "tasks": 6598, "busy_pct": 65.2, "long_tasks": 1, "long_task_s": 0.19, "longest_ms": [187], "frames_applied": 201, "frames_applied_per_s": 10.05, "frames_arrived": 202, "frames_per_task_with_frames_mean": 1.0, "frames_per_task_with_frames_max": 2, "reads": 201, "read_bytes_median": 6650, "read_bytes_max": 38323, "read_bytes_min": 4249, "paints": 203, "paint_gap_ms_median": 100, "paint_gap_ms_p90": 103, "paint_gap_ms_max": 217, "frames_per_paint_max": 2, "apply_board_pct": 7.8, "apply_all_pct": 7.8, "apply_board_ms_median": 7.9, "script_s": 4.82, "parse_html_s": 0.52, "style_s": 2.98, "layout_s": 0.19, "paint_s": 2.87, "gc_s": 0.14}
+
+## trace-svg-nostats-1x.trace.json.gz
+20.0 s of the main thread: 8112 tasks, 22.5% busy; 0 over 50 ms, 0.0 s in all
+longest tasks (ms, board frames applied in it, stream reads in it, bytes read, starts at s):
+board frames: 202 arrived, 202 applied (10.1/s), 1 per task that applied any (max 1); applying one took 2.3 ms at the median
+stream reads: 202, bytes per read min 3774, median 7017, max 19967
+paints: 204, between two: median 100 ms, p90 103 ms, max 110 ms; at most 1 board frames applied between two paints
+applying patch events (Datastar's morph and what it runs): board 2.4%, all 2.4% of the time
+time in: script 1.54 s (parse HTML 0.16 s), style 1.23 s, layout 0.04 s, paint 0.91 s, GC 0.05 s
+json {"trace": "trace-svg-nostats-1x.trace.json.gz", "span_s": 19.99, "tasks": 8112, "busy_pct": 22.5, "long_tasks": 0, "long_task_s": 0.0, "longest_ms": [], "frames_applied": 202, "frames_applied_per_s": 10.1, "frames_arrived": 202, "frames_per_task_with_frames_mean": 1, "frames_per_task_with_frames_max": 1, "reads": 202, "read_bytes_median": 7017, "read_bytes_max": 19967, "read_bytes_min": 3774, "paints": 204, "paint_gap_ms_median": 100, "paint_gap_ms_p90": 103, "paint_gap_ms_max": 110, "frames_per_paint_max": 1, "apply_board_pct": 2.4, "apply_all_pct": 2.4, "apply_board_ms_median": 2.3, "script_s": 1.54, "parse_html_s": 0.16, "style_s": 1.23, "layout_s": 0.04, "paint_s": 0.91, "gc_s": 0.05}
+

@@ -1,0 +1,20 @@
+# 2026-10-17T10:14:13+00:00 0a915ee+dirty  10:14:13 up 91 days, 22:46,  0 users,  load average: 1.71, 1.85, 1.89
+# LIFE_DRIFT=10 LIFE_DRIFT_FOR=60s LIFE_DRIFT_PLUGIN=off LIFE_DRIFT_RENDER=canvas CADDY=/home/dev/.cache/lith-drift/caddy
+=== RUN   TestLifeDrift
+    drift_test.go:312: CPU 10x, https://127.0.0.1:32889, hint false, plugin "off", Cache-Control "", RTT 0s, cost 0 ms, trace "" at 30s for 20s, ack window 0 after paint false, markup "canvas" without counters false
+    drift_test.go:313: | t | board | page | lag (gen) | lag (s) | applied/s | dropped | lith wrote KB | browser got KB | write ms (max) | queues KB: site send, proxy recv, proxy send, browser recv | busy % |
+    drift_test.go:377: |   1 | 13 | 13 | 0 | 0.0 | 16.0 | 0 | 19 | 18 | 1 (0) | 0, 0, 0, 0 | 71 |
+    drift_test.go:377: |   2 | 23 | 23 | 0 | 0.0 | 10.0 | 0 | 31 | 30 | 0 (0) | 0, 0, 0, 0 | 67 |
+    drift_test.go:377: |   3 | 33 | 33 | 0 | 0.0 | 10.0 | 0 | 41 | 40 | 0 (0) | 0, 0, 0, 0 | 67 |
+    drift_test.go:377: |  15 | 153 | 153 | 0 | 0.0 | 10.0 | 0 | 134 | 135 | 0 (0) | 0, 0, 0, 0 | 64 |
+    drift_test.go:377: |  30 | 303 | 303 | 0 | 0.0 | 10.0 | 0 | 267 | 269 | 0 (0) | 0, 0, 0, 0 | 65 |
+    drift_test.go:377: |  45 | 453 | 453 | 0 | 0.0 | 10.0 | 0 | 394 | 398 | 0 (0) | 0, 0, 1, 0 | 72 |
+    drift_test.go:377: |  60 | 603 | 603 | 0 | 0.0 | 10.0 | 0 | 520 | 525 | 0 (0) | 0, 0, 0, 0 | 64 |
+    drift_test.go:401: behind the board after 30 s: 0.0 s
+    drift_test.go:401: behind the board after 60 s: 0.0 s
+    drift_test.go:408: summary: lag median 0.00 s, max 0.00 s; applied 10.15 frames/s; main thread busy 66%; site CPU 2.0%, Caddy CPU 0.1%; lith wrote 8.67 KB/s; 604 frames sent, 0 dropped, 0 renders deferred; 0.00 other requests/s, 0 B each; 0 acks
+    drift_test.go:422: stream: h2, zstd; 1 stream requests; a slow stream (Save-Data) never
+--- PASS: TestLifeDrift (61.91s)
+PASS
+ok  	github.com/zweiundeins/lith/site/internal/app	61.938s
+# 2026-10-17T10:15:18+00:00  10:15:18 up 91 days, 22:47,  0 users,  load average: 1.87, 1.87, 1.89
