@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 L() { flock /tmp/lith-bench.lock ./run.sh "$@"; }
 C=CADDY=${CADDY:-$HOME/.cache/lith-drift/caddy}
-F="LITH_BROWSER=firefox LIFE_DRIFT=1 LIFE_DRIFT_COST=150 LIFE_DRIFT_FOR=150s"
+F="LITH_BROWSER=firefox FIREFOX=${FIREFOX:-$HOME/.cache/lith-drift/firefox/firefox} LIFE_DRIFT=1 LIFE_DRIFT_COST=150 LIFE_DRIFT_FOR=150s"
 P="LIFE_DRIFT_ACK=1 LIFE_DRIFT_ACK_AFTER=paint LIFE_DRIFT_RELEASE=5s"
 L ff-hybrid-inplace $F $C $P LIFE_DRIFT_HYBRID=inplace
 L ff-hybrid-reopen $F $C $P LIFE_DRIFT_HYBRID=reopen

@@ -16,6 +16,6 @@ F="LIFE_DRIFT=15 LIFE_DRIFT_FOR=180s LIFE_DRIFT_THEN=1@60s,15@120s"
 L relapse-hybrid-reopen $F $C $P LIFE_DRIFT_HYBRID=reopen
 L relapse-hybrid-inplace $F $C $P LIFE_DRIFT_HYBRID=inplace
 L relapse-plugin-reopen $F $C LIFE_DRIFT_PLUGIN=reopen
-for x in 2 3 4 6; do
+for x in 2 3 4 5 6; do
 	L edge${x}x-hybrid-inplace LIFE_DRIFT=$x LIFE_DRIFT_FOR=150s $C $P LIFE_DRIFT_HYBRID=inplace
 done
