@@ -231,20 +231,27 @@ func TestReleaseBacksOff(t *testing.T) {
 	}
 }
 
-// With ReleaseSlack, a page whose every acknowledgement takes as long as
-// the fastest one, a round trip longer than a tick, is released.
+// With ReleaseSlack, a page whose acknowledgements take its round trip,
+// longer than a tick, is released once it has reported the round trip.
 func TestReleaseSlackAllowsTheRoundTrip(t *testing.T) {
 	h := start(t, Options{Tick: 10 * time.Millisecond})
 	c := serve(h, Spec{ID: "tab", Views: []View{clock("c")}, Window: 1, Ack: ackEvent, Release: 150 * time.Millisecond, ReleaseSlack: 30 * time.Millisecond}, "")
 	autoAck(t, h, c, "tab", 40*time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
+	if r := h.Stats().Releases; r != 0 {
+		t.Fatalf("%d releases before the page reported its round trip", r)
+	}
+	h.RoundTrip("tab", 40*time.Millisecond)
 	waitFor(t, "the release", func() bool { return h.Stats().Releases == 1 })
 }
 
 // With ReleaseSlack, a page whose acknowledgements often come well after
-// its fastest stays paced.
+// its round trip stays paced.
 func TestReleaseSlackKeepsALatePagePaced(t *testing.T) {
 	h := start(t, Options{Tick: 10 * time.Millisecond})
 	c := serve(h, Spec{ID: "tab", Views: []View{clock("c")}, Window: 1, Ack: ackEvent, Release: 100 * time.Millisecond, ReleaseSlack: 30 * time.Millisecond}, "")
+	waitFor(t, "an acknowledgement event", func() bool { _, ns := acks(c); return len(ns) > 0 })
+	h.RoundTrip("tab", 20*time.Millisecond)
 	done := make(chan struct{})
 	t.Cleanup(func() { close(done) })
 	go func() {

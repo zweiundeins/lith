@@ -4,6 +4,7 @@ import (
 	"html"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sse"
@@ -38,7 +39,11 @@ func (s *Server) paceByAcks(spec *live.Spec) {
 	spec.Release, spec.ReleaseSlack = s.cfg.AckRelease, s.cfg.AckReleaseSlack
 	spec.Ack = func(token string, n int64) []byte {
 		num := strconv.FormatInt(n, 10)
-		post := "@post('/ack?tab=" + tab + "&s=" + token + "&n=" + num + "', {requestCancellation: 'disabled'})"
+		url := "'/ack?tab=" + tab + "&s=" + token + "&n=" + num + "'"
+		if s.cfg.AckReleaseSlack > 0 {
+			url += " + '&rtt=' + " + lastRoundTrip
+		}
+		post := "@post(" + url + ", {requestCancellation: 'disabled'})"
 		if paint {
 			post = "requestAnimationFrame(() => setTimeout(() => " + post + "))"
 		}
@@ -47,13 +52,22 @@ func (s *Server) paceByAcks(spec *live.Spec) {
 	}
 }
 
-// ack takes a page's acknowledgement of its stream's writes (live.Hub.Ack).
+// lastRoundTrip is the round trip of the page's last /ack or /pace in ms,
+// from its Resource Timing, or 0. It clears the entries, so that the
+// buffer of 250 never fills with acknowledgements.
+const lastRoundTrip = `((x) => (performance.clearResourceTimings(), x ? Math.round(x.responseStart - x.requestStart) : 0))(performance.getEntriesByType('resource').findLast(r => r.name.includes('/ack?') || r.name.includes('/pace?')))`
+
+// ack takes a page's acknowledgement of its stream's writes (live.Hub.Ack),
+// and the round trip it reports (live.Hub.RoundTrip).
 func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
 	if err != nil {
 		http.Error(w, "bad ack", http.StatusBadRequest)
 		return
+	}
+	if ms, err := strconv.Atoi(q.Get("rtt")); err == nil && ms > 0 {
+		s.hub.RoundTrip(q.Get("tab"), time.Duration(ms)*time.Millisecond)
 	}
 	s.hub.Ack(q.Get("tab"), q.Get("s"), n)
 	w.WriteHeader(http.StatusNoContent)

@@ -289,9 +289,9 @@ type stream struct {
 	full                   bool
 	releases               int
 	// With Spec.ReleaseSlack: when the newest paced writes went out, by n,
-	// and the fastest acknowledgement of one.
+	// and the shortest round trip the page reported (Hub.RoundTrip).
 	wroteAt [16]time.Time
-	fastest time.Duration
+	rtt     time.Duration
 }
 
 // New returns a hub; Run starts it.

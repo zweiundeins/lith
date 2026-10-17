@@ -320,6 +320,7 @@ type requestMeter struct {
 	n     int64
 	bytes int64
 	paces []time.Time // when a page posted /pace
+	rtts  []float64   // the round trips its acknowledgements reported, ms
 }
 
 func (m *requestMeter) add(r *http.Request) {
@@ -338,7 +339,17 @@ func (m *requestMeter) add(r *http.Request) {
 	if r.URL.Path == "/pace" {
 		m.paces = append(m.paces, time.Now())
 	}
+	if ms, err := strconv.ParseFloat(r.URL.Query().Get("rtt"), 64); err == nil && ms > 0 {
+		m.rtts = append(m.rtts, ms)
+	}
 	m.mu.Unlock()
+}
+
+// roundTrips are the round trips the page reported, ms.
+func (m *requestMeter) roundTrips() []float64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.rtts)
 }
 
 func (m *requestMeter) paced() []time.Time {

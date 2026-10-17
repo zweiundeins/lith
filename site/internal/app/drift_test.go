@@ -471,6 +471,9 @@ func TestLifeDrift(t *testing.T) {
 		}
 		t.Logf("the page posted /pace at %s s", strings.Join(at, ", "))
 	}
+	if rs := wm.requests.roundTrips(); len(rs) > 0 {
+		t.Logf("the page reported round trips of %.0f ms at least, %.0f ms at the median, %.0f ms at most (%d)", slices.Min(rs), pct(rs, 50), slices.Max(rs), len(rs))
+	}
 	mu.Unlock()
 	if errs := p.Errors(); len(errs) > 0 {
 		t.Logf("the page: %v", errs)
