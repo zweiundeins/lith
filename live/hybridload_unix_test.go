@@ -25,12 +25,9 @@ import (
 )
 
 // TestHybridLoad is a rough measure of what pacing costs the server with
-// many viewers of one view, without browsers: a board of 80 by 60 cells
-// (about 46 KB of HTML a frame) that changes ten times a second, watched
-// by N zstd streams whose pages take every write at once. Each frame
-// flips 1% of the cells, which zstd sends in about 1 KB, near the 700
-// bytes of the site's Game of Life; LIVE_HYBRID_LOAD_FRAME=life steps a
-// Game of Life on a random soup instead, which costs about 7 KB a frame.
+// many viewers of one view, without browsers: a Game of Life of 80 by 60
+// cells in rows of short tags, as on lith's site, that steps ten times a
+// second, watched by N zstd streams whose pages take every write at once.
 // A fraction of the pages is slow: it acknowledges a write 400 ms after
 // it goes out, a fast page after 20 ms. Three ways to serve them:
 // "plugin" sends every stream every frame (the page drops what it cannot
@@ -52,15 +49,14 @@ func TestHybridLoad(t *testing.T) {
 		slowShare = f
 	}
 	viaHTTP := os.Getenv("LIVE_HYBRID_LOAD_HTTP") == "1"
-	life := os.Getenv("LIVE_HYBRID_LOAD_FRAME") == "life"
 	rounds, _ := strconv.Atoi(os.Getenv("LIVE_HYBRID_LOAD_ROUNDS"))
 	rounds = max(rounds, 1)
-	t.Logf("GOMAXPROCS %d, slow share %.2f, acknowledgements over HTTP %v, Game of Life frames %v", runtime.GOMAXPROCS(0), slowShare, viaHTTP, life)
+	t.Logf("GOMAXPROCS %d, slow share %.2f, acknowledgements over HTTP %v", runtime.GOMAXPROCS(0), slowShare, viaHTTP)
 	t.Logf("| Mode | Streams | CPU (%% of a core) | Acks/s | Wire KB/s | Frames sent/s | Frames dropped/s | Renders/s | Renders deferred/s |")
 	for _, f := range strings.Split(ns, ",") {
 		n, _ := strconv.Atoi(f)
 		for _, mode := range slices.Repeat([]string{"plugin", "ack", "hybrid"}, rounds) {
-			r := hybridLoad(t, mode, n, slowShare, viaHTTP, life)
+			r := hybridLoad(t, mode, n, slowShare, viaHTTP)
 			t.Logf("| %s | %d | %.1f | %.0f | %.0f | %.0f | %.0f | %.1f | %.1f |", mode, n, r.cpu, r.acks, r.wire/1000, r.sent, r.dropped, r.renders, r.deferred)
 		}
 	}
@@ -70,7 +66,7 @@ type loadResult struct {
 	cpu, acks, wire, sent, dropped, renders, deferred float64
 }
 
-func hybridLoad(t *testing.T, mode string, n int, slowShare float64, viaHTTP, life bool) loadResult {
+func hybridLoad(t *testing.T, mode string, n int, slowShare float64, viaHTTP bool) loadResult {
 	const warmup, span = 5 * time.Second, 20 * time.Second
 	h := New(Options{Tick: 20 * time.Millisecond, MaxStreams: n + 10, Log: slog.New(slog.DiscardHandler)})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -100,7 +96,7 @@ func hybridLoad(t *testing.T, mode string, n int, slowShare float64, viaHTTP, li
 		}
 	}
 
-	board := boardView(life)
+	board := lifeView()
 	var streams []*sinkStream
 	for i := range n {
 		slow := float64(i) < slowShare*float64(n)
@@ -156,11 +152,10 @@ func hybridLoad(t *testing.T, mode string, n int, slowShare float64, viaHTTP, li
 	}
 }
 
-// boardView is a board that changes once per render, at most ten times a
-// second, in about 46 KB of HTML: an element per cell, as on lith's site.
-// It flips 1% of the cells at random, or with life steps a Game of Life,
-// with a fresh soup every 15 s.
-func boardView(life bool) View {
+// lifeView is a Game of Life that steps once per render, at most ten
+// times a second, with a fresh soup every 15 s, in rows of cells as on
+// lith's site.
+func lifeView() View {
 	const w, hgt = 80, 60
 	var mu sync.Mutex
 	cells := make([]bool, w*hgt)
@@ -176,39 +171,35 @@ func boardView(life bool) View {
 	return View{Key: "life", Every: 100 * time.Millisecond, Render: func(context.Context, *sql.Tx) (any, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		gen++
-		switch {
-		case !life:
-			for range len(cells) / 100 {
-				i := rng.IntN(len(cells))
-				cells[i] = !cells[i]
-			}
-		case gen%150 == 0:
+		if gen++; gen%150 == 0 {
 			soup()
-		default:
-			for y := range hgt {
-				for x := range w {
-					k := 0
-					for dy := -1; dy <= 1; dy++ {
-						for dx := -1; dx <= 1; dx++ {
-							if (dx != 0 || dy != 0) && cells[(y+dy+hgt)%hgt*w+(x+dx+w)%w] {
-								k++
-							}
+		}
+		for y := range hgt {
+			for x := range w {
+				k := 0
+				for dy := -1; dy <= 1; dy++ {
+					for dx := -1; dx <= 1; dx++ {
+						if (dx != 0 || dy != 0) && cells[(y+dy+hgt)%hgt*w+(x+dx+w)%w] {
+							k++
 						}
 					}
-					next[y*w+x] = k == 3 || k == 2 && cells[y*w+x]
+				}
+				next[y*w+x] = k == 3 || k == 2 && cells[y*w+x]
+			}
+		}
+		cells, next = next, cells
+		var b strings.Builder
+		b.WriteString(`<div id="life-board" class="life__board" aria-hidden="true">`)
+		for y := range hgt {
+			fmt.Fprintf(&b, `<div id="life-r%d">`, y)
+			for _, c := range cells[y*w : (y+1)*w] {
+				if c {
+					b.WriteString(`<i class="c1"></i>`)
+				} else {
+					b.WriteString(`<i></i>`)
 				}
 			}
-			cells, next = next, cells
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, `<div id="life-board" data-gen="%d">`, gen)
-		for i, c := range cells {
-			if c {
-				fmt.Fprintf(&b, `<i class="cell on" data-i="%d"></i>`, i)
-			} else {
-				fmt.Fprintf(&b, `<i class="cell" data-i="%d"></i>`, i)
-			}
+			b.WriteString(`</div>`)
 		}
 		b.WriteString(`</div>`)
 		return sse.PatchElements([]byte(b.String())), nil
