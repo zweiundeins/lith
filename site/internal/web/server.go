@@ -47,9 +47,10 @@ type Config struct {
 	Dev bool
 	// AckWindow, if positive, paces the demos' streams by the pages'
 	// acknowledgements, with that many writes unacknowledged at most
-	// (live.Spec.Window), and AckAfterPaint has a page acknowledge a write
-	// after the paint that follows it instead of once applied. For
-	// measurements (TestLifeDrift), not in production.
+	// (live.Spec.Window, experimental), and AckAfterPaint has a page
+	// acknowledge a write after the paint that follows it instead of once
+	// applied. For measurements (TestLifeDrift), not in production: /ack
+	// and /pace check neither the session nor a rate limit.
 	AckWindow     int
 	AckAfterPaint bool
 	// Hybrid paces a stream only once its page reports that it is behind
@@ -57,9 +58,10 @@ type Config struct {
 	// opened with Save-Data: on, which newest-frame.js's __reopen sends,
 	// in place of a slow stream; "inplace" has the page post /pace, and
 	// paces the stream it has open. AckRelease ends the pacing of a page
-	// that keeps up again (live.Spec.Release), AckReleaseSlack measures
-	// it against the page's fastest acknowledgement instead of the next
-	// frame (live.Spec.ReleaseSlack). For measurements.
+	// that keeps up again (live.Spec.Release). The page reports its round
+	// trip with each acknowledgement, and AckReleaseSlack is
+	// live.Spec.ReleaseSlack: 0 for live.DefaultReleaseSlack, negative for
+	// the rule of the next frame, without the reports. For measurements.
 	Hybrid          string
 	AckRelease      time.Duration
 	AckReleaseSlack time.Duration
@@ -85,6 +87,8 @@ type Server struct {
 	history map[string]githistory.Commit
 	// commands limits every action of the site per client address.
 	commands *edge.Limiter
+	// behind limits the reports of pages behind their stream per session.
+	behind *edge.Limiter
 }
 
 // site is a demo as the site serves it, its notes rendered.
@@ -97,7 +101,7 @@ type site struct {
 // New returns the server of the database that w writes and hub renders,
 // with the demos given.
 func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, list []demo.Demo) (*Server, error) {
-	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60)}
+	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60), behind: edge.NewLimiter(1, 5)}
 	var err error
 	if s.docs, err = docs.Load(content.Docs, cfg.Dev); err != nil {
 		return nil, fmt.Errorf("docs: %w", err)
@@ -148,6 +152,7 @@ func (s *Server) Routes() *http.ServeMux {
 		http.Redirect(w, r, "/demos/"+r.PathValue("slug"), http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /demos/{slug}/stream", s.demoStream)
+	mux.HandleFunc("POST /behind", s.reportBehind)
 	if s.cfg.AckWindow > 0 {
 		mux.HandleFunc("POST /ack", s.ack)
 	}

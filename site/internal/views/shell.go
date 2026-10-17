@@ -59,8 +59,8 @@ type Shell struct {
 	Stream string
 	Tab    string
 	// Pace, when set, is a URL the page posts to, with its tab id, each
-	// time newest-frame.js reports that it is behind, in place of opening
-	// a slow stream (data-newest-frame without __reopen).
+	// time newest-frame.js reports that it is behind, in place of /behind,
+	// which counts the report (live.Hub.Behind).
 	Pace string
 	// Components are the Starbase components' bundles the page loads.
 	Components []Script
@@ -100,9 +100,8 @@ func colorScheme(theme string) string {
 const StreamID = "stream"
 
 // openStream opens the tab's stream. On a slow link, measured as the page
-// starts or by newest-frame.js once the page falls behind, it sends
-// Save-Data: on (edge.SlowLink). The URL stays the same, so a stream opened
-// again aborts the old request. retry 'error' keeps trying through a
+// starts, it sends Save-Data: on (edge.SlowLink). The URL stays the same,
+// so a stream opened again aborts the old request. retry 'error' keeps trying through a
 // restart's 502s and 503s and never gives up; a stream the server ends
 // stays closed, except through sse.Reconnect.
 func openStream(url string) string {
@@ -123,9 +122,16 @@ func pageSignals(tab string) string {
 	return "{_tab: " + jsString(tab) + ", _slow: " + slowLink + ", _badge: ''}"
 }
 
-// pace posts the tab's id to url, without cancelling another request of
-// the element.
-func pace(url string) string {
+// behind posts the tab's id to /behind, or to pace when it is set, each
+// time newest-frame.js reports that the page fell behind its stream,
+// without cancelling another request of the element. It runs on <body>,
+// where the event bubbles to: a @post from the stream's element would
+// abort its stream.
+func behind(pace string) string {
+	url := "/behind"
+	if pace != "" {
+		url = pace
+	}
 	return "@post(" + jsString(url+"?tab=") + " + $_tab, {requestCancellation: 'disabled'})"
 }
 

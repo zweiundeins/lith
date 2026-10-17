@@ -40,7 +40,7 @@ func (s *Server) paceByAcks(spec *live.Spec) {
 	spec.Ack = func(token string, n int64) []byte {
 		num := strconv.FormatInt(n, 10)
 		url := "'/ack?tab=" + tab + "&s=" + token + "&n=" + num + "'"
-		if s.cfg.AckReleaseSlack > 0 {
+		if s.cfg.AckReleaseSlack >= 0 {
 			url += " + '&rtt=' + " + lastRoundTrip
 		}
 		post := "@post(" + url + ", {requestCancellation: 'disabled'})"
@@ -74,8 +74,10 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 }
 
 // pace paces the tab's stream once its page reports that it is behind
-// (Config.Hybrid "inplace", live.Hub.Pace).
+// (Config.Hybrid "inplace", live.Hub.Pace), and counts the report as
+// /behind does.
 func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
+	s.hub.Behind(r.URL.Query().Get("tab"))
 	s.hub.Pace(r.URL.Query().Get("tab"), s.cfg.AckWindow)
 	w.WriteHeader(http.StatusNoContent)
 }

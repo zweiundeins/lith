@@ -44,9 +44,9 @@ import (
 // reports, and writes every second's numbers to LIFE_DRIFT_OUT if set.
 //
 // More switches, for comparing the layers that can keep a page current:
-// LIFE_DRIFT_PLUGIN is how the page has newest-frame.js: "reopen" (as it
-// ships), "noreopen" (it skips frames, but never asks for a slow stream)
-// or "off". LIFE_DRIFT_CACHE sets the stream's Cache-Control ("no-cache",
+// LIFE_DRIFT_PLUGIN is how the page has newest-frame.js: "noreopen" (as
+// it ships: it skips frames, but never asks for a slow stream), "reopen"
+// (with __reopen, which asks for one) or "off". LIFE_DRIFT_CACHE sets the stream's Cache-Control ("no-cache",
 // or "none" for no header; lith sends no-store). LIFE_DRIFT_RTT, such as
 // 100ms, puts a link with that round trip time in front of the browser.
 // LIFE_DRIFT_CDP_LATENCY, in ms, turns on DevTools' network emulation with
@@ -63,15 +63,16 @@ import (
 // once it has applied a write, or with LIFE_DRIFT_ACK_AFTER=paint after
 // the paint that follows. LIFE_DRIFT_HYBRID paces the stream only once
 // the page reports that it is behind (web.Config.Hybrid, with a window of
-// LIFE_DRIFT_ACK or 1): "reopen" when the page, as it ships, opens its
+// LIFE_DRIFT_ACK or 1): "reopen" when the page, with __reopen, opens its
 // stream again with Save-Data: on, "inplace" when the page, with
-// newest-frame.js but without __reopen, posts /pace. LIFE_DRIFT_RELEASE,
+// newest-frame.js as it ships, posts /pace. LIFE_DRIFT_RELEASE,
 // such as 5s, ends the pacing of a page that keeps up again
 // (live.Spec.Release). LIFE_DRIFT_THEN, such as 1@60s or 1@60s,15@120s,
 // sets the CPU slowdown to 1 at 60 s into the run (and to 15 at 120 s).
 // LIFE_DRIFT_RELEASE_SLACK, such as 100ms, has the release measure each
-// acknowledgement against the fastest one instead of the next frame
-// (live.Spec.ReleaseSlack). LIFE_DRIFT_INPUT=1 presses Shift every 500 ms
+// acknowledgement against the round trip the page reports instead of the
+// next frame (live.Spec.ReleaseSlack, live.DefaultReleaseSlack unless
+// set); a negative one, such as -1ms, keeps the rule of the next frame. LIFE_DRIFT_INPUT=1 presses Shift every 500 ms
 // in Chromium and reports how long each press took to reach the page's
 // handler, and Event Timing's keydown entries (inputMeter).
 // LIFE_DRIFT_RENDER renders the board's frames in another markup
@@ -110,6 +111,9 @@ func TestLifeDrift(t *testing.T) {
 	hybrid := os.Getenv("LIFE_DRIFT_HYBRID")
 	if hybrid != "" && ackWindow == 0 {
 		ackWindow = 1
+	}
+	if hybrid == "reopen" && plugin == "" {
+		plugin = "reopen"
 	}
 	release, _ := time.ParseDuration(os.Getenv("LIFE_DRIFT_RELEASE"))
 	slack, _ := time.ParseDuration(os.Getenv("LIFE_DRIFT_RELEASE_SLACK"))

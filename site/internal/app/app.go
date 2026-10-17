@@ -167,7 +167,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	httpMetrics := metrics.NewHTTP(Namespace)
 	h := metrics.Route(site.Routes())
 	h = edge.Sessions{Secure: cfg.Secure}.Handler(h)
-	h = edge.CSRF{Datastar: []string{"POST /cmd/"}}.Handler(h)
+	h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /behind"}}.Handler(h)
 	h = edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: cfg.Secure}.Handler(h)
 	h = edge.Compress(h)
 	h = edge.Recover(cfg.Log, h)

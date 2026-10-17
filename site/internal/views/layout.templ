@@ -50,12 +50,8 @@ templ Document(s Shell, body templ.Component) {
 		<body
 			if s.Stream != "" {
 				data-signals={ pageSignals(s.Tab) }
-				if s.Pace != "" {
-					data-newest-frame
-					data-on:newest-frame-behind={ pace(s.Pace) }
-				} else {
-					data-newest-frame__reopen
-				}
+				data-newest-frame
+				data-on:newest-frame-behind={ behind(s.Pace) }
 			}
 		>
 			<a class="skip-link" href="#main">Skip to the content</a>

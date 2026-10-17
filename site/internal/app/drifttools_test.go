@@ -27,14 +27,15 @@ import (
 // and the CPU time of the site and of Caddy.
 
 // pluginMode rewrites the Game of Life's document for LIFE_DRIFT_PLUGIN:
-// "reopen" (the page as it ships, data-newest-frame__reopen), "noreopen"
-// (data-newest-frame: the page skips frames but never asks for a slow
-// stream) or "off" (neither the attribute nor the script).
+// "noreopen" (the page as it ships, data-newest-frame: it skips frames
+// but never asks for a slow stream), "reopen" (data-newest-frame__reopen,
+// which asks for one) or "off" (neither the attribute nor the script).
 func pluginMode(mode string, h http.Handler) http.Handler {
-	if mode == "" || mode == "reopen" {
+	if mode == "" || mode == "noreopen" {
 		return h
 	}
 	script := regexp.MustCompile(`<script type="module" src="[^"]*newest-frame[^"]*"></script>`)
+	attr := regexp.MustCompile(`\sdata-newest-frame([\s>])`)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || !strings.HasPrefix(r.URL.Path, "/demos/") || strings.HasSuffix(r.URL.Path, "/stream") {
 			h.ServeHTTP(w, r)
@@ -46,10 +47,10 @@ func pluginMode(mode string, h http.Handler) http.Handler {
 		body := rec.body.Bytes()
 		if strings.HasPrefix(rec.header.Get("Content-Type"), "text/html") {
 			switch mode {
-			case "noreopen":
-				body = bytes.ReplaceAll(body, []byte("data-newest-frame__reopen"), []byte("data-newest-frame"))
+			case "reopen":
+				body = attr.ReplaceAll(body, []byte(" data-newest-frame__reopen$1"))
 			case "off":
-				body = bytes.ReplaceAll(body, []byte(" data-newest-frame__reopen"), nil)
+				body = attr.ReplaceAll(body, []byte("$1"))
 				body = script.ReplaceAll(body, nil)
 			}
 			rec.header.Del("Content-Length")
