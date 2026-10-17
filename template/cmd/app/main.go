@@ -5,7 +5,8 @@
 //	app --version         print the version
 //
 // Every flag can also come from the environment: -db from APP_DB, -addr
-// from APP_ADDR. The command line wins.
+// from APP_ADDR. The command line wins. The metrics for Prometheus go out on
+// a loopback listener of their own, -metrics.
 package main
 
 import (
@@ -52,7 +53,7 @@ func main() {
 	var err error
 	switch cmd {
 	case "serve":
-		err = serve(args)
+		err = serve(context.Background(), args)
 	case "backup":
 		err = backup(args)
 	default:
@@ -64,9 +65,11 @@ func main() {
 	}
 }
 
-func serve(args []string) error {
+// serve runs the server until ctx ends or the process gets SIGINT or SIGTERM.
+func serve(ctx context.Context, args []string) error {
 	f := flags("serve")
 	addr := f.String("addr", "127.0.0.1:8080", "listen on host:port, or on a Unix socket as unix:/path")
+	metricsAddr := f.String("metrics", "auto", "serve the metrics for Prometheus on this loopback host:port; auto: 127.0.0.1 at -addr's port + 100, none for a Unix socket; off: none")
 	dbPath := f.String("db", "data/app.db", "the SQLite database")
 	synchronous := f.String("synchronous", "NORMAL", "NORMAL (a power loss can undo up to about 35 s of commits), or FULL (one fsync per batch, loses none)")
 	streams := f.Int("streams", 200, "how many streams may be open at once; more get 503")
@@ -82,15 +85,23 @@ func serve(args []string) error {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
+	maddr, err := metricsListen(*metricsAddr, *addr)
+	if err != nil {
+		return err
+	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := registerDriver(log); err != nil {
+		return err
+	}
 	db, err := sqlite.Open(ctx, *dbPath, sqlite.Options{
 		Synchronous: *synchronous,
 		Migrations:  migrations.FS,
 		Readers:     runtime.GOMAXPROCS(0) + 4, // the render workers hold one each, GETs need the rest
 		Checkpoint:  sqlite.CheckpointWriter,
+		Driver:      sqliteDriver,
 	})
 	if err != nil {
 		return err
@@ -100,10 +111,16 @@ func serve(args []string) error {
 	if err != nil {
 		return errors.Join(err, db.Close())
 	}
-	var ln net.Listener
+	var ln, mln net.Listener
 	site, err := web.New(db, w, hub, log, *dev)
 	if err == nil {
 		ln, err = listen(*addr)
+	}
+	if err == nil && maddr != "" {
+		if mln, err = net.Listen("tcp", maddr); err != nil {
+			ln.Close()
+			err = fmt.Errorf("metrics: %w", err)
+		}
 	}
 	if err != nil {
 		return errors.Join(err, w.Close(), db.Close())
@@ -134,6 +151,8 @@ func serve(args []string) error {
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 		// No WriteTimeout: a stream gives each of its writes a deadline.
 	}
+	// The metrics never go on the public listener.
+	msrv := &http.Server{Handler: metrics(w, hub, log), ReadHeaderTimeout: 5 * time.Second}
 
 	// The writer runs until Close, so actions still write while the HTTP
 	// server drains. Cancelling the hub's context ends every stream at once.
@@ -153,7 +172,14 @@ func serve(args []string) error {
 
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
-	log.Info("serving", "addr", *addr, "db", *dbPath, "version", buildVersion())
+	if mln != nil {
+		go func() {
+			if err := msrv.Serve(mln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("metrics", "err", err)
+			}
+		}()
+	}
+	log.Info("serving", "addr", *addr, "metrics", maddr, "db", *dbPath, "version", buildVersion())
 	select {
 	case err = <-served:
 	case <-ctx.Done():
@@ -167,6 +193,7 @@ func serve(args []string) error {
 	if err := srv.Shutdown(sctx); err != nil { // 2. actions finish, and still reach the writer
 		log.Warn("shutdown", "err", err)
 	}
+	msrv.Close()
 	jobs.Wait()
 	<-hubDone
 	return errors.Join(err, w.Close(), db.Close()) // 3. the writer applies what is queued; 4. the database closes

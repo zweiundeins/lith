@@ -594,9 +594,14 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
 ## Monitoring on a shared host
 
 - Metrics on a loopback listener of their own, never the public one:
-  `lith/prom` and `lith/dbmetrics/prom` under the app's namespace. The
-  template has none; its unit's `IPAddressDeny=localhost` keeps Prometheus
-  out until the unit allows it.
+  `lith/prom` and `lith/dbmetrics/prom` under the app's namespace, with the
+  Go and process collectors. The template serves them (`cmd/app/metrics.go`,
+  `-metrics`: `auto` is 127.0.0.1 at `-addr`'s port + 100, `off` is none),
+  and its unit passes `-metrics 127.0.0.1:8180` beside the socket, allows
+  loopback (`IPAddressAllow=localhost`, so the app can reach the host's
+  other loopback services too) and binds that port alone. Each app on a host
+  needs a port of its own: the unit's `-metrics` and `SocketBindAllow` and
+  `observability/<app>.metrics.yml` change together.
 - The host's configs load folders, and each app installs its own files
   (`deploy/setup-host.sh`, never an edit of the host's files):
   `/etc/caddy/sites/<app>.caddy`; `/etc/prometheus/apps/<app>.yml`, the

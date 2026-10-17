@@ -2,11 +2,11 @@
 
 One binary and one SQLite file on a Linux server, behind Caddy. The files here:
 
-- `app.service`: the systemd unit. It runs as the `app` user, keeps the database in `/var/lib/app`, listens on the Unix socket `/run/app/app.sock`, cannot reach localhost, and is capped at 640 MB of memory.
+- `app.service`: the systemd unit. It runs as the `app` user, keeps the database in `/var/lib/app`, listens on the Unix socket `/run/app/app.sock`, serves its metrics on `127.0.0.1:8180`, reaches no other host and binds no other port, and is capped at 640 MB of memory.
 - `app-backup.service` and `app-backup.timer`: every six hours, `app backup` copies the database (VACUUM INTO) into `/var/lib/app/backups` and keeps the newest 28 copies.
 - `app.caddy`: the site block. TLS, `reverse_proxy` to the socket with the client's address in X-Forwarded-For and X-Real-IP, the access log in JSON, no `encode`, and `flush_interval -1` for the streams.
 - `app-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
-- `observability/`: the blackbox probes and the Alloy file that ships the journal and the access log to Loki ([Monitoring](#monitoring)).
+- `observability/`: the Prometheus target of the metrics, the blackbox probes, and the Alloy file that ships the journal and the access log to Loki ([Monitoring](#monitoring)).
 - `setup-host.sh`: installs the files in `observability/` into the folders the host's Prometheus and Alloy load, and with a key, the user CI deploys as.
 
 ## One-time setup
@@ -45,12 +45,13 @@ CI can deploy by piping the binary over SSH into `app-deploy -`, as a user whose
 
 A host that runs several apps keeps its own configs for Caddy, Prometheus, Alloy and Grafana, and each loads a folder of files that the apps install. lith's guide [Metrics and monitoring](https://lith.zweiundeins.gmbh/docs/guides/monitoring#drop-in-files-for-a-shared-host) describes the folders and the labels. `setup-host.sh` installs app's:
 
+- `observability/app.metrics.yml` as `/etc/prometheus/apps/app.yml`: Prometheus scrapes `127.0.0.1:8180`, never public, labelled with app's name and `slot: prod`. The file lists the metrics: `app_writer_*`, `app_live_*`, `app_sse_budget_*`, `app_db_*`, `go_*` and `process_*`. Prometheus watches the folder.
 - `observability/app.targets.yml` as `/etc/prometheus/targets/app.yml`: blackbox probes of `/` and `/healthz` (whose body must start with `ok `), labelled `service: app`. Prometheus watches the folder.
 - `observability/app.alloy` as `/etc/alloy/app.alloy`: the journal as `{job="app"}`, with slog's level as the label `level`, and Caddy's access log as `{job="caddy", site="app"}`. The script reloads Alloy and puts the old file back if Alloy refuses the new one.
 
 Each goes in only where its service is installed; run the script again after changing them.
 
-app serves no metrics. To add them: register `lith/prom` and `lith/dbmetrics/prom` on a registry served on a loopback port (lith's `site/cmd/lith-site` does it at the public port + 100), let Prometheus reach that port (the unit's `IPAddressDeny=localhost` blocks loopback both ways; lith's `site/deploy/lith-site.service` allows localhost and limits the ports it may bind), and add `observability/app.metrics.yml`, a target labelled like lith's `site/deploy/observability/lith-site.metrics.yml`, which `setup-host.sh` installs as `/etc/prometheus/apps/app.yml`. The host's "lith apps" dashboard and alert rules then show app.
+The host's "lith apps" dashboard and alert rules show app once Prometheus scrapes it. Each app on a host needs a metrics port of its own: if 8180 is taken, change it in `app.service` (`-metrics` and `SocketBindAllow`) and in `observability/app.metrics.yml`. For Prometheus to connect, the unit opens loopback both ways, so app could also reach the other services that listen there (Caddy's admin API, databases); it reaches no other host. An app that calls out adds the addresses it needs to `IPAddressAllow`.
 
 ## Backups
 
