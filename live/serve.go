@@ -69,16 +69,26 @@ type Spec struct {
 	// deferred since is dropped, and the next tick renders the view as it
 	// is then, so the page never gets a frame that waited for it. A
 	// stream that hears nothing for AckTimeout sends its next write
-	// anyway. It needs an ID and Ack.
+	// anyway. It needs an ID and Ack. A stream with Ack and no Window
+	// starts unpaced, and Hub.Pace can pace it later.
 	Window int
 	// Ack makes the event that ends a write of frames on a stream with
 	// Window. The event has the page call Hub.Ack with the stream's ID,
 	// token and n once it has applied the write: n counts the stream's
-	// writes of frames from 1, and token tells this stream from an older
-	// or newer one with the same ID. It goes out as the last Frame of
-	// WriteTick's call, with the key AckKey, or the last event of the
+	// paced writes of frames from 1, and token tells this stream from an
+	// older or newer one with the same ID. It goes out as the last Frame
+	// of WriteTick's call, with the key AckKey, or the last event of the
 	// write.
 	Ack func(token string, n int64) []byte
+	// Release, if positive, ends the pacing of a stream whose page keeps
+	// up: once no acknowledgement for Release came after the stream's
+	// next frame was ready (that is, the page was never the reason a
+	// frame waited), the stream stops asking for them and sends every
+	// frame again (Stats.Releases). Each release of the same stream
+	// doubles the time for the next, up to eight times Release, so that
+	// a page at the edge of keeping up, paced again by Hub.Pace, does not
+	// switch back and forth every Release.
+	Release time.Duration
 }
 
 // AckKey is the key of the Frame that carries a stream's acknowledgement
@@ -156,8 +166,11 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	if spec.Slow {
 		s.every = slowEvery
 	}
-	if spec.Window > 0 && spec.Ack != nil && spec.ID != "" {
-		s.window, s.ack = int64(spec.Window), spec.Ack
+	if spec.Ack != nil && spec.ID != "" {
+		s.ack, s.release = spec.Ack, spec.Release
+		if spec.Window > 0 {
+			s.pace(int64(spec.Window), time.Now())
+		}
 	}
 	published := h.attach(s, spec.Views)
 	o := h.sse
@@ -402,7 +415,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	}
 	var stall <-chan time.Time // fires when a full window has waited AckTimeout
 	var stallTimer *time.Timer
-	if s.window > 0 {
+	if s.ack != nil {
 		stallTimer = time.NewTimer(time.Hour)
 		stallTimer.Stop()
 		defer stallTimer.Stop()
@@ -413,12 +426,13 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	var frames []Frame
 	for {
 		var now time.Time
-		if s.every > 0 || s.window > 0 {
+		if s.every > 0 || s.ack != nil {
 			now = time.Now()
 		}
 		s.mu.Lock()
 		wait := s.hold(now)
-		full := s.window > 0 && s.written-s.acked >= s.window && now.Sub(s.heard) < AckTimeout
+		window := s.window // Hub.Pace and Hub.Ack change it
+		full := window > 0 && s.written-s.acked >= window && now.Sub(s.heard) < AckTimeout
 		freed := s.full && !full
 		s.full = full
 		if wait == 0 && !full {
@@ -488,11 +502,11 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		clear(batch)
 		batch = batch[:0]
-		if s.window > 0 && (len(frames) > 0 || len(parts) > 0 || wrote) {
+		if window > 0 && (len(frames) > 0 || len(parts) > 0 || wrote) {
 			s.mu.Lock()
 			s.written++
 			n := s.written
-			if n-s.acked >= s.window {
+			if n-s.acked >= window {
 				s.heard = now // the window is full from now
 			}
 			s.mu.Unlock()
@@ -510,7 +524,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		if len(frames) > 0 {
 			n := len(frames)
-			if s.window > 0 {
+			if window > 0 {
 				n--
 			}
 			err := s.writeTick(st, frames)
@@ -523,7 +537,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		if len(parts) > 0 {
 			n := len(parts)
-			if s.window > 0 {
+			if window > 0 {
 				n--
 			}
 			err := st.Write(parts...)
@@ -578,21 +592,81 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 // the nth (Spec.Window), and frees the window for as many. It reports
 // whether such a stream is open. An acknowledgement of an older write, or
 // of one not written yet, changes nothing.
+//
+// With Spec.Release, it also notes whether a frame was waiting for the
+// acknowledgement, and ends the pacing once none has for long enough.
 func (h *Hub) Ack(id, token string, n int64) bool {
 	h.mu.Lock()
 	s := h.byID[id]
 	h.mu.Unlock()
-	if s == nil || s.window <= 0 || strconv.FormatUint(s.seq, 36) != token {
+	if s == nil || s.ack == nil || strconv.FormatUint(s.seq, 36) != token {
 		return false
 	}
 	h.acks.Add(1)
+	now := time.Now()
 	s.mu.Lock()
-	if n > s.acked && n <= s.written {
-		s.acked, s.heard = n, time.Now()
+	released := false
+	if s.window > 0 && n > s.acked && n <= s.written {
+		s.acked, s.heard = n, now
+		if s.waiting() {
+			s.late = now
+		} else if s.release > 0 && now.Sub(s.late) >= s.release<<min(s.releases, 3) {
+			s.window = 0
+			s.releases++
+			released = true
+		}
 	}
 	s.mu.Unlock()
+	if released {
+		h.releases.Add(1)
+	}
 	s.poke()
 	return true
+}
+
+// Pace sets the window of the open stream with the ID (Spec.Window): a
+// positive window paces it by the page's acknowledgements from its next
+// write on, and 0 sends every frame again. The stream needs Spec.Ack. It
+// reports whether such a stream is open. A stream paced already keeps its
+// window and its count towards Spec.Release.
+func (h *Hub) Pace(id string, window int) bool {
+	h.mu.Lock()
+	s := h.byID[id]
+	h.mu.Unlock()
+	if s == nil || s.ack == nil {
+		return false
+	}
+	s.mu.Lock()
+	paced := false
+	switch {
+	case window <= 0:
+		s.window = 0
+	case s.window == 0:
+		s.pace(int64(window), time.Now())
+		paced = true
+	}
+	s.mu.Unlock()
+	if paced {
+		h.paces.Add(1)
+	}
+	s.poke()
+	return true
+}
+
+// pace starts pacing s with the window at now: nothing it wrote before
+// waits for an acknowledgement. s.mu is held, or s is not running yet.
+func (s *stream) pace(window int64, now time.Time) {
+	s.window, s.acked, s.heard, s.late = window, s.written, now, now
+}
+
+// waiting reports whether a frame waits to go out on s (s.mu held).
+func (s *stream) waiting() bool {
+	for _, w := range s.watches {
+		if w.next != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // beat is a heartbeat: a comment, or a patch of the heartbeat signal.

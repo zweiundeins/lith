@@ -165,6 +165,8 @@ type Stats struct {
 	RendersDeferred int64
 	Overruns        int64 // ticks that took longer than Options.Tick
 	Acks            int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
+	Paces           int64 // streams that Hub.Pace started to pace
+	Releases        int64 // paced streams whose page kept up for Spec.Release
 	Streams         int
 	Views           int
 	ReadTxs         int64 // read transactions the render workers began
@@ -210,7 +212,7 @@ type Hub struct {
 	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
 	next    chan struct{}            // closed once the next tick that renders views has published its frames
 
-	ticks, renders, sent, dropped, deferred, overruns, readTxs, acks atomic.Int64
+	ticks, renders, sent, dropped, deferred, overruns, readTxs, acks, paces, releases atomic.Int64
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
@@ -267,19 +269,24 @@ type stream struct {
 	wake      chan struct{}
 	upgrade   time.Duration // when it listens for a better tier (sse.Stream.Upgrade); negative: never
 	every     time.Duration // the least time between two frames of a view (Spec.Slow), 0 for none
-	window    int64         // the writes that may wait for the page's acknowledgement (Spec.Window), 0 for no pacing
 	ack       func(token string, n int64) []byte
+	release   time.Duration // Spec.Release
 
 	mu sync.Mutex
 	// The views the stream watches, in the order it started watching
 	// them. Changed with both Hub.mu and mu held, read with either.
 	watches []*watch
-	// With Spec.Window: the writes of frames, the newest acknowledged,
-	// when the stream last heard from the page or started to wait for it,
-	// and whether the window was full when the pump last looked.
-	written, acked int64
-	heard          time.Time
-	full           bool
+	// With Spec.Ack: the writes that may wait for the page's
+	// acknowledgement (Spec.Window, Hub.Pace), 0 for no pacing; the
+	// paced writes of frames, the newest acknowledged, when the stream
+	// last heard from the page or started to wait for it, and whether the
+	// window was full when the pump last looked. late is when an
+	// acknowledgement last came after a frame was ready, or when pacing
+	// started, and releases counts the ends of pacing (Spec.Release).
+	window, written, acked int64
+	heard, late            time.Time
+	full                   bool
+	releases               int
 }
 
 // New returns a hub; Run starts it.
@@ -511,6 +518,8 @@ func (h *Hub) Stats() Stats {
 		RendersDeferred: h.deferred.Load(),
 		Overruns:        h.overruns.Load(),
 		Acks:            h.acks.Load(),
+		Paces:           h.paces.Load(),
+		Releases:        h.releases.Load(),
 		Streams:         streams,
 		Views:           views,
 		ReadTxs:         h.readTxs.Load(),

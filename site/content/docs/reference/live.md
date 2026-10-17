@@ -156,6 +156,8 @@ func (h *Hub) Ack(id, token string, n int64) bool
 
 Ack acknowledges the writes of the stream with the ID and token up to the nth (Spec.Window), and frees the window for as many. It reports whether such a stream is open. An acknowledgement of an older write, or of one not written yet, changes nothing.
 
+With Spec.Release, it also notes whether a frame was waiting for the acknowledgement, and ends the pacing once none has for long enough.
+
 #### func (*Hub) Budget {#Hub.Budget}
 
 ```go
@@ -195,6 +197,14 @@ func (h *Hub) MarkAll()
 ```
 
 MarkAll marks every view dirty, as after a change nothing tracks (a migration, new templates).
+
+#### func (*Hub) Pace {#Hub.Pace}
+
+```go
+func (h *Hub) Pace(id string, window int) bool
+```
+
+Pace sets the window of the open stream with the ID (Spec.Window): a positive window paces it by the page's acknowledgements from its next write on, and 0 sends every frame again. The stream needs Spec.Ack. It reports whether such a stream is open. A stream paced already keeps its window and its count towards Spec.Release.
 
 #### func (*Hub) Run {#Hub.Run}
 
@@ -372,16 +382,26 @@ type Spec struct {
 	// deferred since is dropped, and the next tick renders the view as it
 	// is then, so the page never gets a frame that waited for it. A
 	// stream that hears nothing for AckTimeout sends its next write
-	// anyway. It needs an ID and Ack.
+	// anyway. It needs an ID and Ack. A stream with Ack and no Window
+	// starts unpaced, and Hub.Pace can pace it later.
 	Window int
 	// Ack makes the event that ends a write of frames on a stream with
 	// Window. The event has the page call Hub.Ack with the stream's ID,
 	// token and n once it has applied the write: n counts the stream's
-	// writes of frames from 1, and token tells this stream from an older
-	// or newer one with the same ID. It goes out as the last Frame of
-	// WriteTick's call, with the key AckKey, or the last event of the
+	// paced writes of frames from 1, and token tells this stream from an
+	// older or newer one with the same ID. It goes out as the last Frame
+	// of WriteTick's call, with the key AckKey, or the last event of the
 	// write.
 	Ack func(token string, n int64) []byte
+	// Release, if positive, ends the pacing of a stream whose page keeps
+	// up: once no acknowledgement for Release came after the stream's
+	// next frame was ready (that is, the page was never the reason a
+	// frame waited), the stream stops asking for them and sends every
+	// frame again (Stats.Releases). Each release of the same stream
+	// doubles the time for the next, up to eight times Release, so that
+	// a page at the edge of keeping up, paced again by Hub.Pace, does not
+	// switch back and forth every Release.
+	Release time.Duration
 }
 ```
 
@@ -400,6 +420,8 @@ type Stats struct {
 	RendersDeferred int64
 	Overruns        int64 // ticks that took longer than Options.Tick
 	Acks            int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
+	Paces           int64 // streams that Hub.Pace started to pace
+	Releases        int64 // paced streams whose page kept up for Spec.Release
 	Streams         int
 	Views           int
 	ReadTxs         int64 // read transactions the render workers began
