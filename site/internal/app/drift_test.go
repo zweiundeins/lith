@@ -67,6 +67,11 @@ import (
 // such as 5s, ends the pacing of a page that keeps up again
 // (live.Spec.Release). LIFE_DRIFT_THEN, such as 1@60s or 1@60s,15@120s,
 // sets the CPU slowdown to 1 at 60 s into the run (and to 15 at 120 s).
+// LIFE_DRIFT_RELEASE_SLACK, such as 100ms, has the release measure each
+// acknowledgement against the fastest one instead of the next frame
+// (live.Spec.ReleaseSlack). LIFE_DRIFT_INPUT=1 presses Shift every 500 ms
+// in Chromium and reports how long each press took to reach the page's
+// handler, and Event Timing's keydown entries (inputMeter).
 //
 //	LIFE_DRIFT=10 CADDY=$(which caddy) LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestLifeDrift -v -timeout 30m
 func TestLifeDrift(t *testing.T) {
@@ -101,6 +106,8 @@ func TestLifeDrift(t *testing.T) {
 		ackWindow = 1
 	}
 	release, _ := time.ParseDuration(os.Getenv("LIFE_DRIFT_RELEASE"))
+	slack, _ := time.ParseDuration(os.Getenv("LIFE_DRIFT_RELEASE_SLACK"))
+	input := os.Getenv("LIFE_DRIFT_INPUT") == "1"
 	type phase struct {
 		rate float64
 		at   time.Duration
@@ -115,7 +122,7 @@ func TestLifeDrift(t *testing.T) {
 		}
 	}
 	a, _ := apptest.Start(t, func(c *app.Config) {
-		c.AckWindow, c.AckAfterPaint, c.Hybrid, c.AckRelease = ackWindow, ackPaint, hybrid, release
+		c.AckWindow, c.AckAfterPaint, c.Hybrid, c.AckRelease, c.AckReleaseSlack = ackWindow, ackPaint, hybrid, release, slack
 	})
 	// The site again on a port of its own, behind a writer that times the
 	// stream's writes.
@@ -225,6 +232,12 @@ func TestLifeDrift(t *testing.T) {
 		shown.follow(t, p)
 	}
 	p.AddInitScript(t, appliedLog)
+	var keys *inputMeter
+	if input && chromium {
+		keys = &inputMeter{}
+		keys.follow(p)
+		p.AddInitScript(t, inputLog)
+	}
 
 	// The board's generation, read often, and when it reached each.
 	var board boardClock
@@ -312,7 +325,11 @@ func TestLifeDrift(t *testing.T) {
 	lastSelf, lastCaddy := cpuTime(caddyPID)
 	cpu0, caddy0 := lastSelf, lastCaddy
 	var busies []float64
-	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v, hybrid %q release %v, then %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint, hybrid, release, phases)
+	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v, hybrid %q release %v slack %v, then %v, input %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint, hybrid, release, slack, phases, keys != nil)
+	stopKeys := make(chan struct{})
+	if keys != nil {
+		go keys.press(p, stopKeys)
+	}
 	if len(phases) > 0 {
 		go func() {
 			for _, ph := range phases {
@@ -399,6 +416,7 @@ func TestLifeDrift(t *testing.T) {
 				float64(q.siteSend)/1000, float64(q.proxyRecv)/1000, float64(q.proxySend)/1000, float64(q.browserRecv)/1000, busyPct)
 		}
 	}
+	close(stopKeys)
 	<-traced
 	// How far behind the board the page was at every second, by the
 	// newest frame it had applied then.
@@ -429,6 +447,15 @@ func TestLifeDrift(t *testing.T) {
 		if link != nil {
 			t.Logf("link: %.2f KB/s up, %.2f KB/s down", float64(link.up.Load())/1000/secs, float64(link.down.Load())/1000/secs)
 		}
+	}
+	if keys != nil {
+		// The presses still in flight get a few seconds to arrive.
+		time.Sleep(3 * time.Second)
+		path := ""
+		if out := os.Getenv("LIFE_DRIFT_OUT"); out != "" {
+			path = strings.TrimSuffix(out, ".csv") + ".input.csv"
+		}
+		keys.summary(t, start, path)
 	}
 	mu.Lock()
 	ws := wm.stats()

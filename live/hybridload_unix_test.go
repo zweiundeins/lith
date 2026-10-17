@@ -29,14 +29,18 @@ import (
 // cells in rows of short tags, as on lith's site, that steps ten times a
 // second, watched by N zstd streams whose pages take every write at once.
 // A fraction of the pages is slow: it acknowledges a write 400 ms after
-// it goes out, a fast page after 20 ms. Three ways to serve them:
+// it goes out, a fast page after 20 ms. Four ways to serve them:
 // "plugin" sends every stream every frame (the page drops what it cannot
-// apply, newest-frame.js); "ack" paces every stream from the start
-// (Spec.Window 1); "hybrid" paces only the slow pages, 3 s after they
-// open, as newest-frame-behind would. Acknowledgements call Hub.Ack
-// directly, or with LIVE_HYBRID_LOAD_HTTP=1 go through a POST to an HTTP
-// server in the same process, whose client side then counts too.
-// LIVE_HYBRID_LOAD_ROUNDS runs the three in turn that many times.
+// apply, newest-frame.js; the server does the same with no fix at all);
+// "reopen" gives the slow pages the slow stream (Spec.Slow), as
+// newest-frame.js's __reopen gets them, and the fast pages every frame;
+// "ack" paces every stream from the start (Spec.Window 1); "hybrid"
+// paces only the slow pages, 3 s after they open, as newest-frame-behind
+// would. Acknowledgements call Hub.Ack directly, or with
+// LIVE_HYBRID_LOAD_HTTP=1 go through a POST to an HTTP server in the
+// same process, whose client side then counts too.
+// LIVE_HYBRID_LOAD_MODES picks the modes (all four by default), and
+// LIVE_HYBRID_LOAD_ROUNDS runs them in turn that many times.
 //
 //	LIVE_HYBRID_LOAD=200,1000 go test ./live -run TestHybridLoad -v -timeout 30m
 func TestHybridLoad(t *testing.T) {
@@ -51,11 +55,15 @@ func TestHybridLoad(t *testing.T) {
 	viaHTTP := os.Getenv("LIVE_HYBRID_LOAD_HTTP") == "1"
 	rounds, _ := strconv.Atoi(os.Getenv("LIVE_HYBRID_LOAD_ROUNDS"))
 	rounds = max(rounds, 1)
+	modes := []string{"plugin", "reopen", "ack", "hybrid"}
+	if m := os.Getenv("LIVE_HYBRID_LOAD_MODES"); m != "" {
+		modes = strings.Split(m, ",")
+	}
 	t.Logf("GOMAXPROCS %d, slow share %.2f, acknowledgements over HTTP %v", runtime.GOMAXPROCS(0), slowShare, viaHTTP)
 	t.Logf("| Mode | Streams | CPU (%% of a core) | Acks/s | Wire KB/s | Frames sent/s | Frames dropped/s | Renders/s | Renders deferred/s |")
 	for _, f := range strings.Split(ns, ",") {
 		n, _ := strconv.Atoi(f)
-		for _, mode := range slices.Repeat([]string{"plugin", "ack", "hybrid"}, rounds) {
+		for _, mode := range slices.Repeat(modes, rounds) {
 			r := hybridLoad(t, mode, n, slowShare, viaHTTP)
 			t.Logf("| %s | %d | %.1f | %.0f | %.0f | %.0f | %.0f | %.1f | %.1f |", mode, n, r.cpu, r.acks, r.wire/1000, r.sent, r.dropped, r.renders, r.deferred)
 		}
@@ -106,7 +114,11 @@ func hybridLoad(t *testing.T, mode string, n int, slowShare float64, viaHTTP boo
 		}
 		id := "tab" + strconv.Itoa(i)
 		spec := Spec{ID: id, Views: []View{board}}
-		if mode != "plugin" {
+		if mode == "reopen" {
+			// The slow pages on the slow stream from the start: __reopen
+			// moves them after about 2 s, within the warm-up.
+			spec.Slow = slow
+		} else if mode != "plugin" {
 			spec.Ack = func(token string, k int64) []byte {
 				time.AfterFunc(delay, func() { ack(id, token, k) })
 				return sse.PatchElements([]byte(`<i id="ack-` + strconv.FormatInt(k, 10) + `"></i>`))
