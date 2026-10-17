@@ -206,6 +206,14 @@ func (h *Hub) Pace(id string, window int) bool
 
 Pace sets the window of the open stream with the ID (Spec.Window): a positive window paces it by the page's acknowledgements from its next write on, and 0 sends every frame again. The stream needs Spec.Ack. It reports whether such a stream is open. A stream paced already keeps its window and its count towards Spec.Release.
 
+#### func (*Hub) RoundTrip {#Hub.RoundTrip}
+
+```go
+func (h *Hub) RoundTrip(id string, rtt time.Duration)
+```
+
+RoundTrip notes a round trip the page of the open stream with the ID measured, such as from the Resource Timing of its last acknowledgement. The stream keeps the shortest (Spec.ReleaseSlack).
+
 #### func (*Hub) Run {#Hub.Run}
 
 ```go
@@ -402,6 +410,14 @@ type Spec struct {
 	// a page at the edge of keeping up, paced again by Hub.Pace, does not
 	// switch back and forth every Release.
 	Release time.Duration
+	// ReleaseSlack, if positive, changes what Release counts as late once
+	// the page has reported its round trip (Hub.RoundTrip): an
+	// acknowledgement that came more than ReleaseSlack after the round
+	// trip, from the write it acknowledges, instead of one that came
+	// after the next frame was ready. A page on a link whose round trip
+	// is longer than a view's tick can then still be released once it
+	// applies its frames within ReleaseSlack.
+	ReleaseSlack time.Duration
 }
 ```
 
