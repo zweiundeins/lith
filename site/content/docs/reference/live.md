@@ -228,7 +228,7 @@ Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New
 func (h *Hub) Changed(topics []string)
 ```
 
-Changed marks dirty every view with one of the topics. It is meant for the writer's OnCommit and never waits for a render. Each call is a commit: it takes the next number (Seq), which becomes the version of the topics. Call it after the change is in the database, as OnCommit is.
+Changed marks dirty every view with one of the topics. It is meant for the writer's OnCommit and never waits for a render. Each call is a commit: it takes the next number (Seq), which becomes the version of the topics. Call it after the change is in the database, as OnCommit is. An app that commits through its own store calls it after each commit is visible to readers, never inside the transaction: a render that begins after Changed counts the commit as part of its snapshot.
 
 #### func (*Hub) Count {#Hub.Count}
 
@@ -397,7 +397,10 @@ type Options struct {
 	// with a name of 16, so 4.3 MiB at most by default. A topic it no
 	// longer keeps reads as changed at the commit that pushed it out, and
 	// so does every topic while it keeps none: a cache then computes
-	// again, and is never wrong.
+	// again, and is never wrong. A bulk sync that touches more distinct
+	// topics than Versions, one per item, pushes them out all along, and
+	// every cache computes again about once per Versions new topics until
+	// it ends.
 	Versions int
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its

@@ -41,6 +41,14 @@ Ending `w.Run`'s context drains the queue like `w.Close()` and makes Send and
 Do return `ErrClosed` from then on, so a writer on the signal context refuses
 the actions that arrive while the server drains.
 
+An app that keeps its own store and does not use lith's writer still uses
+`live` and `sse`: it calls `hub.Changed(topics)` itself after each commit,
+once readers see it, never inside the transaction. A render or a cache that
+reads `Seq` after the call counts the commit as part of its snapshot; a call
+before the commit is visible lets it store the old rows under the new number.
+Several commits can share one call, with the union of their topics, made
+after the last of them.
+
 The read pool's default size, GOMAXPROCS + 4 and at least 8, is the hub's
 render workers (GOMAXPROCS, each holding a connection for good) plus four or
 more for GET documents and other reads. Set `Readers` higher when more reads
@@ -597,7 +605,10 @@ err := s.db.View(ctx, func(tx *sql.Tx) error {
   with a name of 16, 4.3 MiB at most. A topic it no longer keeps reads as
   changed when it was pushed out, so a cache computes again and is never
   wrong. Topics per tab or per row churn through it; a cache keyed on them
-  computes more often after a busy spell, nothing else.
+  computes more often after a busy spell, nothing else. A bulk sync that
+  touches more distinct topics than that, one per item, pushes versions out
+  all along, and every cached aggregate computes again about once per
+  32,768 new topics until it ends: correct, but costly.
 - `live.Cache` is a different thing: it keeps rendered fragments by their
   content. Use a version for the query behind a value, the cache for the
   HTML it renders to.

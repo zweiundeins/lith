@@ -33,6 +33,21 @@ The writer takes the write connection over. After each batch commits, it hands `
 
 The read pool needs a connection for every worker (GOMAXPROCS of them by default) and some for GET requests besides. `Readers` defaults to GOMAXPROCS + 4, and at least 8.
 
+## Without lith's writer
+
+An app that keeps its own store and commits through its own transactions can use `live` and `sse` without `writer`. The hub knows nothing of the writer: `OnCommit` only calls `hub.Changed`, so the app calls it itself after each commit, with the topics the commit changed:
+
+```go
+if err := tx.Commit(); err != nil {
+	return err
+}
+hub.Changed([]string{"card:7", "board:1"})
+```
+
+Call it once the commit is visible to readers, never inside the transaction. `Changed` takes the next commit number (`hub.Seq()`) and marks the views dirty. A tick that begins after it reads that number before its read transaction begins, and counts every commit up to it as part of its snapshot; so does a cache, through `live.Seq(ctx)` or `hub.Seq()`. A `Changed` before the commit is visible lets a render read the old rows under the new number: the view sends a stale frame and is clean again, and a cache stores the old value as good as of the new number and keeps it while the topics stay quiet. Visible means that a read transaction the hub's read pool begins now sees the rows.
+
+Several commits can share one call, with the union of their topics, made after the last of them is visible, as the writer does for the commands of one batch. Until that call, the pages show the state before the first of them. A change that no topic tracks takes `hub.MarkAll()`.
+
 ## The edge
 
 ```go

@@ -41,7 +41,7 @@ When `Render` fails, the hub logs the error and the streams send nothing: the pa
 
 ## Topics
 
-A topic names a part of the state that commands change: `board:1`, `card:7`, `tab:<id>`, `sid:<id>`. A command touches the topics of what it changed, and a view lists the topics of what it shows. The writer calls `hub.Changed(topics)` after each commit, through `writer.Options.OnCommit`.
+A topic names a part of the state that commands change: `board:1`, `card:7`, `tab:<id>`, `sid:<id>`. A command touches the topics of what it changed, and a view lists the topics of what it shows. The writer calls `hub.Changed(topics)` after each commit, through `writer.Options.OnCommit`; an app with a store of its own calls it after its own commits ([Wiring](/docs/getting-started/wiring#without-liths-writer)).
 
 - Give each thing a page shows a topic of its own. A view that listens to a topic every commit touches renders on every commit.
 - A command that touches nothing leaves every page as it was, however much it changed.
