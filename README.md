@@ -25,10 +25,10 @@ HTML with templ, and each app keeps its own pages and domain model.
 
 | Package | What it does |
 | --- | --- |
-| [`sqlite`](sqlite) | one write connection and a `query_only` read pool whose connections keep their statements prepared, pragmas, `user_version` migrations, read-only opens, `VACUUM INTO` backups |
+| [`sqlite`](sqlite) | one write connection and a `query_only` read pool whose connections keep their statements prepared (`Uncached` for SQL built at runtime), pragmas, `user_version` migrations, read-only opens, `VACUUM INTO` backups |
 | [`writer`](writer) | the single writer: `Send`, `Do` and `DoValue`, batches with a savepoint per command, prepared statements, `Once` for retried requests, `Exclusive` for work between batches |
 | [`events`](events) | event sourcing on the writer: typed streams, deciders that decide from a state row, projections that commit with their events, rebuilds into copies, catch-up projectors, upcasters, retention |
-| [`live`](live) | topics mark views dirty; a tick feeds render workers that read one snapshot each and render each changed view once for all its viewers |
+| [`live`](live) | topics mark views dirty; a tick feeds render workers that read one snapshot each and render each changed view once for all its viewers; topics form a tree by `:`, a view can declare what its Render read (`Depends`), and the hub numbers commits for caches (`Seq`, `Version`) |
 | [`sse`](sse) | Datastar events, formatted once and written to many streams, with zstd, brotli or gzip per stream and a deadline on every write; `ReadSignals` for any method; a memory budget that books what each stream holds, sizes its window from its frames, and can cap the streams by memory |
 | [`edge`](edge) | sessions, CSRF, client IP, CSP with a nonce, compression, precompressed static files, rate limiters, health checks |
 | [`tenant`](tenant) | one open database per account, refcounted, evicted at a soft cap |
@@ -86,8 +86,8 @@ The recipes, the rules and a review checklist are in the skill.
   `synchronous=NORMAL`, 108 to a transaction; 14,480 with FULL, whose commits
   survive a power loss. On a development machine (i5-13500): 66,688 and 34,893
   ([bench/RESULTS.md](bench/RESULTS.md)). Beside 200 streams at 800 commands a
-  second, a command commits in 0.3 to 0.5 ms at p50 with NORMAL and in 3 to
-  11 ms with FULL there.
+  second, a command commits in 0.3 to 0.5 ms at p50 with NORMAL; with FULL
+  there, in 2.7 to 5.5 ms at p50 and up to 11 ms at p99.
 - **Streams:** each stream takes the smallest window that holds its frames.
   For a 230 KB page at 2^18: 845 KiB of heap with zstd (low memory) and 4,183
   bytes a frame; 1,603 KiB with brotli at quality 4 and 140 bytes a frame, at
