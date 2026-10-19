@@ -58,6 +58,8 @@ A sync from outside, say a wiki's pages, names its topics `source:space:item`: `
 - a space's list listens to `confluence:SWE`, and renders when any of its pages changes;
 - search and the counts per source listen to `confluence`, and render when anything in the source changes.
 
+A view on a topic renders for every commit below it. So state per tab, per session and of who is present goes under a root of its own, `tab:…`, `sid:…`, `here:…`, never under the root of the shared data. The site's board demo kept who is on the page at `board:here`, below `board`, which the shared board listens to: every tab's hello rendered the board for everyone, and the board's view transition broke a drag that had just begun. It is `here:board` now, and a demo tab's state is `tab:<demo>:<tab>`.
+
 A commit to a level does not reach the levels below it: one to `confluence:SWE`, a space's own settings, renders the list and search, and no page. When everything below a level changed, as when a sync rewrote a space, the command touches the level with `:*`, once, instead of each page:
 
 ```go

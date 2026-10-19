@@ -546,6 +546,12 @@ level of what it shows:
 - a space's list on `confluence:SWE`, for any page in it;
 - search and the counts per source on `confluence`, for anything in it.
 
+A view on a topic renders for every commit below it, so per-tab,
+per-session and presence state goes under a root of its own (`tab:…`,
+`sid:…`, `here:…`), never under the root of the shared data. The site's
+board demo had its presence at `board:here`: every hello rendered the
+shared board, whose view transition broke a drag. It is `here:board` now.
+
 A commit to a level does not reach the levels below it. When everything
 below a level changed, as after a sync that rewrote a space, touch the
 level with `:*`, once, instead of each item:
