@@ -38,9 +38,8 @@ func TxFrom(ctx context.Context) (*sql.Tx, bool) {
 // once on its connection, in the render's transaction: modernc.org/sqlite
 // parses and plans every query that has no prepared statement. The worker
 // keeps the 512 statements used last; run SQL built at runtime, such as an
-// IN list with a mark per value, on the Render's tx instead, whose read
-// connection keeps statements of its own (Options.Statements), so that it
-// pushes none of the worker's out. As with a command's Tx, scan a row
+// IN list with a mark per value, with a ctx from Uncached, so that it
+// takes no place in a cache and pushes none out. As with a command's Tx, scan a row
 // before the same query runs again: until then its statement is busy.
 // Elsewhere it is the transaction from WithTx. Like TxFrom, it does not
 // tell which database the transaction reads.
@@ -55,6 +54,21 @@ func QuerierFrom(ctx context.Context) (Querier, bool) {
 		return v.Tx, true
 	}
 	return nil, false
+}
+
+// Uncached returns a copy of ctx whose queries skip the statement caches:
+// a query run with it on the read pool, on R, in a View's or a Render's
+// tx, or through QuerierFrom in a Render, is prepared for this run and
+// closed with its rows, and neither takes a place in a cache nor pushes
+// one out. It is for SQL built at runtime, such as an IN list with a mark
+// per value or a sort the request picks, which would take a place for
+// every text it makes. A writer.Tx's ExecContext, QueryContext and
+// QueryRowContext honour it as well, like its ExecUncached, QueryUncached
+// and QueryRowUncached.
+//
+//	rows, err := q.QueryContext(sqlite.Uncached(ctx), `SELECT id, title FROM cards WHERE id IN (`+marks+`)`, ids...)
+func Uncached(ctx context.Context) context.Context {
+	return txctx.WithUncached(ctx)
 }
 
 // joined returns the transaction ctx carries if it reads d's file.

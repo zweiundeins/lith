@@ -1323,7 +1323,8 @@ func TestEvictionUnderAnOpenQuery(t *testing.T) {
 }
 
 // ExecUncached, QueryUncached and QueryRowUncached run in the command's
-// transaction and keep no statement.
+// transaction and keep no statement, and so do ExecContext, QueryContext
+// and QueryRowContext with a ctx from sqlite.Uncached.
 func TestUncached(t *testing.T) {
 	f := start(t, sqlite.Options{}, Options{})
 	ctx := context.Background()
@@ -1347,6 +1348,20 @@ func TestUncached(t *testing.T) {
 			return err
 		}
 		rows.Next() // left open: closed when the command returns
+		// The Querier methods with a ctx from sqlite.Uncached, as query code
+		// shared with reads calls them.
+		u := sqlite.Uncached(ctx)
+		if _, err := tx.ExecContext(u, "UPDATE items SET name = name WHERE seq IN "+list, args...); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(u, "SELECT count(*) FROM items WHERE seq IN "+list, args...).Scan(&n); err != nil {
+			return err
+		}
+		rows, err = tx.QueryContext(u, "SELECT name FROM items WHERE seq IN (?, ?, ?, ?) ORDER BY seq", 4, 5, 6, 7)
+		if err != nil {
+			return err
+		}
+		rows.Next()
 		if after := len(f.w.stmts); after != before {
 			t.Errorf("%d statements cached before, %d after", before, after)
 		}

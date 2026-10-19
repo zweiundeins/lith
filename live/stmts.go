@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"sync"
+
+	"github.com/zweiundeins/lith/internal/txctx"
 )
 
 // maxStmts bounds a worker's statement cache, which keeps the statements
@@ -97,6 +99,9 @@ func (q *reads) ExecContext(ctx context.Context, query string, args ...any) (sql
 }
 
 func (q *reads) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if txctx.Uncached(ctx) {
+		return q.tx.QueryContext(ctx, query, args...)
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if s := q.prepared(ctx, query); s != nil {
@@ -110,6 +115,9 @@ func (q *reads) QueryContext(ctx context.Context, query string, args ...any) (*s
 }
 
 func (q *reads) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if txctx.Uncached(ctx) {
+		return q.tx.QueryRowContext(ctx, query, args...)
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if s := q.prepared(ctx, query); s != nil {

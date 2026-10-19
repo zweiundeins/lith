@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/zweiundeins/lith/internal/txctx"
 	"github.com/zweiundeins/lith/sqlite"
 )
 
@@ -13,7 +14,8 @@ import (
 // kept by their SQL text, the 512 used last. Build queries from constants
 // and pass values as arguments; SQL built at runtime, such as an IN list
 // with a mark per value, runs through ExecUncached, QueryUncached and
-// QueryRowUncached, which keep no statement.
+// QueryRowUncached, which keep no statement, as do ExecContext,
+// QueryContext and QueryRowContext with a ctx from sqlite.Uncached.
 type Tx struct {
 	w      *Writer
 	ctx    context.Context
@@ -98,20 +100,31 @@ func (t *Tx) QueryRowUncached(query string, args ...any) *sql.Row {
 // ExecContext is Exec, for code that takes a sqlite.Querier. Like the
 // other methods it runs on the batch's transaction, with its statement
 // cache and the command's context: ctx is not used, so no statement is
-// cancelled halfway through a batch.
-func (t *Tx) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
+// cancelled halfway through a batch, except that with a ctx from
+// sqlite.Uncached it is ExecUncached.
+func (t *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if txctx.Uncached(ctx) {
+		return t.ExecUncached(query, args...)
+	}
 	return t.Exec(query, args...)
 }
 
 // QueryContext is Query, for code that takes a sqlite.Querier; ctx is not
-// used.
-func (t *Tx) QueryContext(_ context.Context, query string, args ...any) (*sql.Rows, error) {
+// used, except that with a ctx from sqlite.Uncached it is QueryUncached.
+func (t *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if txctx.Uncached(ctx) {
+		return t.QueryUncached(query, args...)
+	}
 	return t.Query(query, args...)
 }
 
 // QueryRowContext is QueryRow, for code that takes a sqlite.Querier; ctx
-// is not used.
-func (t *Tx) QueryRowContext(_ context.Context, query string, args ...any) *sql.Row {
+// is not used, except that with a ctx from sqlite.Uncached it is
+// QueryRowUncached.
+func (t *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if txctx.Uncached(ctx) {
+		return t.QueryRowUncached(query, args...)
+	}
 	return t.QueryRow(query, args...)
 }
 

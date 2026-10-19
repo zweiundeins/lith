@@ -1,5 +1,7 @@
 // Package txctx carries a transaction in a context: sqlite's WithTx and
 // live's render workers put one in, sqlite's TxFrom and View take it out.
+// It carries sqlite.Uncached's flag as well, which the statement caches of
+// sqlite, live and writer read.
 package txctx
 
 import (
@@ -40,6 +42,20 @@ func With(ctx context.Context, v *Value) context.Context {
 func From(ctx context.Context) *Value {
 	v, _ := ctx.Value(key{}).(*Value)
 	return v
+}
+
+type uncachedKey struct{}
+
+// WithUncached returns a copy of ctx whose queries skip the statement
+// caches.
+func WithUncached(ctx context.Context) context.Context {
+	return context.WithValue(ctx, uncachedKey{}, true)
+}
+
+// Uncached reports whether ctx's queries skip the statement caches.
+func Uncached(ctx context.Context) bool {
+	u, _ := ctx.Value(uncachedKey{}).(bool)
+	return u
 }
 
 // File returns the file of the database Tx reads, from lookup on the

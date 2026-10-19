@@ -1658,3 +1658,37 @@ func TestRunTwice(t *testing.T) {
 		t.Fatal("ran twice")
 	}
 }
+
+// A Render's query with a ctx from sqlite.Uncached, through QuerierFrom,
+// runs on the render's transaction: IN lists of 64 lengths take no place
+// in the worker's cache, which keeps only the query built from constants.
+func TestRenderQuerierUncached(t *testing.T) {
+	_, read := testDB(t, 4)
+	const hot = `select n from counter where name = ?`
+	renderOnce(t, read, func(ctx context.Context, q sqlite.Querier, w *worker) (struct{}, error) {
+		var n int
+		if err := q.QueryRowContext(ctx, hot, "a").Scan(&n); err != nil {
+			return struct{}{}, err
+		}
+		u := sqlite.Uncached(ctx)
+		for k := 1; k <= 64; k++ {
+			marks := "?" + strings.Repeat(", ?", k-1)
+			args := slices.Repeat([]any{"a"}, k)
+			if err := q.QueryRowContext(u, `select n from counter where name in (`+marks+`)`, args...).Scan(&n); err != nil {
+				return struct{}{}, err
+			}
+			if k%16 != 0 {
+				continue
+			}
+			rows, err := q.QueryContext(u, `select name from counter where name in (`+marks+`)`, args...)
+			if err != nil {
+				return struct{}{}, err
+			}
+			rows.Close()
+		}
+		if len(w.stmts) != 1 || w.stmts[hot] == nil {
+			return struct{}{}, fmt.Errorf("%d statements cached, want only the one built from constants", len(w.stmts))
+		}
+		return struct{}{}, nil
+	})
+}

@@ -912,3 +912,72 @@ func TestLiveWorkersOnCachingConnections(t *testing.T) {
 	d.Close()
 	n.check(t)
 }
+
+// A query with a ctx from Uncached, here an IN list with a mark per value
+// in every length from 1 to 40, on R and in a View, runs on a statement of
+// its own: the cache keeps what it held, in the same order, prepares
+// nothing again, and holds no more memory.
+func TestUncachedLeavesTheCacheAlone(t *testing.T) {
+	ctx := context.Background()
+	name, n := countingDriver(t)
+	d := open(t, Options{Driver: name, Readers: 1, Statements: 4})
+	exec(t, d.W, "CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1), (2), (3)")
+	hot := []string{"SELECT x FROM t ORDER BY x", "SELECT x + 1 FROM t ORDER BY x"}
+	for _, q := range hot {
+		if _, err := ints(d.R.QueryContext(ctx, q)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func() ([]string, int) {
+		c, err := d.R.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		return cached(t, c), stmtBytes(t, c)
+	}
+	before, bytes := state()
+	in := func(k int) (string, []any) {
+		args := make([]any, k)
+		for i := range args {
+			args[i] = i + 1
+		}
+		return "SELECT x FROM t WHERE x IN (?" + strings.Repeat(", ?", k-1) + ") ORDER BY x", args
+	}
+	u := Uncached(ctx)
+	for k := 1; k <= 40; k++ {
+		q, args := in(k)
+		want := []int{1, 2, 3}[:min(k, 3)]
+		if got, err := ints(d.R.QueryContext(u, q, args...)); err != nil || !slices.Equal(got, want) {
+			t.Fatalf("on R, %d marks: %v, %v", k, got, err)
+		}
+		err := d.View(ctx, func(tx *sql.Tx) error {
+			got, err := ints(tx.QueryContext(u, q, args...))
+			if err != nil || !slices.Equal(got, want) {
+				return fmt.Errorf("in a View, %d marks: %v, %v", k, got, err)
+			}
+			var x int
+			return tx.QueryRowContext(u, q, args...).Scan(&x)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p, _ := n.of(q); p != 0 {
+			t.Fatalf("%d marks prepared %d times on the cache's path", k, p)
+		}
+	}
+	after, bytesAfter := state()
+	if !slices.Equal(after, before) {
+		t.Fatalf("cached %q, before %q", after, before)
+	}
+	if bytesAfter != bytes {
+		t.Fatalf("statements hold %d bytes, %d before", bytesAfter, bytes)
+	}
+	for _, q := range hot {
+		if p, c := n.of(q); p != 1 || c != 0 {
+			t.Fatalf("%s prepared %d times, closed %d", q, p, c)
+		}
+	}
+	d.Close()
+	n.check(t)
+}

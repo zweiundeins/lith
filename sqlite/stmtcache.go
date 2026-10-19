@@ -6,6 +6,8 @@ import (
 	"database/sql/driver"
 	"io"
 	"reflect"
+
+	"github.com/zweiundeins/lith/internal/txctx"
 )
 
 // stmtConnector opens the read pool's connections, each with a cache of
@@ -119,7 +121,10 @@ type queryStmt interface {
 func (c *stmtConn) Unwrap() driver.Conn { return c.ctxConn }
 
 func (c *stmtConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	s := c.prepared(ctx, query)
+	var s *cachedStmt
+	if !txctx.Uncached(ctx) {
+		s = c.prepared(ctx, query)
+	}
 	if s == nil {
 		return c.ctxConn.QueryContext(ctx, query, args)
 	}

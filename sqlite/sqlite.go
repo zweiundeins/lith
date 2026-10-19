@@ -94,8 +94,9 @@ type Options struct {
 	// the queries of kanban's board page, so a full cache takes about
 	// 0.5 MiB per connection, and a connection keeps only what it ran.
 	// Build SQL from constants: SQL built at runtime, such as an IN list
-	// with a mark per value, takes a place for each text it makes. A
-	// connection reached through sql.Conn.Raw Unwraps to the driver's.
+	// with a mark per value, takes a place for each text it makes, unless
+	// it runs with a ctx from Uncached. A connection reached through
+	// sql.Conn.Raw Unwraps to the driver's.
 	Statements int
 }
 
