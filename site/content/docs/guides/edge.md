@@ -16,7 +16,7 @@ The template builds the chain from the inside out, and keeps the probes outside 
 ```go source=template/cmd/app/main.go
 h := http.Handler(site.Routes())
 h = edge.Sessions{Secure: *secure}.Handler(h)
-h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /behind"}}.Handler(h)
+h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /pace", "POST /ack"}}.Handler(h)
 h = edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: *secure}.Handler(h)
 h = edge.Compress(h)
 h = edge.Recover(log, h)
@@ -62,7 +62,7 @@ The cookie is `HttpOnly`, `SameSite=Lax`, and lives 400 days, the longest a brow
 - A request with neither header is refused: a client that is not a browser sends an `Origin`.
 - A same-site request from a sibling subdomain passes only if `Origins` lists it.
 
-`Datastar` lists the action routes, such as `POST /cmd/`, and the template's `POST /behind` ([Streams](/docs/guides/streams#counting-the-pages-that-fall-behind)), whose requests must also carry `Datastar-Request: true`. Datastar sends that header with every action; an HTML form cannot send it, and a cross-site `fetch` only after a CORS preflight, which the app does not allow. `Exempt` lists routes that skip the check, such as `POST /hooks/{name}` for webhooks, which authenticate with a signature instead. Every route that changes data passes the check, or is in `Exempt` for a reason.
+`Datastar` lists the action routes, such as `POST /cmd/`, and the template's `POST /pace` and `POST /ack` ([Streams](/docs/guides/streams#pacing-a-stream-by-the-page)), whose requests must also carry `Datastar-Request: true`. Datastar sends that header with every action; an HTML form cannot send it, and a cross-site `fetch` only after a CORS preflight, which the app does not allow. `Exempt` lists routes that skip the check, such as `POST /hooks/{name}` for webhooks, which authenticate with a signature instead. Every route that changes data passes the check, or is in `Exempt` for a reason.
 
 ## Security headers and the nonce
 

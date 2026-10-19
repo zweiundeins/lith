@@ -135,7 +135,13 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := edge.SessionID(r.Context())
-	spec := live.Spec{ID: tab, Views: []live.View{entriesView(), tabView(sid, tab)}, Reconnect: "stream", Slow: edge.SlowLink(r)}
+	spec := live.Spec{
+		ID:        streamID(sid, tab),
+		Views:     []live.View{entriesView(), tabView(sid, tab)},
+		Reconnect: "stream",
+		Slow:      edge.SlowLink(r),
+		Ack:       ackEvent(tab),
+	}
 	if err := s.hub.Serve(w, r, spec); err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)
 	}
@@ -219,7 +225,7 @@ Where a frame goes on its way, and where each fix below acts:
 
 **What the page measures later: its own lag.** The browser holds the frames a page has not applied, so only the page can tell that it fell behind. Once it is behind, Chromium hands it 2 MiB of the stream per read, the size of the pipe between its network process and the page, about 45 frames of the Game of Life, and Datastar applies them all in one task, without a paint between ([Datastar notes](/docs/datastar#a-page-that-falls-behind-its-stream-stops-painting)). Firefox keeps the frames in its parent process and hands the page one per task; it never makes the server's writes wait, so a slow Firefox tab never shows on the server at all. lith ships a Datastar plugin for this, `newest-frame.js` (`live.NewestFrame`), the build of [datastar-attribute-newest-frame](https://github.com/mbolli/datastar-attribute-newest-frame) that lith vendors; that repository has its source, its tests and a live demo. With `data-newest-frame` on `<body>`, the page holds its stream's patch events and applies only the newest frame of each view among those that arrived together. After a batch it waits half as long as applying the batch took, so applying frames takes at most two thirds of the main thread, and Firefox gets the time to hand over what it holds. The rendering that each applied frame causes runs in that pause and is not counted: on a phone 15 times slower than a desktop, the Game of Life's main thread stayed 97% busy, half applying frames and half laying out and painting them, but it painted every frame it applied, about two a second, and stayed within a second of the board (performance traces of 20 s, 2026-10-16, `bench/drift/RESULTS.md`). Signal patches, appends, removes, scripts and view transitions are never dropped, and the order is kept. A page that keeps up applies every frame, as it arrives.
 
-When the page drops more than half of its frames over 3 s, at least 10, the plugin dispatches `newest-frame-behind` on the stream's element, with the frames and the skipped frames of those 3 s in its detail, and goes on watching: while the page stays behind, it reports again every 3 s. The event bubbles up to `<body>`, where the template posts it to `/behind`, which counts it ([below](#counting-the-pages-that-fall-behind)). The page keeps its stream and goes on dropping what it cannot apply.
+When the page drops more than half of its frames over 3 s, at least 10, the plugin dispatches `newest-frame-behind` on the stream's element, with the frames and the skipped frames of those 3 s in its detail, and goes on watching: while the page stays behind, it reports again every 3 s. The event bubbles up to `<body>`, where the template posts it to `/pace`, which counts it ([below](#counting-the-pages-that-fall-behind)) and has the server pace the stream ([Pacing a stream by the page](#pacing-a-stream-by-the-page)). The page keeps its stream, and drops what it cannot apply until the pacing takes over.
 
 The template serves the plugin with its other static files, by its content's hash and as immutable:
 
@@ -244,44 +250,48 @@ The page loads it after Datastar, through an import map that maps `'datastar'` t
 
 The import map is an inline script, so it carries the request's CSP nonce (`edge.Nonce`). lith vendors the plugin's minified build, 3.0 KB and 1.5 KB with brotli, which `edge.Minify(minify.Bytes)` leaves as it is.
 
-Measured on 2026-10-16 on the development machine with the plugin in this site's pages, with the corrected `TestLifeDrift`: headless Chromium 154 with its CPU slowed 15 times, on an unthrottled link behind Caddy with HTTP/2, 150 s, three runs. With the plugin as the template has it, the page stayed 0.32 s behind the board at the median and 0.94 s at most, and the site wrote 7.09 KB/s; without the plugin, 27.15 s at the median and 50.0 s at the end. At 6 and 8 times, where a page without the plugin still applies every frame but paints fewer, it painted 7.88 and 5.69 frames a second and stayed 0.06 and 0.12 s behind (`bench/gaps/RESULTS.md`, 2026-10-17).
+Measured on 2026-10-16 on the development machine with the plugin in this site's pages, with the corrected `TestLifeDrift`: headless Chromium 154 with its CPU slowed 15 times, on an unthrottled link behind Caddy with HTTP/2, 150 s, three runs. With the plugin alone, without pacing, the page stayed 0.32 s behind the board at the median and 0.94 s at most, and the site wrote 7.09 KB/s; without the plugin, 27.15 s at the median and 50.0 s at the end. At 6 and 8 times, where a page without the plugin still applies every frame but paints fewer, it painted 7.88 and 5.69 frames a second and stayed 0.06 and 0.12 s behind (`bench/gaps/RESULTS.md`, 2026-10-17).
 
 **Opening a slow stream instead.** With `data-newest-frame__reopen`, the plugin also sets `$_slow` when it reports, and opens the stream again from a copy of its element. The new request sends `Save-Data: on`, and the server answers with a slow stream at the same URL. Datastar aborts the request in flight only when the new one goes to the same URL: a stream opened at another URL leaves the old one open, and the frames the browser holds of it keep arriving. The plugin asks once, and a page that measured a slow link as it started never asks. It is not the default, because the slow stream's four frames a second are fixed and the page never switches back. At 6 times CPU it capped the page at 4.03 frames a second, 0.37 s behind, where the page without any fix was 0.10 s behind; a page slowed for 60 s and then fast stayed on the slow stream at 4.02 frames a second for good (three runs each, `bench/gaps/RESULTS.md`). At 15 times it halves the bytes and doubles the lag: 0.64 s behind at the median (0.63 to 0.66), 1.16 s at most, at 3.20 KB/s. Firefox has no CPU throttling, so `TestNewestFrameSlowStream` makes every frame the page applies cost its main thread 300 ms more, alike in both engines: headless Chromium 154 and Firefox 158 each asked for a slow stream 2.8 s after the stream opened, and were 0.77 s and 0.61 s behind the board 4 s later. At full speed both applied every frame (`TestNewestFrame`).
 
 ## Counting the pages that fall behind
 
-Before turning on anything heavier, `__reopen`, pacing or leaner frames, find out whether the app's real users fall behind at all. The server cannot see it, but the page can tell it: the template posts each `newest-frame-behind` to `/behind` with its tab id, and the handler passes it to `live.Hub.Behind`, which counts it:
+The server cannot see that a page falls behind, but the page can tell it, and the counts say whether the app's real users fall behind at all. The template posts each `newest-frame-behind` to `/pace` with its tab id, and the handler passes it to `live.Hub.Behind`, which counts it, before it paces the stream ([below](#pacing-a-stream-by-the-page)):
 
-```go source=template/internal/web/server.go
-func (s *Server) reportBehind(w http.ResponseWriter, r *http.Request) {
+```go source=template/internal/web/pace.go
+func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
 		http.Error(w, "bad tab id", http.StatusBadRequest)
 		return
 	}
-	if s.behind.Allow(edge.SessionID(r.Context()), 1, time.Now()) {
-		s.hub.Behind(tab)
+	sid := edge.SessionID(r.Context())
+	if s.paces.Allow(sid, 1, time.Now()) {
+		id := streamID(sid, tab)
+		s.hub.Behind(id)
+		s.hub.Pace(id, 1)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 ```
 
-`Hub.Behind` counts a report only for a stream that is open, and one per stream every 2 s at most, so a page that posts more often cannot inflate the count. The tab id is random and only its page knows it, so a page reports only its own stream. The handler limits each session to one report a second after a burst of five (`edge.Limiter`), which keeps a client that posts in a loop away from the hub, and answers 204 either way. The edge's CSRF check treats `/behind` as an action, which needs Datastar's header. The listener sits on `<body>`: a `@post` from the stream's element would abort the stream's own request, with Datastar's default `requestCancellation`.
+`Hub.Behind` counts a report only for a stream that is open, and one per stream every 2 s at most, so a page that posts more often cannot inflate the count. The stream is named after the session and the tab, so a post reaches only its own session's streams ([The routes in an app](#the-routes-in-an-app)). The handler limits each session to one report a second after a burst of five (`edge.Limiter`), which keeps a client that posts in a loop away from the hub, and answers 204 either way. The edge's CSRF check treats `/pace` as an action, which needs Datastar's header. The listener sits on `<body>`: a `@post` from the stream's element would abort the stream's own request, with Datastar's default `requestCancellation`.
 
-`lith/prom` exports the counts as `<namespace>_live_newest_frame_behind_total`, the reports, and `<namespace>_live_newest_frame_behind_streams_total`, the streams whose page reported at least once; the "lith apps" dashboard draws both in its Live row. They carry no labels and nothing about the viewer. A page that stays behind reports every 3 s, so three times the reports a second, `3 * sum(rate(app_live_newest_frame_behind_total[5m]))`, is about how many pages are behind at a time, and `sum(increase(app_live_newest_frame_behind_streams_total[1d]))` is how many tabs fell behind in a day, to set against the streams the app serves. Few reports mean the plugin's dropping is enough. A steady share of the streams means those pages need fewer frames: leaner markup first ([Slow links](#slow-links)), then pacing.
+`lith/prom` exports the counts as `<namespace>_live_newest_frame_behind_total`, the reports, and `<namespace>_live_newest_frame_behind_streams_total`, the streams whose page reported at least once; the "lith apps" dashboard draws both in its Live row. They carry no labels and nothing about the viewer. A page that stays behind reports every 3 s, so three times the reports a second, `3 * sum(rate(app_live_newest_frame_behind_total[5m]))`, is about how many pages are behind at a time, and `sum(increase(app_live_newest_frame_behind_streams_total[1d]))` is how many tabs fell behind in a day, to set against the streams the app serves. `<namespace>_live_paces_total` and `<namespace>_live_releases_total` count the streams that were paced and those released again. Few reports mean few pages ever needed more than the plugin. A steady share of the streams means those pages spend much of their time paced, at about one frame per round trip: leaner markup helps them most ([Slow links](#slow-links)).
 
 ## Pacing a stream by the page
 
-Pacing is experimental: `Spec.Window`, `Spec.Ack`, `Spec.Release`, `Spec.ReleaseSlack`, `Hub.Ack`, `Hub.Pace` and `Hub.RoundTrip` may change in a minor release, and neither the template nor this site turns it on. `newest-frame.js` drops frames in the page: the server still sends every frame, and the page throws away those it cannot apply. A stream can also be paced by the page itself: the server sends the next frame only once the page says it has applied the last, so a slow page gets only the frames it applies. This site has the wiring for it behind switches of `web.Config` (`AckWindow`, `AckAfterPaint`, `Hybrid`, `AckRelease`, `AckReleaseSlack`) that only its tests turn on.
+`newest-frame.js` drops frames in the page: the server still sends every frame, and the page throws away those it cannot apply. Pacing goes further: once the page reports that it is behind, the server sends the next frame only once the page says it has applied the last, so a slow page gets only the frames it applies. The template and this site do both by default, the hybrid in place:
 
-The recipe, for an app whose counts show pages that fall behind, is the hybrid in place: every stream starts unpaced, a stream is paced once its page reports that it is behind, and released once the page keeps up again, measured against the round trip the page reports:
+1. Every stream has `Spec.Ack` and no `Window`, so it starts unpaced: a page that keeps up gets every frame and sends nothing back.
+2. `<body>` posts `newest-frame-behind` to `/pace`, which calls `Hub.Behind` and `Hub.Pace(id, 1)`: from then on the stream sends one write at a time.
+3. Each paced write ends with an element that posts `/ack` after the paint that shows it, with the round trip of the page's last `/ack` or `/pace`, and the route calls `Hub.RoundTrip` and `Hub.Ack`.
+4. `Spec.Release` ends the pacing once no acknowledgement came late for 5 s (`live.DefaultRelease`), measured against the round trip the page reports and 100 ms of slack (`Spec.ReleaseSlack`, `live.DefaultReleaseSlack`). The page goes on watching, and posts `/pace` again if it falls behind again.
+5. Both routes check the session and limit the rate ([The routes in an app](#the-routes-in-an-app)).
 
-1. Give every stream `Spec.Ack` and `Spec.Release` (5 s in the measurements below), and no `Window`. `Spec.ReleaseSlack` is `live.DefaultReleaseSlack`, 100 ms, unless set.
-2. Load `newest-frame.js` without `__reopen`, and have `<body>` post `newest-frame-behind` to a route that calls `Hub.Behind` and `Hub.Pace(id, 1)`.
-3. Have each acknowledgement carry the round trip of the page's last one, from its Resource Timing, and have the route that takes it call `Hub.RoundTrip` before `Hub.Ack`. Without the round trip, `Release` cannot release a page whose round trip is a tick of the view or longer.
-4. Check the session and limit the rate in both routes ([The routes in an app](#the-routes-in-an-app)).
+What it costs: a paced page gets one frame per round trip. On a slow phone on a far link, 15 times CPU and a 300 ms round trip, the hybrid kept the page 0.60 s behind at 1.45 frames a second, where the plugin alone kept it 0.47 s behind at 2.74. In return a slow page gets about a third of the bytes, 2.19 KB/s against 7.01 on a fast link, and a page that keeps up pays nothing: at full speed on a 300 ms link it was never paced, applied 10.07 frames a second and sent no acknowledgement ([Measured](#measured)).
 
-The sections below show each part as this site wires it.
+To turn it off, leave `Ack` out of the stream's `Spec`. `Hub.Pace` then paces nothing, `/pace` still counts the reports, no page posts `/ack`, and the plugin alone drops what a page cannot apply. A negative `Spec.Release` keeps a paced stream paced, and `Spec.Window` paces a stream from the start. This site keeps the other approaches measurable through `web.Config.Pacing` (`off`, `every`, `reopen`), which only its tests set.
 
 What each approach gets, measured with `TestLifeDrift` and `TestHybridLoad` (details under [Measured](#measured)):
 
@@ -315,28 +325,23 @@ Hybrid, in place | fair: 118 ms; 464 ms | fair: 0.60 s behind, 1.45, 1.48 KB/s |
 Hybrid, in place, release against the round trip the page reports | not measured | fair: 0.64 s behind, 1.43, 1.45 KB/s | good: 9.37, released 5 to 6 s after the speed-up
 ```
 
+The sections below show each part as the template wires it.
+
 ### The window
 
 `live.Spec.Window` paces a stream: at most `Window` writes of frames go out that the page has not acknowledged. Each write of frames ends with the event that `Spec.Ack(token, n)` makes, and the page acknowledges the write once it has applied it, which the app passes to `Hub.Ack(id, token, n)`. `n` counts the stream's paced writes from 1, and `token` tells this stream from an older one with the same id, so an acknowledgement meant for a stream that has since opened again frees nothing. `Stats.Acks` counts them.
 
 While the window is full, the stream's frames wait in its one slot per view, and the hub does what it does for any stream with a frame waiting ([Ticks](/docs/concepts/ticks#the-newest-frame-wins)): a view that no other stream keeps up with is not rendered (`Stats.RendersDeferred`). When an acknowledgement frees the window and a waiting frame's view was deferred since, the stream drops that frame, and the next tick renders the view as it is then, so the page never gets a frame that waited on the server for it. A stream that hears nothing for `live.AckTimeout`, 10 s, sends its next write anyway, so a lost acknowledgement cannot stall it for good.
 
-On this site the event is an element patched into the stream's element, whose `data-init` posts the acknowledgement, and two routes take the posts:
+In the template the event is an element patched into the stream's element, whose `data-init` posts the acknowledgement after the paint:
 
-```go source=site/internal/web/ack.go
-	spec.Release, spec.ReleaseSlack = s.cfg.AckRelease, s.cfg.AckReleaseSlack
-	spec.Ack = func(token string, n int64) []byte {
+```go source=template/internal/web/pace.go
+func ackEvent(tab string) func(token string, n int64) []byte {
+	return func(token string, n int64) []byte {
 		num := strconv.FormatInt(n, 10)
-		url := "'/ack?tab=" + tab + "&s=" + token + "&n=" + num + "'"
-		if s.cfg.AckReleaseSlack >= 0 {
-			url += " + '&rtt=' + " + lastRoundTrip
-		}
-		post := "@post(" + url + ", {requestCancellation: 'disabled'})"
-		if paint {
-			post = "requestAnimationFrame(() => setTimeout(() => " + post + "))"
-		}
-		el := `<i id="ack-` + num + `" data-init="` + html.EscapeString(post) + `"></i>`
-		return sse.PatchElements([]byte(el), sse.Patch{Selector: "#" + views.StreamID, Mode: sse.Inner})
+		post := "@post('/ack?tab=" + tab + "&s=" + token + "&n=" + num + "&rtt=' + " + lastRoundTrip + ", {requestCancellation: 'disabled'})"
+		el := `<i id="ack-` + num + `" data-init="` + html.EscapeString("requestAnimationFrame(() => setTimeout(() => "+post+"))") + `"></i>`
+		return sse.PatchElements([]byte(el), sse.Patch{Selector: "#stream", Mode: sse.Inner})
 	}
 }
 
@@ -344,27 +349,11 @@ On this site the event is an element patched into the stream's element, whose `d
 // from its Resource Timing, or 0. It clears the entries, so that the
 // buffer of 250 never fills with acknowledgements.
 const lastRoundTrip = `((x) => (performance.clearResourceTimings(), x ? Math.round(x.responseStart - x.requestStart) : 0))(performance.getEntriesByType('resource').findLast(r => r.name.includes('/ack?') || r.name.includes('/pace?')))`
-
-// ack takes a page's acknowledgement of its stream's writes (live.Hub.Ack),
-// and the round trip it reports (live.Hub.RoundTrip).
-func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
-	if err != nil {
-		http.Error(w, "bad ack", http.StatusBadRequest)
-		return
-	}
-	if ms, err := strconv.Atoi(q.Get("rtt")); err == nil && ms > 0 {
-		s.hub.RoundTrip(q.Get("tab"), time.Duration(ms)*time.Millisecond)
-	}
-	s.hub.Ack(q.Get("tab"), q.Get("s"), n)
-	w.WriteHeader(http.StatusNoContent)
-}
 ```
 
 Why the acknowledgement is an element in the stream's element:
 
-- Datastar runs `data-init` once the element is in the page, and the element comes after the write's frames, so the post means that the frames before it are applied. With `AckAfterPaint`, `requestAnimationFrame` and a `setTimeout` hold it until after the paint that shows them, which gave the lowest lag at 15 times (0.33 s at the median against 0.46 s once applied, `bench/drift`).
+- Datastar runs `data-init` once the element is in the page, and the element comes after the write's frames, so the post means that the frames before it are applied. `requestAnimationFrame` and a `setTimeout` hold it until after the paint that shows them, which gave the lowest lag at 15 times (0.33 s at the median against 0.46 s once applied, `bench/drift`).
 - Every streaming page has the stream's element, and no view renders into it, so no frame morphs the acknowledgement away before it runs. Mode inner replaces the one before, so one acknowledgement sits there at a time, and a new id each time has Datastar run `data-init` again.
 - Datastar cancels a request in flight when the same element starts another. The acknowledgement posts from its own `<i>`, not from the stream's element, so it leaves the stream's `@get` alone, and `requestCancellation: 'disabled'` keeps a second acknowledgement from cancelling the first when the window is 2.
 - It needs nothing in the page beyond Datastar, and the server decides per write whether to ask.
@@ -373,61 +362,71 @@ Why the acknowledgement is an element in the stream's element:
 
 A stream with `Spec.Ack` and no `Window` starts unpaced and sends no acknowledgement events. `Hub.Pace(id, window)` sets the window of the open stream with that id: from its next write on, each write ends with its acknowledgement event and the window applies, and nothing written before waits for one. `Pace(id, 0)` stops the pacing. A stream paced already keeps its window and its count towards `Release`, so a second `Pace` changes nothing. `Stats.Paces` counts the streams that `Pace` started to pace.
 
-The page says when: `newest-frame.js` dispatches `newest-frame-behind` when it dropped more than half of the frames of the last 3 s, at least ten, and goes on watching. The site's layout has `<body>` post the report with the tab's id, to `/behind` as the site runs, and to `/pace` with the switch on:
+The page says when: `newest-frame.js` dispatches `newest-frame-behind` when it dropped more than half of the frames of the last 3 s, at least ten, and goes on watching. The template's `<body>` posts the report with the tab's id to `/pace` ([Slow links](#slow-links) shows the attribute):
 
-```templ source=site/internal/views/layout.templ
-				data-newest-frame
-				data-on:newest-frame-behind={ behind(s.Pace) }
+```go source=template/internal/views/expr.go
+const behind = `@post('/pace?tab=' + $_tab, {requestCancellation: 'disabled'})`
 ```
 
-```go source=site/internal/views/shell.go
-func behind(pace string) string {
-	url := "/behind"
-	if pace != "" {
-		url = pace
-	}
-	return "@post(" + jsString(url+"?tab=") + " + $_tab, {requestCancellation: 'disabled'})"
-}
-```
-
-The plugin dispatches the event on the stream's element, and it bubbles up to `<body>`. The listener must not sit on the stream's element: a `@post` from there would, with Datastar's default `requestCancellation`, abort the stream's own request. `/pace` counts the report with `Hub.Behind`, as `/behind` does. While the page stays behind, the plugin reports again every 3 s and the page posts again, which `Pace` ignores. The stream stays open through the switch: no frame is lost or sent twice, the stream keeps its compression window, the page its signals and the plugin its state. Every stream of the site then has `Spec.Ack` and `Spec.Release` and no `Window`, so none starts paced.
+The plugin dispatches the event on the stream's element, and it bubbles up to `<body>`. The listener must not sit on the stream's element: a `@post` from there would, with Datastar's default `requestCancellation`, abort the stream's own request. `/pace` counts the report with `Hub.Behind` and paces the stream. While the page stays behind, the plugin reports again every 3 s and the page posts again, which `Pace` ignores. The stream stays open through the switch: no frame is lost or sent twice, the stream keeps its compression window, the page its signals and the plugin its state.
 
 ### Switching back
 
 `Spec.Release` ends the pacing of a page that keeps up again. At each acknowledgement the hub notes whether a frame was already waiting for it to go out. Once no acknowledgement has come late for `Release` since the pacing began, the stream sets its window to 0 and sends every frame again (`Stats.Releases`). The page goes on watching, and if it falls behind again, the plugin reports and the page posts `/pace` again.
 
-Each release of the same stream doubles the time for the next, up to eight times `Release`: with the 5 s the measurements used, 5, 10, 20 and then 40 s, so a page that switches back and forth does so at most once per 40 s. The two rules also leave a wide gap between them. Pacing starts for a page that applies fewer than about half of the frames, and ends for one whose every acknowledgement comes before the next frame is ready, that is, one that applies all of them; a page in between stays as it is. In `TestLifeDrift` from 2 to 15 times CPU no page switched back and forth: up to 5 times it was never paced, and from 6 times on it was paced 2.1 to 2.5 s in and stayed paced, at 6.71 frames a second at 6 times and 4.79 at 8 times (three runs each).
+Each release of the same stream doubles the time for the next, up to eight times `Release`: with `live.DefaultRelease`, the 5 s the measurements used, 5, 10, 20 and then 40 s, so a page that switches back and forth does so at most once per 40 s. The two rules also leave a wide gap between them. Pacing starts for a page that applies fewer than about half of the frames, and ends for one whose every acknowledgement comes before the next frame is ready, that is, one that applies all of them; a page in between stays as it is. In `TestLifeDrift` from 2 to 15 times CPU no page switched back and forth: up to 5 times it was never paced, and from 6 times on it was paced 2.1 to 2.5 s in and stayed paced, at 6.71 frames a second at 6 times and 4.79 at 8 times (three runs each).
 
-An acknowledgement takes at least a round trip, and by then the hub has the next frame ready whenever the round trip is a tick of the view or longer (100 ms for the Game of Life). On such a link the rule above never releases: a page that fell behind once stays paced at about one frame per round trip, 2.82 a second at 300 ms, even after it is fast again. `Spec.ReleaseSlack` measures against the round trip instead: once the page has reported it with `Hub.RoundTrip(id, rtt)`, an acknowledgement is late only if it came more than `ReleaseSlack` after the round trip, counted from the write it acknowledges. A stream gets `live.DefaultReleaseSlack`, 100 ms, unless `ReleaseSlack` sets another, and a negative one keeps the rule above; either way it applies only once the page reports a round trip. On this site the page takes the round trip from the Resource Timing of its last `/ack` (from sending the request to the first byte of the answer, which the browser's network stack notes however busy the page is) and appends it to its next acknowledgement, and `/ack` passes it on. With `ReleaseSlack` at one tick, a page that was paced at 15 times and then became fast was released 5 to 6 s later at 100 and at 300 ms round trip, three runs each, and applied 9.72 and 9.37 frames a second after it; a page that stayed slow was never released, in nine runs. Taking the fastest acknowledgement as the round trip instead does not work: a page paced at one frame per round trip has time between frames, so its acknowledgements come at a steady delay, and that rule released a page still slowed 15 times.
+An acknowledgement takes at least a round trip, and by then the hub has the next frame ready whenever the round trip is a tick of the view or longer (100 ms for the Game of Life). On such a link the rule above never releases: a page that fell behind once stays paced at about one frame per round trip, 2.82 a second at 300 ms, even after it is fast again. `Spec.ReleaseSlack` measures against the round trip instead: once the page has reported it with `Hub.RoundTrip(id, rtt)`, an acknowledgement is late only if it came more than `ReleaseSlack` after the round trip, counted from the write it acknowledges. A stream gets `live.DefaultReleaseSlack`, 100 ms, unless `ReleaseSlack` sets another, and a negative one keeps the rule above; either way it applies only once the page reports a round trip. The template's page takes the round trip from the Resource Timing of its last `/ack` or `/pace` (from sending the request to the first byte of the answer, which the browser's network stack notes however busy the page is) and appends it to its next acknowledgement, and `/ack` passes it on. With `ReleaseSlack` at one tick, a page that was paced at 15 times and then became fast was released 5 to 6 s later at 100 and at 300 ms round trip, three runs each, and applied 9.72 and 9.37 frames a second after it; a page that stayed slow was never released, in nine runs. Taking the fastest acknowledgement as the round trip instead does not work: a page paced at one frame per round trip has time between frames, so its acknowledgements come at a steady delay, and that rule released a page still slowed 15 times.
 
 ### The routes in an app
 
-On this site `/ack` and `/pace` check only that the tab id names an open stream and, for `/ack`, the stream's token: only its tests turn them on. In an app any page can post to them, so both need what the stream handler has, the session, and a limit. Name the stream after the session and the tab, and build the same name in both routes from the request's session, so that a post reaches only its own session's streams:
+Any page can post to `/ack` and `/pace`, so both need what the stream handler has, the session, and a limit. The template names each stream after the session and the tab, and builds the same name in both routes from the request's session, so that a post reaches only its own session's streams:
 
-```go title=An app's /pace route
+```go source=template/internal/web/pace.go
 // streamID names a tab's stream after its session too, so that /ack and
-// /pace reach only the streams of the request's session. The stream's
-// Spec.ID, Watch and Unwatch use it as well.
-func streamID(r *http.Request, tab string) string {
-	return edge.SessionID(r.Context()) + "." + tab
+// /pace reach only the streams of the request's session.
+func streamID(sid, tab string) string {
+	return sid + "." + tab
 }
+```
 
-func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
-	tab := r.URL.Query().Get("tab")
-	if !validID(tab) {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+The stream handler uses it as the stream's `Spec.ID`, and gives the stream its `Ack`:
+
+```go source=template/internal/web/server.go
+	spec := live.Spec{
+		ID:        streamID(sid, tab),
+		Views:     []live.View{entriesView(), tabView(sid, tab)},
+		Reconnect: "stream",
+		Slow:      edge.SlowLink(r),
+		Ack:       ackEvent(tab),
+	}
+```
+
+`/ack` refuses what no page sends with a 400: a tab id that is not one, a token that is not a number in base 36, a write number below 1, a round trip that is not a number. It takes a round trip of up to a minute:
+
+```go source=template/internal/web/pace.go
+func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	tab, token := q.Get("tab"), q.Get("s")
+	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
+	rtt, rttErr := strconv.Atoi(q.Get("rtt"))
+	if !validID(tab) || !validToken(token) || err != nil || n < 1 || q.Has("rtt") && rttErr != nil {
+		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
 		return
 	}
-	if s.paceLimit.Allow(edge.SessionID(r.Context()), 1, time.Now()) {
-		id := streamID(r, tab)
-		s.hub.Behind(id)
-		s.hub.Pace(id, 1)
+	sid := edge.SessionID(r.Context())
+	if s.acks.Allow(sid, 1, time.Now()) {
+		id := streamID(sid, tab)
+		if rtt > 0 && rtt <= 60_000 {
+			s.hub.RoundTrip(id, time.Duration(rtt)*time.Millisecond)
+		}
+		s.hub.Ack(id, token, n)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 ```
 
-`/ack` does the same with a limit well above the frames a second of the session's views, such as `edge.NewLimiter(30, 60)` for views that change ten times a second: an acknowledgement it drops holds a stream with a window of one until `live.AckTimeout`. Both routes go in the edge's CSRF check as actions (`edge.CSRF.Datastar`).
+Both answer 204, also over their limit. `/pace` allows a session five reports at once and one a second after (`edge.NewLimiter(1, 5)`), `/ack` 60 at once and 30 a second (`edge.NewLimiter(30, 60)`), well above the ten frames a second of the template's views: an acknowledgement the limit drops holds a stream with a window of one until `live.AckTimeout`, 10 s. Both routes go in the edge's CSRF check as actions (`edge.CSRF.Datastar`). An app whose `Watch` calls name streams by the tab alone, as this site's demos do, can keep the session that opened each stream instead: this site notes it as the stream opens and checks it in both routes (`site/internal/web/ack.go`).
 
 ### At W=1, a paced stream is long polling
 
@@ -445,16 +444,17 @@ Measured on 2026-10-17 on the development machine with `TestLifeDrift` (`bench/h
 - **A slow phone on a far link.** CPU slowed 15 times and 100 or 300 ms round trip, 150 s. A paced page gets one frame per round trip plus the time to apply and paint it: paced in place, 2.08 frames a second at 100 ms and 1.45 at 300 ms, 0.38 and 0.60 s behind at 1.89 and 1.48 KB/s. The plugin without `__reopen` stayed 0.35 and 0.47 s behind at 7.01 and 6.91 KB/s, the lowest lag; with `__reopen`, 0.70 and 0.80 s at 3.3 KB/s. Without a fix, 25.61 and 26.11 s.
 - **A page slow for a while.** CPU slowed 15 times for 60 s, then not at all. Paced in place, the stream was released at 66 s in all three runs and the page applied 10.05 frames a second after it. With `__reopen` the page stayed on the slow stream at 4.02 frames a second for good, 0.30 s behind. Without a fix the page was 20.88 s behind at 60 s and current again 6 to 7 s after the speed-up: the backlog drains on its own. On a far link, `Release` alone kept the page paced at 6.62 frames a second at 100 ms and 2.82 at 300 ms; with `ReleaseSlack` it was released 5 to 6 s after the speed-up and applied 9.72 and 9.37.
 - **A page somewhat slow.** At 6 and 8 times the page without a fix applies every frame but paints only 6.49 and 2.56 a second, 0.10 and 0.37 s behind. `__reopen` then switches to the slow stream and makes it worse at 6 times, 0.37 s behind at 4.02 frames a second; paced in place it stays 0.09 and 0.13 s behind and paints every frame it gets, 6.70 and 4.78 a second. Below 6 times neither the plugin nor the hybrid switched.
+- **The default, measured again.** The site as it ships, with no switch of the harness set, on 2026-10-19 with Chromium 155 (`bench/default/RESULTS.md`), three runs each: at 15 times on a fast link paced 2.1 s in and 0.35 s behind at 2.17 KB/s; at full speed on a 300 ms link never paced, 10.07 frames a second and no acknowledgement; at 15 times on that link 0.57 s behind at 1.46 frames a second and 1.48 KB/s; slow for 60 s and then fast on that link, released at 66 s in all three runs and 9.40 frames a second after. Each lies within the ranges above.
 - **Firefox 158**, which cannot slow its CPU, with each frame costing the page 150 ms more: paced in place, 0.29 s behind at the median against 0.49 s with `__reopen`, and 32.04 s without a fix.
 - **Many viewers.** `TestHybridLoad` in `live`, without browsers: one view of about 48 KB of HTML at 10 frames a second, 1,000 zstd streams, a tenth of them acknowledging a write 400 ms after it went out and the rest after 20 ms, the acknowledgements as HTTP posts to a server in the same process. Sending every frame to every stream, as the server does for the plugin and for no fix alike, took 150% of a core; the slow tenth on the slow stream, as `__reopen` gets them, 155% and 6% fewer bytes; pacing every stream 9,205 acknowledgements a second and 439%; pacing only the slow tenth 250 acknowledgements a second and 156%. The test leaves out the network, Caddy, TLS and the browsers.
 
 ### What it leaves open
 
-- With `Release` alone, the release cannot happen on a round trip of one tick of the view or longer (100 ms for the Game of Life): a page on such a link that once fell behind stays paced at about one frame per round trip until it opens its stream again. `ReleaseSlack`, 100 ms unless set, fixes that, but only for a page that reports its round trip.
+- `ReleaseSlack` releases a page on a link of a tick or longer only once the page reports its round trip. A page that reports none, or a stream with a negative `ReleaseSlack`, stays paced on such a link at about one frame per round trip until the page opens its stream again.
 - On a far link a paced page gets one frame per round trip: at 15 times and 300 ms it stays 0.60 s behind, where the plugin alone, without pacing, stays 0.47 s behind at four times the bytes.
-- `/ack` and `/pace` on this site check neither the session nor a rate limit, since only its tests turn them on. An app needs both ([The routes in an app](#the-routes-in-an-app)).
 - For the first 2 s or so, until the plugin has seen enough frames to judge, a slow page gets the full stream.
 - An acknowledgement counts writes, not views: a write that holds frames of several views is one acknowledgement.
+- The page reads its round trip from Resource Timing and clears the buffer at each acknowledgement, so other code of the page that reads resource entries finds few.
 
 ## Streams without the hub
 

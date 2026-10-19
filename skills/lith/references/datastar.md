@@ -98,7 +98,8 @@ look there before changing the behaviour.
   `newest-frame-behind` on the stream's element, again every 3 s while
   behind. Listen for it on `<body>`, never on the stream's element (its
   `@post` would abort the stream's `@get`): the template posts it to
-  `/behind`, which counts it (`live.Hub.Behind`). With `__reopen` the
+  `/pace`, which counts it (`live.Hub.Behind`) and paces the stream by the
+  page's acknowledgements until the page keeps up (`live.Hub.Pace`). With `__reopen` the
   plugin also sets `$_slow` and opens the stream again, which sends
   `Save-Data: on` at the same URL, for a slow stream of four frames a
   second for good; not the default, since a page only somewhat slow gets
@@ -107,9 +108,7 @@ look there before changing the behaviour.
   A trace at CPU 15x: every read exactly 2,097,152 bytes, 45 frames, one
   7.2 s task, two paints in 20 s. Without `no-store` on the stream,
   Chromium routes it through its HTTP cache, two or three reads land in one
-  task and the freeze grows to 14.6 s: keep `no-store`. The server can also
-  pace the stream by the page's acknowledgements once the plugin reports
-  the page behind, an experimental option (streams guide). [lith]
+  task and the freeze grows to 14.6 s: keep `no-store`. [lith]
 - An action's response carries nothing the view needs: the outcome arrives on
   the tab's stream. Patching elements from an action fights the next frame,
   which overwrites them. Signals from an action are fine (validation

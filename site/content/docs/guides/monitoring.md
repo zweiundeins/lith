@@ -23,6 +23,7 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 | | `RendersDeferred` | renders put off while every stream that watches the view still had a frame of it waiting: streams that do not keep up, slow links |
 | | `Streams`, `Views` | open streams, watched views |
 | | `Behind`, `BehindStreams` | reports from pages that fell behind their stream (`Hub.Behind`, from `newest-frame.js`'s `newest-frame-behind`), and the streams that reported at least once: whether real phones keep up ([Streams: counting the pages that fall behind](/docs/guides/streams#counting-the-pages-that-fall-behind)) |
+| | `Paces`, `Releases`, `Acks` | streams paced once their page fell behind (`Hub.Pace`), paced streams released once their page kept up, and the acknowledgements of paced writes ([Streams: pacing a stream by the page](/docs/guides/streams#pacing-a-stream-by-the-page)) |
 | | `RendersByKey` | renders per view: a view that renders more often than its topics change listens to too much |
 | `sse.BudgetStats` | `Limit`, `Reserved` | what the streams may hold and hold now: encoders, 32 KiB a stream, frames |
 | | `Frames` | the frames the hub keeps for the views, part of `Reserved` |
@@ -83,6 +84,7 @@ The metrics, with the namespace `app`:
 | `app_writer_queue`, `app_writer_batch_max`, `app_writer_commit_p99_seconds` | `lith/prom` |
 | `app_live_ticks_total`, `app_live_renders_total`, `app_live_tick_overruns_total`, `app_live_read_txs_total` | `lith/prom` |
 | `app_live_frames_sent_total`, `app_live_frames_dropped_total`, `app_live_renders_deferred_total`, `app_live_streams`, `app_live_views` | `lith/prom` |
+| `app_live_newest_frame_behind_total`, `app_live_newest_frame_behind_streams_total`, `app_live_paces_total`, `app_live_releases_total`, `app_live_acks_total` | `lith/prom` |
 | `app_sse_budget_limit_bytes`, `app_sse_budget_reserved_bytes`, `app_sse_budget_streams{setting}`, `app_sse_budget_refused_total` | `lith/prom` |
 | `app_events_appended_total{stream}`, `app_events_conflicts_total`, `app_events_refolds_total` | `lith/prom`, from `Store` |
 | `app_events_head_position`, `app_events_projector_position{projector}`, `app_events_projector_lag{projector}` | `lith/prom`, from `Events` |
@@ -114,7 +116,7 @@ return flagValue, nil
 [`deploy/observability/lith-apps.json`](https://github.com/zweiundeins/lith/blob/main/deploy/observability/lith-apps.json) shows any lith app: pick its metric namespace, then the app and the slot. Its rows:
 
 - **Requests**: requests, 5xx and p95 latency by route.
-- **Live**: open streams beside the requests in flight, ticks a second and overruns, renders per tick, frames sent and dropped and renders deferred, watched views and read transactions, and pages behind their stream: reports and streams a second.
+- **Live**: open streams beside the requests in flight, ticks a second and overruns, renders per tick, frames sent and dropped and renders deferred, watched views and read transactions, and pages behind their stream: reports and streams a second, with the streams paced and released a second.
 - **Writer**: commands a second, commands per batch and the largest batch, commit p99, failures, the queue, the time the writer is busy.
 - **Events**: events appended a second by stream kind, with conflicts and refolds, each projector's lag, and each projector's status over time.
 - **Streams**: the budget reserved against its limit, streams by encoder setting, refused streams.

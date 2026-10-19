@@ -545,7 +545,7 @@
     {
       "id": 34,
       "title": "Pages behind their stream",
-      "description": "Reports a second from pages that fell behind their stream (newest-frame.js's newest-frame-behind, which the template posts to /behind for Hub.Behind), and streams a second whose page reported for the first time. A page that stays behind reports every 3 s. Zero while every page keeps up.",
+      "description": "Reports a second from pages that fell behind their stream (newest-frame.js's newest-frame-behind, which the template posts to /pace for Hub.Behind and Hub.Pace), streams a second whose page reported for the first time, and streams a second paced and released once their page kept up again. A page that stays behind reports every 3 s. Zero while every page keeps up.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -592,6 +592,24 @@
           "refId": "B",
           "expr": "sum by (app) (rate({__name__=\"${ns}_live_newest_frame_behind_streams_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} streams",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_paces_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} paced",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          }
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_live_releases_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "legendFormat": "{{app}} released",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus-ds"

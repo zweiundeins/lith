@@ -76,7 +76,7 @@ The request edge, built from the inside out:
 ```go
 h := http.Handler(mux)
 h = edge.Sessions{Secure: !dev}.Handler(h)
-h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /behind"}}.Handler(h)
+h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /pace", "POST /ack"}}.Handler(h)
 h = edge.SecurityHeaders{CSP: edge.DefaultCSP()}.Handler(h)
 h = edge.Compress(h)
 h = edge.Recover(log, h)
@@ -329,21 +329,27 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   most of its frames, every 3 s while behind. The template's `<body>`
   posts it (`data-on:newest-frame-behind`, `@post` with
   `requestCancellation: 'disabled'`, on `<body>`, never on the stream's
-  element) to `POST /behind`, which validates the tab id, limits each
-  session (`edge.Limiter`), calls `hub.Behind(tab)` and answers 204; prom
-  exports `<ns>_live_newest_frame_behind_total` and
-  `<ns>_live_newest_frame_behind_streams_total`. Read those before
-  anything heavier. `data-newest-frame__reopen` also sets `$_slow` and
-  opens a slow stream of four frames a second for good: not the default,
-  since at CPU 6x it held the page to 4 frames a second, 0.37 s behind,
-  where no fix was 0.10 s. Pacing by the page is experimental: the
-  recipe is the hybrid in place, every stream with `Spec.Ack` and
-  `Spec.Release` and no `Window` (`Spec.ReleaseSlack` defaults to
-  `live.DefaultReleaseSlack`, 100 ms), the behind route also calling
-  `hub.Pace(id, 1)`, each acknowledgement carrying the page's round trip
-  from Resource Timing for `hub.RoundTrip` before `hub.Ack`, and both
-  routes keyed by a stream ID that names the session and rate limited
-  per session (performance.md, the streams guide).
+  element) to `POST /pace`, which validates the tab id, limits each
+  session (`edge.NewLimiter(1, 5)`), calls `hub.Behind(id)` and
+  `hub.Pace(id, 1)`, and answers 204: the hybrid in place, the default.
+  Every stream has `Spec.Ack` and no `Window`, so it starts unpaced;
+  `Release` (5 s) and `ReleaseSlack` (100 ms) stay at their defaults. Each
+  paced write ends with an `<i>` patched inner into the stream's element
+  whose `data-init` posts `POST /ack?tab=&s=&n=&rtt=` after the paint, the
+  round trip from Resource Timing; `/ack` validates, limits each session
+  (`edge.NewLimiter(30, 60)`), calls `hub.RoundTrip` then `hub.Ack`, and
+  answers 204. The stream ID names the session and the tab
+  (`streamID(sid, tab)`), built the same way in the stream handler and
+  both routes, so a post reaches only its session's streams. Both routes
+  go in `edge.CSRF`'s `Datastar` list. prom exports
+  `<ns>_live_newest_frame_behind_total`,
+  `<ns>_live_newest_frame_behind_streams_total`, `<ns>_live_paces_total`
+  and `<ns>_live_releases_total`. To turn pacing off, leave `Ack` out of
+  the Spec: `/pace` then only counts. `data-newest-frame__reopen` also
+  sets `$_slow` and opens a slow stream of four frames a second for good:
+  not the default, since at CPU 6x it held the page to 4 frames a second,
+  0.37 s behind, where no fix was 0.10 s (performance.md, the streams
+  guide).
 
 ## Tab state and preferences
 

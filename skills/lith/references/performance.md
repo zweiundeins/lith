@@ -165,8 +165,8 @@ body, vendored from github.com/mbolli/datastar-attribute-newest-frame)
 sees the page's own lag: it applies each view's newest frame, waits after
 a batch half as long as the batch took, and after dropping over half the
 frames for 3 s dispatches `newest-frame-behind`, which the template posts
-to `/behind` for `Hub.Behind` (`<ns>_live_newest_frame_behind_total`):
-the way to learn whether real users fall behind. The wait caps
+to `/pace` for `Hub.Behind` (`<ns>_live_newest_frame_behind_total`), the
+way to learn whether real users fall behind, and `Hub.Pace`. The wait caps
 applying frames at two thirds of the main thread, not the rendering that
 follows: at 15x the main thread stayed 97% busy, half morphing and half
 layout and paint, but painted every applied frame. Chromium hands a page
@@ -191,22 +191,22 @@ breaks at 15x, with merged colour runs at 50x. Frames sent as signal
 patches (a canvas) are out of the plugin's reach: only `__reopen` or
 pacing help (`bench/frame-cost/RESULTS.md`, 2026-10-17).
 
-Pacing by the page (streams guide, "Pacing a stream by the page") is
-experimental, and neither the template nor the site turns it on.
+Pacing by the page (streams guide, "Pacing a stream by the page") is the
+default of the template and the site, the hybrid in place: a stream
+starts unpaced and is paced once its page reports it is behind.
 `live.Spec.Window` sends at most W writes of frames the page has not
 acknowledged; each write ends with the event `Spec.Ack(token, n)` makes
-(on lith's site an `<i>` with `data-init` posting `/ack`, patched inner
-into the stream's element), and the app passes the post to
+(in the template an `<i>` with `data-init` posting `/ack` after the
+paint, patched inner into the stream's element), and the app passes the post to
 `Hub.Ack(id, token, n)`. Frames wait in the stream's slot and renders defer
 as for any stream with a frame waiting; `live.AckTimeout` (10 s) sends
 anyway. A stream with `Spec.Ack` and no Window starts unpaced;
 `Hub.Pace(id, w)` paces it from its next write, which the page asks for
 from `data-on:newest-frame-behind` on `<body>` (never on the stream's
 element: its `@post` would cancel the stream's `@get`), with the plugin
-without `__reopen`: the documented recipe, the hybrid in place.
-`Spec.Release` unpaces a page whose acknowledgements
-all came before the next frame was ready for that long, doubling per
-release up to 8x. At W=1 it is long polling over the open stream: one
+without `__reopen`. `Spec.Release` (0: `live.DefaultRelease`, 5 s;
+negative: never) unpaces a page whose acknowledgements all came in time
+for that long, doubling per release up to 8x. At W=1 it is long polling over the open stream: one
 frame per round trip, newest state only, nothing while the view is still.
 Measured (2026-10-17, `bench/hybrid/RESULTS.md`): at CPU 15x paced from
 2.2 s in, 0.34 s behind at the median at 2.19 KB/s (`__reopen` 0.62 s,
@@ -222,9 +222,12 @@ never released a page that stayed slow (`bench/gaps/RESULTS.md`). At 15x
 on a 300 ms link a paced page gets 1.45 frames a second, 0.60 s behind,
 where the plain plugin stays 0.47 s behind at 7 KB/s. Input at 15x: 118 to
 142 ms to the handler at the median with any fix, Event Timing p98 448 to
-480 ms; 3 s and 6.4 s without. `/ack` and `/pace` need a session check
-(a stream ID that names the session, built the same way in both routes)
-and a rate limit per session.
+480 ms; 3 s and 6.4 s without. The cost: a paced page gets one frame per round trip,
+so a slow phone on a far link lags more than with the plugin alone (0.60
+against 0.47 s), for a third of the bytes; a page that keeps up pays
+nothing. To turn it off, leave `Spec.Ack` out. `/ack` and `/pace` need a
+session check (the template's stream ID names the session, built the
+same way in both routes) and a rate limit per session.
 
 ## Render loop
 
