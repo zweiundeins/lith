@@ -72,6 +72,7 @@ func TestSkill(t *testing.T) {
 			"Tab state and preferences":              "/docs/guides/pages#tab-state-in-sqlite",
 			"A background job":                       "/docs/guides/migrations-and-jobs#background-jobs",
 			"A bulk import":                          "/docs/guides/migrations-and-jobs#bulk-imports",
+			"Large updates and deletes":              "/docs/guides/migrations-and-jobs#large-updates-and-deletes",
 			"Work a transaction cannot hold":         "/docs/guides/migrations-and-jobs#work-a-transaction-cannot-hold",
 			"An event-sourced command":               "/docs/guides/commands#an-event-sourced-command",
 			"Projections of events":                  "/docs/guides/events#inline-projectors",

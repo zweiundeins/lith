@@ -38,6 +38,13 @@ about fifteen statements):
   An event writes six B-trees (its row, two indexes, `sqlite_sequence`, the
   state row, the projection), so plan on about four times a plain command's
   cost (`bench/RESULTS.md`).
+- A large write holds every other command for its time plus the
+  checkpoint after it (i5-13500, 2026-10-19, NORMAL, 800 commands a second
+  and a board rendered every tick): one UPDATE of 45,000 rows of 4 KB took
+  0.49 s, its checkpoint 0.38 s, other commands waited up to 0.88 s and the
+  pages got no frame for as long; in commands of 1,000 rows, 1.07 s in all,
+  other commands under 45 ms, a frame every tick, the WAL at 8 MB. The
+  recipe is "Large updates and deletes" (recipes.md).
 - Anders Murphy's numbers (a MacBook, two updates per transaction): 44,096
   transactions a second unbatched, 121,922 batched with a savepoint each,
   102,545 with concurrent reads. His workload is smaller than a real command;

@@ -1,7 +1,7 @@
 ---
 title: The writer
 headline: Writer benchmarks: commands a second, FULL and NORMAL
-summary: Commands a second with synchronous FULL and NORMAL, at 1, 50 and 200 producers, what a transaction costs, and what checkpoints do to the slowest commits.
+summary: Commands a second with FULL and NORMAL at 1, 50 and 200 producers, what checkpoints do to the slowest commits, and what a large update does to the rest.
 order: 1
 ---
 
@@ -54,6 +54,28 @@ At 200 producers with `CheckpointAuto`, the slowest 1% of transactions take 7 to
 
 With `CheckpointWriter` the checkpoint is not part of a transaction's time: the producers queue their next commands while it runs. The template and this site open their databases with `CheckpointWriter`.
 
+## Large updates and deletes
+
+`BenchmarkLargeWrite` (`loadtest/largewrite_test.go`) runs one write over a table of 45,000 comments, each about 2 KB of text and 2 KB of HTML, 185 MB, while 200 producers send 800 commands a second with `Do` and 200 zstd streams watch a board that renders in every tick. The write clears every comment's HTML (update), deletes every row a full pass did not see (delete) or rebuilds an FTS5 index, as one command, as commands of 1,000 or 5,000 rows by rowid range, or in `Exclusive`. Measured on 2026-10-19 on the development machine with `CheckpointWriter`, medians of three runs, on a machine that other jobs kept busy:
+
+| synchronous | Write | As | Took | Other commands, p99 | Longest wait | Longest time without a frame | WAL at most |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| NORMAL | update | one command | 0.49 s | 872 ms | 877 ms | 848 ms | 186 MB |
+| NORMAL | update | chunks of 1,000 | 1.07 s | 38.3 ms | 40.7 ms | 51 ms | 8.3 MB |
+| NORMAL | update | chunks of 5,000 | 0.89 s | 156.4 ms | 163.0 ms | 153 ms | 21.4 MB |
+| NORMAL | update | `Exclusive` | 0.34 s | 704 ms | 707 ms | 693 ms | 186 MB |
+| NORMAL | delete | one command | 0.10 s | 100.6 ms | 101.9 ms | 90 ms | 4.1 MB |
+| NORMAL | delete | chunks of 1,000 | 0.12 s | 4.24 ms | 4.67 ms | 51 ms | 4.1 MB |
+| NORMAL | delete | chunks of 5,000 | 0.10 s | 15.78 ms | 17.03 ms | 51 ms | 4.1 MB |
+| NORMAL | delete | `Exclusive` | 0.11 s | 111.0 ms | 112.3 ms | 82 ms | 8.2 MB |
+| FULL | update | chunks of 1,000 | 1.03 s | 42.2 ms | 45.2 ms | 53 ms | 8.3 MB |
+| FULL | update | chunks of 5,000 | 0.86 s | 171.9 ms | 180.6 ms | 103 ms | 23.3 MB |
+| NORMAL | FTS5 rebuild | one command | 2.77 s | 2,887 ms | 2,916 ms | 2,888 ms | 56.3 MB |
+
+"Other commands" are the producers' commands due while the write ran, from when each was due to its commit. Before the write they took 1.1 to 4.3 ms at p99 with NORMAL. Ticks stayed short in every run, at most 4.4 ms at p99, and no frame was dropped: what a long write stops is the commits, and without them there is nothing new to render.
+
+A write in one command holds the writer for its own time and then for the checkpoint of what it wrote, 0.36 to 0.40 s for the update's 186 MB, which is why the slowest command waited 0.88 s for a write of 0.49 s. Chunks of 1,000 rows took twice as long in all and kept every command under 45 ms, a frame in every tick and the WAL at 8.3 MB. The delete wrote little to the WAL and took 0.10 s even as one command. The numbers per run, the ranges and the checkpoints are in `bench/RESULTS.md`; [Migrations, jobs and imports](/docs/guides/migrations-and-jobs#large-updates-and-deletes) turns them into a recipe.
+
 ## A real command
 
 kanban's `BenchmarkMoveCard` on the same machine, on 2026-10-08 with FULL, moved 240 to 340, about 5,100 and about 13,800 cards a second with 1, 50 and 200 people, in transactions of 1, 25 and 103 moves. A move runs about fifteen statements, and a transaction alone took 2.9 to 4.2 ms.
@@ -66,4 +88,8 @@ Anders Murphy's benchmark, two updates per transaction on an M1 MacBook, reports
 taskset -c 0-11 go test ./writer -run '^$' -bench Writer -benchtime 5s -count 3
 ```
 
-`-bench Writer` runs `BenchmarkWriter` and `BenchmarkWriterCheckpoint`, each with FULL and NORMAL.
+`-bench Writer` runs `BenchmarkWriter` and `BenchmarkWriterCheckpoint`, each with FULL and NORMAL. The large writes run in about five minutes, each in a database of its own:
+
+```sh
+taskset -c 0-11 go test ./loadtest -run '^$' -bench LargeWrite -benchtime 1x -count 3 -timeout 1h
+```

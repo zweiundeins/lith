@@ -2,7 +2,7 @@
 title: Migrations, jobs and imports
 nav: Migrations and jobs
 headline: Migrations, background jobs, imports and sweeps
-summary: The schema as numbered SQL files, work that a command's transaction cannot hold, large imports, background jobs, sweeps, and who checkpoints the WAL.
+summary: The schema as numbered SQL files, work a transaction cannot hold, imports, large updates and deletes, background jobs, sweeps and checkpoints.
 order: 3
 ---
 
@@ -106,6 +106,42 @@ func Import(ctx context.Context, w *writer.Writer, cards []Card) error {
 ```
 
 Each chunk is a transaction of its own. An import that must land whole or not at all is one command, or one `Exclusive`.
+
+## Large updates and deletes
+
+Some writes change most of a large table at once: deleting the rows a full pass of a sync did not see, clearing every cached rendering before a one-time re-render, rebuilding a full-text index. One statement does it, but the writer runs one thing at a time, so every other command waits until it ends, and then for the checkpoint of what it wrote. Split such a write into commands by rowid range, sent one after the other:
+
+```go
+const chunk = 1000 // rows of about 4 KB: about 24 ms of writing each
+var last int64
+if err := db.R.QueryRowContext(ctx, `SELECT coalesce(max(id), 0) FROM comments`).Scan(&last); err != nil {
+	return err
+}
+for lo := int64(1); lo <= last; lo += chunk {
+	part := writer.Func(func(tx *writer.Tx) error {
+		_, err := tx.Exec(`UPDATE comments SET html = NULL WHERE id BETWEEN ? AND ? AND html IS NOT NULL`, lo, lo+chunk-1)
+		tx.Touch("comments")
+		return err
+	})
+	if err := w.Do(ctx, part); err != nil {
+		return err
+	}
+}
+```
+
+`BenchmarkLargeWrite` measured what each way costs, on 2026-10-19 on the development machine with NORMAL: a table of 45,000 comments of about 4 KB each, 185 MB, while 200 producers sent 800 commands a second and 200 streams watched a board that rendered in every tick ([the measurements](/docs/performance/writer#large-updates-and-deletes)).
+
+- **One command** cleared every comment's HTML in 0.49 s, then the writer checkpointed the 186 MB it had written to the WAL, for another 0.38 s. Other commands waited up to 0.88 s, half of them more than 0.63 s. The hub kept ticking, but without commits it had nothing new to render, so the pages got no frame for up to 0.87 s. The WAL stayed at 186 MB: the writer truncates it only after a second without commands.
+- **Commands of 1,000 rows** took 1.07 s in all, twice as long, and no other command waited longer than 45 ms. The board rendered in every tick, the longest gap between two frames 51 ms, and the WAL stayed at 8.3 MB. Commands of 5,000 rows took 0.89 s, held other commands up to 163 ms and the frames about 150 ms apart.
+- **`Exclusive`** with one transaction wrote the update in 0.34 s, and held commands and pages as long as one command does.
+
+Start with a chunk that writes for about one tick, 50 ms, and size it by bytes rather than by rows: a thousand rows of 4 KB take about 24 ms. With `synchronous=FULL` the same chunks cost each waiting command a few milliseconds more.
+
+A delete can be far cheaper than an update of the same rows: deleting all 45,000 comments in one command took 102 ms, and the WAL did not grow. Measure the app's own delete before splitting it; in commands of 5,000 rows, other commands waited at most 18 ms.
+
+`Exclusive` is right when the change must land whole and a pause is acceptable, such as a step of a deploy or a maintenance window, and for work a transaction cannot hold. It reaches no `OnCommit`, so call `hub.Changed` or `hub.MarkAll()` once it returns. A chunked write is visible half done between its chunks; one that must not be is one command or one `Exclusive`.
+
+An FTS5 index rebuild (`INSERT INTO fts (fts) VALUES ('rebuild')`) of the 45,000 comments took 2.77 s, one statement with no range: every command waited, and the pages got no frame for 2.9 s. Where that pause is too long, fill a new index in rowid chunks instead; the benchmark does not measure that.
 
 ## Background jobs
 

@@ -465,6 +465,62 @@ for chunk := range slices.Chunk(rows, 5000) {
 }
 ```
 
+## Large updates and deletes
+
+An UPDATE or DELETE over a large table (DeleteMissing after a full pass, a
+one-time re-render that clears every cached rendering, an index rebuild)
+holds the writer as long as it runs. Split it into commands by rowid range,
+sent one after the other, so other commands get their turn between them.
+
+```go
+const chunk = 1000 // rows of about 4 KB: about 24 ms of writing each
+var last int64
+if err := db.R.QueryRowContext(ctx, `SELECT coalesce(max(id), 0) FROM comments`).Scan(&last); err != nil {
+	return err
+}
+for lo := int64(1); lo <= last; lo += chunk {
+	part := writer.Func(func(tx *writer.Tx) error {
+		_, err := tx.Exec(`UPDATE comments SET html = NULL WHERE id BETWEEN ? AND ? AND html IS NOT NULL`, lo, lo+chunk-1)
+		tx.Touch("comments") // the topics of what changed, as any command
+		return err
+	})
+	if err := w.Do(ctx, part); err != nil {
+		return err
+	}
+}
+```
+
+Measured on 2026-10-19 (i5-13500, NORMAL, 45,000 rows of 4 KB, 185 MB,
+under 800 commands a second and a board rendered every tick;
+`BenchmarkLargeWrite`, bench/RESULTS.md):
+
+- One UPDATE of all rows: 0.49 s, then a 0.38 s checkpoint of the 186 MB
+  it wrote to the WAL. Every other command waited up to 0.88 s (`Do`
+  p50 632 ms), and the pages got no frame for as long: the hub keeps
+  ticking, but without commits it has nothing to render. The WAL stays at
+  186 MB until a second without commands.
+- In chunks of 1,000 rows: 1.07 s in all, other commands at most 45 ms, a
+  frame every tick (gaps of 51 ms), the WAL at 8 MB. Chunks of 5,000:
+  0.89 s, commands up to 163 ms, frames 150 ms apart, the WAL at 21 to
+  41 MB. Start at a chunk that writes for about one tick (50 ms) and size
+  it by bytes, not rows: 1,000 rows of 4 KB is about 24 ms.
+- With FULL, the same chunks cost a few milliseconds more per command.
+- DELETE was cheap here: all 45,000 rows in 102 ms in one command, the WAL
+  unchanged. Chunks of 5,000 kept other commands under 18 ms. Measure a
+  delete on the app's own rows before chunking it.
+- `w.Exclusive` with one transaction wrote the update in 0.34 s (likely
+  because it runs no savepoint) and held everything for as long as one command, checkpoint
+  included. It is right when the change must land whole and the pause is
+  acceptable (a maintenance window, a deploy step), or for what a
+  transaction cannot hold. It reaches no `OnCommit`: call `hub.Changed`
+  or `hub.MarkAll` after it.
+- An FTS5 `'rebuild'` of the 45,000 comments took 2.77 s in one statement,
+  and the pages froze for 2.9 s. It takes no range; fill the index in
+  rowid chunks instead if that pause is too long (not measured).
+- Each chunk is a transaction of its own: a reader can see the table half
+  done. A change that must not be seen half done is one command or one
+  `Exclusive`.
+
 ## Work a transaction cannot hold
 
 `PRAGMA foreign_keys` does nothing inside a transaction, and ATTACH, DETACH
