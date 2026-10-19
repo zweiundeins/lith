@@ -295,6 +295,49 @@ The `memmove` in zstd's `addBlock` comes from its history: the encoder keeps twi
 
 Before, a slow stream sent 4 frames a second and the hub rendered 20, dropping 16 of them; a stream whose client stopped reading sent none and the hub rendered 20, dropping all, until its write deadline (10 s by default, a minute here) ended it. With the render skip the hub defers those renders (15.7 and 19.7 a second per stream), and a view renders when its stream has taken the frame before. Streams that keep up cost the same.
 
+## v0.4.0 against v0.3.1
+
+Measured on 2026-10-19 between 14:14 and 14:27 UTC on the development machine of the Writer section, an Intel i5-13500 (20 threads) under Linux 6.18 (Unraid), with Go 1.27.2, modernc.org/sqlite v1.60.1, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, the database in `/tmp`. v0.3.1 is the tag (eb4aa0f), v0.4.0 the `pre-040` branch at eb05371, before the release. Each test binary was built once, and six runs of each alternated, each run the four cases of `BenchmarkSharedBoard` (above), pinned to the performance cores:
+
+    go test -c -o loadtest.test ./loadtest
+    taskset -c 0-11 ./loadtest.test -test.run '^$' -test.bench SharedBoard -test.count 1
+
+The 1-minute load average was 1.6 when the first run began; with the benchmark's own work it rose to 3.1 to 5.3 during the runs. The output of every run, with the load average at its start and end, is in `bench/v040/board.txt`. Medians of the six runs, the range in brackets:
+
+| | FULL, zstd | NORMAL, zstd | FULL, brotli | NORMAL, brotli |
+|---|---|---|---|---|
+| CPU, cores busy, v0.3.1 | 1.84 (1.77 to 2.07) | 1.65 (1.60 to 1.70) | 3.35 (3.29 to 3.70) | 3.09 (3.05 to 3.17) |
+| CPU, cores busy, v0.4.0 | 1.83 (1.78 to 1.87) | 1.62 (1.59 to 1.74) | 3.37 (3.35 to 3.83) | 3.08 (3.04 to 3.31) |
+| tick p95, v0.3.1 | 3.8 ms (3.77 to 3.86) | 3.5 ms (3.43 to 3.59) | 1.9 ms (1.86 to 2.02) | 2.4 ms (2.06 to 2.46) |
+| tick p95, v0.4.0 | 3.8 ms (3.67 to 4.00) | 3.5 ms (3.47 to 3.62) | 1.9 ms (1.80 to 2.03) | 2.4 ms (2.34 to 2.47) |
+| bytes per frame, v0.3.1 | 2,234 (2,185 to 2,296) | 2,243 (2,180 to 2,305) | 855 (850 to 862) | 855 (846 to 865) |
+| bytes per frame, v0.4.0 | 2,230 (2,220 to 2,288) | 2,296 (2,207 to 2,327) | 853 (849 to 862) | 858 (852 to 870) |
+| commands per transaction, v0.3.1 | 2.44 (2.26 to 2.79) | 1.03 (1.03 to 1.04) | 1.32 (1.27 to 1.39) | 1.02 (1.01 to 1.04) |
+| commands per transaction, v0.4.0 | 2.29 (2.23 to 2.41) | 1.03 (1.03 to 1.05) | 1.34 (1.29 to 1.35) | 1.03 (1.02 to 1.04) |
+| command from due to commit, p50, v0.3.1 | 5.3 ms (5.0 to 6.3) | 0.52 ms (0.51 to 0.52) | 2.7 ms (2.6 to 2.8) | 0.30 ms (0.28 to 0.31) |
+| command from due to commit, p50, v0.4.0 | 5.2 ms (5.0 to 5.8) | 0.52 ms (0.50 to 0.54) | 2.7 ms (2.6 to 2.8) | 0.30 ms (0.30 to 0.31) |
+| command from due to commit, p99, v0.3.1 | 9.6 ms (8.8 to 11.2) | 31 ms (24 to 41) | 7.3 ms (6.8 to 10.3) | 14 ms (4 to 72) |
+| command from due to commit, p99, v0.4.0 | 9.6 ms (8.5 to 13.2) | 31 ms (23 to 60) | 7.6 ms (7.2 to 14.2) | 28 ms (13 to 58) |
+
+Nothing moved. Every run of both rendered the board once a tick at 19.8 to 19.9 ticks a second and dropped no frame, and the heap per stream was 1.66 to 1.68 MiB with zstd and 1.56 MiB with brotli in both. The medians differ by less than the runs of one version do; the p99s with NORMAL are the shared SSD pool's, as above. The board's view listens to its `board:<n>` and declares nothing with `Depends`: the topic tree costs each of its 800 commits a second about 60 ns, as the hub's benchmarks below show.
+
+The hub's own benchmarks in `live` ran right after, the same way: six runs of each binary alternated, at a load average of 4.9 falling to 2.2 as the board's load wore off, against e9bebd0, the commit before the topic tree. Output in `bench/v040/hub.txt`:
+
+    taskset -c 0-11 ./live.test -test.run '^$' -test.bench '^Benchmark(Changed|ChangedBelow|Tick|TickDepends)$' -test.benchmem -test.count 1
+
+| | e9bebd0 | v0.4.0 |
+|---|---|---|
+| `Changed`, two topics on 1,000 views, depth 1 (`board7`) | | 150 ns |
+| depth 2 (`board:7`; e9bebd0's `t:1`) | 127 ns | 190 ns |
+| depth 3 (`src:0:7`) | | 217 ns |
+| `ChangedBelow`, `src:A:*` over 1,000 of 2,000 views | | 48 µs |
+| `Tick`, 1,000 views | 0.49 ms | 0.50 ms |
+| `Tick`, 10,000 views | 4.64 ms | 4.71 ms |
+| `TickDepends`, 1,000 views, the same topics | 0.50 ms | 0.53 ms |
+| `TickDepends`, 1,000 views, four topics in and four out | 1.70 ms | 2.67 ms |
+
+Medians; every run of a case was within 6% of its median but the moved `TickDepends`, 1.56 to 1.81 ms and 2.46 to 3.20 ms. A view that changes its topics now updates the hub's tree for each, about 2.1 µs a view for four in and four out against 1.2 µs before, with 4 more allocations; the rest moved by a few percent at most.
+
 ## Stream budget and hibernation
 
 Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1; the settings and the floor again on 2026-10-14 between 17:28 and 17:34 UTC, on lith's main at ff7e536 (v0.2.0, whose streams flush their brotli encoders within a frame), with the 1-minute load average between 1.5 and 4.9. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:

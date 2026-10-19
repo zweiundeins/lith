@@ -532,7 +532,7 @@ func (c Navigate) Apply(tx *writer.Tx) error {
   everyone gets the same render.
 - A render that declares what the one before declared costs a sort and a
   compare of its topics; one that changes them, an update of the hub's tree
-  per topic, about 1 µs per view for four topics in and four out
+  per topic, about 2 µs per view for four topics in and four out
   (`BenchmarkTickDepends`).
 
 ## A topic hierarchy

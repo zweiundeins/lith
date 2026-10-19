@@ -1,0 +1,565 @@
+### v031 round 1 start 14:14:57 load 1.62 1.21 1.10
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         6.273 cmd-p50-ms	        11.24 cmd-p99-ms	       800.3 cmds/s	         2.790 cmds/tx	         1.926 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.416 tick-max-ms	         3.196 tick-p50-ms	         3.857 tick-p95-ms	         4.378 tick-p99-ms	        19.80 ticks/s	      2253 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.93 cores busy
+        ticks: 198, 1.00 renders each, p50 3.2ms, p95 3.86ms, p99 4.38ms, max 4.42ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2253 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8004 commands, 800/s, 2.79 per transaction, at most 12, p99 commit 6.07ms
+        commands: 8001 due, 0 errors, due to commit p50 6.27ms, p95 9.55ms, p99 11.24ms, max 24.38ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.560 MiB/stream	       853.0 br-B/write	         2.841 cmd-p50-ms	         7.722 cmd-p99-ms	       800.0 cmds/s	         1.382 cmds/tx	         3.293 cores	         0 dropped/s	      3971 frames/s	         1.000 renders/tick	         4.257 tick-max-ms	         1.328 tick-p50-ms	         2.021 tick-p95-ms	         2.141 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.29 cores busy
+        ticks: 199, 1.00 renders each, p50 1.33ms, p95 2.02ms, p99 2.14ms, max 4.26ms, 0 overruns
+        frames: 39706 sent, 0 dropped
+        wire, br: 200 streams, 39707 writes, 853 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.38 per transaction, at most 18, p99 commit 4.2ms
+        commands: 8000 due, 0 errors, due to commit p50 2.84ms, p95 5.28ms, p99 7.72ms, max 23.63ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.662 MiB/stream	         0.5106 cmd-p50-ms	        24.26 cmd-p99-ms	       800.0 cmds/s	         1.028 cmds/tx	         1.598 cores	         0 dropped/s	      3948 frames/s	         1.000 renders/tick	         3.707 tick-max-ms	         3.275 tick-p50-ms	         3.554 tick-p95-ms	         3.611 tick-p99-ms	        19.80 ticks/s	      2274 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.60 cores busy
+        ticks: 198, 1.00 renders each, p50 3.28ms, p95 3.55ms, p99 3.61ms, max 3.71ms, 0 overruns
+        frames: 39482 sent, 0 dropped
+        wire, zstd: 200 streams, 39482 writes, 2274 bytes per write
+        heap: 1.66 MiB per stream
+        writer: 8000 commands, 800/s, 1.03 per transaction, at most 35, p99 commit 300µs
+        commands: 8000 due, 0 errors, due to commit p50 510µs, p95 1.18ms, p99 24.26ms, max 48.21ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       845.9 br-B/write	         0.3021 cmd-p50-ms	        14.81 cmd-p99-ms	       800.0 cmds/s	         1.020 cmds/tx	         3.080 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         2.690 tick-max-ms	         1.784 tick-p50-ms	         2.377 tick-p95-ms	         2.557 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.08 cores busy
+        ticks: 198, 1.00 renders each, p50 1.78ms, p95 2.38ms, p99 2.56ms, max 2.69ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, br: 200 streams, 39600 writes, 846 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.02 per transaction, at most 33, p99 commit 170µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.07ms, p99 14.81ms, max 42.85ms
+PASS
+### v031 round 1 end 14:15:47 load 5.33 2.31 1.49
+### pre040 round 1 start 14:15:47 load 5.33 2.31 1.49
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         5.214 cmd-p50-ms	         9.032 cmd-p99-ms	       800.4 cmds/s	         2.226 cmds/tx	         1.777 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.044 tick-max-ms	         3.252 tick-p50-ms	         3.720 tick-p95-ms	         4.006 tick-p99-ms	        19.80 ticks/s	      2288 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.78 cores busy
+        ticks: 198, 1.00 renders each, p50 3.25ms, p95 3.72ms, p99 4.01ms, max 4.04ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2288 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8005 commands, 800/s, 2.23 per transaction, at most 19, p99 commit 4.75ms
+        commands: 8001 due, 0 errors, due to commit p50 5.21ms, p95 7.77ms, p99 9.03ms, max 27.11ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.560 MiB/stream	       855.6 br-B/write	         2.704 cmd-p50-ms	         8.436 cmd-p99-ms	       799.9 cmds/s	         1.350 cmds/tx	         3.833 cores	         0 dropped/s	      3967 frames/s	         1.000 renders/tick	         2.174 tick-max-ms	         1.185 tick-p50-ms	         1.805 tick-p95-ms	         2.023 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.83 cores busy
+        ticks: 199, 1.00 renders each, p50 1.18ms, p95 1.81ms, p99 2.02ms, max 2.17ms, 0 overruns
+        frames: 39667 sent, 0 dropped
+        wire, br: 200 streams, 39667 writes, 856 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 7999 commands, 800/s, 1.35 per transaction, at most 38, p99 commit 3ms
+        commands: 8000 due, 0 errors, due to commit p50 2.7ms, p95 6.02ms, p99 8.44ms, max 47.74ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5034 cmd-p50-ms	        23.30 cmd-p99-ms	       800.0 cmds/s	         1.027 cmds/tx	         1.620 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         3.739 tick-max-ms	         3.233 tick-p50-ms	         3.553 tick-p95-ms	         3.672 tick-p99-ms	        19.80 ticks/s	      2298 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.62 cores busy
+        ticks: 198, 1.00 renders each, p50 3.23ms, p95 3.55ms, p99 3.67ms, max 3.74ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2298 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8000 commands, 800/s, 1.03 per transaction, at most 40, p99 commit 280µs
+        commands: 8000 due, 0 errors, due to commit p50 500µs, p95 1.17ms, p99 23.3ms, max 52.99ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       852.6 br-B/write	         0.3023 cmd-p50-ms	        19.88 cmd-p99-ms	       800.0 cmds/s	         1.024 cmds/tx	         3.114 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         2.897 tick-max-ms	         1.706 tick-p50-ms	         2.369 tick-p95-ms	         2.555 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 3.11 cores busy
+        ticks: 198, 1.00 renders each, p50 1.71ms, p95 2.37ms, p99 2.55ms, max 2.9ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, br: 200 streams, 39600 writes, 853 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.02 per transaction, at most 55, p99 commit 160µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.09ms, p99 19.88ms, max 70.6ms
+PASS
+### pre040 round 1 end 14:16:36 load 4.62 2.66 1.65
+### pre040 round 2 start 14:16:36 load 4.62 2.66 1.65
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         5.119 cmd-p50-ms	         8.520 cmd-p99-ms	       800.3 cmds/s	         2.313 cmds/tx	         1.868 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.163 tick-max-ms	         3.351 tick-p50-ms	         3.849 tick-p95-ms	         4.048 tick-p99-ms	        19.80 ticks/s	      2230 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.87 cores busy
+        ticks: 198, 1.00 renders each, p50 3.35ms, p95 3.85ms, p99 4.05ms, max 4.16ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2230 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8003 commands, 800/s, 2.31 per transaction, at most 13, p99 commit 4.71ms
+        commands: 8000 due, 0 errors, due to commit p50 5.12ms, p95 7.4ms, p99 8.52ms, max 16.61ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.560 MiB/stream	       851.2 br-B/write	         2.711 cmd-p50-ms	        14.21 cmd-p99-ms	       800.0 cmds/s	         1.327 cmds/tx	         3.349 cores	         0 dropped/s	      3980 frames/s	         1.000 renders/tick	         2.264 tick-max-ms	         1.282 tick-p50-ms	         1.903 tick-p95-ms	         2.212 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 3.35 cores busy
+        ticks: 199, 1.00 renders each, p50 1.28ms, p95 1.9ms, p99 2.21ms, max 2.26ms, 0 overruns
+        frames: 39800 sent, 0 dropped
+        wire, br: 200 streams, 39800 writes, 851 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.33 per transaction, at most 29, p99 commit 4.06ms
+        commands: 8000 due, 0 errors, due to commit p50 2.71ms, p95 5.36ms, p99 14.21ms, max 37.42ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5172 cmd-p50-ms	        35.71 cmd-p99-ms	       800.0 cmds/s	         1.035 cmds/tx	         1.744 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         5.177 tick-max-ms	         2.947 tick-p50-ms	         3.471 tick-p95-ms	         3.756 tick-p99-ms	        19.80 ticks/s	      2207 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.74 cores busy
+        ticks: 198, 1.00 renders each, p50 2.95ms, p95 3.47ms, p99 3.76ms, max 5.18ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2207 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8000 commands, 800/s, 1.04 per transaction, at most 59, p99 commit 280µs
+        commands: 8000 due, 0 errors, due to commit p50 520µs, p95 1.21ms, p99 35.71ms, max 77.69ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.560 MiB/stream	       857.4 br-B/write	         0.2989 cmd-p50-ms	        35.25 cmd-p99-ms	       800.0 cmds/s	         1.032 cmds/tx	         3.037 cores	         0 dropped/s	      3940 frames/s	         1.000 renders/tick	         3.287 tick-max-ms	         1.879 tick-p50-ms	         2.414 tick-p95-ms	         2.723 tick-p99-ms	        19.70 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.04 cores busy
+        ticks: 197, 1.00 renders each, p50 1.88ms, p95 2.41ms, p99 2.72ms, max 3.29ms, 0 overruns
+        frames: 39400 sent, 0 dropped
+        wire, br: 200 streams, 39400 writes, 857 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.03 per transaction, at most 72, p99 commit 160µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.1ms, p99 35.25ms, max 103.37ms
+PASS
+### pre040 round 2 end 14:17:25 load 4.08 2.87 1.78
+### v031 round 2 start 14:17:25 load 4.08 2.87 1.78
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         5.257 cmd-p50-ms	         9.452 cmd-p99-ms	       799.9 cmds/s	         2.317 cmds/tx	         1.766 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.053 tick-max-ms	         3.326 tick-p50-ms	         3.771 tick-p95-ms	         3.986 tick-p99-ms	        19.80 ticks/s	      2185 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.77 cores busy
+        ticks: 198, 1.00 renders each, p50 3.33ms, p95 3.77ms, p99 3.99ms, max 4.05ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2185 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8000 commands, 800/s, 2.32 per transaction, at most 22, p99 commit 4.52ms
+        commands: 8001 due, 0 errors, due to commit p50 5.26ms, p95 7.96ms, p99 9.45ms, max 29.27ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.559 MiB/stream	       850.4 br-B/write	         2.698 cmd-p50-ms	         6.929 cmd-p99-ms	       799.6 cmds/s	         1.306 cmds/tx	         3.296 cores	         0 dropped/s	      3965 frames/s	         1.000 renders/tick	         2.418 tick-max-ms	         1.260 tick-p50-ms	         1.864 tick-p95-ms	         2.155 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.30 cores busy
+        ticks: 199, 1.00 renders each, p50 1.26ms, p95 1.86ms, p99 2.16ms, max 2.42ms, 0 overruns
+        frames: 39648 sent, 0 dropped
+        wire, br: 200 streams, 39648 writes, 850 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 7996 commands, 800/s, 1.31 per transaction, at most 34, p99 commit 4.02ms
+        commands: 8000 due, 0 errors, due to commit p50 2.7ms, p95 5.02ms, p99 6.93ms, max 44.16ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5138 cmd-p50-ms	        35.87 cmd-p99-ms	       800.0 cmds/s	         1.038 cmds/tx	         1.662 cores	         0 dropped/s	      3940 frames/s	         1.000 renders/tick	         3.653 tick-max-ms	         3.164 tick-p50-ms	         3.488 tick-p95-ms	         3.542 tick-p99-ms	        19.70 ticks/s	      2190 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.66 cores busy
+        ticks: 197, 1.00 renders each, p50 3.16ms, p95 3.49ms, p99 3.54ms, max 3.65ms, 0 overruns
+        frames: 39400 sent, 0 dropped
+        wire, zstd: 200 streams, 39400 writes, 2190 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8001 commands, 800/s, 1.04 per transaction, at most 77, p99 commit 320µs
+        commands: 8001 due, 0 errors, due to commit p50 510µs, p95 1.24ms, p99 35.87ms, max 101.4ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       855.9 br-B/write	         0.2899 cmd-p50-ms	        12.46 cmd-p99-ms	       800.1 cmds/s	         1.018 cmds/tx	         3.139 cores	         0 dropped/s	      3950 frames/s	         1.000 renders/tick	         2.786 tick-max-ms	         1.737 tick-p50-ms	         2.255 tick-p95-ms	         2.448 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.14 cores busy
+        ticks: 198, 1.00 renders each, p50 1.74ms, p95 2.25ms, p99 2.45ms, max 2.79ms, 0 overruns
+        frames: 39501 sent, 0 dropped
+        wire, br: 200 streams, 39501 writes, 856 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.02 per transaction, at most 27, p99 commit 170µs
+        commands: 8000 due, 0 errors, due to commit p50 290µs, p95 1.07ms, p99 12.46ms, max 34.57ms
+PASS
+### v031 round 2 end 14:18:15 load 4.24 3.07 1.90
+### v031 round 3 start 14:18:15 load 4.24 3.07 1.90
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.665 MiB/stream	         5.323 cmd-p50-ms	        10.26 cmd-p99-ms	       800.2 cmds/s	         2.435 cmds/tx	         1.830 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.052 tick-max-ms	         3.379 tick-p50-ms	         3.779 tick-p95-ms	         3.959 tick-p99-ms	        19.80 ticks/s	      2204 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.83 cores busy
+        ticks: 198, 1.00 renders each, p50 3.38ms, p95 3.78ms, p99 3.96ms, max 4.05ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2204 bytes per write
+        heap: 1.66 MiB per stream
+        writer: 8002 commands, 800/s, 2.44 per transaction, at most 25, p99 commit 5.59ms
+        commands: 8001 due, 0 errors, due to commit p50 5.32ms, p95 8.28ms, p99 10.26ms, max 31.45ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.559 MiB/stream	       861.0 br-B/write	         2.682 cmd-p50-ms	         7.251 cmd-p99-ms	       800.0 cmds/s	         1.309 cmds/tx	         3.396 cores	         0 dropped/s	      3968 frames/s	         1.000 renders/tick	         2.429 tick-max-ms	         1.372 tick-p50-ms	         1.963 tick-p95-ms	         2.229 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.40 cores busy
+        ticks: 199, 1.00 renders each, p50 1.37ms, p95 1.96ms, p99 2.23ms, max 2.43ms, 0 overruns
+        frames: 39684 sent, 0 dropped
+        wire, br: 200 streams, 39684 writes, 861 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.31 per transaction, at most 25, p99 commit 3.66ms
+        commands: 8000 due, 0 errors, due to commit p50 2.68ms, p95 5.15ms, p99 7.25ms, max 33.51ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5232 cmd-p50-ms	        32.69 cmd-p99-ms	       800.0 cmds/s	         1.035 cmds/tx	         1.597 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.018 tick-max-ms	         3.227 tick-p50-ms	         3.513 tick-p95-ms	         3.599 tick-p99-ms	        19.80 ticks/s	      2212 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.60 cores busy
+        ticks: 198, 1.00 renders each, p50 3.23ms, p95 3.51ms, p99 3.6ms, max 4.02ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2212 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8000 commands, 800/s, 1.04 per transaction, at most 62, p99 commit 300µs
+        commands: 8001 due, 0 errors, due to commit p50 520µs, p95 1.2ms, p99 32.69ms, max 81.95ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       865.3 br-B/write	         0.2979 cmd-p50-ms	        71.72 cmd-p99-ms	       800.0 cmds/s	         1.040 cmds/tx	         3.174 cores	         0 dropped/s	      3906 frames/s	         1.000 renders/tick	         3.606 tick-max-ms	         1.506 tick-p50-ms	         2.058 tick-p95-ms	         2.518 tick-p99-ms	        19.60 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.17 cores busy
+        ticks: 196, 1.00 renders each, p50 1.51ms, p95 2.06ms, p99 2.52ms, max 3.61ms, 0 overruns
+        frames: 39060 sent, 0 dropped
+        wire, br: 200 streams, 39060 writes, 865 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.04 per transaction, at most 114, p99 commit 210µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.12ms, p99 71.72ms, max 146.73ms
+PASS
+### v031 round 3 end 14:19:05 load 3.62 3.07 1.96
+### pre040 round 3 start 14:19:05 load 3.62 3.07 1.96
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.665 MiB/stream	         5.291 cmd-p50-ms	        10.09 cmd-p99-ms	       799.8 cmds/s	         2.387 cmds/tx	         1.851 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.521 tick-max-ms	         3.359 tick-p50-ms	         3.820 tick-p95-ms	         4.149 tick-p99-ms	        19.80 ticks/s	      2229 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.85 cores busy
+        ticks: 198, 1.00 renders each, p50 3.36ms, p95 3.82ms, p99 4.15ms, max 4.52ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2229 bytes per write
+        heap: 1.66 MiB per stream
+        writer: 7998 commands, 800/s, 2.39 per transaction, at most 31, p99 commit 5.78ms
+        commands: 8000 due, 0 errors, due to commit p50 5.29ms, p95 8.18ms, p99 10.09ms, max 30.22ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.559 MiB/stream	       848.9 br-B/write	         2.772 cmd-p50-ms	         7.393 cmd-p99-ms	       800.0 cmds/s	         1.348 cmds/tx	         3.353 cores	         0 dropped/s	      3973 frames/s	         1.000 renders/tick	         2.391 tick-max-ms	         1.375 tick-p50-ms	         1.995 tick-p95-ms	         2.240 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.35 cores busy
+        ticks: 199, 1.00 renders each, p50 1.38ms, p95 1.99ms, p99 2.24ms, max 2.39ms, 0 overruns
+        frames: 39733 sent, 0 dropped
+        wire, br: 200 streams, 39733 writes, 849 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.35 per transaction, at most 24, p99 commit 3.67ms
+        commands: 8000 due, 0 errors, due to commit p50 2.77ms, p95 5.32ms, p99 7.39ms, max 19.88ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5226 cmd-p50-ms	        33.36 cmd-p99-ms	       800.0 cmds/s	         1.030 cmds/tx	         1.628 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.348 tick-max-ms	         3.268 tick-p50-ms	         3.621 tick-p95-ms	         3.722 tick-p99-ms	        19.80 ticks/s	      2293 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.63 cores busy
+        ticks: 198, 1.00 renders each, p50 3.27ms, p95 3.62ms, p99 3.72ms, max 4.35ms, 0 overruns
+        frames: 39599 sent, 0 dropped
+        wire, zstd: 200 streams, 39595 writes, 2293 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8000 commands, 800/s, 1.03 per transaction, at most 67, p99 commit 290µs
+        commands: 8000 due, 0 errors, due to commit p50 520µs, p95 1.19ms, p99 33.36ms, max 88.48ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       852.1 br-B/write	         0.3001 cmd-p50-ms	        12.81 cmd-p99-ms	       800.0 cmds/s	         1.019 cmds/tx	         3.072 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         3.080 tick-max-ms	         1.799 tick-p50-ms	         2.340 tick-p95-ms	         2.581 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 3.07 cores busy
+        ticks: 198, 1.00 renders each, p50 1.8ms, p95 2.34ms, p99 2.58ms, max 3.08ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, br: 200 streams, 39600 writes, 852 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.02 per transaction, at most 39, p99 commit 160µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.08ms, p99 12.81ms, max 57.23ms
+PASS
+### pre040 round 3 end 14:19:54 load 3.08 3.07 2.02
+### pre040 round 4 start 14:19:54 load 3.08 3.07 2.02
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         5.839 cmd-p50-ms	        10.96 cmd-p99-ms	       799.6 cmds/s	         2.410 cmds/tx	         1.779 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.349 tick-max-ms	         3.327 tick-p50-ms	         3.673 tick-p95-ms	         4.230 tick-p99-ms	        19.80 ticks/s	      2220 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.78 cores busy
+        ticks: 198, 1.00 renders each, p50 3.33ms, p95 3.67ms, p99 4.23ms, max 4.35ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2220 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 7997 commands, 800/s, 2.41 per transaction, at most 11, p99 commit 6ms
+        commands: 8000 due, 0 errors, due to commit p50 5.84ms, p95 9.26ms, p99 10.96ms, max 163.22ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.560 MiB/stream	       850.2 br-B/write	         2.786 cmd-p50-ms	         7.245 cmd-p99-ms	       799.8 cmds/s	         1.354 cmds/tx	         3.404 cores	         0 dropped/s	      3969 frames/s	         1.000 renders/tick	         2.397 tick-max-ms	         1.302 tick-p50-ms	         2.025 tick-p95-ms	         2.292 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.40 cores busy
+        ticks: 199, 1.00 renders each, p50 1.3ms, p95 2.02ms, p99 2.29ms, max 2.4ms, 0 overruns
+        frames: 39694 sent, 0 dropped
+        wire, br: 200 streams, 39694 writes, 850 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 7998 commands, 800/s, 1.35 per transaction, at most 26, p99 commit 3.77ms
+        commands: 8000 due, 0 errors, due to commit p50 2.79ms, p95 5.3ms, p99 7.25ms, max 33.55ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5264 cmd-p50-ms	        24.76 cmd-p99-ms	       800.1 cmds/s	         1.029 cmds/tx	         1.619 cores	         0 dropped/s	      3959 frames/s	         1.000 renders/tick	         4.960 tick-max-ms	         3.255 tick-p50-ms	         3.571 tick-p95-ms	         3.784 tick-p99-ms	        19.80 ticks/s	      2321 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.62 cores busy
+        ticks: 198, 1.00 renders each, p50 3.25ms, p95 3.57ms, p99 3.78ms, max 4.96ms, 0 overruns
+        frames: 39594 sent, 0 dropped
+        wire, zstd: 200 streams, 39594 writes, 2321 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8001 commands, 800/s, 1.03 per transaction, at most 38, p99 commit 290µs
+        commands: 8000 due, 0 errors, due to commit p50 530µs, p95 1.18ms, p99 24.76ms, max 50.97ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       859.2 br-B/write	         0.3034 cmd-p50-ms	        29.49 cmd-p99-ms	       799.9 cmds/s	         1.032 cmds/tx	         3.072 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         3.114 tick-max-ms	         1.789 tick-p50-ms	         2.397 tick-p95-ms	         2.876 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.07 cores busy
+        ticks: 198, 1.00 renders each, p50 1.79ms, p95 2.4ms, p99 2.88ms, max 3.11ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, br: 200 streams, 39600 writes, 859 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 7999 commands, 800/s, 1.03 per transaction, at most 47, p99 commit 190µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.1ms, p99 29.49ms, max 67.71ms
+PASS
+### pre040 round 4 end 14:20:43 load 4.21 3.43 2.21
+### v031 round 4 start 14:20:44 load 4.21 3.43 2.21
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         5.427 cmd-p50-ms	         9.704 cmd-p99-ms	       800.4 cmds/s	         2.500 cmds/tx	         1.845 cores	         0 dropped/s	      3955 frames/s	         1.000 renders/tick	         6.583 tick-max-ms	         3.353 tick-p50-ms	         3.798 tick-p95-ms	         4.346 tick-p99-ms	        19.80 ticks/s	      2291 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.84 cores busy
+        ticks: 198, 1.00 renders each, p50 3.35ms, p95 3.8ms, p99 4.35ms, max 6.58ms, 0 overruns
+        frames: 39556 sent, 0 dropped
+        wire, zstd: 200 streams, 39555 writes, 2291 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8004 commands, 800/s, 2.50 per transaction, at most 16, p99 commit 5.39ms
+        commands: 8000 due, 0 errors, due to commit p50 5.43ms, p95 8.2ms, p99 9.7ms, max 33.51ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.560 MiB/stream	       861.8 br-B/write	         2.807 cmd-p50-ms	        10.32 cmd-p99-ms	       800.0 cmds/s	         1.394 cmds/tx	         3.702 cores	         0 dropped/s	      3970 frames/s	         1.000 renders/tick	         2.794 tick-max-ms	         1.133 tick-p50-ms	         1.887 tick-p95-ms	         2.214 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.70 cores busy
+        ticks: 199, 1.00 renders each, p50 1.13ms, p95 1.89ms, p99 2.21ms, max 2.79ms, 0 overruns
+        frames: 39702 sent, 0 dropped
+        wire, br: 200 streams, 39702 writes, 862 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.39 per transaction, at most 40, p99 commit 3.61ms
+        commands: 8000 due, 0 errors, due to commit p50 2.81ms, p95 6.17ms, p99 10.32ms, max 52.2ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.662 MiB/stream	         0.5188 cmd-p50-ms	        28.57 cmd-p99-ms	       800.0 cmds/s	         1.032 cmds/tx	         1.659 cores	         0 dropped/s	      3963 frames/s	         1.000 renders/tick	         5.545 tick-max-ms	         3.263 tick-p50-ms	         3.567 tick-p95-ms	         3.856 tick-p99-ms	        19.80 ticks/s	      2291 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.66 cores busy
+        ticks: 198, 1.00 renders each, p50 3.26ms, p95 3.57ms, p99 3.86ms, max 5.54ms, 0 overruns
+        frames: 39631 sent, 0 dropped
+        wire, zstd: 200 streams, 39627 writes, 2291 bytes per write
+        heap: 1.66 MiB per stream
+        writer: 8000 commands, 800/s, 1.03 per transaction, at most 38, p99 commit 310µs
+        commands: 8000 due, 0 errors, due to commit p50 520µs, p95 1.2ms, p99 28.57ms, max 52.27ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       858.2 br-B/write	         0.2814 cmd-p50-ms	         4.080 cmd-p99-ms	       800.1 cmds/s	         1.012 cmds/tx	         3.089 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         2.650 tick-max-ms	         1.717 tick-p50-ms	         2.364 tick-p95-ms	         2.507 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.09 cores busy
+        ticks: 198, 1.00 renders each, p50 1.72ms, p95 2.36ms, p99 2.51ms, max 2.65ms, 0 overruns
+        frames: 39598 sent, 0 dropped
+        wire, br: 200 streams, 39600 writes, 858 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.01 per transaction, at most 21, p99 commit 190µs
+        commands: 8000 due, 0 errors, due to commit p50 280µs, p95 1.05ms, p99 4.08ms, max 27.68ms
+PASS
+### v031 round 4 end 14:21:33 load 5.01 3.82 2.40
+### v031 round 5 start 14:21:33 load 5.01 3.82 2.40
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         4.985 cmd-p50-ms	         8.843 cmd-p99-ms	       799.9 cmds/s	         2.263 cmds/tx	         1.822 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.372 tick-max-ms	         3.366 tick-p50-ms	         3.827 tick-p95-ms	         3.968 tick-p99-ms	        19.80 ticks/s	      2214 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.82 cores busy
+        ticks: 198, 1.00 renders each, p50 3.37ms, p95 3.83ms, p99 3.97ms, max 4.37ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2214 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8000 commands, 800/s, 2.26 per transaction, at most 22, p99 commit 4.68ms
+        commands: 8000 due, 0 errors, due to commit p50 4.98ms, p95 7.41ms, p99 8.84ms, max 29.82ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.560 MiB/stream	       854.2 br-B/write	         2.745 cmd-p50-ms	         7.302 cmd-p99-ms	       800.1 cmds/s	         1.331 cmds/tx	         3.362 cores	         0 dropped/s	      3977 frames/s	         1.000 renders/tick	         2.200 tick-max-ms	         1.321 tick-p50-ms	         1.974 tick-p95-ms	         2.089 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.36 cores busy
+        ticks: 199, 1.00 renders each, p50 1.32ms, p95 1.97ms, p99 2.09ms, max 2.2ms, 0 overruns
+        frames: 39774 sent, 0 dropped
+        wire, br: 200 streams, 39775 writes, 854 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.33 per transaction, at most 27, p99 commit 3.71ms
+        commands: 8000 due, 0 errors, due to commit p50 2.74ms, p95 5.16ms, p99 7.3ms, max 35.39ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5145 cmd-p50-ms	        40.84 cmd-p99-ms	       800.0 cmds/s	         1.038 cmds/tx	         1.703 cores	         0 dropped/s	      3940 frames/s	         1.000 renders/tick	         5.406 tick-max-ms	         3.010 tick-p50-ms	         3.431 tick-p95-ms	         3.555 tick-p99-ms	        19.70 ticks/s	      2180 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.70 cores busy
+        ticks: 197, 1.00 renders each, p50 3.01ms, p95 3.43ms, p99 3.56ms, max 5.41ms, 0 overruns
+        frames: 39400 sent, 0 dropped
+        wire, zstd: 200 streams, 39400 writes, 2180 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8001 commands, 800/s, 1.04 per transaction, at most 69, p99 commit 300µs
+        commands: 8001 due, 0 errors, due to commit p50 510µs, p95 1.23ms, p99 40.84ms, max 90.76ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       849.0 br-B/write	         0.3100 cmd-p50-ms	        20.30 cmd-p99-ms	       799.9 cmds/s	         1.026 cmds/tx	         3.080 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         2.814 tick-max-ms	         1.866 tick-p50-ms	         2.459 tick-p95-ms	         2.590 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.08 cores busy
+        ticks: 198, 1.00 renders each, p50 1.87ms, p95 2.46ms, p99 2.59ms, max 2.81ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, br: 200 streams, 39600 writes, 849 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 7999 commands, 800/s, 1.03 per transaction, at most 40, p99 commit 170µs
+        commands: 7999 due, 0 errors, due to commit p50 310µs, p95 1.1ms, p99 20.3ms, max 62.5ms
+PASS
+### v031 round 5 end 14:22:22 load 5.00 3.98 2.53
+### pre040 round 5 start 14:22:22 load 5.00 3.98 2.53
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         5.023 cmd-p50-ms	        13.23 cmd-p99-ms	       800.2 cmds/s	         2.259 cmds/tx	         1.850 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.181 tick-max-ms	         3.348 tick-p50-ms	         3.797 tick-p95-ms	         4.024 tick-p99-ms	        19.80 ticks/s	      2220 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 1.85 cores busy
+        ticks: 198, 1.00 renders each, p50 3.35ms, p95 3.8ms, p99 4.02ms, max 4.18ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2220 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8003 commands, 800/s, 2.26 per transaction, at most 15, p99 commit 4.47ms
+        commands: 8001 due, 0 errors, due to commit p50 5.02ms, p95 7.45ms, p99 13.23ms, max 28.27ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.559 MiB/stream	       853.7 br-B/write	         2.647 cmd-p50-ms	         7.566 cmd-p99-ms	       800.1 cmds/s	         1.291 cmds/tx	         3.359 cores	         0 dropped/s	      3978 frames/s	         1.000 renders/tick	         2.426 tick-max-ms	         1.228 tick-p50-ms	         1.797 tick-p95-ms	         2.291 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.36 cores busy
+        ticks: 199, 1.00 renders each, p50 1.23ms, p95 1.8ms, p99 2.29ms, max 2.43ms, 0 overruns
+        frames: 39779 sent, 0 dropped
+        wire, br: 200 streams, 39780 writes, 854 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.29 per transaction, at most 36, p99 commit 3.41ms
+        commands: 8000 due, 0 errors, due to commit p50 2.65ms, p95 5.02ms, p99 7.57ms, max 46.43ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5242 cmd-p50-ms	        28.86 cmd-p99-ms	       800.1 cmds/s	         1.033 cmds/tx	         1.593 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         5.398 tick-max-ms	         3.071 tick-p50-ms	         3.486 tick-p95-ms	         3.644 tick-p99-ms	        19.80 ticks/s	      2327 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.59 cores busy
+        ticks: 198, 1.00 renders each, p50 3.07ms, p95 3.49ms, p99 3.64ms, max 5.4ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2327 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8001 commands, 800/s, 1.03 per transaction, at most 49, p99 commit 280µs
+        commands: 8001 due, 0 errors, due to commit p50 520µs, p95 1.19ms, p99 28.86ms, max 63.77ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       859.3 br-B/write	         0.2985 cmd-p50-ms	        27.03 cmd-p99-ms	       800.0 cmds/s	         1.030 cmds/tx	         3.309 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         2.793 tick-max-ms	         1.576 tick-p50-ms	         2.345 tick-p95-ms	         2.525 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 3.31 cores busy
+        ticks: 198, 1.00 renders each, p50 1.58ms, p95 2.35ms, p99 2.53ms, max 2.79ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, br: 200 streams, 39600 writes, 859 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8000 commands, 800/s, 1.03 per transaction, at most 43, p99 commit 160µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.09ms, p99 27.03ms, max 56.17ms
+PASS
+### pre040 round 5 end 14:23:12 load 4.49 4.02 2.62
+### pre040 round 6 start 14:23:12 load 4.49 4.02 2.62
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.665 MiB/stream	         5.037 cmd-p50-ms	         8.918 cmd-p99-ms	       800.3 cmds/s	         2.251 cmds/tx	         1.812 cores	         0 dropped/s	      3960 frames/s	         1.000 renders/tick	         4.449 tick-max-ms	         3.344 tick-p50-ms	         3.995 tick-p95-ms	         4.266 tick-p99-ms	        19.80 ticks/s	      2244 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.81 cores busy
+        ticks: 198, 1.00 renders each, p50 3.34ms, p95 3.99ms, p99 4.27ms, max 4.45ms, 0 overruns
+        frames: 39600 sent, 0 dropped
+        wire, zstd: 200 streams, 39600 writes, 2244 bytes per write
+        heap: 1.66 MiB per stream
+        writer: 8003 commands, 800/s, 2.25 per transaction, at most 24, p99 commit 4.53ms
+        commands: 8000 due, 0 errors, due to commit p50 5.04ms, p95 7.47ms, p99 8.92ms, max 31.56ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.559 MiB/stream	       861.7 br-B/write	         2.656 cmd-p50-ms	         7.602 cmd-p99-ms	       799.9 cmds/s	         1.291 cmds/tx	         3.381 cores	         0 dropped/s	      3964 frames/s	         1.000 renders/tick	         2.625 tick-max-ms	         1.320 tick-p50-ms	         1.908 tick-p95-ms	         2.176 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.38 cores busy
+        ticks: 199, 1.00 renders each, p50 1.32ms, p95 1.91ms, p99 2.18ms, max 2.63ms, 0 overruns
+        frames: 39646 sent, 0 dropped
+        wire, br: 200 streams, 39647 writes, 862 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 7999 commands, 800/s, 1.29 per transaction, at most 26, p99 commit 3.11ms
+        commands: 8000 due, 0 errors, due to commit p50 2.66ms, p95 4.98ms, p99 7.6ms, max 34.14ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.678 MiB/stream	         0.5383 cmd-p50-ms	        60.27 cmd-p99-ms	       800.1 cmds/s	         1.049 cmds/tx	         1.646 cores	         0 dropped/s	      3940 frames/s	         1.000 renders/tick	         4.037 tick-max-ms	         3.193 tick-p50-ms	         3.536 tick-p95-ms	         3.639 tick-p99-ms	        19.70 ticks/s	      2271 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.65 cores busy
+        ticks: 197, 1.00 renders each, p50 3.19ms, p95 3.54ms, p99 3.64ms, max 4.04ms, 0 overruns
+        frames: 39400 sent, 0 dropped
+        wire, zstd: 200 streams, 39400 writes, 2271 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8001 commands, 800/s, 1.05 per transaction, at most 87, p99 commit 300µs
+        commands: 8000 due, 0 errors, due to commit p50 540µs, p95 1.36ms, p99 60.27ms, max 112.91ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       870.3 br-B/write	         0.3051 cmd-p50-ms	        57.81 cmd-p99-ms	       800.1 cmds/s	         1.043 cmds/tx	         3.089 cores	         0 dropped/s	      3922 frames/s	         1.000 renders/tick	         3.361 tick-max-ms	         1.732 tick-p50-ms	         2.468 tick-p95-ms	         2.681 tick-p99-ms	        19.70 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.09 cores busy
+        ticks: 197, 1.00 renders each, p50 1.73ms, p95 2.47ms, p99 2.68ms, max 3.36ms, 0 overruns
+        frames: 39218 sent, 0 dropped
+        wire, br: 200 streams, 39219 writes, 870 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.04 per transaction, at most 85, p99 commit 200µs
+        commands: 8001 due, 0 errors, due to commit p50 310µs, p95 1.15ms, p99 57.81ms, max 111.62ms
+PASS
+### pre040 round 6 end 14:24:01 load 4.72 4.21 2.76
+### v031 round 6 start 14:24:01 load 4.72 4.21 2.76
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkSharedBoard/FULL/zstd-12         	       1	         1.680 MiB/stream	         5.220 cmd-p50-ms	         8.968 cmd-p99-ms	       800.2 cmds/s	         2.449 cmds/tx	         2.074 cores	         0 dropped/s	      3969 frames/s	         1.000 renders/tick	         4.873 tick-max-ms	         3.238 tick-p50-ms	         3.781 tick-p95-ms	         4.040 tick-p99-ms	        19.80 ticks/s	      2296 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/FULL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10.001s, GOMAXPROCS 12, 2.07 cores busy
+        ticks: 198, 1.00 renders each, p50 3.24ms, p95 3.78ms, p99 4.04ms, max 4.87ms, 0 overruns
+        frames: 39695 sent, 0 dropped
+        wire, zstd: 200 streams, 39689 writes, 2296 bytes per write
+        heap: 1.68 MiB per stream
+        writer: 8003 commands, 800/s, 2.45 per transaction, at most 25, p99 commit 4.7ms
+        commands: 8000 due, 0 errors, due to commit p50 5.22ms, p95 7.67ms, p99 8.97ms, max 33.08ms
+BenchmarkSharedBoard/FULL/br-12           	       1	         1.559 MiB/stream	       856.2 br-B/write	         2.608 cmd-p50-ms	         6.801 cmd-p99-ms	       800.1 cmds/s	         1.273 cmds/tx	         3.345 cores	         0 dropped/s	      3970 frames/s	         1.000 renders/tick	         2.480 tick-max-ms	         1.370 tick-p50-ms	         1.928 tick-p95-ms	         2.297 tick-p99-ms	        19.90 ticks/s
+--- BENCH: BenchmarkSharedBoard/FULL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.34 cores busy
+        ticks: 199, 1.00 renders each, p50 1.37ms, p95 1.93ms, p99 2.3ms, max 2.48ms, 0 overruns
+        frames: 39704 sent, 0 dropped
+        wire, br: 200 streams, 39706 writes, 856 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.27 per transaction, at most 30, p99 commit 2.99ms
+        commands: 8000 due, 0 errors, due to commit p50 2.61ms, p95 4.86ms, p99 6.8ms, max 39.53ms
+BenchmarkSharedBoard/NORMAL/zstd-12       	       1	         1.662 MiB/stream	         0.5227 cmd-p50-ms	        26.39 cmd-p99-ms	       800.0 cmds/s	         1.029 cmds/tx	         1.639 cores	         0 dropped/s	      3963 frames/s	         1.000 renders/tick	         3.790 tick-max-ms	         3.301 tick-p50-ms	         3.585 tick-p95-ms	         3.722 tick-p99-ms	        19.80 ticks/s	      2305 zstd-B/write
+--- BENCH: BenchmarkSharedBoard/NORMAL/zstd-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 1.64 cores busy
+        ticks: 198, 1.00 renders each, p50 3.3ms, p95 3.58ms, p99 3.72ms, max 3.79ms, 0 overruns
+        frames: 39628 sent, 0 dropped
+        wire, zstd: 200 streams, 39626 writes, 2305 bytes per write
+        heap: 1.66 MiB per stream
+        writer: 8000 commands, 800/s, 1.03 per transaction, at most 43, p99 commit 300µs
+        commands: 8000 due, 0 errors, due to commit p50 520µs, p95 1.19ms, p99 26.39ms, max 54.42ms
+BenchmarkSharedBoard/NORMAL/br-12         	       1	         1.559 MiB/stream	       853.9 br-B/write	         0.2963 cmd-p50-ms	         8.102 cmd-p99-ms	       800.1 cmds/s	         1.014 cmds/tx	         3.046 cores	         0 dropped/s	      3947 frames/s	         1.000 renders/tick	         2.843 tick-max-ms	         1.857 tick-p50-ms	         2.414 tick-p95-ms	         2.713 tick-p99-ms	        19.80 ticks/s
+--- BENCH: BenchmarkSharedBoard/NORMAL/br-12
+    bench_test.go:65: 
+        200 streams, 200 producers at 800 commands/s, measured for 10s, GOMAXPROCS 12, 3.05 cores busy
+        ticks: 198, 1.00 renders each, p50 1.86ms, p95 2.41ms, p99 2.71ms, max 2.84ms, 0 overruns
+        frames: 39471 sent, 0 dropped
+        wire, br: 200 streams, 39473 writes, 854 bytes per write
+        heap: 1.56 MiB per stream
+        writer: 8001 commands, 800/s, 1.01 per transaction, at most 32, p99 commit 170µs
+        commands: 8000 due, 0 errors, due to commit p50 300µs, p95 1.07ms, p99 8.1ms, max 41.7ms
+PASS
+### v031 round 6 end 14:24:51 load 4.67 4.26 2.86
+DONE

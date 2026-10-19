@@ -265,7 +265,7 @@ A link is a command that writes the route and touches the tab's topic. The view 
 - A query helper can declare its own topic next to its query, so the topics follow the reads wherever the helper is called. A topic declared twice counts once, and outside a render `Depends` does nothing.
 - A commit that touches a topic the render declares for the first time can land after the render's snapshot and before the hub takes the topic on, when no `Changed` would find the view for it. The hub compares each new topic's version with the render's `live.Seq(ctx)`, the last commit its snapshot is sure to hold, and renders the view again when the topic changed since ([caching against a version](/docs/guides/reads#caching-an-aggregate-against-a-version) has the numbers).
 - A render that fails keeps the topics of the one before. What every route reads, such as the tab's row and the session's preferences, stays in `Topics`.
-- A render that declares the topics the one before declared costs a sort and a compare of them. One that changes four topics for four others costs about 1 µs more under the hub's lock, measured with 1,000 views that all navigate in the same tick (`BenchmarkTickDepends` in `live`).
+- A render that declares the topics the one before declared costs a sort and a compare of them. One that changes four topics for four others costs about 2 µs more under the hub's lock, measured with 1,000 views that all navigate in the same tick (`BenchmarkTickDepends` in `live`).
 
 ## Opening a stream
 
