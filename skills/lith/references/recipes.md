@@ -537,20 +537,23 @@ func (c Navigate) Apply(tx *writer.Tx) error {
 
 ## A topic hierarchy
 
-Topics are paths, from the general to the particular: `source:space:item`.
-A commit to `confluence:SWE:123` counts for `confluence:SWE` and
-`confluence` as well; `board:42` is also `board`. Each view listens at the
-level of what it shows:
+Name a topic from the general to the particular, one segment per level,
+joined by `:`: the kind or source first, then what holds it, then the item
+(`board:42`, `board:42:card:7`, `confluence:SWE:123`). A commit counts for
+every level above it: `board:42:card:7` touches `board:42` and `board`.
+Each view listens at the level of what it shows:
 
 - a page's view on `confluence:SWE:123`, for that page;
 - a space's list on `confluence:SWE`, for any page in it;
 - search and the counts per source on `confluence`, for anything in it.
 
-A view on a topic renders for every commit below it, so per-tab,
-per-session and presence state goes under a root of its own (`tab:…`,
-`sid:…`, `here:…`), never under the root of the shared data. The site's
-board demo had its presence at `board:here`: every hello rendered the
-shared board, whose view transition broke a drag. It is `here:board` now.
+State per tab, per session or of who is present goes under a root of its
+own (`tab:<demo>:<tab>`, `sid:…`, `here:<demo>`), never under the root of
+the shared data, because a view on a topic renders for every commit below
+it. The site's board demo kept its presence (the avatars of who has the
+board open, touched by each tab's hello) at `board:here`, below `board`:
+every hello rendered the shared board, whose view transition broke a card
+being dragged. It is `here:board` now.
 
 A commit to a level does not reach the levels below it. When everything
 below a level changed, as after a sync that rewrote a space, touch the

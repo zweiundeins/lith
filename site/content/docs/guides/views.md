@@ -52,13 +52,19 @@ Topics are paths: their segments, joined by `:`, go from the general to the part
 
 ## A topic hierarchy
 
-A sync from outside, say a wiki's pages, names its topics `source:space:item`: `confluence:SWE:123` is page 123 of the space SWE. A commit to a page counts for the levels above it, so it touches `confluence:SWE` and `confluence` as well, and each view listens at the level of what it shows:
+Name a topic from the general to the particular, one segment per level, joined by `:`: first the kind of data or the system it comes from, then what holds it, then the item. A board is `board:42`, a card on it `board:42:card:7`; a wiki page synced from outside is `confluence:SWE:123`, page 123 of the space SWE. A commit to a topic counts for every level above it: one to `board:42:card:7` touches `board:42` and `board` as well. Each view listens at the level of what it shows:
 
 - a page's view listens to `confluence:SWE:123`, and renders when that page changes;
 - a space's list listens to `confluence:SWE`, and renders when any of its pages changes;
 - search and the counts per source listen to `confluence`, and render when anything in the source changes.
 
-A view on a topic renders for every commit below it. So state per tab, per session and of who is present goes under a root of its own, `tab:…`, `sid:…`, `here:…`, never under the root of the shared data. The site's board demo kept who is on the page at `board:here`, below `board`, which the shared board listens to: every tab's hello rendered the board for everyone, and the board's view transition broke a drag that had just begun. It is `here:board` now, and a demo tab's state is `tab:<demo>:<tab>`.
+### State per tab, session and presence gets a root of its own
+
+A view on a topic renders for every commit below it. State that changes per tab, per session or with who is present therefore goes under a root of its own, never under the root of the shared data: `tab:<demo>:<tab>`, not `<demo>:tab:<tab>`.
+
+The site's board demo shows why. Beside the shared board, the page shows who else has it open: a row of avatars, the presence view. Each tab that opens the page sends a hello, a command that records the tab and touches the presence topic; leaving or a new avatar touches it too. That topic was `board:here`, below `board`, which the shared board listens to. So every hello also rendered the board for everyone, and the board's view transition started under a card that someone was dragging, which broke the drag. The presence topic is `here:board` now, a root of its own, and a hello renders only the avatars.
+
+### Everything below a level
 
 A commit to a level does not reach the levels below it: one to `confluence:SWE`, a space's own settings, renders the list and search, and no page. When everything below a level changed, as when a sync rewrote a space, the command touches the level with `:*`, once, instead of each page:
 
@@ -78,11 +84,19 @@ func (c SyncSpace) Apply(tx *writer.Tx) error {
 
 `confluence:SWE:*` marks the views of the space and of every page below it, and counts for `confluence` above it. `hub.Version` of each page in the space reads at least that commit. A topic of `*` alone touches everything, as `hub.MarkAll()` does. `Tx.Touch`, `OnCommit` and `hub.Changed` take these topics as they take any other.
 
+### Ids from outside the app
+
 An id inside a topic must not contain `:`, or it makes levels of its own: an iCalendar UID such as `urn:uuid:…` in `cal:` + uid is three levels, not two. Ids from outside the app go through `live.Topic(parts...)`, which escapes `:`, `*` and `%` in each part as `%3A`, `%2A` and `%25` and joins the parts with `:`. A part without them comes out as it is, so `live.Topic("board", "42")` is `board:42`, the topic an app already builds by hand. An empty part becomes `%`. `live.Below(topic)` adds the `:*`.
+
+### What a view may listen to
 
 A view's topics have no empty segment and no `*`: `Serve` and `Watch` panic on `a::b`, `a:` or `a:*`, and `Depends` fails its render. A view on `confluence:SWE` already hears everything below it. `hub.Changed` does not check its topics, since it runs for every commit.
 
+### Aggregates on a level
+
 Cached aggregates key on the level they cover: a space's count on `hub.Version("confluence:SWE")`, the counts per source on `hub.Version("confluence")`. The hub keeps the versions of the levels above the topics commits name apart from theirs (`live.Options.PrefixVersions`, 32,768 by default), so a sync of 79,000 pages pushes pages out of `Options.Versions` and leaves the spaces and sources: a count of a quiet space keeps its value through a sync of another one ([caching against a version](/docs/guides/reads#caching-an-aggregate-against-a-version)).
+
+### What a level costs
 
 Each level costs a commit a little more. The hub records a version for each topic above the one named, and finds the views of the topic and of each level above it in a tree of the topics views listen to, which drops a level once no view listens to it or below it. On 1,000 views, a commit of two topics costs 150 ns at one level (`board7`), 190 ns at two (`board:7`) and 220 ns at three (`src:0:7`); before the hierarchy, one at two levels cost 130 ns. A `:*` costs a walk over the views below the level, about 50 µs for 1,000 of them (`BenchmarkChanged`, `BenchmarkChangedBelow` in `live`).
 
