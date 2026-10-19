@@ -72,6 +72,45 @@ With NORMAL the VPS commits more commands a second than the development machine;
 
 In one NORMAL run a tick took 252 ms, the VPS's neighbours at work, and the streams dropped 19 frames a second of that run: a stream that falls behind gets the newest frame, not every one.
 
+## Large updates and deletes
+
+Measured on 2026-10-19 between 11:37 and 11:42 UTC on the development machine of the Writer section, an Intel i5-13500 under Linux 6.18 (Unraid), with Go 1.27.2 and modernc.org/sqlite v1.60.1 (SQLite 3.53.4, FTS5 built in), on lith's main at 9819ecb (v0.3.1) with the benchmark added. The database sits in `/tmp` as above. Other agents' jobs shared the machine: the 1-minute load average was 11.4 when the runs began and 6.0 after them. The output of every run is in `bench/large-writes/bench.txt`:
+
+    touch /tmp/lith-bench.lock
+    flock /tmp/lith-bench.lock taskset -c 0-11 go test ./loadtest -run '^$' -bench LargeWrite -benchtime 1x -count 3 -timeout 1h
+
+`BenchmarkLargeWrite` (`loadtest/largewrite_test.go`) runs one large write while the board of `BenchmarkSharedBoard` is under load: 200 zstd streams on one board of 200 cards, and 200 producers that change a card 800 times a second between them, each command with `Do`, so the board renders in every tick. The write changes a table of 45,000 comments, each about 2 KB of text and 2 KB of its HTML, 185 MB with the board. It either clears every comment's HTML (`UPDATE ... SET html = NULL`, as a one-time re-render does), deletes every row that a full pass did not see (`DELETE ... WHERE seen < ?`, as DeleteMissing does; without a `WHERE`, SQLite would truncate the table), or rebuilds the comments' FTS5 index (`INSERT INTO fts (fts) VALUES ('rebuild')`). It runs as one command; as commands of 1,000 or 5,000 rows by rowid range (`WHERE id BETWEEN ? AND ?`), sent one after the other with `Do`; or in `Writer.Exclusive`, in one transaction. The database runs with `CheckpointWriter`. Each run loads for 2 s, measures 2 s before the write, the write, and 2 s after it.
+
+"Do while it ran" is the producers' commands due between the write's start and its last commit, from when each was due to its commit. Ticks, renders and frames count from the write's start to 2 s after its end; the longest gap is the longest time between two ticks that rendered, which is how long the pages saw no new frame. Medians of three runs, the range in brackets:
+
+| synchronous | write | as | write took | Do while it ran, p50 | p99 | max | longest gap between ticks | tick p99 | WAL at most | longest checkpoint |
+|---|---|---|---|---|---|---|---|---|---|---|
+| NORMAL | update | one command | 0.49 s (491 to 499 ms) | 632 ms | 872 ms | 877 ms | 848 ms (473 to 866) | 0.82 ms | 186 MB | 383 ms (360 to 403) |
+| NORMAL | update | chunks of 1,000 | 1.07 s (1.065 to 1.182) | 22.7 ms | 38.3 ms | 40.7 ms | 51 ms | 0.85 ms | 8.3 MB | 22 ms (19 to 24) |
+| NORMAL | update | chunks of 5,000 | 0.89 s (0.842 to 0.899) | 100.3 ms | 156.4 ms | 163.0 ms | 153 ms (143 to 154) | 0.92 ms | 21.4 MB (21.3 to 41.2) | 62 ms (59 to 103) |
+| NORMAL | update | `Exclusive` | 0.34 s (334 to 355 ms) | 530 ms | 704 ms | 707 ms | 693 ms (679 to 704) | 0.83 ms | 186 MB | 349 ms (348 to 374) |
+| NORMAL | delete | one command | 0.10 s (102 ms) | 50.7 ms | 100.6 ms | 101.9 ms | 90 ms (87 to 94) | 1.09 ms | 4.1 MB | 31 ms (11 to 33) |
+| NORMAL | delete | chunks of 1,000 | 0.12 s (112 to 149 ms) | 1.68 ms | 4.24 ms | 4.67 ms | 51 ms | 1.21 ms | 4.1 MB (4.1 to 5.4) | 16 ms (11 to 27) |
+| NORMAL | delete | chunks of 5,000 | 0.10 s (101 to 103 ms) | 6.03 ms | 15.78 ms | 17.03 ms | 51 ms | 1.06 ms | 4.1 MB (4.1 to 8.2) | 11 ms (10 to 13) |
+| NORMAL | delete | `Exclusive` | 0.11 s (95 to 118 ms) | 56.0 ms | 111.0 ms | 112.3 ms | 82 ms (64 to 108) | 2.15 ms | 8.2 MB (4.1 to 8.2) | 13 ms (10 to 22) |
+| FULL | update | chunks of 1,000 | 1.03 s (0.994 to 1.163) | 26.3 ms | 42.2 ms | 45.2 ms | 53 ms | 4.42 ms | 8.3 MB | 15 ms (14 to 25) |
+| FULL | update | chunks of 5,000 | 0.86 s (0.847 to 0.874) | 110.3 ms | 171.9 ms | 180.6 ms | 103 ms (101 to 104) | 3.92 ms | 23.3 MB (22.8 to 23.7) | 37 ms (35 to 37) |
+| NORMAL | FTS5 rebuild | one command | 2.77 s (2.75 to 2.79) | 1,526 ms | 2,887 ms | 2,916 ms | 2,888 ms (2,872 to 2,891) | 3.72 ms | 56.3 MB (56.1 to 56.3) | 128 ms (122 to 142) |
+
+In the 2 s before the write, the producers' commands took 1.1 to 4.3 ms at p99 with NORMAL and 11 to 41 ms with FULL; a command that was due just before the write and committed after it counts there too, so the maximum before is not a baseline. No run dropped a frame, and every tick rendered the board once.
+
+A write in one command holds every other command for its own time and then for the checkpoint after it: the writer checkpoints between batches, and a passive checkpoint of the 186 MB that the update wrote took 360 to 403 ms. That is why the slowest command waited 877 ms for a write of 491 ms, and why commands due in the 2 s after the write still took up to 363 to 406 ms. The pages froze for as long: the hub went on ticking, its ticks as short as before, but with no commit there was nothing to render, and no frame went out for up to 866 ms. The WAL grew to the size of the change and stayed there; the writer truncates it only after a second without commands, which a busy app does not have.
+
+In commands of 1,000 rows, the same update took twice as long, 1.07 s, and no other command waited longer than 45 ms: each chunk took about 24 ms, a passive checkpoint followed each, the WAL stayed at 8.3 MB, and the board rendered in every tick, never more than 51 ms apart. Chunks of 5,000 took 0.89 s, held commands up to 163 ms, left gaps of about 150 ms between frames and let the WAL grow to 21 to 41 MB.
+
+`Exclusive` ran the update in 0.34 s against 0.49 s as a command, and held other commands and the pages as long as one command does, for the same checkpoint after it. A command runs in a savepoint inside the batch's transaction, and `Exclusive` does not; that is the likely difference, not measured apart.
+
+The delete was cheap: 102 ms for all 45,000 rows in one command, and the WAL did not grow past the 4.1 MB it had before. Chunks of 5,000 held other commands at most 17 ms.
+
+The FTS5 rebuild is one statement that reads every comment and writes a new index: 2.77 s, during which every command waited and the pages got no frame for 2.9 s. FTS5's `'rebuild'` has no range, so it cannot be split as it is; the index could be filled in chunks of rowids instead, which this benchmark does not measure.
+
+With FULL, the chunked update took as long as with NORMAL, and its commands waited a few milliseconds more, each batch's fsync on top of the chunk.
+
 ## Events through the writer
 
 Measured on 2026-10-16 between 04:34 and 04:39 UTC on the development machine of the Writer section, an Intel i5-13500 under Linux 6.18 (Unraid), with Go 1.27.2 and modernc.org/sqlite v1.60.1, on lith's `events` branch. Other jobs shared the machine (load average 1.8 to 3.0), so `BenchmarkWriter` ran again right after, for numbers of the same hour:
