@@ -231,6 +231,31 @@ func TestReleaseBacksOff(t *testing.T) {
 	}
 }
 
+// A stream without Release is released after DefaultRelease; a negative
+// Release keeps it paced.
+func TestReleaseDefault(t *testing.T) {
+	h := start(t, Options{Tick: 10 * time.Millisecond})
+	for id, tc := range map[string]struct{ release, want time.Duration }{"zero": {0, DefaultRelease}, "never": {-1, -1}} {
+		c := serve(h, Spec{ID: id, Views: []View{clock("c")}, Ack: ackEvent, Release: tc.release}, "")
+		waitFor(t, "the first frame", func() bool { return len(clockFrames(c, "c")) > 0 })
+		h.mu.Lock()
+		s := h.byID[id]
+		h.mu.Unlock()
+		s.mu.Lock()
+		got := s.release
+		s.mu.Unlock()
+		if got != tc.want {
+			t.Errorf("Release %v: the stream releases after %v, want %v", tc.release, got, tc.want)
+		}
+	}
+	c := serve(h, Spec{ID: "paced", Views: []View{clock("p")}, Window: 1, Ack: ackEvent, Release: -1}, "")
+	autoAck(t, h, c, "paced", 0)
+	time.Sleep(300 * time.Millisecond)
+	if r := h.Stats().Releases; r != 0 {
+		t.Errorf("%d releases with a negative Release", r)
+	}
+}
+
 // With ReleaseSlack, a page whose acknowledgements take its round trip,
 // longer than a tick, is released once it has reported the round trip.
 func TestReleaseSlackAllowsTheRoundTrip(t *testing.T) {

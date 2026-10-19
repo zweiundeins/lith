@@ -58,8 +58,10 @@ type Spec struct {
 	// (Stats.FramesDropped). Heartbeats go out as before.
 	Slow bool
 	// Window, Ack, Release and ReleaseSlack pace a stream by its page.
-	// They are experimental: their names and behaviour may change in a
-	// minor release. newest-frame.js without pacing is the default.
+	// A stream with Ack alone is paced as lith's template paces it: it
+	// starts unpaced, Hub.Pace paces it once its page reports that it is
+	// behind, and the defaults of Release and ReleaseSlack end the pacing
+	// once the page keeps up again.
 	//
 	// Window, if positive, paces the stream by the page: at most Window
 	// writes of frames go out that the page has not acknowledged with
@@ -84,14 +86,15 @@ type Spec struct {
 	// of WriteTick's call, with the key AckKey, or the last event of the
 	// write.
 	Ack func(token string, n int64) []byte
-	// Release, if positive, ends the pacing of a stream whose page keeps
-	// up: once no acknowledgement for Release came after the stream's
-	// next frame was ready (that is, the page was never the reason a
-	// frame waited), the stream stops asking for them and sends every
-	// frame again (Stats.Releases). Each release of the same stream
-	// doubles the time for the next, up to eight times Release, so that
-	// a page at the edge of keeping up, paced again by Hub.Pace, does not
-	// switch back and forth every Release.
+	// Release ends the pacing of a stream whose page keeps up: once no
+	// acknowledgement for Release came after the stream's next frame was
+	// ready (that is, the page was never the reason a frame waited), the
+	// stream stops asking for them and sends every frame again
+	// (Stats.Releases). Each release of the same stream doubles the time
+	// for the next, up to eight times Release, so that a page at the edge
+	// of keeping up, paced again by Hub.Pace, does not switch back and
+	// forth every Release. 0 takes DefaultRelease; a negative Release
+	// keeps the stream paced until Hub.Pace sets its window to 0.
 	Release time.Duration
 	// ReleaseSlack changes what Release counts as late once the page has
 	// reported its round trip (Hub.RoundTrip): an acknowledgement that
@@ -106,18 +109,21 @@ type Spec struct {
 }
 
 // AckKey is the key of the Frame that carries a stream's acknowledgement
-// event (Spec.Ack) to WriteTick or Write. Experimental, as Spec.Window.
+// event (Spec.Ack) to WriteTick or Write.
 const AckKey = "live.ack"
 
 // AckTimeout is how long a stream with Spec.Window waits for an
-// acknowledgement before it sends its next write anyway. Experimental, as
-// Spec.Window.
+// acknowledgement before it sends its next write anyway.
 const AckTimeout = 10 * time.Second
 
 // DefaultReleaseSlack is Spec.ReleaseSlack when it is 0: a page that
 // applies a frame within 100 ms of its round trip keeps up with ten frames
-// a second. Experimental, as Spec.Window.
+// a second.
 const DefaultReleaseSlack = 100 * time.Millisecond
+
+// DefaultRelease is Spec.Release when it is 0: a paced page whose
+// acknowledgements all come in time for 5 s is released.
+const DefaultRelease = 5 * time.Second
 
 // behindEvery is the least time between two reports of a stream's page
 // that Hub.Behind counts. newest-frame.js reports every 3 s at most.
@@ -192,6 +198,9 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	}
 	if spec.Ack != nil && spec.ID != "" {
 		s.ack, s.release, s.slack = spec.Ack, spec.Release, spec.ReleaseSlack
+		if s.release == 0 {
+			s.release = DefaultRelease
+		}
 		if s.slack == 0 {
 			s.slack = DefaultReleaseSlack
 		}
@@ -654,8 +663,7 @@ func (h *Hub) Behind(id string) bool {
 // With Spec.Release, it also notes whether a frame was waiting for the
 // acknowledgement, and ends the pacing once none has for long enough.
 //
-// Ack is experimental, as Spec.Window. An app's route that calls it must
-// check that the stream belongs to the request's session and limit how
+// An app's route that calls Ack must check that the stream belongs to the request's session and limit how
 // often a client may call it.
 func (h *Hub) Ack(id, token string, n int64) bool {
 	h.mu.Lock()
@@ -692,8 +700,7 @@ func (h *Hub) Ack(id, token string, n int64) bool {
 // reports whether such a stream is open. A stream paced already keeps its
 // window and its count towards Spec.Release.
 //
-// Pace is experimental, as Spec.Window. An app's route that calls it must
-// check that the stream belongs to the request's session and limit how
+// An app's route that calls Pace must check that the stream belongs to the request's session and limit how
 // often a client may call it.
 func (h *Hub) Pace(id string, window int) bool {
 	h.mu.Lock()
@@ -739,8 +746,7 @@ func (s *stream) lateAck(n int64, now time.Time) bool {
 
 // RoundTrip notes a round trip the page of the open stream with the ID
 // measured, such as from the Resource Timing of its last acknowledgement.
-// The stream keeps the shortest (Spec.ReleaseSlack). Experimental, as
-// Spec.Window.
+// The stream keeps the shortest (Spec.ReleaseSlack).
 func (h *Hub) RoundTrip(id string, rtt time.Duration) {
 	h.mu.Lock()
 	s := h.byID[id]

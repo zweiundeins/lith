@@ -38,7 +38,7 @@ type collector struct {
 
 	batches, commands, failures, busy, queue, batchMax, commitP99 *prometheus.Desc
 
-	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views, behind, behindStreams *prometheus.Desc
+	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views, behind, behindStreams, acks, paces, releases *prometheus.Desc
 
 	limit, reserved, frames, tier, refused, reopened *prometheus.Desc
 
@@ -76,6 +76,9 @@ func New(namespace string, s Sources) prometheus.Collector {
 		views:         d("live", "views", "Views watched now."),
 		behind:        d("live", "newest_frame_behind_total", "Reports from pages that fell behind their stream (newest-frame-behind, Hub.Behind)."),
 		behindStreams: d("live", "newest_frame_behind_streams_total", "Streams whose page reported at least once that it fell behind."),
+		acks:          d("live", "acks_total", "Acknowledgements of paced streams' writes (Hub.Ack)."),
+		paces:         d("live", "paces_total", "Streams that Hub.Pace started to pace."),
+		releases:      d("live", "releases_total", "Paced streams whose page kept up for Spec.Release, and that send every frame again."),
 		limit:         d("sse_budget", "limit_bytes", "The memory the streams may hold together, their encoders and the frames kept for them, 0 for none."),
 		reserved:      d("sse_budget", "reserved_bytes", "The memory the open streams hold: their encoders, 32 KiB each besides, and the frames kept for them."),
 		frames:        d("sse_budget", "frames_bytes", "The memory the frames kept for the streams hold (the newest of the hub's views that two or more streams watch)."),
@@ -95,7 +98,7 @@ func New(namespace string, s Sources) prometheus.Collector {
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99,
-		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views, c.behind, c.behindStreams,
+		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views, c.behind, c.behindStreams, c.acks, c.paces, c.releases,
 		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened,
 		c.appended, c.conflicts, c.refolds, c.head, c.position, c.lag, c.status, c.attempts} {
 		ch <- d
@@ -130,6 +133,9 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		counter(c.readTxs, float64(st.ReadTxs))
 		counter(c.behind, float64(st.Behind))
 		counter(c.behindStreams, float64(st.BehindStreams))
+		counter(c.acks, float64(st.Acks))
+		counter(c.paces, float64(st.Paces))
+		counter(c.releases, float64(st.Releases))
 		gauge(c.streams, float64(st.Streams))
 		gauge(c.views, float64(st.Views))
 	}

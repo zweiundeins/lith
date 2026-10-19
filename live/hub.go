@@ -169,9 +169,9 @@ type Stats struct {
 	// BehindStreams the streams that reported at least once.
 	Behind        int64
 	BehindStreams int64
-	Acks          int64 // acknowledgements of streams with Spec.Window (Hub.Ack); experimental
-	Paces         int64 // streams that Hub.Pace started to pace; experimental
-	Releases      int64 // paced streams whose page kept up for Spec.Release; experimental
+	Acks          int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
+	Paces         int64 // streams that Hub.Pace started to pace
+	Releases      int64 // paced streams whose page kept up for Spec.Release
 	Streams       int
 	Views         int
 	ReadTxs       int64 // read transactions the render workers began
