@@ -70,6 +70,8 @@ func TestSkill(t *testing.T) {
 			"A view":                                 "/docs/guides/views#a-shared-view",
 			"Views in a shared database, per person": "/docs/guides/views#views-in-a-shared-database-per-person",
 			"Tab state and preferences":              "/docs/guides/pages#tab-state-in-sqlite",
+			"A per-tab view that navigates":          "/docs/guides/views#a-per-tab-view-that-navigates",
+			"Caching an aggregate against a version": "/docs/guides/reads#caching-an-aggregate-against-a-version",
 			"A background job":                       "/docs/guides/migrations-and-jobs#background-jobs",
 			"A bulk import":                          "/docs/guides/migrations-and-jobs#bulk-imports",
 			"Large updates and deletes":              "/docs/guides/migrations-and-jobs#large-updates-and-deletes",

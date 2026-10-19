@@ -81,9 +81,20 @@ Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
 },
 ```
 
-modernc's SQLite parses and plans every query that has no prepared statement, so a render that queries through `tx` directly pays that each time. Each worker keeps the 512 statements it used last. SQL built at runtime, such as an `IN` list with a mark per value, belongs on `tx`, which keeps nothing.
+modernc's SQLite parses and plans every query that has no prepared statement, so a render that queries through `tx` directly pays that each time. Each worker keeps the 512 statements it used last, and each read connection the 128 it ran last (`sqlite.Options.Statements`), which a GET's `View` and a render's `tx` use.
 
 As with a command, scan a `QueryRow` before the same query runs again, and close rows before the render returns: a statement with an unscanned row or open rows is busy.
+
+## SQL built at runtime
+
+SQL built at runtime, such as an `IN` list sized to the results or a sort that the request picks, would take a place in a cache for every text it makes and push out the statements that repeat. A query with a ctx from `sqlite.Uncached(ctx)` is prepared for its run and closed with its rows, and takes no place in any cache: on `db.R`, in a `View`'s or a render's `tx`, through `sqlite.QuerierFrom(ctx)`, and on a command's `*writer.Tx`, where it is `QueryUncached`.
+
+```go
+marks := strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ")
+rows, err := q.QueryContext(sqlite.Uncached(ctx), `SELECT id, title FROM cards WHERE id IN (`+marks+`)`, ids...)
+```
+
+The rest of the query code keeps its ctx, and its constant SQL keeps its statements.
 
 ## Code that takes only a context
 
@@ -107,6 +118,65 @@ b, err := store.Board(ctx, id)
 ```
 
 The transaction's owner ends it; a `View` that joined one leaves it open. `sqlite.TxFrom(ctx)` returns the transaction a context carries. A context that carries a transaction on another file, as when a render of one database reads another, gets a transaction of its own ([One database per account](/docs/guides/tenants#views-of-an-account)).
+
+## Caching an aggregate against a version
+
+A count over 73,000 rows, a sidebar tree or a search's counts per source can cost more than the rest of a render. The hub numbers the commits it hears of, 1, 2, 3 and on (`hub.Seq()`), and keeps for each topic the number of the last commit that touched it (`hub.Version(topics...)`, the highest of them). A value computed from a snapshot is good as of a number, and stays good while the version of the topics it read is not above that number:
+
+```go
+type count struct {
+	n   int
+	seq uint64 // the number it is good as of
+}
+
+type Counts struct {
+	hub *live.Hub
+	mu  sync.Mutex
+	m   map[string]count // by space
+}
+
+// Items counts the items of a space, or takes the count from the cache
+// while no commit touched the space's items since. seq is live.Seq(ctx)
+// in a Render; a GET reads hub.Seq() before its View begins.
+func (c *Counts) Items(ctx context.Context, q sqlite.Querier, space string, seq uint64) (int, error) {
+	c.mu.Lock()
+	e, ok := c.m[space]
+	c.mu.Unlock()
+	if ok && c.hub.Version("items:"+space) <= e.seq {
+		return e.n, nil
+	}
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM items WHERE space = ?`, space).Scan(&n); err != nil {
+		return 0, err
+	}
+	c.mu.Lock()
+	if old, ok := c.m[space]; !ok || old.seq < seq {
+		c.m[space] = count{n: n, seq: seq}
+	}
+	c.mu.Unlock()
+	return n, nil
+}
+```
+
+The number comes from before the snapshot. In a render, `live.Seq(ctx)` is the number the hub read before the worker's read transaction began; a GET reads `hub.Seq()` before its `View`:
+
+```go
+n, err := counts.Items(ctx, q, space, live.Seq(ctx)) // in a Render
+
+seq := s.hub.Seq() // in a GET: before the transaction begins
+err := s.db.View(ctx, func(tx *sql.Tx) error {
+	n, err := counts.Items(ctx, tx, space, seq)
+	// ...
+})
+```
+
+Every commit up to that number is in the snapshot, and one after it may be too. So the worst case keeps a value that is newer than its number and computes it once more than needed; a value older than its number is never kept. A number read inside the transaction could claim a commit the snapshot does not hold, which is the order to avoid.
+
+Families of topics make a cache last. A sync touches `sync` and `items:<space>` for each space it changed, while a click touches its tab and the item it changed. The sidebar tree, built only from what the sync writes, keys on `hub.Version("sync")`, so a click keeps what a sync built; search counts per source key on `hub.Version("sync:"+source)`. A value that any write can change keys on `hub.Seq()`.
+
+- The numbers start at 0 with every hub: keep such caches in the process, never in the database. `hub.MarkAll()` counts as a commit that touched every topic.
+- The hub keeps the versions of the topics changed last: at least `live.Options.Versions` of them, 32,768 by default, and at most twice as many. A version takes about 70 bytes with a topic name of 16, so 4.3 MiB at most by default (`TestVersionMemory` in `live`). A topic it no longer keeps reads as changed at the commit that pushed it out, so a cache computes again and is never wrong. Topics per tab or per row churn through it, and a cache keyed on a rare topic computes again after a busy spell.
+- `live.Cache` keeps rendered fragments by their content and saves formatting HTML. A version saves the query behind a value.
 
 ## The read pool
 

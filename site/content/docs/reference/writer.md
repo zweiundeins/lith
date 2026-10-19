@@ -240,7 +240,7 @@ type Tx struct {
 }
 ```
 
-Tx is what a Command gets: the batch's transaction on the writer's connection. Its statements are prepared once, on that connection, and kept by their SQL text, the 512 used last. Build queries from constants and pass values as arguments; SQL built at runtime, such as an IN list with a mark per value, runs through ExecUncached, QueryUncached and QueryRowUncached, which keep no statement.
+Tx is what a Command gets: the batch's transaction on the writer's connection. Its statements are prepared once, on that connection, and kept by their SQL text, the 512 used last. Build queries from constants and pass values as arguments; SQL built at runtime, such as an IN list with a mark per value, runs through ExecUncached, QueryUncached and QueryRowUncached, which keep no statement, as do ExecContext, QueryContext and QueryRowContext with a ctx from sqlite.Uncached.
 
 #### func (*Tx) AfterCommit {#Tx.AfterCommit}
 
@@ -269,10 +269,10 @@ Exec runs a statement.
 #### func (*Tx) ExecContext {#Tx.ExecContext}
 
 ```go
-func (t *Tx) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error)
+func (t *Tx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 ```
 
-ExecContext is Exec, for code that takes a sqlite.Querier. Like the other methods it runs on the batch's transaction, with its statement cache and the command's context: ctx is not used, so no statement is cancelled halfway through a batch.
+ExecContext is Exec, for code that takes a sqlite.Querier. Like the other methods it runs on the batch's transaction, with its statement cache and the command's context: ctx is not used, so no statement is cancelled halfway through a batch, except that with a ctx from sqlite.Uncached it is ExecUncached.
 
 #### func (*Tx) ExecUncached {#Tx.ExecUncached}
 
@@ -301,10 +301,10 @@ Query runs a query. While its rows are open, the same query runs on a statement 
 #### func (*Tx) QueryContext {#Tx.QueryContext}
 
 ```go
-func (t *Tx) QueryContext(_ context.Context, query string, args ...any) (*sql.Rows, error)
+func (t *Tx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 ```
 
-QueryContext is Query, for code that takes a sqlite.Querier; ctx is not used.
+QueryContext is Query, for code that takes a sqlite.Querier; ctx is not used, except that with a ctx from sqlite.Uncached it is QueryUncached.
 
 #### func (*Tx) QueryRow {#Tx.QueryRow}
 
@@ -317,10 +317,10 @@ QueryRow runs a query for one row. Scan the row before running the same query ag
 #### func (*Tx) QueryRowContext {#Tx.QueryRowContext}
 
 ```go
-func (t *Tx) QueryRowContext(_ context.Context, query string, args ...any) *sql.Row
+func (t *Tx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 ```
 
-QueryRowContext is QueryRow, for code that takes a sqlite.Querier; ctx is not used.
+QueryRowContext is QueryRow, for code that takes a sqlite.Querier; ctx is not used, except that with a ctx from sqlite.Uncached it is QueryRowUncached.
 
 #### func (*Tx) QueryRowUncached {#Tx.QueryRowUncached}
 

@@ -30,6 +30,18 @@ func TxFrom(ctx context.Context) (*sql.Tx, bool)
 
 TxFrom returns the transaction ctx carries (WithTx, or a live Render's). It does not tell which database the transaction reads; View checks that.
 
+### func Uncached {#Uncached}
+
+```go
+func Uncached(ctx context.Context) context.Context
+```
+
+Uncached returns a copy of ctx whose queries skip the statement caches: a query run with it on the read pool, on R, in a View's or a Render's tx, or through QuerierFrom in a Render, is prepared for this run and closed with its rows, and neither takes a place in a cache nor pushes one out. It is for SQL built at runtime, such as an IN list with a mark per value or a sort the request picks, which would take a place for every text it makes. A writer.Tx's ExecContext, QueryContext and QueryRowContext honour it as well, like its ExecUncached, QueryUncached and QueryRowUncached.
+
+```go
+rows, err := q.QueryContext(sqlite.Uncached(ctx), `SELECT id, title FROM cards WHERE id IN (`+marks+`)`, ids...)
+```
+
 ### func WithTx {#WithTx}
 
 ```go
@@ -188,8 +200,9 @@ type Options struct {
 	// the queries of kanban's board page, so a full cache takes about
 	// 0.5 MiB per connection, and a connection keeps only what it ran.
 	// Build SQL from constants: SQL built at runtime, such as an IN list
-	// with a mark per value, takes a place for each text it makes. A
-	// connection reached through sql.Conn.Raw Unwraps to the driver's.
+	// with a mark per value, takes a place for each text it makes, unless
+	// it runs with a ctx from Uncached. A connection reached through
+	// sql.Conn.Raw Unwraps to the driver's.
 	Statements int
 }
 ```
@@ -214,4 +227,4 @@ Querier is the method set for queries that \*sql.DB, \*sql.Tx and \*sql.Conn sha
 func QuerierFrom(ctx context.Context) (Querier, bool)
 ```
 
-QuerierFrom returns a Querier for the transaction ctx carries. In a live Render it runs each SQL text on a statement that the worker prepared once on its connection, in the render's transaction: modernc.org/sqlite parses and plans every query that has no prepared statement. The worker keeps the 512 statements used last; run SQL built at runtime, such as an IN list with a mark per value, on the Render's tx instead, whose read connection keeps statements of its own (Options.Statements), so that it pushes none of the worker's out. As with a command's Tx, scan a row before the same query runs again: until then its statement is busy. Elsewhere it is the transaction from WithTx. Like TxFrom, it does not tell which database the transaction reads.
+QuerierFrom returns a Querier for the transaction ctx carries. In a live Render it runs each SQL text on a statement that the worker prepared once on its connection, in the render's transaction: modernc.org/sqlite parses and plans every query that has no prepared statement. The worker keeps the 512 statements used last; run SQL built at runtime, such as an IN list with a mark per value, with a ctx from Uncached, so that it takes no place in a cache and pushes none out. As with a command's Tx, scan a row before the same query runs again: until then its statement is busy. Elsewhere it is the transaction from WithTx. Like TxFrom, it does not tell which database the transaction reads.

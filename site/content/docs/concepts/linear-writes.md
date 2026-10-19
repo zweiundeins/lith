@@ -56,7 +56,7 @@ A request that the network repeats should not apply twice. `writer.Once(key, cmd
 
 ## Statements
 
-The writer prepares each SQL text once on its connection and keeps the 512 used last: modernc's SQLite parses and plans every statement that has no prepared one, and that took 41% of kanban's writer CPU before the cache. Build SQL from constants. SQL built at runtime, such as an `IN` list with a mark per value, goes through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`, which keep nothing.
+The writer prepares each SQL text once on its connection and keeps the 512 used last: modernc's SQLite parses and plans every statement that has no prepared one, and that took 41% of kanban's writer CPU before the cache. Build SQL from constants. SQL built at runtime, such as an `IN` list with a mark per value, goes through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`, which keep nothing, or runs with a ctx from `sqlite.Uncached`, as query code shared with reads does.
 
 ## Work a transaction cannot hold
 

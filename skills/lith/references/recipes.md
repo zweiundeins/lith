@@ -176,7 +176,8 @@ func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
 - Build SQL from constants: the writer prepares each SQL text once, and
   keeps the 512 used last. SQL built at runtime, such as an IN list with a
   mark per value, goes through `tx.ExecUncached`, `tx.QueryUncached` or
-  `tx.QueryRowUncached`, which keep no statement.
+  `tx.QueryRowUncached`, which keep no statement. Query code shared with
+  reads passes `sqlite.Uncached(ctx)` instead, which the writer honours too.
 - Scan every `QueryRow` before the same query runs again: an unscanned row
   keeps its cached statement busy.
 - A retried request (a flaky network, a double click) runs once with
@@ -243,6 +244,19 @@ A `*writer.Tx` runs the query on the batch's transaction with the writer's
 statement cache; the ctx it gets cancels nothing. In a view, the worker runs
 each SQL text on a statement it prepared once on its connection, in the
 render's snapshot.
+
+Reads keep statements too: each read connection the last 128 SQL texts it
+ran (`sqlite.Options.Statements`), each render worker the last 512. SQL built
+at runtime, such as an IN list sized to the results or a sort the request
+picks, runs with a ctx from `sqlite.Uncached(ctx)`: it is prepared for that
+run and closed with its rows, and takes no place in any cache, on `db.R`, in a
+`db.View` or a render's tx, through `sqlite.QuerierFrom(ctx)`, or on a
+`*writer.Tx`.
+
+```go
+marks := strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ")
+rows, err := q.QueryContext(sqlite.Uncached(ctx), `SELECT id, title FROM cards WHERE id IN (`+marks+`)`, ids...)
+```
 
 A store that takes only a ctx reads through `db.View(ctx, fn)`. Called from a
 render, View runs fn in the render's transaction, when it reads the same
@@ -430,6 +444,163 @@ A command upserts it and touches `tab:<id>`; the tab's view renders from it.
 Preferences that outlive a page (a sort order, a theme preview) go in a table
 keyed by the session and touch `sid:<id>`. A background command deletes tab
 rows not seen for a few days.
+
+## A per-tab view that navigates
+
+A tab that can show any route keeps the route in its row, and one view keyed
+by the tab renders whatever the route names. The tab's topic is the view's
+static topic; what the route reads, the Render declares with
+`live.Depends(ctx, topics...)` as it reads. Navigation is a command that
+writes the route and touches the tab: the view renders the new route,
+declares its topics, and the hub drops those of the old route. No Unwatch,
+no Watch, no route in the key.
+
+```go
+func tabView(sid, tab string) live.View {
+	key := "tab:" + tab
+	return live.View{
+		Key:    key,
+		Topics: []string{key}, // the tab's row, with its route
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			q, _ := sqlite.QuerierFrom(ctx)
+			st, err := queries.Tab(ctx, q, sid, tab)
+			if err != nil {
+				return nil, err
+			}
+			var page templ.Component
+			switch st.Route.Kind {
+			case "day":
+				live.Depends(ctx, "mrs", "issues", "todos", "calendar")
+				d, err := queries.Day(ctx, q, st.Route.Day)
+				if err != nil {
+					return nil, err
+				}
+				page = views.Day(d)
+			case "issue":
+				live.Depends(ctx, "issue:"+st.Route.ID)
+				is, err := queries.Issue(ctx, q, st.Route.ID)
+				if err != nil {
+					return nil, err
+				}
+				page = views.Issue(is)
+			}
+			var buf bytes.Buffer
+			if err := page.Render(ctx, &buf); err != nil {
+				return nil, err
+			}
+			return sse.PatchElements(buf.Bytes(), sse.Patch{Selector: "#main"}), nil
+		},
+	}
+}
+```
+
+```go
+// Navigate is the command behind a link: it writes the route, and the
+// tab's view follows.
+func (c Navigate) Apply(tx *writer.Tx) error {
+	_, err := tx.Exec(`UPDATE tab_state SET data = json_set(data, '$.route', json(?))
+		WHERE sid = ? AND tab_id = ?`, c.Route, c.Session, c.Tab)
+	if err != nil {
+		return err
+	}
+	tx.Touch("tab:" + c.Tab)
+	return nil
+}
+```
+
+- Declare a topic where the query reads it: a query helper can call
+  `live.Depends(ctx, "issue:"+id)` itself, so the topics follow the reads. A
+  topic declared twice counts once; outside a Render, Depends does nothing.
+- The topics a Render declares replace those of the Render before, once it
+  returns. From the render after a navigation on, a commit to the new route's
+  topics renders the tab and one to the old route's does not. A commit to a
+  new topic that lands after the render's snapshot, before the hub takes the
+  topic on, renders it again: the hub compares the topic's version with the
+  render's `live.Seq(ctx)`.
+- A Render that fails keeps the topics of the one before. What every route
+  reads (the tab's row, the session's preferences) stays in `Topics`.
+- A view keyed by the tab is watched by one stream, so its topics are that
+  tab's alone. A shared view declares the same topics for everyone, since
+  everyone gets the same render.
+- A render that declares what the one before declared costs a sort and a
+  compare of its topics; one that changes them, an update of the hub's map
+  per topic, about 1 µs per view for four topics in and four out
+  (`BenchmarkTickDepends`).
+
+## Caching an aggregate against a version
+
+The hub numbers the commits (`hub.Seq()`, 1, 2, 3 and on) and keeps, for each
+topic, the number of the last commit that touched it (`hub.Version(topics...)`,
+the highest of them). An expensive value, such as a count over 73,000 rows or
+a sidebar tree, is good as of the number it was computed at, while the
+version of the topics it read is not above that number.
+
+```go
+type count struct {
+	n   int
+	seq uint64 // the number it is good as of
+}
+
+type Counts struct {
+	hub *live.Hub
+	mu  sync.Mutex
+	m   map[string]count // by space
+}
+
+// Items counts the items of a space, or takes the count from the cache
+// while no commit touched the space's items since. seq is live.Seq(ctx)
+// in a Render; a GET reads hub.Seq() before its View begins.
+func (c *Counts) Items(ctx context.Context, q sqlite.Querier, space string, seq uint64) (int, error) {
+	c.mu.Lock()
+	e, ok := c.m[space]
+	c.mu.Unlock()
+	if ok && c.hub.Version("items:"+space) <= e.seq {
+		return e.n, nil
+	}
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM items WHERE space = ?`, space).Scan(&n); err != nil {
+		return 0, err
+	}
+	c.mu.Lock()
+	if old, ok := c.m[space]; !ok || old.seq < seq {
+		c.m[space] = count{n: n, seq: seq}
+	}
+	c.mu.Unlock()
+	return n, nil
+}
+```
+
+```go
+n, err := counts.Items(ctx, q, space, live.Seq(ctx)) // in a Render
+
+seq := s.hub.Seq() // in a GET: before the transaction begins
+err := s.db.View(ctx, func(tx *sql.Tx) error {
+	n, err := counts.Items(ctx, tx, space, seq)
+	// ...
+})
+```
+
+- The number comes from before the snapshot: every commit up to it is in
+  the snapshot, and a later one may be too. At worst a value newer than its
+  number is kept and computed again once; never an older one. A number read
+  inside the transaction could claim a commit the snapshot does not hold.
+- Families of topics make the cache last. Sync commands touch `sync` and
+  `items:<space>` for each space they changed; clicks touch their tab and the
+  item they changed. The sidebar tree, built from what sync writes, keys on
+  `hub.Version("sync")`, so a click does not throw away what a sync built;
+  search counts per source key on `hub.Version("sync:"+source)`. A value any
+  write can change keys on `hub.Seq()`.
+- The numbers start at 0 with each hub: keep such caches in memory, never in
+  the database. `hub.MarkAll()` counts as a commit that touched every topic.
+- The hub keeps the versions of at least 32,768 topics, those changed last,
+  and at most twice as many (`live.Options.Versions`): about 70 bytes a topic
+  with a name of 16, 4.3 MiB at most. A topic it no longer keeps reads as
+  changed when it was pushed out, so a cache computes again and is never
+  wrong. Topics per tab or per row churn through it; a cache keyed on them
+  computes more often after a busy spell, nothing else.
+- `live.Cache` is a different thing: it keeps rendered fragments by their
+  content. Use a version for the query behind a value, the cache for the
+  HTML it renders to.
 
 ## A background job
 

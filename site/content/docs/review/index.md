@@ -50,7 +50,7 @@ A change that runs as several statements outside one transaction, an insert, the
 
 ### SQL built at runtime in a command
 
-A command that builds its SQL at runtime, such as an `IN` list with a mark per value, takes a place in the writer's statement cache for every text it makes, and pushes out the statements that repeat. Run it through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`, or pass the list as one JSON argument ([Commands](/docs/guides/commands#statements)).
+A command that builds its SQL at runtime, such as an `IN` list with a mark per value, takes a place in the writer's statement cache for every text it makes, and pushes out the statements that repeat. Run it through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`, or with a ctx from `sqlite.Uncached`, or pass the list as one JSON argument ([Commands](/docs/guides/commands#statements)).
 
 ```sh
 rg -n 'tx\.(Exec|Query|QueryRow)\((fmt\.Sprintf|"[^"]*" *\+|`[^`]*` *\+)' --type go
@@ -68,6 +68,22 @@ rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go
 
 - **A render that opens its own transactions.** A render reads through the transaction it is given: `sqlite.QuerierFrom(ctx)`, or a store whose `db.View(ctx, fn)` joins the render's. One that opens transactions of its own, one for the list and one per open dialog, mixes snapshots and shows two moments at once.
 - **`db.W` outside the writer and the migrations.** `db.R` is `query_only` and refuses writes, so a write through it fails loudly; one through `db.W` competes with the writer.
+
+### SQL built at runtime in a read
+
+A read whose SQL is built at runtime takes a place in a read connection's statement cache, or a render worker's, for every text it makes, and pushes out the statements that repeat. Run it with a ctx from `sqlite.Uncached` ([Reads](/docs/guides/reads#sql-built-at-runtime)).
+
+```sh
+rg -n 'Query(Row)?Context\(ctx, (fmt\.Sprintf|"[^"]*" *\+|`[^`]*` *\+)' --type go
+```
+
+### A view swapped on navigation
+
+A navigation that unwatches one view and watches another, whose key carries the route, can be one view keyed by the tab that declares its route's topics with `live.Depends` ([Views](/docs/guides/views#a-per-tab-view-that-navigates)).
+
+```sh
+rg -n 'Unwatch\(' --type go
+```
 ## Events
 
 ### A render that replays a stream

@@ -23,7 +23,8 @@ about fifteen statements):
   string once on its own connection (10,000 to 13,800 moves a second). lith's
   writer does this for every `tx.Exec` and keeps the 512 statements used
   last; build SQL from constants, and send SQL built at runtime through
-  `tx.ExecUncached` and its siblings, so the cache keeps what repeats.
+  `tx.ExecUncached` and its siblings, or with `sqlite.Uncached(ctx)` on the
+  read side, so the caches keep what repeats.
 - `synchronous=NORMAL` is lith's default. Beware: it syncs the WAL only at
   checkpoints (with CheckpointWriter after a second without commands, and
   every 1000 pages), so a power loss or kernel crash can undo the commits

@@ -12,6 +12,10 @@ A View is a part of a page. Views with the same key are one view, which renders 
 
 A view renders in one read transaction, so it agrees with itself. Views rendered by different workers can see different commits when one lands during the tick; that commit marks its views dirty, and the next tick brings them together. What must always agree belongs in one view.
 
+A view's topics are its Topics and those its last Render declared with Depends, so a view whose reads follow a row, such as a tab's route, follows them without a new key. A commit after a Render's snapshot, to a topic that Render declares for the first time, marks the view dirty once the hub takes the topic on.
+
+The hub numbers the commits Changed reports, 1, 2, 3 and on (Seq), and keeps the number of the last commit that touched each topic (Version): a cache of something a Render or a GET computes, such as a count, stays good while the version of its topics is not above the number it was computed at (Seq(ctx) in a Render).
+
 A stream keeps only the newest frame of each view it watches, so a slow client skips frames and holds up no one else. Views that change in the same tick reach a stream together, in the order it watches them. A stream to a client on a slow link (Spec.Slow) takes a view's frames about four times a second.
 
 A dirty view does not render while every stream that watches it still has a frame of it waiting: a stream that has not sent the last one has no use for the next. The hub defers the view instead (Stats.RendersDeferred), and the first stream that takes its waiting frame marks the view dirty again, so the next tick renders the state as it is then. A view stays deferred, and costs no render, while its streams' writes block, and a view that only slow streams watch renders about four times a second. A view that one stream keeps up with renders at every change, for all of its streams.
@@ -81,6 +85,34 @@ if err != nil {
 static.Add("lith/"+live.NewestFrame, js)
 url := static.URL("lith/" + live.NewestFrame) // /static/lith/newest-frame.3f2a9c1b2d4e.js
 ```
+
+## Functions
+
+### func Depends {#Depends}
+
+```go
+func Depends(ctx context.Context, topics ...string)
+```
+
+Depends declares, in a Render, that the view read what the topics name, as Topics do: a commit that touches one of them marks the view dirty. The topics the Render declares replace those the Render before it declared, once it returns, so a view whose reads depend on a row, such as a tab's route, declares what it read for the route it rendered, and a commit to what an earlier route read no longer renders it. A Render that fails keeps the topics of the one before. A commit that lands after the Render's snapshot and touches a topic the view takes on marks it dirty as well: the hub compares the topic's Version with Seq(ctx). Outside a Render, Depends does nothing.
+
+### func Seq {#Seq}
+
+```go
+func Seq(ctx context.Context) uint64
+```
+
+Seq is, in a Render, the number of the last commit its snapshot is sure to hold (Hub.Seq): the hub reads it before the read transaction begins, so a later commit may be in the snapshot as well. A value the Render computes from its snapshot is good as of that number: keep it while Hub.Version of the topics it reads is not above it.
+
+```go
+if c, ok := counts.Get(space); ok && hub.Version("space:"+space) <= c.seq {
+	return c.n
+}
+n := countItems(ctx, q, space)
+counts.Add(space, count{n: n, seq: live.Seq(ctx)})
+```
+
+Outside a Render it is 0, which keeps a value good only while none of its topics has changed since the hub started. A GET reads Hub.Seq before its read transaction begins instead.
 
 ## Types
 
@@ -196,7 +228,7 @@ Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New
 func (h *Hub) Changed(topics []string)
 ```
 
-Changed marks dirty every view with one of the topics. It is meant for the writer's OnCommit and never waits for a render.
+Changed marks dirty every view with one of the topics. It is meant for the writer's OnCommit and never waits for a render. Each call is a commit: it takes the next number (Seq), which becomes the version of the topics. Call it after the change is in the database, as OnCommit is.
 
 #### func (*Hub) Count {#Hub.Count}
 
@@ -220,7 +252,7 @@ Done is closed once the hub stops: when Run's ctx ends, or Run returns. Work tha
 func (h *Hub) MarkAll()
 ```
 
-MarkAll marks every view dirty, as after a change nothing tracks (a migration, new templates).
+MarkAll marks every view dirty, as after a change nothing tracks (a migration, new templates). It counts as a commit that touched every topic: Version then reports it for each.
 
 #### func (*Hub) Pace {#Hub.Pace}
 
@@ -248,6 +280,16 @@ func (h *Hub) Run(ctx context.Context) error
 
 Run renders views until ctx ends. Then it ends every stream: a write under way fails at once, and any other stream ends its response cleanly, compressed stream and all, within its write timeout. Run returns nil when its workers are done; shutdown never waits for a stream. It returns an error only when it cannot start.
 
+#### func (*Hub) Seq {#Hub.Seq}
+
+```go
+func (h *Hub) Seq() uint64
+```
+
+Seq is the number of the last commit: Changed and MarkAll number them from 1, and 0 is the hub's start. The numbers start again with every hub, so keep nothing keyed by them beyond the process.
+
+A cache that a GET fills reads Seq before its read transaction begins: every commit up to that number is in the snapshot, and a later one may be too. The value it computes is good as of that number, and stays good while Version of its topics is not above it. Read after the snapshot, the number could claim a commit the snapshot does not hold. A Render takes the number from Seq(ctx).
+
 #### func (*Hub) Serve {#Hub.Serve}
 
 ```go
@@ -271,6 +313,14 @@ func (h *Hub) Unwatch(streamID, key string) bool
 ```
 
 Unwatch stops the stream with this ID from watching the view: after it returns, the stream sends no frame of the view, unless it is writing one already. It reports whether the stream watched the view, or the view waited for the stream to open.
+
+#### func (*Hub) Version {#Hub.Version}
+
+```go
+func (h *Hub) Version(topics ...string) uint64
+```
+
+Version is the number of the last commit that touched one of the topics (Seq), 0 when none did since the hub started. A topic the hub no longer keeps (Options.Versions) reads as changed at the commit that pushed it out of the hub, or at the last MarkAll; so do no topics.
 
 #### func (*Hub) Watch {#Hub.Watch}
 
@@ -341,6 +391,14 @@ type Options struct {
 	// views, as the overrun log measures it. It runs on the hub's loop
 	// and must not block.
 	OnTick func(time.Duration)
+	// Versions is how many topics the hub keeps the version of (Version),
+	// those changed last: at least Versions of them and at most twice as
+	// many (default 32768; negative: none). A topic takes about 70 bytes
+	// with a name of 16, so 4.3 MiB at most by default. A topic it no
+	// longer keeps reads as changed at the commit that pushed it out, and
+	// so does every topic while it keeps none: a cache then computes
+	// again, and is never wrong.
+	Versions int
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
@@ -496,7 +554,8 @@ type View struct {
 	// Key names the view. Views with the same key are one view: while it
 	// is watched, the definition it was first given is the one used.
 	Key string
-	// Topics mark the view dirty when a commit touches one of them.
+	// Topics mark the view dirty when a commit touches one of them, and so
+	// do the topics its last Render declared with Depends.
 	Topics []string
 	// Render renders the view in the worker's read transaction. Its ctx
 	// comes from the one Run got, with its values (a logger, the app's
@@ -504,15 +563,16 @@ type View struct {
 	// transaction (sqlite.TxFrom): a sqlite.DB.View called with ctx runs
 	// in it, so code that takes a ctx reads the render's snapshot.
 	// sqlite.QuerierFrom(ctx) runs queries in it on statements the worker
-	// prepared once on its connection. Its frame goes to every stream that
-	// watches the view and must not change afterwards. When Render fails,
-	// the error is logged and the streams send nothing; so they do for a
-	// nil frame, and for a []byte frame equal to the one before (its bytes
-	// while the hub keeps them, else its length and hash). The hub keeps
-	// the newest frame while two or more streams watch the view, or one
-	// does and the frame is not []byte, and books it in the streams' budget
-	// once: a []byte frame by its length, another by its Len() int method,
-	// if it has one, each with 8 KiB besides.
+	// prepared once on its connection, and Seq(ctx) is the number of the
+	// last commit the snapshot is sure to hold. Its frame goes to every
+	// stream that watches the view and must not change afterwards. When
+	// Render fails, the error is logged and the streams send nothing; so
+	// they do for a nil frame, and for a []byte frame equal to the one
+	// before (its bytes while the hub keeps them, else its length and
+	// hash). The hub keeps the newest frame while two or more streams
+	// watch the view, or one does and the frame is not []byte, and books
+	// it in the streams' budget once: a []byte frame by its length, another
+	// by its Len() int method, if it has one, each with 8 KiB besides.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).

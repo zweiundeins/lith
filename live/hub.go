@@ -18,9 +18,9 @@
 //
 // A view's topics are its Topics and those its last Render declared with
 // Depends, so a view whose reads follow a row, such as a tab's route,
-// follows them without a new key. A commit that touches a topic a Render
-// declares for the first time, after that Render's snapshot, marks the
-// view dirty when the hub takes the topic on.
+// follows them without a new key. A commit after a Render's snapshot, to
+// a topic that Render declares for the first time, marks the view dirty
+// once the hub takes the topic on.
 //
 // The hub numbers the commits Changed reports, 1, 2, 3 and on (Seq), and
 // keeps the number of the last commit that touched each topic (Version):

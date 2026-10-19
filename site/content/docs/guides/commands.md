@@ -253,7 +253,7 @@ The sender itself is a background job: [Migrations, jobs and imports](/docs/guid
 
 The writer prepares each SQL text once, on its connection, and keeps the 512 used last. modernc's SQLite parses and plans every statement that has no prepared one, and in kanban that took 41% of the writer's CPU before the cache. So build SQL from constants and pass values as arguments.
 
-SQL built at runtime, such as an `IN` list with a mark per value, would take a place in the cache for every length of the list. It runs through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`, which prepare it for one call:
+SQL built at runtime, such as an `IN` list with a mark per value, would take a place in the cache for every length of the list. It runs through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`, which prepare it for one call. Query code that takes a `sqlite.Querier` passes a ctx from `sqlite.Uncached(ctx)` instead: the `*writer.Tx` then runs the uncached variant, and a read connection or a render worker skips its cache the same way ([Reads](/docs/guides/reads#sql-built-at-runtime)).
 
 ```go source=site/internal/docs/example/board/commands.go
 func (c ArchiveCards) Apply(tx *writer.Tx) error {

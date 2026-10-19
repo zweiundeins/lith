@@ -26,7 +26,8 @@ pattern matches.
 - ``rg -n 'tx\.(Exec|Query|QueryRow)\((fmt\.Sprintf|"[^"]*" *\+|`[^`]*` *\+)' --type go``:
   SQL built at runtime in a command (an IN list with a mark per value) takes
   a place in the writer's statement cache for every text it makes. Run it
-  through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`.
+  through `tx.ExecUncached`, `tx.QueryUncached` or `tx.QueryRowUncached`, or
+  with a ctx from `sqlite.Uncached`.
 - `rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go` inside commands:
   network calls do not belong in the writer. Use `tx.AfterCommit`.
 
@@ -37,6 +38,14 @@ pattern matches.
   snapshots. (kanban's card dialogs did.)
 - No `db.W` outside the writer and migrations; `db.R` is `query_only` and
   refuses writes, so a write there fails loudly.
+- ``rg -n 'Query(Row)?Context\(ctx, (fmt\.Sprintf|"[^"]*" *\+|`[^`]*` *\+)' --type go``:
+  SQL built at runtime on the read side takes a place in a read
+  connection's statement cache, or a render worker's, for every text it
+  makes, and pushes out the statements that repeat. Run it with
+  `sqlite.Uncached(ctx)`.
+- `rg -n 'Unwatch\(' --type go`: a view swapped for another on navigation
+  (a key that carries the route) can be one view keyed by the tab that
+  declares its route's topics with `live.Depends`.
 
 ## Events
 

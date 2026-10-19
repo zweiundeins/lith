@@ -40,7 +40,9 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    The render loop renders each changed view once per tick, inside one read
    transaction per worker, and every stream on it gets the same frame.
    Per-user parts go in a small view of their own (`tab:<id>`) or a signal,
-   never into a shared view.
+   never into a shared view. A view whose reads depend on a row, such as a
+   tab's route, declares what it read with `live.Depends(ctx, topics...)`
+   during Render instead of changing its key.
 5. **The outcome travels on the stream.** An action's response carries
    nothing the view needs. No optimistic updates: the page shows the user's
    own input at once and marks it pending; outcomes appear when the frame
@@ -62,8 +64,9 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    one, so one function serves a GET, a view and a command. Scan every
    `QueryRow` before the same query runs again: a command's Tx and a
    render's Querier run each SQL text on one cached statement, and an
-   unscanned row keeps it busy. `db.R` is `query_only`; `db.W` belongs to
-   the writer and migrations.
+   unscanned row keeps it busy. SQL built at runtime runs with
+   `sqlite.Uncached(ctx)`, or `tx.QueryUncached` in a command. `db.R` is
+   `query_only`; `db.W` belongs to the writer and migrations.
 9. **Every stream is bounded**: a cap on open streams, a deadline on every
    network write, the newest frame wins (in the page too, with
    `newest-frame.js`), shutdown cancels streams.
@@ -77,10 +80,10 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 
 | Package | Holds |
 | --- | --- |
-| `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Backup` (VACUUM INTO), a wrapping `Driver` |
+| `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Uncached` for SQL built at runtime, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
 | `events` | event sourcing on the writer: typed streams, deciders that decide from a state row (`Execute`, expected versions), `Append`, inline projectors in the same savepoint, catch-up projectors after the commit, a `Runner` that rebuilds changed projectors into copies and swaps them in, upcasters, retention, `eventstest` |
-| `live` | views and topics, the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
+| `live` | views and topics, topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget, write deadlines, `ReadSignals` for any method |
 | `edge` | sessions cookie, CSRF, client IP, slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression, precompressed static files (minified with `Minify`), rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
@@ -94,7 +97,8 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 
 - `references/recipes.md`: wiring and migrations, a command, op ids that
   keep refusals, query code shared by reads and commands, a view with topics,
-  tab state and preferences, a background job, a bulk import, work a
+  tab state and preferences, a per-tab view that navigates, caching an
+  aggregate against a version, a background job, a bulk import, work a
   transaction cannot hold, an event-sourced command, projections of events
   and their rebuilds, backups, monitoring on a shared host, a new project.
 - `references/performance.md`: measured numbers, the knobs they set, how to

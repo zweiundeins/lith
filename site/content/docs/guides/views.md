@@ -165,6 +165,56 @@ A command does not touch a topic per person: it would have to know who watches. 
 
 Sharing one frame between people whose views are nearly the same cannot be done safely in general. The key would have to name what those people have in common, a role say, instead of the person, and the render would have to filter by that and nothing else: no name, no "you", no button that depends on one person's grant. A change to a person's grants would have to move their streams to another key with `Unwatch` and `Watch`, in the same order as the commit, or they keep watching what they may no longer see. A filter in `Spec.Write` instead, after the render, reads the grants outside the render's snapshot and runs for every stream at every tick. Render per person unless a measurement shows that the renders cost too much, and then share by role, with the role in the key.
 
+## A per-tab view that navigates
+
+A tab that can show any route keeps the route in its row, and one view keyed by the tab renders whatever the route names: a day reads merge requests, issues, todos and the calendar, an issue page one issue and its comments. What the view reads depends on the route, so its topics do too. The tab's own topic stays in `Topics`, and the render declares the rest with `live.Depends` as it reads them:
+
+```go
+func tabView(sid, tab string) live.View {
+	key := "tab:" + tab
+	return live.View{
+		Key:    key,
+		Topics: []string{key}, // the tab's row, with its route
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			q, _ := sqlite.QuerierFrom(ctx)
+			st, err := queries.Tab(ctx, q, sid, tab)
+			if err != nil {
+				return nil, err
+			}
+			var page templ.Component
+			switch st.Route.Kind {
+			case "day":
+				live.Depends(ctx, "mrs", "issues", "todos", "calendar")
+				d, err := queries.Day(ctx, q, st.Route.Day)
+				if err != nil {
+					return nil, err
+				}
+				page = views.Day(d)
+			case "issue":
+				live.Depends(ctx, "issue:"+st.Route.ID)
+				is, err := queries.Issue(ctx, q, st.Route.ID)
+				if err != nil {
+					return nil, err
+				}
+				page = views.Issue(is)
+			}
+			var buf bytes.Buffer
+			if err := page.Render(ctx, &buf); err != nil {
+				return nil, err
+			}
+			return sse.PatchElements(buf.Bytes(), sse.Patch{Selector: "#main"}), nil
+		},
+	}
+}
+```
+
+A link is a command that writes the route and touches the tab's topic. The view renders the new route and declares its topics, and once the render returns they replace the old route's: a commit to an issue the tab shows now renders it, a commit to the day it showed before does not. The stream keeps watching the same view, so there is no `Unwatch` and `Watch` to write, and no route in the key.
+
+- A query helper can declare its own topic next to its query, so the topics follow the reads wherever the helper is called. A topic declared twice counts once, and outside a render `Depends` does nothing.
+- A commit that touches a topic the render declares for the first time can land after the render's snapshot and before the hub takes the topic on, when no `Changed` would find the view for it. The hub compares each new topic's version with the render's `live.Seq(ctx)`, the last commit its snapshot is sure to hold, and renders the view again when the topic changed since ([caching against a version](/docs/guides/reads#caching-an-aggregate-against-a-version) has the numbers).
+- A render that fails keeps the topics of the one before. What every route reads, such as the tab's row and the session's preferences, stays in `Topics`.
+- A render that declares the topics the one before declared costs a sort and a compare of them. One that changes four topics for four others costs about 1 µs more under the hub's lock, measured with 1,000 views that all navigate in the same tick (`BenchmarkTickDepends` in `live`).
+
 ## Opening a stream
 
 The stream's handler builds the tab's views and hands them to `hub.Serve`, which streams until the client leaves or the hub stops:
