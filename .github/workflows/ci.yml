@@ -15,7 +15,7 @@ jobs:
           go-version-file: go.mod
       - name: gofmt
         run: |
-          out=$(gofmt -l $(go list -f '{{.Dir}}' ./...))
+          out=$(gofmt -l .)
           if [ -n "$out" ]; then echo "$out"; exit 1; fi
       - name: vet
         run: go vet ./...
@@ -23,9 +23,11 @@ jobs:
         run: go test -race ./...
       - name: nested modules
         run: |
+          failed=
           for m in backup dbmetrics/prom minify prom; do
-            (cd "$m" && go vet ./... && go test -race ./...)
+            (cd "$m" && go vet ./... && go test -race ./...) || failed="$failed $m"
           done
+          if [ -n "$failed" ]; then echo "failed:$failed"; exit 1; fi
 
   site:
     runs-on: ubuntu-latest
