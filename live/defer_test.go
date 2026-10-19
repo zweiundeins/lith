@@ -101,8 +101,10 @@ func TestJoinRendersDeferredView(t *testing.T) {
 			b := newBlockingWrite("v2")
 			serve(h, Spec{Views: byteNumbers(&n, "v"), Write: b.write}, "")
 			<-b.entered
+			// A join during the render of v2 takes its frame without a render.
+			r := h.Stats().RendersByKey["v"]
 			change()
-			waitFor(t, "the frame in the second slot", renders(4))
+			waitFor(t, "the frame in the second slot", renders(r+1))
 		}
 		change()
 		waitFor(t, "a deferred render", func() bool { return h.Stats().RendersDeferred == 1 })
