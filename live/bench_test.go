@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -97,4 +98,34 @@ func BenchmarkTick(b *testing.B) {
 			}
 		})
 	}
+}
+
+// TestVersionMemory measures what the versions of the topics changed last
+// hold on the heap, the topics' names of 16 bytes included, with both
+// generations full:
+//
+//	go test ./live -run TestVersionMemory -v
+func TestVersionMemory(t *testing.T) {
+	const keep = 1 << 15
+	heap := func() uint64 {
+		var m runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&m)
+		return m.HeapAlloc
+	}
+	before := heap()
+	h := New(Options{})
+	topics := make([]string, 1)
+	for i := range 2*keep - 1 {
+		topics[0] = fmt.Sprintf("item:%011d", i)
+		h.Changed(topics)
+	}
+	after := heap()
+	n := len(h.versions) + len(h.older)
+	per := float64(after-before) / float64(n)
+	t.Logf("%d versions hold %d KiB, %.0f bytes each", n, (after-before)>>10, per)
+	if n != 2*keep-1 || per > 128 {
+		t.Fatalf("%d versions, %.0f bytes each", n, per)
+	}
+	runtime.KeepAlive(h)
 }

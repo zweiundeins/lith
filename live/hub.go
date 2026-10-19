@@ -16,6 +16,12 @@
 // during the tick; that commit marks its views dirty, and the next tick
 // brings them together. What must always agree belongs in one view.
 //
+// The hub numbers the commits Changed reports, 1, 2, 3 and on (Seq), and
+// keeps the number of the last commit that touched each topic (Version):
+// a cache of something a Render or a GET computes, such as a count, stays
+// good while the version of its topics is not above the number it was
+// computed at (Seq(ctx) in a Render).
+//
 // A stream keeps only the newest frame of each view it watches, so a slow
 // client skips frames and holds up no one else. Views that change in the
 // same tick reach a stream together, in the order it watches them. A
@@ -109,6 +115,14 @@ type Options struct {
 	// views, as the overrun log measures it. It runs on the hub's loop
 	// and must not block.
 	OnTick func(time.Duration)
+	// Versions is how many topics the hub keeps the version of (Version),
+	// those changed last: at least Versions of them and at most twice as
+	// many (default 32768; negative: none). A topic takes about 70 bytes
+	// with a name of 16, so 4.3 MiB at most by default. A topic it no
+	// longer keeps reads as changed at the commit that pushed it out, and
+	// so does every topic while it keeps none: a cache then computes
+	// again, and is never wrong.
+	Versions int
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
@@ -136,15 +150,16 @@ type View struct {
 	// transaction (sqlite.TxFrom): a sqlite.DB.View called with ctx runs
 	// in it, so code that takes a ctx reads the render's snapshot.
 	// sqlite.QuerierFrom(ctx) runs queries in it on statements the worker
-	// prepared once on its connection. Its frame goes to every stream that
-	// watches the view and must not change afterwards. When Render fails,
-	// the error is logged and the streams send nothing; so they do for a
-	// nil frame, and for a []byte frame equal to the one before (its bytes
-	// while the hub keeps them, else its length and hash). The hub keeps
-	// the newest frame while two or more streams watch the view, or one
-	// does and the frame is not []byte, and books it in the streams' budget
-	// once: a []byte frame by its length, another by its Len() int method,
-	// if it has one, each with 8 KiB besides.
+	// prepared once on its connection, and Seq(ctx) is the number of the
+	// last commit the snapshot is sure to hold. Its frame goes to every
+	// stream that watches the view and must not change afterwards. When
+	// Render fails, the error is logged and the streams send nothing; so
+	// they do for a nil frame, and for a []byte frame equal to the one
+	// before (its bytes while the hub keeps them, else its length and
+	// hash). The hub keeps the newest frame while two or more streams
+	// watch the view, or one does and the frame is not []byte, and books
+	// it in the streams' budget once: a []byte frame by its length, another
+	// by its Len() int method, if it has one, each with 8 KiB besides.
 	Render func(ctx context.Context, tx *sql.Tx) (any, error)
 	// Every renders the view again after this long without changes
 	// (clocks, live stats).
@@ -204,6 +219,16 @@ type Hub struct {
 	running atomic.Bool
 	wake    chan struct{}
 	seq     atomic.Uint64 // numbers the streams
+	commits atomic.Uint64 // the last commit Changed numbered (Seq); written with mu and vmu held
+
+	// The versions of the topics changed last, in two generations: a
+	// topic in neither changed at floor or before.
+	vmu         sync.RWMutex
+	versions    map[string]uint64
+	older       map[string]uint64
+	floor       uint64
+	rotated     uint64 // the commit at which older stopped taking topics
+	maxVersions int
 
 	mu      sync.Mutex
 	views   map[string]*view
@@ -325,6 +350,9 @@ func New(o Options) *Hub {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
+	if o.Versions == 0 {
+		o.Versions = 1 << 15
+	}
 	if o.SSE.Budget == nil {
 		o.SSE.Budget = sse.NewBudget(sse.BudgetOptions{})
 	}
@@ -355,6 +383,9 @@ func New(o Options) *Hub {
 		done:          done,
 		stop:          stop,
 		wake:          make(chan struct{}, 1),
+		versions:      map[string]uint64{},
+		older:         map[string]uint64{},
+		maxVersions:   o.Versions,
 		views:         map[string]*view{},
 		topics:        map[string]map[*view]struct{}{},
 		every:         map[*view]struct{}{},
@@ -370,9 +401,19 @@ func New(o Options) *Hub {
 }
 
 // Changed marks dirty every view with one of the topics. It is meant for
-// the writer's OnCommit and never waits for a render.
+// the writer's OnCommit and never waits for a render. Each call is a
+// commit: it takes the next number (Seq), which becomes the version of
+// the topics. Call it after the change is in the database, as OnCommit
+// is.
 func (h *Hub) Changed(topics []string) {
 	h.mu.Lock()
+	h.vmu.Lock()
+	n := h.commits.Load() + 1
+	for _, t := range topics {
+		h.setVersion(t, n)
+	}
+	h.commits.Store(n)
+	h.vmu.Unlock()
 	marked := false
 	for _, t := range topics {
 		for v := range h.topics[t] {
@@ -386,9 +427,17 @@ func (h *Hub) Changed(topics []string) {
 }
 
 // MarkAll marks every view dirty, as after a change nothing tracks
-// (a migration, new templates).
+// (a migration, new templates). It counts as a commit that touched every
+// topic: Version then reports it for each.
 func (h *Hub) MarkAll() {
 	h.mu.Lock()
+	h.vmu.Lock()
+	n := h.commits.Load() + 1
+	clear(h.versions)
+	clear(h.older)
+	h.floor, h.rotated = n, n
+	h.commits.Store(n)
+	h.vmu.Unlock()
 	marked := false
 	for _, v := range h.views {
 		marked = h.mark(v) || marked
@@ -397,6 +446,61 @@ func (h *Hub) MarkAll() {
 	if marked {
 		h.poke()
 	}
+}
+
+// Seq is the number of the last commit: Changed and MarkAll number them
+// from 1, and 0 is the hub's start. The numbers start again with every
+// hub, so keep nothing keyed by them beyond the process.
+//
+// A cache that a GET fills reads Seq before its read transaction begins:
+// every commit up to that number is in the snapshot, and a later one may
+// be too. The value it computes is good as of that number, and stays good
+// while Version of its topics is not above it. Read after the snapshot,
+// the number could claim a commit the snapshot does not hold. A Render
+// takes the number from Seq(ctx).
+func (h *Hub) Seq() uint64 { return h.commits.Load() }
+
+// Version is the number of the last commit that touched one of the
+// topics (Seq), 0 when none did since the hub started. A topic the hub
+// no longer keeps (Options.Versions) reads as changed at the commit that
+// pushed it out of the hub, or at the last MarkAll; so do no topics.
+func (h *Hub) Version(topics ...string) uint64 {
+	h.vmu.RLock()
+	defer h.vmu.RUnlock()
+	n := h.floor
+	for _, t := range topics {
+		n = max(n, h.version(t))
+	}
+	return n
+}
+
+// version is t's version. Hub.vmu is held.
+func (h *Hub) version(t string) uint64 {
+	if n, ok := h.versions[t]; ok {
+		return n
+	}
+	if n, ok := h.older[t]; ok {
+		return n
+	}
+	return h.floor
+}
+
+// setVersion records that commit n touched t. A topic that the newer
+// generation does not hold, once it is full, starts a new one, and the
+// older goes. Hub.vmu is held.
+func (h *Hub) setVersion(t string, n uint64) {
+	if h.maxVersions < 0 {
+		h.floor = n
+		return
+	}
+	if _, ok := h.versions[t]; !ok && len(h.versions) >= h.maxVersions {
+		// Every topic of the older generation changed at h.rotated or before.
+		h.floor = h.rotated
+		h.rotated = n
+		h.older, h.versions = h.versions, h.older
+		clear(h.versions)
+	}
+	h.versions[t] = n
 }
 
 // Count is the number of streams watching the view.

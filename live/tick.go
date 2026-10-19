@@ -339,7 +339,10 @@ func (w *worker) render(t *tick) {
 	if int(t.next.Load()) >= len(t.views) {
 		return
 	}
-	ctx := t.ctx
+	// Read before the transaction begins, so that every commit up to it is
+	// in the snapshot.
+	st := &renderState{seq: w.h.commits.Load()}
+	ctx := context.WithValue(t.ctx, renderKey{}, st)
 	var tx *sql.Tx
 	var q *reads
 	if w.conn != nil {
