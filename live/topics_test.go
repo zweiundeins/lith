@@ -93,7 +93,7 @@ func TestTopicTreeRenders(t *testing.T) {
 	c.leave(t)
 }
 
-// One commit that names two topics under a:b marks a:b and a once.
+// One commit that names two topics under a:b counts a:b and a once.
 func TestTopicTreeDedupes(t *testing.T) {
 	h := treeHub(Options{}, "a", "a:b")
 	h.Changed([]string{"x"})
@@ -101,16 +101,157 @@ func TestTopicTreeDedupes(t *testing.T) {
 	if h.Seq() != 2 {
 		t.Fatalf("seq %d after two commits", h.Seq())
 	}
+	for _, tp := range []string{"a", "a:b", "a:b:1", "a:b:2"} {
+		if v := h.Version(tp); v != 2 {
+			t.Errorf("Version(%s) = %d, want 2", tp, v)
+		}
+	}
 	h.mu.Lock()
 	n := len(h.dirty)
 	h.mu.Unlock()
 	if n != 2 {
 		t.Fatalf("%d views on the dirty list, want 2", n)
 	}
+	if h.Version("x") != 1 || h.Version("a:c") != 0 {
+		t.Fatalf("Version(x) = %d, Version(a:c) = %d", h.Version("x"), h.Version("a:c"))
+	}
+}
+
+// Against a model of random commits, :* and MarkAll among them: a topic
+// reads at least the last commit that touched it, never less, and exactly
+// that while both stores keep everything. A topic above another reads at
+// least as much as it.
+func TestTopicTreeVersions(t *testing.T) {
+	for _, c := range []struct {
+		name           string
+		leaves, prefix int
+		exact          bool
+	}{
+		{"kept", 0, 0, true},
+		{"pushed out", 8, 4, false},
+		{"none", -1, -1, false},
+		{"no prefixes", 0, -1, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := New(Options{Versions: c.leaves, PrefixVersions: c.prefix})
+			r := rand.New(rand.NewPCG(3, 4))
+			own, below := map[string]uint64{}, map[string]uint64{}
+			var floor uint64
+			var all []string
+			name := func() string {
+				parts := make([]string, 1+r.IntN(4))
+				for i := range parts {
+					parts[i] = string(rune('a' + r.IntN(3)))
+				}
+				return strings.Join(parts, ":")
+			}
+			above := func(tp string, f func(string)) {
+				for i := strings.LastIndexByte(tp, ':'); i >= 0; i = strings.LastIndexByte(tp[:i], ':') {
+					f(tp[:i])
+				}
+			}
+			want := func(tp string) uint64 {
+				n := max(floor, own[tp], below[tp])
+				above(tp, func(a string) { n = max(n, below[a]) })
+				return n
+			}
+			for range 5000 {
+				topics := make([]string, 1+r.IntN(3))
+				for i := range topics {
+					topics[i] = name()
+					if r.IntN(10) == 0 {
+						topics[i] += ":*"
+					}
+				}
+				if r.IntN(500) == 0 {
+					topics = append(topics, "*")
+				}
+				h.Changed(topics)
+				n := h.Seq()
+				for _, tp := range topics {
+					if tp == "*" {
+						floor = n
+						continue
+					}
+					tp, star := strings.CutSuffix(tp, ":*")
+					all = append(all, tp)
+					own[tp] = n
+					if star {
+						below[tp] = n
+					}
+					above(tp, func(a string) { own[a] = n })
+				}
+				if k := len(h.leaves.newer) + len(h.leaves.older); c.leaves > 0 && k > 2*c.leaves || c.leaves < 0 && k > 0 {
+					t.Fatalf("%d versions kept, Versions %d", k, c.leaves)
+				}
+				if k := len(h.prefixes.newer) + len(h.prefixes.older); c.prefix > 0 && k > 2*c.prefix || c.prefix < 0 && k > 0 {
+					t.Fatalf("%d prefixes kept, PrefixVersions %d", k, c.prefix)
+				}
+				for range 4 {
+					tp := all[r.IntN(len(all))]
+					got := h.Version(tp)
+					if w := want(tp); got < w || c.exact && got != w {
+						t.Fatalf("after commit %d: Version(%s) = %d, want %d", n, tp, got, w)
+					}
+					if got := h.Version(tp + ":*"); got != h.Version(tp) {
+						t.Fatalf("Version(%s:*) = %d, Version(%s) = %d", tp, got, tp, h.Version(tp))
+					}
+					above(tp, func(a string) {
+						if h.Version(a) < got {
+							t.Fatalf("after commit %d: Version(%s) = %d, below it Version(%s) = %d", n, a, h.Version(a), tp, got)
+						}
+					})
+				}
+			}
+			if h.Version("*") != h.Seq() {
+				t.Fatalf("Version(*) = %d, seq %d", h.Version("*"), h.Seq())
+			}
+		})
+	}
+}
+
+// A sync that touches ten times Options.Versions items under src:A pushes
+// out items, and leaves src:B's version as it was: prefixes have a store
+// of their own.
+func TestTopicTreeSync(t *testing.T) {
+	const keep = 64
+	h := New(Options{Versions: keep})
+	h.Changed([]string{"src:B:1"})
+	h.Changed([]string{"src:B:2", "other"})
+	b, item := h.Version("src:B"), h.Version("src:B:1")
+	if b != 2 || item != 1 {
+		t.Fatalf("Version(src:B) = %d, Version(src:B:1) = %d", b, item)
+	}
+	for i := range 10 * keep {
+		h.Changed([]string{"src:A:" + strconv.Itoa(i), "src:A:" + strconv.Itoa(i) + ":body"})
+	}
+	if v := h.Version("src:B"); v != b {
+		t.Fatalf("after the sync, Version(src:B) = %d, want %d", v, b)
+	}
+	if v, n := h.Version("src:A"), h.Seq(); v != n || h.Version("src") != n {
+		t.Fatalf("after the sync, Version(src:A) = %d, Version(src) = %d, seq %d", v, h.Version("src"), n)
+	}
+	if v := h.Version("src:B:1"); v <= item {
+		t.Fatalf("Version(src:B:1) = %d, pushed out, want above %d", v, item)
+	}
+	if v := h.Version("other"); v <= 2 {
+		t.Fatalf("Version(other) = %d, pushed out, want above 2", v)
+	}
+	// A topic named directly that the hub keeps as a prefix stays there.
+	h.Changed([]string{"src:B"})
+	b = h.Seq()
+	for i := range 10 * keep {
+		h.Changed([]string{"src:A:" + strconv.Itoa(i)})
+	}
+	if v := h.Version("src:B"); v != b {
+		t.Fatalf("named, then a sync: Version(src:B) = %d, want %d", v, b)
+	}
 }
 
 // A view that declares a coarse topic with Depends renders for commits
-// below it, and for a :* above it, and not for one on a sibling.
+// below it, and for a :* above it, and not for one on a sibling. A
+// :* that lands after a Render's snapshot, above a topic the Render
+// declares for the first time, renders the view again.
 func TestTopicTreeDepends(t *testing.T) {
 	h := start(t, Options{Tick: 5 * time.Millisecond})
 	var space atomic.Value
@@ -133,6 +274,18 @@ func TestTopicTreeDepends(t *testing.T) {
 		t.Fatalf("commits beside src:A rendered the view %d times", n-5)
 	}
 	c.leave(t)
+
+	h2 := treeHub(Options{})
+	w := &view{key: "w"}
+	seq := h2.Seq()
+	h2.Changed([]string{"src:*"})
+	h2.mu.Lock()
+	stale := h2.redepend(w, []string{"src:A:7"}, seq)
+	h2.redepend(w, nil, seq)
+	h2.mu.Unlock()
+	if !stale {
+		t.Fatal("a :* after the snapshot, above a new topic, did not render the view again")
+	}
 }
 
 // Once nobody watches, the tree is empty: the nodes above the topics go

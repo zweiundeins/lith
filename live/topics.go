@@ -117,6 +117,139 @@ func (h *Hub) sweep(n *node, seq uint64) bool {
 	return marked
 }
 
+// versions keeps the versions of the topics changed last, in two
+// generations: a topic in neither changed at floor or before.
+type versions[V any] struct {
+	newer, older map[string]V
+	floor        uint64
+	rotated      uint64 // the commit at which older stopped taking topics
+	keep         int
+}
+
+func newVersions[V any](keep int) versions[V] {
+	return versions[V]{newer: map[string]V{}, older: map[string]V{}, keep: keep}
+}
+
+func (s *versions[V]) get(t string) (V, bool) {
+	if v, ok := s.newer[t]; ok {
+		return v, true
+	}
+	v, ok := s.older[t]
+	return v, ok
+}
+
+// room makes room in the newer generation for a topic it does not hold,
+// which commit n touched: once it is full, it starts a new one, and the
+// older goes. It reports false when the store keeps no topics.
+func (s *versions[V]) room(n uint64) bool {
+	if s.keep < 0 {
+		s.floor = n
+		return false
+	}
+	if len(s.newer) >= s.keep {
+		// Every topic of the older generation changed at s.rotated or before.
+		s.floor, s.rotated = s.rotated, n
+		s.older, s.newer = s.newer, s.older
+		clear(s.newer)
+	}
+	return true
+}
+
+// forget drops every topic, as changed at n.
+func (s *versions[V]) forget(n uint64) {
+	clear(s.newer)
+	clear(s.older)
+	s.floor, s.rotated = n, n
+}
+
+// stamp is what the hub keeps of a prefix: the last commit that touched
+// it, and the last that touched everything below it (a topic with :*).
+type stamp struct{ own, below uint64 }
+
+// setVersion records that commit n named t. A topic the hub keeps as a
+// prefix stays with the prefixes, so that its version is in one store,
+// the one that holds it. Hub.vmu is held.
+func (h *Hub) setVersion(t string, n uint64) {
+	if p := h.prefixes.newer[t]; p != nil {
+		p.own = n
+		return
+	}
+	if h.prefixes.older[t] != nil {
+		h.setPrefix(t, n, false)
+		return
+	}
+	if _, ok := h.leaves.newer[t]; ok || h.leaves.room(n) {
+		h.leaves.newer[t] = n
+	}
+}
+
+// setPrefix records that commit n touched t, and with below everything
+// below it. It reports false when n had touched t already. Hub.vmu is
+// held.
+func (h *Hub) setPrefix(t string, n uint64, below bool) bool {
+	s := &h.prefixes
+	p := s.newer[t]
+	if p == nil {
+		if !s.room(n) {
+			return true
+		}
+		if p = s.older[t]; p == nil {
+			p = &stamp{s.floor, s.floor}
+		}
+		s.newer[t] = p
+	}
+	if p.own == n && (!below || p.below == n) {
+		return false
+	}
+	p.own = n
+	if below {
+		p.below = n
+	}
+	return true
+}
+
+// touch records that commit n touched t and the topics above it, and
+// with :* everything below t. Hub.vmu is held.
+func (h *Hub) touch(t string, n uint64) {
+	if p, ok := strings.CutSuffix(t, ":*"); ok {
+		t = p
+		h.setPrefix(t, n, true)
+	} else {
+		h.setVersion(t, n)
+	}
+	for i := strings.LastIndexByte(t, ':'); i >= 0; i = strings.LastIndexByte(t[:i], ':') {
+		// The topics above one that n touched already have n.
+		if !h.setPrefix(t[:i], n, false) {
+			break
+		}
+	}
+}
+
+// version is t's version: the last commit that touched t, or everything
+// below it or below a topic above it. Hub.vmu is held.
+func (h *Hub) version(t string) uint64 {
+	var n uint64
+	if p, ok := h.prefixes.get(t); ok {
+		n = max(p.own, p.below)
+	} else {
+		// t may have been a prefix the hub no longer keeps.
+		n = h.prefixes.floor
+		if v, ok := h.leaves.get(t); ok {
+			n = max(n, v)
+		} else {
+			n = max(n, h.leaves.floor)
+		}
+	}
+	for i := strings.LastIndexByte(t, ':'); i >= 0; i = strings.LastIndexByte(t[:i], ':') {
+		if p, ok := h.prefixes.get(t[:i]); ok {
+			n = max(n, p.below)
+		} else {
+			n = max(n, h.prefixes.floor)
+		}
+	}
+	return n
+}
+
 // checkTopic panics on a topic a view cannot listen to.
 func checkTopic(t string) {
 	ok := t != "" && t[0] != ':' && t[len(t)-1] != ':'

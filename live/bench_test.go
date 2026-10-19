@@ -161,7 +161,7 @@ func TestVersionMemory(t *testing.T) {
 		h.Changed(topics)
 	}
 	after := heap()
-	n := len(h.versions) + len(h.older)
+	n := len(h.leaves.newer) + len(h.leaves.older)
 	per := float64(after-before) / float64(n)
 	t.Logf("%d versions hold %d KiB, %.0f bytes each", n, (after-before)>>10, per)
 	if n != 2*keep-1 || per > 128 {

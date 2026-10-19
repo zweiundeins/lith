@@ -132,9 +132,19 @@ type Options struct {
 	// so does every topic while it keeps none: a cache then computes
 	// again, and is never wrong. A bulk sync that touches more distinct
 	// topics than Versions, one per item, pushes them out all along, and
-	// every cache computes again about once per Versions new topics until
-	// it ends.
+	// a cache keyed on an item computes again about once per Versions new
+	// topics until it ends. The topics above them, such as src:A above
+	// src:A:7, are in PrefixVersions, which the sync does not push out: a
+	// cache keyed on a space or a source computes again only when they
+	// change.
 	Versions int
+	// PrefixVersions is how many prefixes the hub keeps the version of,
+	// the topics above those a commit names, such as board for board:42
+	// (default 32768; negative: none). It bounds them as Versions bounds
+	// the topics the commits name, and a prefix it no longer keeps reads
+	// as changed in the same way. A topic that a commit names while the
+	// hub keeps it as a prefix stays among the prefixes.
+	PrefixVersions int
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
@@ -238,14 +248,11 @@ type Hub struct {
 	seq     atomic.Uint64 // numbers the streams
 	commits atomic.Uint64 // the last commit Changed numbered (Seq); written with mu and vmu held
 
-	// The versions of the topics changed last, in two generations: a
-	// topic in neither changed at floor or before.
-	vmu         sync.RWMutex
-	versions    map[string]uint64
-	older       map[string]uint64
-	floor       uint64
-	rotated     uint64 // the commit at which older stopped taking topics
-	maxVersions int
+	// The versions of the topics changed last (Options.Versions), and
+	// those of their prefixes (Options.PrefixVersions).
+	vmu      sync.RWMutex
+	leaves   versions[uint64]
+	prefixes versions[*stamp]
 
 	mu      sync.Mutex
 	views   map[string]*view
@@ -371,6 +378,9 @@ func New(o Options) *Hub {
 	if o.Versions == 0 {
 		o.Versions = 1 << 15
 	}
+	if o.PrefixVersions == 0 {
+		o.PrefixVersions = 1 << 15
+	}
 	if o.SSE.Budget == nil {
 		o.SSE.Budget = sse.NewBudget(sse.BudgetOptions{})
 	}
@@ -401,9 +411,8 @@ func New(o Options) *Hub {
 		done:          done,
 		stop:          stop,
 		wake:          make(chan struct{}, 1),
-		versions:      map[string]uint64{},
-		older:         map[string]uint64{},
-		maxVersions:   o.Versions,
+		leaves:        newVersions[uint64](o.Versions),
+		prefixes:      newVersions[*stamp](o.PrefixVersions),
 		views:         map[string]*view{},
 		topics:        map[string]*node{},
 		every:         map[*view]struct{}{},
@@ -428,7 +437,7 @@ func New(o Options) *Hub {
 //
 // It is meant for the writer's OnCommit and never waits for a render.
 // Each call is a commit: it takes the next number (Seq), which becomes
-// the version of the topics it names. Call it after the change is in
+// the version of the topics it touches. Call it after the change is in
 // the database, as OnCommit is. An app that commits through its own
 // store calls it after each commit is visible to readers, never inside
 // the transaction: a render that begins after Changed counts the commit
@@ -442,13 +451,12 @@ func (h *Hub) Changed(topics []string) {
 		if t == "*" {
 			all = true
 		} else {
-			h.setVersion(t, n)
+			h.touch(t, n)
 		}
 	}
 	if all {
-		clear(h.versions)
-		clear(h.older)
-		h.floor, h.rotated = n, n
+		h.leaves.forget(n)
+		h.prefixes.forget(n)
 	}
 	h.commits.Store(n)
 	h.vmu.Unlock()
@@ -492,46 +500,28 @@ func (h *Hub) MarkAll() { h.Changed(everything) }
 func (h *Hub) Seq() uint64 { return h.commits.Load() }
 
 // Version is the number of the last commit that touched one of the
-// topics (Seq), 0 when none did since the hub started. A topic the hub
-// no longer keeps (Options.Versions) reads as changed at the commit that
-// pushed it out of the hub, or at the last MarkAll; so do no topics.
+// topics (Seq), 0 when none did since the hub started. A commit touches
+// a topic as Changed says: Version of src:A moves with every commit to
+// src:A:7, and Version of src:A:7 with one to src:A:*. A topic with :*
+// reads as the topic without it, and * as Seq. A topic the hub no longer
+// keeps (Options.Versions, Options.PrefixVersions) reads as changed at
+// the commit that pushed it, or a topic above it, out of the hub, or at
+// the last MarkAll; so do no topics.
 func (h *Hub) Version(topics ...string) uint64 {
 	h.vmu.RLock()
 	defer h.vmu.RUnlock()
-	n := h.floor
+	if len(topics) == 0 {
+		return max(h.leaves.floor, h.prefixes.floor)
+	}
+	var n uint64
 	for _, t := range topics {
+		if t == "*" {
+			return h.commits.Load()
+		}
+		t, _ = strings.CutSuffix(t, ":*")
 		n = max(n, h.version(t))
 	}
 	return n
-}
-
-// version is t's version. Hub.vmu is held.
-func (h *Hub) version(t string) uint64 {
-	if n, ok := h.versions[t]; ok {
-		return n
-	}
-	if n, ok := h.older[t]; ok {
-		return n
-	}
-	return h.floor
-}
-
-// setVersion records that commit n touched t. A topic that the newer
-// generation does not hold, once it is full, starts a new one, and the
-// older goes. Hub.vmu is held.
-func (h *Hub) setVersion(t string, n uint64) {
-	if h.maxVersions < 0 {
-		h.floor = n
-		return
-	}
-	if _, ok := h.versions[t]; !ok && len(h.versions) >= h.maxVersions {
-		// Every topic of the older generation changed at h.rotated or before.
-		h.floor = h.rotated
-		h.rotated = n
-		h.older, h.versions = h.versions, h.older
-		clear(h.versions)
-	}
-	h.versions[t] = n
 }
 
 // Count is the number of streams watching the view.

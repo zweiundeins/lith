@@ -58,7 +58,7 @@ func TestVersionsForgetOnlyUpward(t *testing.T) {
 			last[tp] = h.Seq()
 			recent = append(recent, tp)
 		}
-		if n := len(h.versions) + len(h.older); n > 2*keep {
+		if n := len(h.leaves.newer) + len(h.leaves.older); n > 2*keep {
 			t.Fatalf("%d versions kept, at most %d", n, 2*keep)
 		}
 	}
@@ -82,8 +82,8 @@ func TestVersionsForgetOnlyUpward(t *testing.T) {
 	h = New(Options{Versions: -1})
 	h.Changed([]string{"a"})
 	h.Changed([]string{"b"})
-	if h.Version("a") != 2 || len(h.versions)+len(h.older) != 0 {
-		t.Fatalf("without versions: Version(a) = %d, %d kept", h.Version("a"), len(h.versions)+len(h.older))
+	if h.Version("a") != 2 || len(h.leaves.newer)+len(h.leaves.older) != 0 {
+		t.Fatalf("without versions: Version(a) = %d, %d kept", h.Version("a"), len(h.leaves.newer)+len(h.leaves.older))
 	}
 }
 
