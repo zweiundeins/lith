@@ -128,7 +128,7 @@ func serve(ctx context.Context, args []string) error {
 
 	h := http.Handler(site.Routes())
 	h = edge.Sessions{Secure: *secure}.Handler(h)
-	h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /behind"}}.Handler(h)
+	h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /pace", "POST /ack"}}.Handler(h)
 	h = edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: *secure}.Handler(h)
 	h = edge.Compress(h)
 	h = edge.Recover(log, h)

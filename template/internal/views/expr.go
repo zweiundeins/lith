@@ -28,11 +28,12 @@ const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(
 // with sse.Reconnect, which runs this again.
 const openStream = `@get('/stream?tab=' + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
 
-// behind reports to the server that the page fell behind its stream, each
-// time newest-frame.js says so (newest-frame-behind), for the metric
-// app_live_newest_frame_behind_total. It runs on <body>, where the event
-// bubbles to: a @post from the stream's element would abort its stream.
-const behind = `@post('/behind?tab=' + $_tab, {requestCancellation: 'disabled'})`
+// behind asks the server to pace the tab's stream each time newest-frame.js
+// reports that the page fell behind it (newest-frame-behind); /pace counts
+// the report for app_live_newest_frame_behind_total too. It runs on
+// <body>, where the event bubbles to: a @post from the stream's element
+// would abort its stream.
+const behind = `@post('/pace?tab=' + $_tab, {requestCancellation: 'disabled'})`
 
 // sign sends the form with a new op id unless one is pending. The tab's
 // stream brings the op's outcome back as $_ack.

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func TestSlowLink(t *testing.T) {
 
 // TestNewestFrame checks that the page loads lith's newest-frame.js after
 // Datastar, with an import map that maps 'datastar' to Datastar's URL, and
-// turns it on on its body, which posts /behind when the plugin reports
+// turns it on on its body, which posts /pace when the plugin reports
 // that the page fell behind; the plugin, a minified build, goes out as
 // vendored, under its content's hash, immutable.
 func TestNewestFrame(t *testing.T) {
@@ -101,7 +102,7 @@ func TestNewestFrame(t *testing.T) {
 	res.Body.Close()
 	page := string(b)
 	m := regexp.MustCompile(`<script type="importmap" nonce="[^"]*">(.*?)</script>\s*<script type="module" src="(/static/vendor/datastar-rocket\.[0-9a-f]{12}\.js)"></script>\s*<script type="module" src="(/static/lith/newest-frame\.[0-9a-f]{12}\.js)"></script>`).FindStringSubmatch(page)
-	if m == nil || !strings.Contains(page, `<body data-newest-frame data-on:newest-frame-behind="@post(&#39;/behind?tab=&#39; + $_tab, {requestCancellation: &#39;disabled&#39;})">`) {
+	if m == nil || !strings.Contains(page, `<body data-newest-frame data-on:newest-frame-behind="@post(&#39;/pace?tab=&#39; + $_tab, {requestCancellation: &#39;disabled&#39;})">`) {
 		t.Fatalf("the page does not load newest-frame.js after Datastar, or does not turn it on:\n%s", page)
 	}
 	var importMap struct{ Imports map[string]string }
@@ -121,37 +122,137 @@ func TestNewestFrame(t *testing.T) {
 	}
 }
 
-// TestBehind posts the page's reports that it fell behind its stream: one
-// for its open stream counts, at once again does not, one for a tab without
-// a stream counts nothing, and a tab id that is not one is refused. Each
-// answers 204, and the hub counts what the metrics export.
-func TestBehind(t *testing.T) {
+// TestPacing paces a tab's stream as the page does once it falls behind:
+// /pace counts the report and paces the stream, whose next write ends with
+// an element that posts /ack for it after the paint. The stream then holds
+// its next frame until /ack, with the stream's token, the write's number
+// and the page's round trip, frees it.
+func TestPacing(t *testing.T) {
 	base, hub := startHub(t)
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &http.Client{Jar: jar}
+	c := client(t, base)
 	events := listen(t, c, base+"/stream?tab=tab1", nil)
-	next(t, events, `<section id="entries"`)
-	for _, tc := range []struct {
-		tab  string
-		code int
-	}{{"tab1", http.StatusNoContent}, {"tab1", http.StatusNoContent}, {"tab2", http.StatusNoContent}, {"no%20tab", http.StatusBadRequest}} {
-		if code := post(t, c, base+"/behind?tab="+tc.tab, "{}"); code != tc.code {
-			t.Errorf("tab %s: %d, want %d", tc.tab, code, tc.code)
+	next(t, events, `"_ack":""`)
+	if code := post(t, c, base+"/pace?tab=tab1", ""); code != http.StatusNoContent {
+		t.Fatalf("pace: %d", code)
+	}
+	if st := hub.Stats(); st.Paces != 1 || st.Behind != 1 || st.BehindStreams != 1 {
+		t.Fatalf("Paces %d, Behind %d, BehindStreams %d, want 1, 1 and 1", st.Paces, st.Behind, st.BehindStreams)
+	}
+	token := sign(t, c, events, base, "op1", "Hello")
+	if code := post(t, c, base+"/cmd/sign", `{"tab":"tab1","op":"op2","name":"Ada","message":"Again"}`); code != http.StatusNoContent {
+		t.Fatalf("sign again: %d", code)
+	}
+	none(t, events, "<p>Again</p>", 300*time.Millisecond)
+	if code := post(t, c, base+"/ack?tab=tab1&s="+token+"&n=1&rtt=12", ""); code != http.StatusNoContent {
+		t.Fatalf("ack: %d", code)
+	}
+	next(t, events, "<p>Again</p>")
+	next(t, events, `id="ack-2"`)
+	if st := hub.Stats(); st.Acks != 1 {
+		t.Errorf("Acks %d, want 1", st.Acks)
+	}
+}
+
+// TestPacingIsTheSessionsOwn posts /pace and /ack for a tab's stream from
+// another session: both answer 204 and reach nothing, since the stream is
+// named after its session.
+func TestPacingIsTheSessionsOwn(t *testing.T) {
+	base, hub := startHub(t)
+	ada, bob := client(t, base), client(t, base)
+	events := listen(t, ada, base+"/stream?tab=tab1", nil)
+	next(t, events, `"_ack":""`)
+	if code := post(t, bob, base+"/pace?tab=tab1", ""); code != http.StatusNoContent {
+		t.Fatalf("pace from another session: %d", code)
+	}
+	if st := hub.Stats(); st.Paces != 0 || st.Behind != 0 {
+		t.Fatalf("another session's /pace: Paces %d, Behind %d", st.Paces, st.Behind)
+	}
+	post(t, ada, base+"/pace?tab=tab1", "")
+	token := sign(t, ada, events, base, "op1", "Hello")
+	ackURL := base + "/ack?tab=tab1&s=" + token + "&n=1&rtt=12"
+	if code := post(t, bob, ackURL, ""); code != http.StatusNoContent {
+		t.Fatalf("ack from another session: %d", code)
+	}
+	if st := hub.Stats(); st.Acks != 0 {
+		t.Fatalf("another session's /ack was taken: Acks %d", st.Acks)
+	}
+	post(t, ada, ackURL, "")
+	if st := hub.Stats(); st.Acks != 1 {
+		t.Errorf("the session's own /ack: Acks %d, want 1", st.Acks)
+	}
+}
+
+// TestPacingLimits checks the limits per session: five reports at once,
+// then one a second, and 60 acknowledgements at once, then 30 a second.
+// Over the limit a post answers 204 and is dropped.
+func TestPacingLimits(t *testing.T) {
+	base, hub := startHub(t)
+	c := client(t, base)
+	for i := range 7 {
+		tab := "tab" + strconv.Itoa(i)
+		events := listen(t, c, base+"/stream?tab="+tab, nil)
+		next(t, events, `"_ack":""`)
+		if code := post(t, c, base+"/pace?tab="+tab, ""); code != http.StatusNoContent {
+			t.Fatalf("pace %s: %d", tab, code)
 		}
 	}
-	if st := hub.Stats(); st.Behind != 1 || st.BehindStreams != 1 {
-		t.Errorf("Behind %d, BehindStreams %d, want 1 and 1", st.Behind, st.BehindStreams)
+	if st := hub.Stats(); st.Paces != 5 || st.Behind != 5 {
+		t.Errorf("seven reports at once: Paces %d, Behind %d, want 5 and 5", st.Paces, st.Behind)
 	}
-	req, _ := http.NewRequest("POST", base+"/behind?tab=tab1", nil)
-	req.Header.Set("Sec-Fetch-Site", "same-origin")
-	if res, err := c.Do(req); err != nil || res.StatusCode != http.StatusForbidden {
-		t.Errorf("without Datastar-Request: %v, %v", res, err)
-	} else {
-		res.Body.Close()
+
+	c = client(t, base)
+	events := listen(t, c, base+"/stream?tab=tab1", nil)
+	next(t, events, `"_ack":""`)
+	post(t, c, base+"/pace?tab=tab1", "")
+	token := sign(t, c, events, base, "op1", "Hello")
+	for range 80 {
+		if code := post(t, c, base+"/ack?tab=tab1&s="+token+"&n=1", ""); code != http.StatusNoContent {
+			t.Fatalf("ack: %d", code)
+		}
 	}
+	if n := hub.Stats().Acks; n < 60 || n > 65 {
+		t.Errorf("80 acknowledgements at once: %d taken, want 60 and what refilled", n)
+	}
+}
+
+// TestPacingInput refuses what no page sends, and the edge refuses a post
+// without Datastar's header.
+func TestPacingInput(t *testing.T) {
+	base := start(t)
+	c := client(t, base)
+	for _, url := range []string{
+		"/pace?tab=no%20tab", "/pace",
+		"/ack?tab=tab1&n=1", "/ack?tab=tab1&s=X&n=1", "/ack?tab=tab1&s=1&n=0", "/ack?tab=tab1&s=1&n=x",
+		"/ack?tab=tab1&s=1&n=1&rtt=x", "/ack?s=1&n=1",
+	} {
+		if code := post(t, c, base+url, ""); code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", url, code)
+		}
+	}
+	for _, url := range []string{"/pace?tab=tab1", "/ack?tab=tab1&s=1&n=1"} {
+		req, _ := http.NewRequest("POST", base+url, nil)
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		if res, err := c.Do(req); err != nil || res.StatusCode != http.StatusForbidden {
+			t.Errorf("%s without Datastar-Request: %v, %v", url, res, err)
+		} else {
+			res.Body.Close()
+		}
+	}
+}
+
+// sign signs the guestbook from tab1 of a paced stream, and returns the
+// stream's token from the element that acknowledges the write.
+func sign(t *testing.T, c *http.Client, events <-chan string, base, op, message string) string {
+	t.Helper()
+	if code := post(t, c, base+"/cmd/sign", `{"tab":"tab1","op":"`+op+`","name":"Ada","message":"`+message+`"}`); code != http.StatusNoContent {
+		t.Fatalf("sign: %d", code)
+	}
+	ack := `/ack\?tab=tab1&amp;s=([0-9a-z]+)&amp;n=1&amp;rtt=`
+	m := regexp.MustCompile(ack).FindStringSubmatch(next(t, events, `id="ack-1"`))
+	if m == nil {
+		t.Fatalf("no acknowledgement of the write matches %s", ack)
+	}
+	return m[1]
 }
 
 // start serves the routes behind the part of the edge an action needs: a
@@ -191,7 +292,7 @@ func startHub(t *testing.T) (string, *live.Hub) {
 
 	h := http.Handler(site.Routes())
 	h = edge.Sessions{}.Handler(h)
-	h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /behind"}}.Handler(h)
+	h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /pace", "POST /ack"}}.Handler(h)
 	srv := httptest.NewServer(h)
 	t.Cleanup(func() {
 		stopHub()
@@ -249,8 +350,8 @@ func listen(t *testing.T, c *http.Client, url string, header http.Header) <-chan
 	return events
 }
 
-// next skips events until one contains want.
-func next(t *testing.T, events <-chan string, want string) {
+// next skips events until one contains want, and returns it.
+func next(t *testing.T, events <-chan string, want string) string {
 	t.Helper()
 	timeout := time.After(5 * time.Second)
 	for {
@@ -260,12 +361,45 @@ func next(t *testing.T, events <-chan string, want string) {
 				t.Fatalf("the stream ended before an event with %q", want)
 			}
 			if strings.Contains(event, want) {
-				return
+				return event
 			}
 		case <-timeout:
 			t.Fatalf("no event with %q in 5s", want)
 		}
 	}
+}
+
+// none fails if an event with unwanted comes within d.
+func none(t *testing.T, events <-chan string, unwanted string, d time.Duration) {
+	t.Helper()
+	timeout := time.After(d)
+	for {
+		select {
+		case event := <-events:
+			if strings.Contains(event, unwanted) {
+				t.Fatalf("an event with %q came while the stream waited", unwanted)
+			}
+		case <-timeout:
+			return
+		}
+	}
+}
+
+// client is a browser's client of the routes, with a session of its own.
+func client(t *testing.T, base string) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &http.Client{Jar: jar}
+	res, err := c.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, res.Body)
+	res.Body.Close()
+	return c
 }
 
 // post sends an action the way Datastar does.
