@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `sse`: a stream the hub stops while one of its writes is still under way gives that write up to 250 ms to finish, as the end frame gets, instead of a deadline of now. Over HTTP/2 the old deadline reset the stream with `INTERNAL_ERROR` even when the client had read the whole write, so a page lost its clean end and its `Reconnect` event on a deploy.
+
 ## v0.3.1 (2026-10-19)
 
 `newest-frame.js` now only drops frames in the page by default, and once a page reports that it fell behind, the server paces its stream by the page's acknowledgements until it keeps up again. The template and the site pace this way by default, and pacing is no longer experimental.
