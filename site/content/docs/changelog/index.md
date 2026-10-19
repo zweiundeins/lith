@@ -10,7 +10,11 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 ## Unreleased
 
+v0.3.2 fixes how a stream ends when the hub stops, and adds docs, skill and benchmarks. No API changed, and an app has nothing to update.
+
 - `sse`: a stream the hub stops while one of its writes is still under way gives that write up to 250 ms to finish, as the end frame gets, instead of a deadline of now. Over HTTP/2 the old deadline reset the stream with `INTERNAL_ERROR` even when the client had read the whole write, so a page lost its clean end and its `Reconnect` event on a deploy.
+- Docs and skill: views in a database that people share, keyed by the person as well as the route. Views with equal keys are one view, so a key of the route alone shows the first viewer's data to everyone on the route. The review checklist asks for it, and `site/internal/docs/example/access` has a test for each case.
+- Docs and skill: large updates and deletes, in commands by rowid range or in `Exclusive`, with what each does to other commands, the tick and the WAL. `BenchmarkLargeWrite` (`loadtest/largewrite_test.go`) measures them under the board's load; the numbers are in `bench/RESULTS.md`.
 
 ## v0.3.1 (2026-10-19)
 
