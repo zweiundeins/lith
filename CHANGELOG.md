@@ -4,17 +4,20 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 ## Unreleased
 
-`newest-frame.js` now only drops frames in the page by default, and the page reports when it falls behind. Pacing a stream by the page is new and experimental.
+`newest-frame.js` now only drops frames in the page by default, and once a page reports that it fell behind, the server paces its stream by the page's acknowledgements until it keeps up again. The template and the site pace this way by default, and pacing is no longer experimental.
 
 - `live`: `newest-frame.js` is the build of github.com/mbolli/datastar-attribute-newest-frame; `live/VERSION` names the commit. The template and the site leave `__reopen` off: at CPU 6x it held the Game of Life to 4 frames a second, 0.37 s behind where no fix was 0.10 s, and the page stayed on the slow stream for good. `data-newest-frame__reopen` keeps v0.3.0's behaviour. The slow-link check as the page starts is unchanged.
-- `live`, `prom`: `Hub.Behind(id)` counts a page's report that it fell behind its stream, exported as `<namespace>_live_newest_frame_behind_total` and `<namespace>_live_newest_frame_behind_streams_total`. The template posts each `newest-frame-behind` to `POST /behind`, and the "lith apps" dashboard draws both.
-- `live`, experimental: `Spec.Window`, `Spec.Ack` and `Hub.Ack` pace a stream by the page's acknowledgements; `Hub.Pace` starts pacing once the page is behind, and `Spec.Release` ends it. `Spec.ReleaseSlack` (default 100 ms) measures acknowledgements against the round trip the page reports, without which a page on a link of 100 ms or more is never released. Neither the template nor the site turns pacing on.
+- `live`: a stream with `Spec.Ack` starts unpaced; `Hub.Pace` paces it once its page is behind, and then it sends a write only once the page has acknowledged the last (`Hub.Ack`). `Spec.Release` (`DefaultRelease`, 5 s) ends the pacing once the page keeps up, measured against the round trip the page reports (`Hub.RoundTrip`) with `Spec.ReleaseSlack` (`DefaultReleaseSlack`, 100 ms). `Spec.Window` paces a stream from the start.
+- `live`, `prom`: `Hub.Behind(id)` counts a page's report that it fell behind its stream. prom exports it as `<namespace>_live_newest_frame_behind_total` and `<namespace>_live_newest_frame_behind_streams_total`, and the pacing as `<namespace>_live_paces_total`, `_releases_total` and `_acks_total`; the "lith apps" dashboard draws them.
+- Template: `<body>` posts each `newest-frame-behind` to `POST /pace`, which counts it and paces the stream, and each paced write has the page post `POST /ack` after the paint. Both routes reach only the streams of the request's session and are limited per session. A slow page gets about a third of the bytes; on a slow phone on a 300 ms link it lags 0.60 s at 1.45 frames a second, against 0.47 s at 2.74 with the plugin alone. A page that keeps up pays nothing. Without `Ack` in the stream's `Spec`, `/pace` only counts.
 - Template: the binary serves its metrics for Prometheus on a loopback listener of its own (`-metrics`, by default `-addr`'s port + 100). The unit now allows loopback and no other host. `lith-new` requires `lith/prom` and `lith/dbmetrics/prom`, and every release tags `prom/vX.Y.Z`.
-- Docs: what a frame costs the page (mostly its elements, not its bytes), counting the pages that fall behind, and pacing as an experimental recipe. The slow-page numbers come from the corrected `TestLifeDrift`: 27.15 s behind at the median in 150 s, not 42.6 s after 2 minutes.
+- Docs: what a frame costs the page (mostly its elements, not its bytes), counting the pages that fall behind, and pacing a stream by the page, with what it costs. The slow-page numbers come from the corrected `TestLifeDrift`: 27.15 s behind at the median in 150 s, not 42.6 s after 2 minutes.
 
 To update an app made from an earlier template:
 
-- Copy the template's `<body>` attributes and its `POST /behind` route, and add `POST /behind` to `edge.CSRF`'s `Datastar` routes.
+- Copy `internal/web/pace.go`, add its routes `POST /pace` and `POST /ack` with their limiters (`paces`, `acks`) to the server, and add both routes to `edge.CSRF`'s `Datastar` routes.
+- In the stream handler, give the `Spec` the ID `streamID(sid, tab)` and `Ack: ackEvent(tab)`. An app that calls `Watch` or `Unwatch` passes the same ID.
+- Copy the template's `<body>` attributes, `data-newest-frame data-on:newest-frame-behind={ behind }`, and `behind` in `internal/views/expr.go`.
 - For the metrics, copy `cmd/app/metrics.go`, the unit's network lines and `deploy/observability/app.metrics.yml`, and install the "lith apps" dashboard again. An app that calls out adds its addresses to the unit's `IPAddressAllow`.
 
 ## v0.3.0 (2026-10-16)
