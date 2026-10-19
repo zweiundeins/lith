@@ -69,7 +69,13 @@ type Options struct {
 	// GET documents and every other read share the rest: size it as the
 	// hub's Workers plus the reads that run at once besides the hub.
 	Readers int
-	// CacheKiB is the page cache of each connection (default 32000).
+	// CacheKiB is the page cache of each connection (default 32000). Readers
+	// and the hub's Workers grow with GOMAXPROCS, and so does the cache they
+	// can hold: 36 readers on a 32-core desktop may hold over 1 GiB. That
+	// suits a server. A desktop or background app pins Readers, CacheKiB and
+	// the hub's Workers instead (8, 4000 and 4, say): reads of a file that
+	// MmapBytes covers go through the mapping, and a large cache per
+	// connection then buys little.
 	CacheKiB int
 	// MmapBytes is how much of the file each reader maps (default 256 MiB,
 	// negative: none).
