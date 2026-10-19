@@ -67,7 +67,7 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev b
 		db: db, w: w, hub: hub, log: log, static: static,
 		limit: edge.NewLimiter(0.5, 5), // per client address: five signatures at once, then one every two seconds
 		paces: edge.NewLimiter(1, 5),   // per session: a page reports every 3 s at most
-		acks:  edge.NewLimiter(30, 60), // per session: a paced page acknowledges ten writes a second at most
+		acks:  edge.NewLimiter(20, 40), // per stream: a paced page acknowledges ten writes a second at most
 	}, nil
 }
 

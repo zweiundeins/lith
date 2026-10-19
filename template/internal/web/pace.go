@@ -57,8 +57,9 @@ func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 
 // ack takes the page's acknowledgement of its paced stream's write n
 // (live.Hub.Ack), and the round trip it reports (live.Hub.RoundTrip). It
-// answers 204, also to a session over its limit, whose acknowledgement it
-// drops: the stream then sends its next write after live.AckTimeout.
+// answers 204, also to a stream over its limit, whose acknowledgement it
+// drops: the stream then sends its next write after live.AckTimeout. The
+// limit is per stream, so a session with several paced tabs does not share it.
 func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	tab, token := q.Get("tab"), q.Get("s")
@@ -68,9 +69,8 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
 		return
 	}
-	sid := edge.SessionID(r.Context())
-	if s.acks.Allow(sid, 1, time.Now()) {
-		id := streamID(sid, tab)
+	id := streamID(edge.SessionID(r.Context()), tab)
+	if s.acks.Allow(id, 1, time.Now()) {
 		if rtt > 0 && rtt <= 60_000 {
 			s.hub.RoundTrip(id, time.Duration(rtt)*time.Millisecond)
 		}

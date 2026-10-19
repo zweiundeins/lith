@@ -101,7 +101,7 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
 		return
 	}
-	if s.acks.Allow(v.Session, 1, time.Now()) && s.owns(v) {
+	if s.acks.Allow(v.Session+"."+v.Tab, 1, time.Now()) && s.owns(v) {
 		if rtt > 0 && rtt <= 60_000 {
 			s.hub.RoundTrip(v.Tab, time.Duration(rtt)*time.Millisecond)
 		}

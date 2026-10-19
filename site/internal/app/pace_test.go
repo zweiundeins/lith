@@ -12,7 +12,7 @@ import (
 // TestPacing posts /pace and /ack as a page behind its stream does: /pace
 // counts the report and paces the stream, whose next write ends with an
 // element that posts /ack. Both reach only the streams of the request's
-// session, and both are limited per session.
+// session; /pace is limited per session, /ack per stream.
 func TestPacing(t *testing.T) {
 	a, base := apptest.Start(t)
 	ada, bob := client(t), client(t)
@@ -58,8 +58,8 @@ func TestPacing(t *testing.T) {
 	for range 80 {
 		post(t, ada, url, "")
 	}
-	if n := a.Hub().Stats().Acks; n < 60 || n > 66 {
-		t.Errorf("81 acknowledgements at once: %d taken, want 60 and what refilled", n)
+	if n := a.Hub().Stats().Acks; n < 40 || n > 45 {
+		t.Errorf("81 acknowledgements at once: %d taken, want 40 and what refilled", n)
 	}
 	cleo := client(t)
 	get(t, cleo, base+"/")

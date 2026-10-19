@@ -227,7 +227,8 @@ so a slow phone on a far link lags more than with the plugin alone (0.60
 against 0.47 s), for a third of the bytes; a page that keeps up pays
 nothing. To turn it off, leave `Spec.Ack` out. `/ack` and `/pace` need a
 session check (the template's stream ID names the session, built the
-same way in both routes) and a rate limit per session.
+same way in both routes), a rate limit per session for `/pace`
+and one per stream for `/ack`.
 
 ## Render loop
 

@@ -89,7 +89,7 @@ type Server struct {
 	history map[string]githistory.Commit
 	// commands limits every action of the site per client address.
 	commands *edge.Limiter
-	// paces and acks limit /pace and /ack per session.
+	// paces limits /pace per session, acks limits /ack per stream.
 	paces, acks *edge.Limiter
 	// owners are the sessions of the open streams, by tab id (ownStream).
 	owners sync.Map
@@ -105,7 +105,7 @@ type site struct {
 // New returns the server of the database that w writes and hub renders,
 // with the demos given.
 func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, list []demo.Demo) (*Server, error) {
-	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60), paces: edge.NewLimiter(1, 5), acks: edge.NewLimiter(30, 60)}
+	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60), paces: edge.NewLimiter(1, 5), acks: edge.NewLimiter(20, 40)}
 	var err error
 	if s.docs, err = docs.Load(content.Docs, cfg.Dev); err != nil {
 		return nil, fmt.Errorf("docs: %w", err)

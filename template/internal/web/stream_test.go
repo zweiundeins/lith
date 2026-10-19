@@ -182,9 +182,10 @@ func TestPacingIsTheSessionsOwn(t *testing.T) {
 	}
 }
 
-// TestPacingLimits checks the limits per session: five reports at once,
-// then one a second, and 60 acknowledgements at once, then 30 a second.
-// Over the limit a post answers 204 and is dropped.
+// TestPacingLimits checks the limits: five reports of a session at once,
+// then one a second, and 40 acknowledgements of a stream at once, then 20 a
+// second, which another stream of the same session does not share. Over the
+// limit a post answers 204 and is dropped.
 func TestPacingLimits(t *testing.T) {
 	base, hub := startHub(t)
 	c := client(t, base)
@@ -210,8 +211,27 @@ func TestPacingLimits(t *testing.T) {
 			t.Fatalf("ack: %d", code)
 		}
 	}
-	if n := hub.Stats().Acks; n < 60 || n > 65 {
-		t.Errorf("80 acknowledgements at once: %d taken, want 60 and what refilled", n)
+	taken := hub.Stats().Acks
+	if taken < 40 || taken > 44 {
+		t.Errorf("80 acknowledgements at once: %d taken, want 40 and what refilled", taken)
+	}
+
+	other := listen(t, c, base+"/stream?tab=tab2", nil)
+	next(t, other, `"_ack":""`)
+	post(t, c, base+"/pace?tab=tab2", "")
+	if code := post(t, c, base+"/cmd/sign", `{"tab":"tab2","op":"op2","name":"Ada","message":"Hello again"}`); code != http.StatusNoContent {
+		t.Fatalf("sign: %d", code)
+	}
+	m := regexp.MustCompile(`/ack\?tab=tab2&amp;s=([0-9a-z]+)&amp;n=1&amp;rtt=`).FindStringSubmatch(next(t, other, `id="ack-1"`))
+	if m == nil {
+		t.Fatal("no acknowledgement of the other stream's write")
+	}
+	token2 := m[1]
+	for range 5 {
+		post(t, c, base+"/ack?tab=tab2&s="+token2+"&n=1", "")
+	}
+	if n := hub.Stats().Acks - taken; n < 5 {
+		t.Errorf("the same session's other stream: %d of 5 acknowledgements taken, want 5", n)
 	}
 }
 
