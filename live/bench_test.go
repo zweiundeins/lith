@@ -100,6 +100,46 @@ func BenchmarkTick(b *testing.B) {
 	}
 }
 
+// BenchmarkTickDepends is BenchmarkTick with 1,000 views that declare 4
+// topics each with Depends besides their 4 Topics: the same in every tick
+// (same), or other ones in every tick, as if every tab navigated (moved).
+func BenchmarkTickDepends(b *testing.B) {
+	for _, moved := range []bool{false, true} {
+		b.Run(map[bool]string{false: "same", true: "moved"}[moved], func(b *testing.B) {
+			var gen int
+			h, ws, ss := benchHub(b, 1000, 4, func(i int) func(context.Context, *sql.Tx) (any, error) {
+				var deps [2][]string
+				for k := range deps {
+					for j := range 4 {
+						deps[k] = append(deps[k], "d:"+strconv.Itoa(k)+":"+strconv.Itoa(i*4+j))
+					}
+				}
+				return func(ctx context.Context, _ *sql.Tx) (any, error) {
+					k := 0
+					if moved {
+						k = gen % 2
+					}
+					Depends(ctx, deps[k]...)
+					return strconv.AppendInt(nil, int64(gen), 10), nil
+				}
+			})
+			t := &tick{ctx: context.Background()}
+			h.run(t, ws, time.Now())
+			take(ss)
+			for b.Loop() {
+				gen++
+				h.mu.Lock()
+				for _, v := range h.views {
+					h.mark(v)
+				}
+				h.mu.Unlock()
+				h.run(t, ws, time.Now())
+				take(ss)
+			}
+		})
+	}
+}
+
 // TestVersionMemory measures what the versions of the topics changed last
 // hold on the heap, the topics' names of 16 bytes included, with both
 // generations full:

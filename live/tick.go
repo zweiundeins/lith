@@ -140,6 +140,7 @@ type tick struct {
 	frames []any
 	sums   []uint64 // the hashes of the []byte frames
 	errs   []error
+	deps   []declared
 	next   atomic.Int64 // the queue: index of the next view to render
 	wg     sync.WaitGroup
 
@@ -187,6 +188,7 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	t.frames = slices.Grow(t.frames[:0], len(t.views))[:len(t.views)]
 	t.sums = slices.Grow(t.sums[:0], len(t.views))[:len(t.views)]
 	t.errs = slices.Grow(t.errs[:0], len(t.views))[:len(t.views)]
+	t.deps = slices.Grow(t.deps[:0], len(t.views))[:len(t.views)]
 	t.next.Store(0)
 	k := min(len(ws), len(t.views))
 	t.wg.Add(k)
@@ -201,6 +203,7 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	clear(t.frames)
 	clear(t.errs)
 	clear(t.sums)
+	clear(t.deps)
 	return true
 }
 
@@ -254,6 +257,9 @@ func (h *Hub) publish(t *tick) {
 	var booked int64
 	h.mu.Lock()
 	for i, v := range t.views[:taken] {
+		if d := t.deps[i]; d.changed && !v.dead && h.redepend(v, d.topics, d.seq) {
+			h.mark(v)
+		}
 		joined := v.joined
 		v.rendering, v.joined = false, false
 		f := t.frames[i]
@@ -362,7 +368,10 @@ func (w *worker) render(t *tick) {
 		if i >= len(t.views) {
 			break
 		}
-		t.frames[i], t.errs[i] = w.h.render(ctx, t.views[i], tx)
+		v := t.views[i]
+		t.frames[i], t.errs[i] = w.h.render(ctx, v, tx)
+		// v.deps changes only in publish, after the workers are done.
+		t.deps[i] = st.take(v.deps, t.errs[i] != nil)
 		if b, ok := t.frames[i].([]byte); ok {
 			t.sums[i] = maphash.Bytes(w.h.seed, b)
 		}

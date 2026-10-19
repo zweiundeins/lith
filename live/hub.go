@@ -16,6 +16,12 @@
 // during the tick; that commit marks its views dirty, and the next tick
 // brings them together. What must always agree belongs in one view.
 //
+// A view's topics are its Topics and those its last Render declared with
+// Depends, so a view whose reads follow a row, such as a tab's route,
+// follows them without a new key. A commit that touches a topic a Render
+// declares for the first time, after that Render's snapshot, marks the
+// view dirty when the hub takes the topic on.
+//
 // The hub numbers the commits Changed reports, 1, 2, 3 and on (Seq), and
 // keeps the number of the last commit that touched each topic (Version):
 // a cache of something a Render or a GET computes, such as a count, stays
@@ -142,7 +148,8 @@ type View struct {
 	// Key names the view. Views with the same key are one view: while it
 	// is watched, the definition it was first given is the one used.
 	Key string
-	// Topics mark the view dirty when a commit touches one of them.
+	// Topics mark the view dirty when a commit touches one of them, and so
+	// do the topics its last Render declared with Depends.
 	Topics []string
 	// Render renders the view in the worker's read transaction. Its ctx
 	// comes from the one Run got, with its values (a logger, the app's
@@ -253,6 +260,7 @@ type Hub struct {
 type view struct {
 	key      string
 	topics   []string
+	deps     []string // the topics its last Render declared, sorted; set in publish, with Hub.mu held
 	render   func(ctx context.Context, tx *sql.Tx) (any, error)
 	every    time.Duration
 	presence bool
@@ -725,12 +733,7 @@ func (h *Hub) watch(s *stream, def View) bool {
 		v = &view{key: def.Key, topics: slices.Clone(def.Topics), render: def.Render, every: def.Every, presence: def.Presence, size: -1}
 		h.views[v.key] = v
 		for _, t := range v.topics {
-			m := h.topics[t]
-			if m == nil {
-				m = map[*view]struct{}{}
-				h.topics[t] = m
-			}
-			m[v] = struct{}{}
+			h.subscribe(v, t)
 		}
 		if v.every > 0 {
 			h.every[v] = struct{}{}
@@ -782,13 +785,66 @@ func (h *Hub) drop(w *watch) bool {
 	v.frame, v.booked = nil, 0
 	delete(h.views, v.key)
 	for _, t := range v.topics {
-		delete(h.topics[t], v)
-		if len(h.topics[t]) == 0 {
-			delete(h.topics, t)
-		}
+		h.unsubscribe(v, t)
+	}
+	for _, t := range v.deps {
+		h.unsubscribe(v, t)
 	}
 	delete(h.every, v)
 	return false
+}
+
+// subscribe has a commit that touches t mark v dirty. Hub.mu is held.
+func (h *Hub) subscribe(v *view, t string) {
+	m := h.topics[t]
+	if m == nil {
+		m = map[*view]struct{}{}
+		h.topics[t] = m
+	}
+	m[v] = struct{}{}
+}
+
+// unsubscribe undoes subscribe. Hub.mu is held.
+func (h *Hub) unsubscribe(v *view, t string) {
+	if m := h.topics[t]; m != nil {
+		delete(m, v)
+		if len(m) == 0 {
+			delete(h.topics, t)
+		}
+	}
+}
+
+// redepend makes deps, sorted and without duplicates, the topics v's
+// Render declared, in place of those before, and reports whether a commit
+// after seq touched one v takes on: the Render's snapshot, which holds
+// the commits up to seq, may lack it, and no Changed marked v for it. A
+// topic among v's Topics stays. Hub.mu is held.
+func (h *Hub) redepend(v *view, deps []string, seq uint64) bool {
+	stale := false
+	h.vmu.RLock()
+	old := v.deps
+	i, j := 0, 0
+	for i < len(old) || j < len(deps) {
+		switch {
+		case j == len(deps) || i < len(old) && old[i] < deps[j]:
+			if !slices.Contains(v.topics, old[i]) {
+				h.unsubscribe(v, old[i])
+			}
+			i++
+		case i == len(old) || deps[j] < old[i]:
+			if t := deps[j]; !slices.Contains(v.topics, t) {
+				h.subscribe(v, t)
+				stale = stale || h.version(t) > seq
+			}
+			j++
+		default:
+			i++
+			j++
+		}
+	}
+	h.vmu.RUnlock()
+	v.deps = deps
+	return stale
 }
 
 // keep keeps nf as v's frame, or the frame it keeps already, which nf
