@@ -58,10 +58,6 @@ type Shell struct {
 	// page that does not stream. The page opens it with the tab id Tab.
 	Stream string
 	Tab    string
-	// Pace, when set, is a URL the page posts to, with its tab id, each
-	// time newest-frame.js reports that it is behind, in place of /behind,
-	// which counts the report (live.Hub.Behind).
-	Pace string
 	// Components are the Starbase components' bundles the page loads.
 	Components []Script
 	// JSONLD is the page's structured data, a schema.org @graph as JSON.
@@ -122,18 +118,12 @@ func pageSignals(tab string) string {
 	return "{_tab: " + jsString(tab) + ", _slow: " + slowLink + ", _badge: ''}"
 }
 
-// behind posts the tab's id to /behind, or to pace when it is set, each
-// time newest-frame.js reports that the page fell behind its stream,
-// without cancelling another request of the element. It runs on <body>,
-// where the event bubbles to: a @post from the stream's element would
-// abort its stream.
-func behind(pace string) string {
-	url := "/behind"
-	if pace != "" {
-		url = pace
-	}
-	return "@post(" + jsString(url+"?tab=") + " + $_tab, {requestCancellation: 'disabled'})"
-}
+// behind posts the tab's id to /pace each time newest-frame.js reports
+// that the page fell behind its stream, without cancelling another request
+// of the element: the server paces the stream and counts the report. It
+// runs on <body>, where the event bubbles to: a @post from the stream's
+// element would abort its stream.
+const behind = `@post('/pace?tab=' + $_tab, {requestCancellation: 'disabled'})`
 
 func jsString(s string) string {
 	b, _ := json.Marshal(s)

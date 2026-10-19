@@ -58,21 +58,23 @@ import (
 // before the page loads): JSON for
 // DevTools' Performance panel or ui.perfetto.dev, with User Timing marks
 // for each read of the stream and each frame applied (traceMarks).
-// LIFE_DRIFT_ACK, a number of writes, paces the stream by the page's
-// acknowledgements instead (web.Config.AckWindow), which the page sends
-// once it has applied a write, or with LIFE_DRIFT_ACK_AFTER=paint after
-// the paint that follows. LIFE_DRIFT_HYBRID paces the stream only once
-// the page reports that it is behind (web.Config.Hybrid, with a window of
-// LIFE_DRIFT_ACK or 1): "reopen" when the page, with __reopen, opens its
-// stream again with Save-Data: on, "inplace" when the page, with
-// newest-frame.js as it ships, posts /pace. LIFE_DRIFT_RELEASE,
-// such as 5s, ends the pacing of a page that keeps up again
-// (live.Spec.Release). LIFE_DRIFT_THEN, such as 1@60s or 1@60s,15@120s,
-// sets the CPU slowdown to 1 at 60 s into the run (and to 15 at 120 s).
-// LIFE_DRIFT_RELEASE_SLACK, such as 100ms, has the release measure each
-// acknowledgement against the round trip the page reports instead of the
-// next frame (live.Spec.ReleaseSlack, live.DefaultReleaseSlack unless
-// set); a negative one, such as -1ms, keeps the rule of the next frame. LIFE_DRIFT_INPUT=1 presses Shift every 500 ms
+// The page is paced as the site runs it: once newest-frame.js reports it
+// behind, it posts /pace, and the hub sends it a write only once it has
+// acknowledged the last, after the paint, until it keeps up again
+// (web.Config.Pacing). LIFE_DRIFT_HYBRID changes that: "off" leaves the
+// page to newest-frame.js alone (/pace then only counts), "reopen" paces
+// the stream the page, with __reopen, opens again with Save-Data: on.
+// LIFE_DRIFT_ACK, a number of writes, is the window of a paced stream,
+// and without LIFE_DRIFT_HYBRID paces every stream from the start
+// (web.Config.AckWindow); LIFE_DRIFT_ACK_AFTER=apply has the page
+// acknowledge a write once applied instead of after the paint.
+// LIFE_DRIFT_PLUGIN=reopen or off leaves pacing off unless LIFE_DRIFT_HYBRID
+// says otherwise. LIFE_DRIFT_RELEASE, such as 5s, is live.Spec.Release
+// (-1ms: never), LIFE_DRIFT_THEN, such as 1@60s or 1@60s,15@120s, sets the
+// CPU slowdown to 1 at 60 s into the run (and to 15 at 120 s), and
+// LIFE_DRIFT_RELEASE_SLACK is live.Spec.ReleaseSlack; a negative one,
+// such as -1ms, keeps the rule of the next frame and has the page report
+// no round trip. LIFE_DRIFT_INPUT=1 presses Shift every 500 ms
 // in Chromium and reports how long each press took to reach the page's
 // handler, and Event Timing's keydown entries (inputMeter).
 // LIFE_DRIFT_RENDER renders the board's frames in another markup
@@ -107,10 +109,16 @@ func TestLifeDrift(t *testing.T) {
 	}
 
 	ackWindow, _ := strconv.Atoi(os.Getenv("LIFE_DRIFT_ACK"))
-	ackPaint := os.Getenv("LIFE_DRIFT_ACK_AFTER") == "paint"
+	onApply := os.Getenv("LIFE_DRIFT_ACK_AFTER") == "apply"
 	hybrid := os.Getenv("LIFE_DRIFT_HYBRID")
-	if hybrid != "" && ackWindow == 0 {
-		ackWindow = 1
+	pacing := hybrid
+	switch {
+	case hybrid == "inplace":
+		pacing = ""
+	case hybrid == "" && ackWindow > 0:
+		pacing = "every"
+	case hybrid == "" && (plugin == "reopen" || plugin == "off"):
+		pacing = "off"
 	}
 	if hybrid == "reopen" && plugin == "" {
 		plugin = "reopen"
@@ -149,7 +157,7 @@ func TestLifeDrift(t *testing.T) {
 		}
 	}
 	a, _ := apptest.Start(t, func(c *app.Config) {
-		c.AckWindow, c.AckAfterPaint, c.Hybrid, c.AckRelease, c.AckReleaseSlack = ackWindow, ackPaint, hybrid, release, slack
+		c.Pacing, c.AckWindow, c.AckOnApply, c.AckRelease, c.AckReleaseSlack = pacing, ackWindow, onApply, release, slack
 		c.Demos = served
 	})
 	// The site again on a port of its own, behind a writer that times the
@@ -353,7 +361,7 @@ func TestLifeDrift(t *testing.T) {
 	lastSelf, lastCaddy := cpuTime(caddyPID)
 	cpu0, caddy0 := lastSelf, lastCaddy
 	var busies []float64
-	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, ack window %d after paint %v, hybrid %q release %v slack %v, then %v, input %v, markup %q without counters %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, ackWindow, ackPaint, hybrid, release, slack, phases, keys != nil, markup.Board, markup.NoStats)
+	t.Logf("CPU %gx, %s, hint %v, plugin %q, Cache-Control %q, RTT %v, cost %g ms, trace %q at %v for %v, pacing %q, ack window %d once applied %v, release %v slack %v, then %v, input %v, markup %q without counters %v", rate, base, slow, plugin, wm.cache, rtt, cost, tracePath, traceAt, traceFor, pacing, ackWindow, onApply, release, slack, phases, keys != nil, markup.Board, markup.NoStats)
 	stopKeys := make(chan struct{})
 	if keys != nil {
 		go keys.press(p, stopKeys)

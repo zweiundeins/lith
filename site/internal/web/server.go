@@ -15,6 +15,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/a-h/templ"
@@ -45,24 +46,25 @@ type Config struct {
 	// every request when that directory exists, and serves scripts and
 	// stylesheets as written instead of minified.
 	Dev bool
-	// AckWindow, if positive, paces the demos' streams by the pages'
-	// acknowledgements, with that many writes unacknowledged at most
-	// (live.Spec.Window, experimental), and AckAfterPaint has a page
-	// acknowledge a write after the paint that follows it instead of once
-	// applied. For measurements (TestLifeDrift), not in production: /ack
-	// and /pace check neither the session nor a rate limit.
-	AckWindow     int
-	AckAfterPaint bool
-	// Hybrid paces a stream only once its page reports that it is behind
-	// (newest-frame-behind), with AckWindow: "reopen" paces a stream
-	// opened with Save-Data: on, which newest-frame.js's __reopen sends,
-	// in place of a slow stream; "inplace" has the page post /pace, and
-	// paces the stream it has open. AckRelease ends the pacing of a page
-	// that keeps up again (live.Spec.Release). The page reports its round
-	// trip with each acknowledgement, and AckReleaseSlack is
-	// live.Spec.ReleaseSlack: 0 for live.DefaultReleaseSlack, negative for
-	// the rule of the next frame, without the reports. For measurements.
-	Hybrid          string
+	// Pacing is how the streams are paced by their pages. "" is the hybrid
+	// in place, as the site runs: a stream starts unpaced and is paced once
+	// its page posts /pace, which newest-frame.js has it do when the page
+	// falls behind, and released once the page keeps up again. The other
+	// values are for measurements (TestLifeDrift): "off" leaves
+	// newest-frame.js alone, and /pace only counts the report; "every"
+	// paces every stream from the start; "reopen" paces a stream that the
+	// page opened again with Save-Data: on, which newest-frame.js's
+	// __reopen sends, in place of the slow stream it would get.
+	Pacing string
+	// AckWindow is the writes a paced stream sends unacknowledged at most
+	// (live.Spec.Window): 0 for 1. AckOnApply has a page acknowledge a
+	// write once it applied it, instead of after the paint that follows.
+	// AckRelease and AckReleaseSlack are live.Spec.Release and
+	// live.Spec.ReleaseSlack, 0 for their defaults; with a negative
+	// AckReleaseSlack the page does not report its round trip. For
+	// measurements.
+	AckWindow       int
+	AckOnApply      bool
 	AckRelease      time.Duration
 	AckReleaseSlack time.Duration
 }
@@ -87,8 +89,10 @@ type Server struct {
 	history map[string]githistory.Commit
 	// commands limits every action of the site per client address.
 	commands *edge.Limiter
-	// behind limits the reports of pages behind their stream per session.
-	behind *edge.Limiter
+	// paces and acks limit /pace and /ack per session.
+	paces, acks *edge.Limiter
+	// owners are the sessions of the open streams, by tab id (ownStream).
+	owners sync.Map
 }
 
 // site is a demo as the site serves it, its notes rendered.
@@ -101,7 +105,7 @@ type site struct {
 // New returns the server of the database that w writes and hub renders,
 // with the demos given.
 func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, list []demo.Demo) (*Server, error) {
-	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60), behind: edge.NewLimiter(1, 5)}
+	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60), paces: edge.NewLimiter(1, 5), acks: edge.NewLimiter(30, 60)}
 	var err error
 	if s.docs, err = docs.Load(content.Docs, cfg.Dev); err != nil {
 		return nil, fmt.Errorf("docs: %w", err)
@@ -152,13 +156,8 @@ func (s *Server) Routes() *http.ServeMux {
 		http.Redirect(w, r, "/demos/"+r.PathValue("slug"), http.StatusMovedPermanently)
 	})
 	mux.HandleFunc("GET /demos/{slug}/stream", s.demoStream)
-	mux.HandleFunc("POST /behind", s.reportBehind)
-	if s.cfg.AckWindow > 0 {
-		mux.HandleFunc("POST /ack", s.ack)
-	}
-	if s.cfg.AckWindow > 0 && s.cfg.Hybrid == "inplace" {
-		mux.HandleFunc("POST /pace", s.pace)
-	}
+	mux.HandleFunc("POST /pace", s.pace)
+	mux.HandleFunc("POST /ack", s.ack)
 	mux.Handle("GET /static/", s.static)
 	mux.HandleFunc("GET /favicon.ico", s.file("image/png", iconPNG32))
 	mux.HandleFunc("GET /apple-touch-icon.png", s.file("image/png", iconPNG180))
@@ -303,9 +302,6 @@ func (s *Server) demoPage(w http.ResponseWriter, r *http.Request) {
 	sh := s.shell(r, d.Title, d.Summary, "/demos/"+d.Slug, "demos")
 	sh.JSONLD = s.graph(s.webPage("/demos/"+d.Slug, d.Title, d.Summary))
 	sh.Stream, sh.Tab = "/demos/"+d.Slug+"/stream", viewer.Tab
-	if s.cfg.AckWindow > 0 && s.cfg.Hybrid == "inplace" {
-		sh.Pace = "/pace"
-	}
 	sh.Components = s.components(d.Components...)
 	s.page(w, r, sh, func(ctx context.Context, tx *sql.Tx) (templ.Component, error) {
 		stage, err := d.Page.Render(ctx, tx, viewer)
@@ -337,6 +333,7 @@ func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, v demo.Viewer, vs []live.View) {
 	spec := live.Spec{ID: v.Tab, Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r)}
 	s.paceByAcks(&spec)
+	defer s.ownStream(v)()
 	err := s.hub.Serve(w, r, spec)
 	if err != nil && !errors.Is(err, live.ErrFull) && !errors.Is(err, live.ErrStopped) && !errors.Is(err, sse.ErrNoRoom) {
 		s.log.Debug("stream ended", "tab", v.Tab, "err", err)

@@ -23,7 +23,8 @@ import (
 // frame of the board. When each frame costs its main thread 300 ms more,
 // frames queue, and the page drops the older ones: each frame it applies
 // is the newest that has arrived. Once it drops most of them, the page
-// posts /behind, and the hub counts the report (live.Hub.Behind).
+// posts /pace: the hub counts the report (live.Hub.Behind) and paces the
+// stream, and the page acknowledges each write it gets (live.Hub.Ack).
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestNewestFrame
 func TestNewestFrame(t *testing.T) {
@@ -46,11 +47,11 @@ func TestNewestFrame(t *testing.T) {
 	if slow.Applied-full.Applied < 5 || slow.Dropped == 0 || slow.Stale > 0 || slow.Old > 0 {
 		t.Errorf("at 300 ms a frame, the board's frames: %+v", slow)
 	}
-	for deadline := time.Now().Add(5 * time.Second); a.Hub().Stats().Behind == 0 && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(5 * time.Second); a.Hub().Stats().Acks == 0 && time.Now().Before(deadline); {
 		time.Sleep(100 * time.Millisecond)
 	}
-	if st := a.Hub().Stats(); st.Behind == 0 || st.BehindStreams != 1 {
-		t.Errorf("the hub counted %d reports of %d streams behind, want 1 stream", st.Behind, st.BehindStreams)
+	if st := a.Hub().Stats(); st.Behind == 0 || st.BehindStreams != 1 || st.Paces != 1 || st.Acks == 0 {
+		t.Errorf("the hub counted %d reports of %d streams behind, paced %d and took %d acknowledgements, want 1 stream paced", st.Behind, st.BehindStreams, st.Paces, st.Acks)
 	}
 	t.Logf("%s: %+v at full speed, %+v at 300 ms a frame", p.Engine(), full, slow)
 	if errs := p.Errors(); len(errs) > 0 {
@@ -58,8 +59,9 @@ func TestNewestFrame(t *testing.T) {
 	}
 }
 
-// TestNewestFrameSlowStream opens the Game of Life with __reopen on a page
-// whose main thread each frame costs 300 ms more: it falls behind,
+// TestNewestFrameSlowStream opens the Game of Life with __reopen and
+// without pacing on a page whose main thread each frame costs 300 ms
+// more: it falls behind,
 // newest-frame.js drops more than half of the frames and opens the stream
 // again, at the same URL with Save-Data: on. The browser aborts the first request, the
 // site answers with a slow stream, no frame of the first stream is applied
@@ -67,7 +69,7 @@ func TestNewestFrame(t *testing.T) {
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestNewestFrameSlowStream
 func TestNewestFrameSlowStream(t *testing.T) {
-	a, _ := apptest.Start(t)
+	a, _ := apptest.Start(t, func(c *app.Config) { c.Pacing = "off" })
 	var streams streamLog
 	base := serveSite(t, streams.wrap(pluginMode("reopen", a.Handler())))
 	b := browser.Start(t)
