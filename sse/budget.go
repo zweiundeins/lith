@@ -714,8 +714,8 @@ type mover struct {
 	frame  int  // the stream's largest write
 	tier   tier // what it holds
 	opt    Options
-	listed bool // in Budget.movers
-	asked  bool // ch is closed
+	listed bool      // in Budget.movers
+	asked  time.Time // when ch was closed, zero while it is open
 }
 
 // update tells the budget what a mover holds and its largest write, and
@@ -725,7 +725,7 @@ func (b *Budget) update(m *mover, t tier, frame int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	m.tier, m.frame = t, frame
-	want := !m.asked && m.frame > 0 && b.shortOf(t, Brotli, m.opt, m.frame)
+	want := m.asked.IsZero() && m.frame > 0 && b.shortOf(t, Brotli, m.opt, m.frame)
 	switch {
 	case want && !m.listed:
 		m.listed = true
@@ -781,7 +781,7 @@ func (b *Budget) promote() {
 			next = at
 			break
 		}
-		m.listed, m.asked = false, true
+		m.listed, m.asked = false, now
 		b.movers = slices.Delete(b.movers, i, i+1)
 		close(m.ch)
 		b.asked = now

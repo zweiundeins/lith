@@ -395,15 +395,13 @@ func TestBudgetUpgrade(t *testing.T) {
 			return false
 		}
 	}
-	eventually := func(s *Stream) time.Time {
+	eventually := func(s *Stream) {
 		t.Helper()
 		select {
 		case <-s.Upgrade():
-			return time.Now()
 		case <-time.After(5 * time.Second):
 			t.Fatal("not asked within 5 s")
 		}
-		return time.Time{}
 	}
 	const every = 50 * time.Millisecond
 	b := NewBudget(BudgetOptions{Limit: 8 << 20})
@@ -457,12 +455,19 @@ func TestBudgetUpgrade(t *testing.T) {
 	if time.Since(first) < every && asked(below[1]) {
 		t.Fatal("a second stream asked within reopenEvery")
 	}
-	var at []time.Time
+	// The test may see a channel closed late, so the spacing is checked on
+	// the times the budget closed them.
+	b.mu.Lock()
+	at := []time.Time{below[0].up.asked}
+	b.mu.Unlock()
 	for _, s := range []*Stream{below[1], below[2], id} {
-		at = append(at, eventually(s))
+		eventually(s)
+		b.mu.Lock()
+		at = append(at, s.up.asked)
+		b.mu.Unlock()
 	}
 	for i := 1; i < len(at); i++ {
-		if d := at[i].Sub(at[i-1]); d < every*9/10 {
+		if d := at[i].Sub(at[i-1]); d < every {
 			t.Errorf("asked %v after the one before", d)
 		}
 	}
