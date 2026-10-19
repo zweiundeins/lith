@@ -8,7 +8,7 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.3.1 (2026-10-19)
 
 `newest-frame.js` now only drops frames in the page by default, and once a page reports that it fell behind, the server paces its stream by the page's acknowledgements until it keeps up again. The template and the site pace this way by default, and pacing is no longer experimental.
 
