@@ -281,8 +281,8 @@ The namespaces Datastar v1 knows besides HTML.
 ```go
 type Options struct {
 	// WriteTimeout bounds each write to the client (default 10s). A
-	// client that does not take a write in time loses its stream. The end
-	// frame of a stream the hub stops waits 250 ms at most.
+	// client that does not take a write in time loses its stream. When the
+	// hub stops, a write under way and the end frame wait 250 ms at most.
 	WriteTimeout time.Duration
 	// Compress, if set, is a semaphore shared by streams: its capacity
 	// bounds how many compress at once. A slot is held only while
@@ -352,7 +352,7 @@ type Stream struct {
 }
 ```
 
-Stream is one open event stream. Its methods are not safe for concurrent use, except that the stream may end (its request context ends) at any time: a write in progress then fails at once.
+Stream is one open event stream. Its methods are not safe for concurrent use, except that the stream may end (its request context ends) at any time: a write in progress then fails at once, or within 250 ms when the hub stops.
 
 #### func Open {#Open}
 

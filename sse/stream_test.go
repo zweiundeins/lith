@@ -572,8 +572,8 @@ func TestShutdownBoundsEndFrame(t *testing.T) {
 	}
 }
 
-// When the hub stops, a write under way fails at once, as when the client
-// leaves, and Close sends nothing after it.
+// When the hub stops, a write under way to a client that takes nothing
+// fails after endTimeout, and Close sends nothing after it.
 func TestShutdownCutsWriteUnderWay(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(t.Context())
 	w := newRecorder()
@@ -591,7 +591,7 @@ func TestShutdownCutsWriteUnderWay(t *testing.T) {
 		if !errors.Is(err, shutdown.Cause) {
 			t.Fatalf("the write failed with %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(endTimeout + 2*time.Second):
 		t.Fatal("the write outlived the shutdown")
 	}
 	sent := len(w.bytes())
@@ -599,6 +599,38 @@ func TestShutdownCutsWriteUnderWay(t *testing.T) {
 	s.Close()
 	if n := len(w.bytes()) - sent; n > 0 {
 		t.Fatalf("Close wrote %d bytes after a cut write", n)
+	}
+}
+
+// When the hub stops during a write that its client takes, the write
+// completes and the stream ends cleanly: a deadline already past would
+// reset an HTTP/2 stream however much of the write the client had read.
+func TestShutdownLetsWriteUnderWayFinish(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	w := newRecorder()
+	s, err := Open(w, request(ctx, Zstd), Options{WriteTimeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.stall(true)
+	done := make(chan error, 1)
+	go func() { done <- s.Write(Comment("x")) }()
+	<-w.blocked
+	cancel(shutdown.Cause)
+	s.abort()
+	if d := w.writeDeadline(); !time.Now().Before(d) || time.Until(d) > endTimeout {
+		t.Fatalf("the write under way got a deadline in %v", time.Until(d))
+	}
+	w.stall(false)
+	if err := <-done; err != nil {
+		t.Fatalf("the write failed with %v", err)
+	}
+	if err := s.CloseWith(Comment("last")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(decoder(t, Zstd, w.bytes()))
+	if err != nil || string(got) != ": x\n\n: last\n\n" {
+		t.Fatalf("got %q, %v", got, err)
 	}
 }
 

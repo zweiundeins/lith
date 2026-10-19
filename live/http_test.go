@@ -318,7 +318,7 @@ func (c readCloser) Close() error {
 	return nil
 }
 
-// When the hub stops, Run returns and every stream ends at once, the one
+// When the hub stops, Run returns and every stream ends promptly, the one
 // blocked in a write to a client that stopped reading included.
 func TestShutdownWithRealClients(t *testing.T) {
 	for _, p := range protocols {

@@ -49,8 +49,8 @@ import (
 // Options tune a stream. The zero value is ready to use.
 type Options struct {
 	// WriteTimeout bounds each write to the client (default 10s). A
-	// client that does not take a write in time loses its stream. The end
-	// frame of a stream the hub stops waits 250 ms at most.
+	// client that does not take a write in time loses its stream. When the
+	// hub stops, a write under way and the end frame wait 250 ms at most.
 	WriteTimeout time.Duration
 	// Compress, if set, is a semaphore shared by streams: its capacity
 	// bounds how many compress at once. A slot is held only while
@@ -112,7 +112,8 @@ type encoder interface {
 
 // Stream is one open event stream. Its methods are not safe for
 // concurrent use, except that the stream may end (its request context
-// ends) at any time: a write in progress then fails at once.
+// ends) at any time: a write in progress then fails at once, or within
+// 250 ms when the hub stops.
 type Stream struct {
 	w        http.ResponseWriter
 	rc       *http.ResponseController
@@ -139,9 +140,10 @@ type Stream struct {
 	up       *mover  // the stream's place among its budget's movers, from Upgrade
 
 	mu      sync.Mutex
-	writing bool // a write is under way
-	closing bool // Close is writing the end frame
-	closed  bool // after Close, abort leaves the response alone
+	writing bool      // a write is under way
+	due     time.Time // the deadline of the write under way
+	closing bool      // Close is writing the end frame
+	closed  bool      // after Close, abort leaves the response alone
 }
 
 // Open starts an event stream on w: it picks the encoding from the
@@ -565,7 +567,7 @@ func (s *Stream) start(due time.Time) error {
 	if err := s.deadline(due); err != nil {
 		return err
 	}
-	s.writing = true
+	s.writing, s.due = true, due
 	return nil
 }
 
@@ -609,14 +611,22 @@ func (s *Stream) deadline(t time.Time) error {
 }
 
 // abort runs when the request's context ends: a write under way fails at
-// once, except the end frame of a stream that shuts down. It leaves an
-// idle response alone, so that the response can still end cleanly. Once
-// Close has returned, the handler may have returned too, and the response
-// is no longer ours.
+// once, except while the stream shuts down: then it has endTimeout to
+// finish, as the end frame has. It leaves an idle response alone, so that
+// the response can still end cleanly. Once Close has returned, the handler
+// may have returned too, and the response is no longer ours.
 func (s *Stream) abort() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || !s.writing || (s.closing && s.shuttingDown()) {
+	if s.closed || !s.writing {
+		return
+	}
+	if s.shuttingDown() {
+		// A deadline already past resets an HTTP/2 stream at once, even
+		// one whose client has read the whole write.
+		if due := time.Now().Add(endTimeout); due.Before(s.due) {
+			_ = s.rc.SetWriteDeadline(due)
+		}
 		return
 	}
 	_ = s.rc.SetWriteDeadline(time.Now())

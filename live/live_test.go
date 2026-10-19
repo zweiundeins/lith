@@ -743,7 +743,7 @@ func TestPendingWatchEnds(t *testing.T) {
 	}
 }
 
-// When the hub stops, every stream ends at once, even one stuck in a
+// When the hub stops, every stream ends promptly, even one stuck in a
 // write to a client that stopped reading.
 func TestShutdownWaitsForNoStream(t *testing.T) {
 	_, read := testDB(t, 4)
