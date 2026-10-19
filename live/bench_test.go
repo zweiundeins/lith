@@ -11,11 +11,11 @@ import (
 	"time"
 )
 
-// benchHub is a hub with n views of k topics each, every view watched by
-// a stream of its own, and the render workers started without a read
-// pool; Run is not called, the benchmark runs the ticks. The view of
-// index i renders render(i).
-func benchHub(b *testing.B, n, k int, render func(i int) func(context.Context, *sql.Tx) (any, error)) (*Hub, []*worker, []*stream) {
+// benchHub is a hub with n views, every view watched by a stream of its
+// own, and the render workers started without a read pool; Run is not
+// called, the benchmark runs the ticks. The view of index i listens to
+// topics(i) and renders render(i).
+func benchHub(b *testing.B, n int, topics func(i int) []string, render func(i int) func(context.Context, *sql.Tx) (any, error)) (*Hub, []*worker, []*stream) {
 	h := New(Options{Workers: 4})
 	ws := make([]*worker, h.workers)
 	var wg sync.WaitGroup
@@ -32,12 +32,8 @@ func benchHub(b *testing.B, n, k int, render func(i int) func(context.Context, *
 	ss := make([]*stream, n)
 	h.mu.Lock()
 	for i := range ss {
-		topics := make([]string, k)
-		for j := range topics {
-			topics[j] = "t:" + strconv.Itoa(i*k+j)
-		}
 		ss[i] = &stream{seq: uint64(i), wake: make(chan struct{}, 1)}
-		h.watch(ss[i], View{Key: "v:" + strconv.Itoa(i), Topics: topics, Render: render(i)})
+		h.watch(ss[i], View{Key: "v:" + strconv.Itoa(i), Topics: topics(i), Render: render(i)})
 	}
 	h.mu.Unlock()
 	return h, ws, ss
@@ -54,22 +50,67 @@ func take(ss []*stream) {
 	}
 }
 
+// fourTopics are 4 topics a view, named by name(j) for j from 4i on.
+func fourTopics(name func(j int) string) func(i int) []string {
+	return func(i int) []string {
+		topics := make([]string, 4)
+		for j := range topics {
+			topics[j] = name(i*4 + j)
+		}
+		return topics
+	}
+}
+
+func noRender(int) func(context.Context, *sql.Tx) (any, error) {
+	return func(context.Context, *sql.Tx) (any, error) { return nil, nil }
+}
+
+// clean takes the dirty views off the dirty list.
+func clean(h *Hub) {
+	h.mu.Lock()
+	for _, v := range h.dirty {
+		v.dirty = false
+	}
+	clear(h.dirty)
+	h.dirty = h.dirty[:0]
+	h.mu.Unlock()
+}
+
 // BenchmarkChanged is one commit's Changed on a hub of 1,000 views with
-// 4 topics each: the commit touches two topics, which mark two views.
+// 4 topics each, of a depth of 1 (board7), 2 (board:7) or 3 (src:0:7,
+// 100 items a space): the commit touches two topics, which mark two
+// views.
 func BenchmarkChanged(b *testing.B) {
-	h, _, _ := benchHub(b, 1000, 4, func(int) func(context.Context, *sql.Tx) (any, error) {
-		return func(context.Context, *sql.Tx) (any, error) { return nil, nil }
-	})
-	topics := []string{"t:1", "t:2001"}
+	for _, c := range []struct {
+		name string
+		f    func(j int) string
+	}{
+		{"depth=1", func(j int) string { return "board" + strconv.Itoa(j) }},
+		{"depth=2", func(j int) string { return "board:" + strconv.Itoa(j) }},
+		{"depth=3", func(j int) string { return "src:" + strconv.Itoa(j/100) + ":" + strconv.Itoa(j) }},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			h, _, _ := benchHub(b, 1000, fourTopics(c.f), noRender)
+			topics := []string{c.f(1), c.f(2001)}
+			for b.Loop() {
+				h.Changed(topics)
+				clean(h)
+			}
+		})
+	}
+}
+
+// BenchmarkChangedBelow is one commit's Changed of src:A:* on a hub of
+// 2,000 views, 1,000 of them on topics src:A:i and 1,000 on src:B:i: the
+// commit marks 1,000 views.
+func BenchmarkChangedBelow(b *testing.B) {
+	h, _, _ := benchHub(b, 2000, func(i int) []string {
+		return []string{"src:" + string(rune('A'+i%2)) + ":" + strconv.Itoa(i)}
+	}, noRender)
+	topics := []string{"src:A:*"}
 	for b.Loop() {
 		h.Changed(topics)
-		h.mu.Lock()
-		for _, v := range h.dirty {
-			v.dirty = false
-		}
-		clear(h.dirty)
-		h.dirty = h.dirty[:0]
-		h.mu.Unlock()
+		clean(h)
 	}
 }
 
@@ -80,7 +121,7 @@ func BenchmarkTick(b *testing.B) {
 	for _, n := range []int{100, 1000, 10000} {
 		b.Run(fmt.Sprint(n), func(b *testing.B) {
 			var gen int
-			h, ws, ss := benchHub(b, n, 4, func(int) func(context.Context, *sql.Tx) (any, error) {
+			h, ws, ss := benchHub(b, n, fourTopics(func(j int) string { return "t:" + strconv.Itoa(j) }), func(int) func(context.Context, *sql.Tx) (any, error) {
 				return func(context.Context, *sql.Tx) (any, error) { return strconv.AppendInt(nil, int64(gen), 10), nil }
 			})
 			t := &tick{ctx: context.Background()}
@@ -107,7 +148,7 @@ func BenchmarkTickDepends(b *testing.B) {
 	for _, moved := range []bool{false, true} {
 		b.Run(map[bool]string{false: "same", true: "moved"}[moved], func(b *testing.B) {
 			var gen int
-			h, ws, ss := benchHub(b, 1000, 4, func(i int) func(context.Context, *sql.Tx) (any, error) {
+			h, ws, ss := benchHub(b, 1000, fourTopics(func(j int) string { return "t:" + strconv.Itoa(j) }), func(i int) func(context.Context, *sql.Tx) (any, error) {
 				var deps [2][]string
 				for k := range deps {
 					for j := range 4 {
