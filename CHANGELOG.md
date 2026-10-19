@@ -2,7 +2,7 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.4.0 (2026-10-19)
 
 Views can declare what their Render read, topics form a tree by their `:` segments, and the hub numbers its commits, for caches of derived values. A read can skip the statement caches, and a stream the hub stops keeps its clean end over HTTP/2. No API was removed. What to check in an app:
 
