@@ -156,6 +156,10 @@ A tab's state lives in SQLite, written by commands. A map of tabs in memory is e
 rg -n 'map\[string\]\*?[tT]ab' --type go
 ```
 
+### A view key that leaves out what Render filters by
+
+Does every view key contain everything its `Render` filters by? Views with the same key are one view, rendered by the definition its first watcher gave. A list filtered by the person under a key of the route alone renders the first person's list for everyone who opens the route after them, titles they may not read included. In a database that people share, the key carries the person, the route and the filters ([Views in a shared database, per person](/docs/guides/views#views-in-a-shared-database-per-person)).
+
 ### Commands and views that disagree on topics
 
 Every view names its topics, and every command touches the topics it changes. A command that touches nothing leaves pages stale; a view that listens to a topic every commit touches renders on every commit. `hub.Stats().RendersByKey` shows the second.

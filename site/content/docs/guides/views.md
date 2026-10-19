@@ -2,8 +2,8 @@
 title: Views and the hub
 nav: Views
 headline: Views and the hub: keys, topics and live streams
-summary: A view is a region of a page with a key, topics and a render function. Define the board's views, a tab's and a session's, add one to an open stream, tailor frames per stream, and keep the streams alive.
-description: A view is a region of a page with a key, topics and a render function: shared views, a tab's and a session's, views added to open streams, heartbeats.
+summary: A view is a region of a page with a key, topics and a render function. Define the board's views, a tab's and a session's, views per person in a shared database, add one to an open stream, tailor frames per stream, and keep the streams alive.
+description: A view is a region of a page with a key, topics and a render function: shared views, a tab's, a session's and a person's, views added to streams, heartbeats.
 order: 5
 ---
 
@@ -93,6 +93,77 @@ func prefsView(sid string) live.View {
 ```
 
 The rows behind both views are written by commands, so they survive a deploy ([Pages and Datastar](/docs/guides/pages#tab-state-in-sqlite)).
+
+## Views in a shared database, per person
+
+In a database that people share, two people on the same route may see different things: a restricted page is in one person's list and not in the other's. A view whose `Render` filters by the person then needs the person in its key, together with everything else it filters by: the route, the person and the filters the page asked for. The wiki in `site/internal/docs/example/access` keys the list of a space's pages that way:
+
+```go source=site/internal/docs/example/access/access.go
+// PagesView is the list of a space's pages for one person, filtered as
+// the page asked. Its key holds everything Render filters by: the space
+// (the route), the person and the filter. The person reaches Render
+// through the closure, and the key keeps two people's lists apart.
+func PagesView(person, space int64, filter string) live.View {
+	return live.View{
+		Key:    fmt.Sprintf("pages:%d:person:%d:q=%q", space, person, filter),
+		Topics: []string{SpaceTopic(space), GrantsTopic(person)},
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			q, _ := sqlite.QuerierFrom(ctx)
+			pages, err := Readable(ctx, q, person, space, filter)
+			if err != nil {
+				return nil, err
+			}
+			return renderPages(pages), nil
+		},
+	}
+}
+```
+
+Views with the same key are one view. While it is watched, the hub uses the definition it was first given, renders it once a tick and sends the frame to every stream that watches the key. With a key of the route alone, `pages:1`, the first person to open the space decides what the view renders, and everyone who opens the space after them gets that person's list, restricted titles included, until nobody watches it any more. The example's `TestRouteKeyLeaks` shows the leak, and `TestPagesPerPerson` shows two people on one route getting two frames, and a grant reaching only its person's list.
+
+`Render` gets a context and a transaction: no request, no stream, no session. That is on purpose, since one render serves every stream that watches the view, and the key is the only way anything about the viewer reaches it. The stream's handler reads the person from the session and builds the view with them, so the person is closed over and named in the key:
+
+```go source=site/internal/docs/example/access/access.go
+// Stream is the stream of the route /spaces/{space}. The person comes
+// from the session, never from the URL: whoever could put another
+// person's id in the URL would watch that person's list.
+func (s *Server) Stream(w http.ResponseWriter, r *http.Request) {
+	person, ok := s.Person(r)
+	if !ok {
+		http.Error(w, "sign in first", http.StatusUnauthorized)
+		return
+	}
+	space, err := strconv.ParseInt(r.PathValue("space"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	filter := r.URL.Query().Get("q")
+	s.Hub.Serve(w, r, live.Spec{Views: []live.View{PagesView(person, space, filter)}})
+}
+```
+
+Code that builds a view from its key alone, such as a handler that calls `hub.Watch` with a key the page sent, parses the person out of the key and checks it against the request's session first. A view never takes the person from the URL or from a signal.
+
+The view listens to the topics of what it shows: the space's, for its pages, and the person's grants. A command touches what it changed. A new page touches the space, since anyone on it may be allowed to read it; a grant touches only its person's topic, so it renders one list again, not everyone's:
+
+```go source=site/internal/docs/example/access/access.go
+// Grant lets a person read a restricted page. Only that person's lists
+// change, so it touches the person's topic, not the space's.
+type Grant struct{ Person, Page int64 }
+
+func (c Grant) Apply(tx *writer.Tx) error {
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO grants (person, page_id) VALUES (?, ?)`, c.Person, c.Page); err != nil {
+		return err
+	}
+	tx.Touch(GrantsTopic(c.Person))
+	return nil
+}
+```
+
+A command does not touch a topic per person: it would have to know who watches. The cost is a render per person: a change to a space that thirty people watch renders thirty lists in the next tick, where a shared view would render one, and `hub.Stats().RendersByKey` shows a key per person. Keep those views small. The parts that are the same for everyone who may see them, such as a page's body, go into a view keyed by the page and shared: the handler checks that the person may open the page before the stream watches it, and whatever takes the right away also ends that watch in the person's streams with `hub.Unwatch`. `live.Cache` keeps fragments by their content, so the per-person lists copy a row's HTML instead of rendering it again.
+
+Sharing one frame between people whose views are nearly the same cannot be done safely in general. The key would have to name what those people have in common, a role say, instead of the person, and the render would have to filter by that and nothing else: no name, no "you", no button that depends on one person's grant. A change to a person's grants would have to move their streams to another key with `Unwatch` and `Watch`, in the same order as the commit, or they keep watching what they may no longer see. A filter in `Spec.Write` instead, after the render, reads the grants outside the render's snapshot and runs for every stream at every tick. Render per person unless a measurement shows that the renders cost too much, and then share by role, with the role in the key.
 
 ## Opening a stream
 

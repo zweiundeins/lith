@@ -88,6 +88,12 @@ pattern matches.
   give the server `context.WithoutCancel`.
 - Tab state lives in SQLite, not in a map in memory: `rg -n
   'map\[string\]\*?[tT]ab' --type go`. A deploy loses the map.
+- Does every view key contain everything its Render filters by? A Render
+  that filters by the person, a role or a filter the page sent, under a
+  key without it, leaks: views with equal keys are one view, rendered by
+  the definition the first watcher gave, so everyone else on the route gets
+  that person's data. In a shared database the key carries the person
+  (`pages:<space>:person:<id>`), never the route alone.
 - Every view names its topics, and every command touches the topics it
   changes. A command that touches nothing leaves pages stale; a view that
   listens to `all` re-renders on every commit.

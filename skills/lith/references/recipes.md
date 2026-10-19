@@ -351,6 +351,67 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   0.37 s behind, where no fix was 0.10 s (performance.md, the streams
   guide).
 
+## Views in a shared database, per person
+
+When people share a database and their permissions differ, two people on
+the same route see different things. The view's key carries everything its
+Render filters by: the person, the route and the filters.
+
+```go
+func pagesView(person, space int64, filter string) live.View {
+	return live.View{
+		Key:    fmt.Sprintf("pages:%d:person:%d:q=%q", space, person, filter),
+		Topics: []string{SpaceTopic(space), GrantsTopic(person)},
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			q, _ := sqlite.QuerierFrom(ctx)
+			pages, err := queries.Readable(ctx, q, person, space, filter) // WHERE restricted = 0 OR a grant
+			if err != nil {
+				return nil, err
+			}
+			return renderPages(pages), nil
+		},
+	}
+}
+
+func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
+	person, ok := s.person(r) // from the session, never from the URL or a signal
+	if !ok {
+		http.Error(w, "sign in first", http.StatusUnauthorized)
+		return
+	}
+	v := pagesView(person, spaceID(r), r.URL.Query().Get("q"))
+	s.hub.Serve(w, r, live.Spec{ID: readTabID(r), Views: []live.View{v}})
+}
+```
+
+- Views with equal keys are one view: while it is watched, the definition
+  it was first given renders it, once a tick, for every stream on the key.
+  A key of the route alone (`pages:1`) renders the first viewer's list for
+  everyone who opens the route after them, restricted titles included.
+- Render gets no request, stream or session, and that is right: one render
+  serves every stream on the key. The person reaches it through the key:
+  closed over by the handler that built the view, or parsed out of the key
+  by code that builds a view from a key the page sent (`hub.Watch`), after
+  checking it against the session.
+- Topics: the view listens to what it shows (`space:<id>`) and to the
+  person's grants (`grants:<person>`). A new page touches the space; a
+  grant touches only its person. Never a topic per person for a change
+  everyone may see: the command would have to know who watches.
+- Cost: one render per person who watches, per change of the space. Keep
+  per-person views small; content that is the same for everyone allowed to
+  see it (a page's body) goes in a view keyed by the page, watched only
+  after the handler checked access, and `live.Cache` reuses row fragments
+  across the per-person renders.
+- Sharing a frame across people cannot be done safely in general. It needs
+  a key of what they share (a role), a Render that filters by that alone
+  (no name, no "you", no button by grant), and a grant change that moves
+  the person's streams to the new key (`Unwatch`, `Watch`). A filter in
+  `Spec.Write` reads grants outside the render's snapshot. Render per
+  person until a measurement says otherwise.
+- `site/internal/docs/example/access` is the compiled version, with a test
+  that two people on one route get two frames and one that shows the leak
+  of a route-only key.
+
 ## Tab state and preferences
 
 State that must survive a deploy is a row, written by a command.
