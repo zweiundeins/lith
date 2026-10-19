@@ -36,11 +36,12 @@ const (
 // on the track, ResultsTopic when a race ends. The table of results
 // animates its frames in a view transition, and such a frame goes out on
 // every render, changed or not: its view listens to ResultsTopic alone.
+// None is under Topic, or a view on Topic would render for each of them.
 const (
 	Topic        = Slug
-	LineTopic    = Slug + ":line"
-	LiveTopic    = Slug + ":live"
-	ResultsTopic = Slug + ":results"
+	LineTopic    = "line:" + Slug
+	LiveTopic    = "live:" + Slug
+	ResultsTopic = "results:" + Slug
 )
 
 // Producers are the choices of producers; Syncs of the race file's

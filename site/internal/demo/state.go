@@ -17,8 +17,10 @@ import (
 const TabTTL = 24 * time.Hour
 
 // TabTopic is the topic of the state of a demo's tab: a command that saves
-// it touches the topic, and the tab's own view listens to it.
-func TabTopic(slug, tab string) string { return slug + ":tab:" + tab }
+// it touches the topic, and the tab's own view listens to it. It is under
+// tab, not under the demo's slug, where a view on the slug would render
+// for every tab's save.
+func TabTopic(slug, tab string) string { return "tab:" + slug + ":" + tab }
 
 // SaveTab stores state, as JSON, as the state of the viewer's tab in the
 // demo, and touches TabTopic. It runs inside a command.

@@ -76,7 +76,7 @@ func TestMove(t *testing.T) {
 	if got, want := layout(t, e), [Lanes][]int64{{1, 2, 3, 5}, {6, 7, 4, 8}, {9, 10, 11, 12}}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("after a move across lanes: %v", got)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"board", "board:tab:tab-ada"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"board", "tab:board:tab-ada"}) {
 		t.Errorf("a move touched %v", got)
 	}
 	b := read(t, e)
@@ -114,7 +114,7 @@ func TestStale(t *testing.T) {
 	e.Do(t, move(ada, "a1", 7, 2, 0, 0))
 	e.Touched()
 	e.Do(t, move(bob, "b1", 7, 0, 0, 0))
-	if got := e.Touched(); !slices.Equal(got, []string{"board:tab:tab-bob"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:board:tab-bob"}) {
 		t.Errorf("a refused move touched %v", got)
 	}
 	if got := layout(t, e); got[2][0] != 7 {
@@ -146,7 +146,7 @@ func TestStale(t *testing.T) {
 func TestMoveInPlace(t *testing.T) {
 	e := demotest.Open(t, Demo)
 	e.Do(t, move(ada, "op1", 2, 0, 1, 0))
-	if got := e.Touched(); !slices.Equal(got, []string{"board:tab:tab-ada"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:board:tab-ada"}) {
 		t.Errorf("a move to where the card is touched %v", got)
 	}
 	if b := read(t, e); b.Version != 0 || b.Lanes[0][1].Version != 0 {
@@ -325,7 +325,7 @@ func TestViews(t *testing.T) {
 		for _, v := range vs {
 			keys = append(keys, v.Key)
 		}
-		if !slices.Equal(keys, []string{"board:board", "board:stats", "board:here", "board:tab:tab-ada"}) {
+		if !slices.Equal(keys, []string{"board:board", "board:stats", "board:here", "tab:board:tab-ada"}) {
 			t.Fatalf("views: %v", keys)
 		}
 		f, err := vs[0].Render(ctx, tx)

@@ -89,7 +89,7 @@ func (r *runner) run(race Race) {
 	})
 ```
 
-`Record` stores the sample and touches `writer-race:live`. The track's view listens to that topic: it renders once in the next tick, from the samples in SQLite, and every tab that shows the track gets the same frame. Its frames morph at once, without a view transition; the bars and the progress ease between them in CSS.
+`Record` stores the sample and touches `live:writer-race`. The track's view listens to that topic: it renders once in the next tick, from the samples in SQLite, and every tab that shows the track gets the same frame. Its frames morph at once, without a view transition; the bars and the progress ease between them in CSS.
 
 ```go title=live.go
 func trackView() live.View {

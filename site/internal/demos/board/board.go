@@ -42,10 +42,11 @@ const (
 )
 
 // The topics: Topic for the cards (every move and reset), HereTopic for
-// the tabs on the page.
+// the tabs on the page. HereTopic is not under Topic, or every hello would
+// render the board.
 const (
 	Topic     = Slug
-	HereTopic = Slug + ":here"
+	HereTopic = "here:" + Slug
 )
 
 // The views' keys.

@@ -71,7 +71,7 @@ func TestStart(t *testing.T) {
 	if woke != 1 {
 		t.Errorf("the runner was woken %d times", woke)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race:line", "writer-race:tab:t1"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"line:writer-race", "tab:writer-race:t1"}) {
 		t.Errorf("a start touched %v", got)
 	}
 	if !strings.Contains(said(o), "Race 1 is yours: next on the track.") {
@@ -87,7 +87,7 @@ func TestStart(t *testing.T) {
 	if o := tab(t, e, other); o.Race.ID != 1 || !o.State.Again || said(o) != "Race 1 is yours: next on the track. One race at a time for each visitor." {
 		t.Fatalf("a second race of a session: %+v, %q", o, said(o))
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race:tab:t2"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:writer-race:t2"}) {
 		t.Errorf("a refusal touched %v", got)
 	}
 
@@ -141,7 +141,7 @@ func TestLifecycle(t *testing.T) {
 	if n.Race.ID != 1 || n.Race.Settings != (Settings{50, "NORMAL"}) {
 		t.Fatalf("claimed %+v", n)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race", "writer-race:line", "writer-race:live"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"line:writer-race", "live:writer-race", "writer-race"}) {
 		t.Errorf("a claim touched %v", got)
 	}
 	if o := tab(t, e, me); o.Race.State != "running" || said(o) != "Race 1 is yours: on the track now." {
@@ -153,7 +153,7 @@ func TestLifecycle(t *testing.T) {
 	s2 := s
 	s2.At, s2.Commands, s2.Batches = 100*time.Millisecond, 2500, 100
 	e.Do(t, Record{Race: 1, Sample: s2})
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race:live"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"live:writer-race"}) {
 		t.Errorf("a sample touched %v", got)
 	}
 	var tr track
@@ -171,7 +171,7 @@ func TestLifecycle(t *testing.T) {
 	last := s2
 	last.At, last.Commands, last.Batches, last.Queue = 3010*time.Millisecond, 150_500, 6020, 0
 	e.Do(t, Finish{Race: 1, Last: last, EndedAt: t0.Add(5 * time.Second)})
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race", "writer-race:live", "writer-race:results"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"live:writer-race", "results:writer-race", "writer-race"}) {
 		t.Errorf("a finish touched %v", got)
 	}
 	// A sample that comes after the end changes nothing.
@@ -204,7 +204,7 @@ func TestInterrupted(t *testing.T) {
 	if got := states(t, e); !slices.Equal(got, []string{"1:interrupted", "2:queued"}) || woke != 1 {
 		t.Fatalf("after a restart: %v, woken %d", got, woke)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race", "writer-race:live", "writer-race:results"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"live:writer-race", "results:writer-race", "writer-race"}) {
 		t.Errorf("recovering touched %v", got)
 	}
 	if o := tab(t, e, me); said(o) != "Race 1 is yours: the server restarted during it." {
@@ -278,7 +278,7 @@ func TestSweep(t *testing.T) {
 	}
 	// The dropped race leaves the line; the races deleted are the oldest,
 	// which no view shows.
-	if got := e.Touched(); !slices.Equal(got, []string{"writer-race", "writer-race:line"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"line:writer-race", "writer-race"}) {
 		t.Errorf("the sweep touched %v", got)
 	}
 	e.Do(t, writer.Func(func(tx *writer.Tx) error { return sweep(tx, now) }))
@@ -321,7 +321,7 @@ func TestViews(t *testing.T) {
 	for _, v := range vs {
 		keys = append(keys, v.Key)
 	}
-	if !slices.Equal(keys, []string{"writer-race:track", "writer-race:line", "writer-race:results", "writer-race:tab:t1"}) {
+	if !slices.Equal(keys, []string{"writer-race:track", "writer-race:line", "writer-race:results", "tab:writer-race:t1"}) {
 		t.Fatalf("views: %v", keys)
 	}
 	track := render(vs[0])

@@ -43,7 +43,8 @@ const (
 )
 
 // The topics: Topic for every change to the town, TopicPruned when the
-// sweep dropped old events, which moves the slider's start.
+// sweep dropped old events, which moves the slider's start. TopicPruned
+// is under Topic: every view on Topic listens to it as well.
 const (
 	Topic       = Slug
 	TopicPruned = Slug + ":pruned"

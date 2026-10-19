@@ -148,7 +148,7 @@ func TestDraw(t *testing.T) {
 	if Population(b.Cells) != 7 || b.Cells[at(12, 10)] != colour || b.Cells[at(14, 11)] != colour || b.Quiet != 0 {
 		t.Errorf("a stroke drew %d cells:\n%s", Population(b.Cells), Plain(b.Cells))
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"life", "life:tab:t-ada"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"life", "tab:life:t-ada"}) {
 		t.Errorf("a stroke touched %v", got)
 	}
 	if s := tabState(t, e, ada); s.Op != "op1" || s.Refusal != "" {
@@ -175,7 +175,7 @@ func TestDropAndPick(t *testing.T) {
 	e := demotest.Open(t, Demo)
 	set(t, e, make([]byte, Cells))
 	e.Do(t, Pick{Viewer: bob, Colour: 7, At: t0})
-	if got := e.Touched(); !slices.Equal(got, []string{"life:sid:s-bob"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"sid:life:s-bob"}) {
 		t.Errorf("a pick touched %v", got)
 	}
 	e.Do(t, Drop{Viewer: bob, Op: "op1", Pattern: "glider", Cell: at(40, 25), Turn: 1, At: t0})
@@ -183,7 +183,7 @@ func TestDropAndPick(t *testing.T) {
 	g, _ := Find("glider")
 	g.Stamp(want, at(40, 25), 1, 7)
 	same(t, "the dropped glider", board(t, e).Cells, want)
-	if got := e.Touched(); !slices.Equal(got, []string{"life", "life:tab:t-bob"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"life", "tab:life:t-bob"}) {
 		t.Errorf("a drop touched %v", got)
 	}
 	for _, bad := range []writer.Command{
@@ -209,7 +209,7 @@ func TestReset(t *testing.T) {
 	if Population(b.Cells) != 0 || b.Generation != 0 || b.Reset != t0.UnixMilli() || b.Quiet != t0.UnixMilli() {
 		t.Fatalf("after a reset: %d cells, generation %d, reset %d, quiet %d", Population(b.Cells), b.Generation, b.Reset, b.Quiet)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"life", "life:tab:t-ada"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"life", "tab:life:t-ada"}) {
 		t.Errorf("a reset touched %v", got)
 	}
 
@@ -217,7 +217,7 @@ func TestReset(t *testing.T) {
 	if s := tabState(t, e, bob); s.Op != "op2" || !strings.Contains(s.Refusal, "empty already") {
 		t.Errorf("a reset of an empty board: %+v", s)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"life:tab:t-bob"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:life:t-bob"}) {
 		t.Errorf("a refusal touched %v", got)
 	}
 
@@ -266,7 +266,7 @@ func TestViews(t *testing.T) {
 	e.Do(t, Draw{Viewer: ada, Op: "op1", Cells: []int{0}, Alive: true, At: t0})
 	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
 		vs := pageViews(ada)
-		if len(vs) != 2 || vs[0].Key != BoardKey || !vs[0].Presence || vs[1].Key != "life:tab:t-ada" || !slices.Contains(vs[1].Topics, "life:sid:s-ada") {
+		if len(vs) != 2 || vs[0].Key != BoardKey || !vs[0].Presence || vs[1].Key != "tab:life:t-ada" || !slices.Contains(vs[1].Topics, "sid:life:s-ada") {
 			t.Fatalf("views: %+v", vs)
 		}
 		out, err := vs[0].Render(ctx, tx)

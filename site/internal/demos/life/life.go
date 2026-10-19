@@ -49,8 +49,9 @@ const (
 )
 
 // sessionTopic is touched when a session picks its colour, so that each of
-// its tabs shows the new one.
-func sessionTopic(sid string) string { return Slug + ":sid:" + sid }
+// its tabs shows the new one. It is not under Topic, which the board's
+// view listens to.
+func sessionTopic(sid string) string { return "sid:" + Slug + ":" + sid }
 
 // TabState is a tab's state in site_tabs: its newest action, and why the
 // board refused it, if it did.

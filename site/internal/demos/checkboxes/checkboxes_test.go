@@ -174,7 +174,7 @@ func TestSetWindow(t *testing.T) {
 	if got := h.chunksOf(me.Tab); !slices.Equal(got, span(6, 18)) {
 		t.Errorf("after a scroll the tab watches %v", got)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"checkboxes:tab:t1"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:checkboxes:t1"}) {
 		t.Errorf("a window touched %v", got)
 	}
 	e.Do(t, SetWindow{Viewer: me, Window: Window{Start: 2000}, At: at, Hub: h})

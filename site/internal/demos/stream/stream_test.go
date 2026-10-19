@@ -147,7 +147,7 @@ func TestViews(t *testing.T) {
 	e := demotest.Open(t, Demo)
 	vs := pageViews(me)
 	keys := []string{vs[0].Key, vs[1].Key, vs[2].Key}
-	if !slices.Equal(keys, []string{"stream:report", "stream:tab:t1", "stream:table:t1"}) || vs[0].Every != time.Second || vs[2].Every != Step {
+	if !slices.Equal(keys, []string{"stream:report", "tab:stream:t1", "stream:table:t1"}) || vs[0].Every != time.Second || vs[2].Every != Step {
 		t.Fatalf("views: %v", keys)
 	}
 	if ev := embedViews(me); len(ev) != 1 || ev[0].Key != "stream:report:embed" {

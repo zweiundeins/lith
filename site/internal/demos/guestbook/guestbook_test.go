@@ -26,7 +26,7 @@ func TestSign(t *testing.T) {
 	if total != 1 || list[0].Name != "Ada" || list[0].Message != "Hello from Biel" || !state.Accepted() || state.Op != "op1" {
 		t.Fatalf("signed: %d %+v, tab %+v", total, list, state)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"guestbook", "guestbook:tab:t1"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"guestbook", "tab:guestbook:t1"}) {
 		t.Errorf("a signature touched %v", got)
 	}
 
@@ -37,7 +37,7 @@ func TestSign(t *testing.T) {
 	if total != 1 || state.Op != "op2" || state.Accepted() || !strings.Contains(state.Refusal, "newest entry") {
 		t.Fatalf("repeated: %d entries, tab %+v", total, state)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"guestbook:tab:t1"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:guestbook:t1"}) {
 		t.Errorf("a refusal touched %v", got)
 	}
 
@@ -86,7 +86,7 @@ func TestViews(t *testing.T) {
 	e.Do(t, Sign{Viewer: me, Op: "op1", Name: "Ada", Message: "Hello", At: time.Now()})
 	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
 		vs := pageViews(me)
-		if len(vs) != 2 || vs[0].Key != "guestbook:entries" || vs[1].Key != "guestbook:tab:t1" {
+		if len(vs) != 2 || vs[0].Key != "guestbook:entries" || vs[1].Key != "tab:guestbook:t1" {
 			t.Fatalf("views: %v %v", vs[0].Key, vs[1].Key)
 		}
 		f, err := vs[0].Render(ctx, tx)

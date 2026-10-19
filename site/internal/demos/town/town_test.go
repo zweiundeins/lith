@@ -75,7 +75,7 @@ func TestPlace(t *testing.T) {
 	if town[5] != (Tile{Kind: House, Who: whoOf(ada.Session), Version: 1}) || s.Op != "op1" || s.Refusal != "" {
 		t.Fatalf("a house: %+v, tab %+v", town[5], s)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"lith:events", "town", "town:tab:tab-ada"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"lith:events", "tab:town:tab-ada", "town"}) {
 		t.Errorf("a change touched %v", got)
 	}
 
@@ -85,7 +85,7 @@ func TestPlace(t *testing.T) {
 	if town[5].Kind != House || s.Refusal != nameOf(whoOf(ada.Session))+" changed F1 first. It is a house now." {
 		t.Fatalf("a stale change: %+v, tab %+v", town[5], s)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"town:tab:tab-bob"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:town:tab-bob"}) {
 		t.Errorf("a refused change touched %v", got)
 	}
 
@@ -114,7 +114,7 @@ func TestPlace(t *testing.T) {
 	if town, s = readTown(t, e, bob); town[7].Kind != Grass || !strings.Contains(s.Refusal, "past") || s.At != 1 {
 		t.Errorf("a change from the past: %+v, tab %+v", town[7], s)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"town:tab:tab-bob"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:town:tab-bob"}) {
 		t.Errorf("a change from the past touched %v", got)
 	}
 
@@ -159,7 +159,7 @@ func TestSeek(t *testing.T) {
 	if got := h.take(); !slices.Equal(got, []string{"unwatch town:now", "watch town:at:2 town:pruned", "watch town:later:2 town:pruned"}) {
 		t.Errorf("to 2: %v", got)
 	}
-	if got := e.Touched(); !slices.Equal(got, []string{"town:tab:tab-bob"}) {
+	if got := e.Touched(); !slices.Equal(got, []string{"tab:town:tab-bob"}) {
 		t.Errorf("a seek touched %v", got)
 	}
 	// Two events after 4: the events after it can still grow.
@@ -202,7 +202,7 @@ func TestViews(t *testing.T) {
 	e.Do(t, Seek{Viewer: bob, At: 3, Seq: 1, Now: time.Now()})
 	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
 		vs := pageViews(bob)
-		if len(vs) != 2 || vs[0].Key != "town:tab:tab-bob" || vs[1].Key != "town:head" {
+		if len(vs) != 2 || vs[0].Key != "tab:town:tab-bob" || vs[1].Key != "town:head" {
 			t.Fatalf("views: %v %v", vs[0].Key, vs[1].Key)
 		}
 		f, err := vs[0].Render(ctx, tx)
