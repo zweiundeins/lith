@@ -18,9 +18,11 @@
 //
 // A view's topics are its Topics and those its last Render declared with
 // Depends, so a view whose reads follow a row, such as a tab's route,
-// follows them without a new key. A commit after a Render's snapshot, to
-// a topic that Render declares for the first time, marks the view dirty
-// once the hub takes the topic on.
+// follows them without a new key. Topics form a tree by their segments:
+// a commit to src:A:7 marks the views of src:A and src as well, and one
+// to src:A:* those of everything below src:A. A commit after a Render's
+// snapshot, to a topic that Render declares for the first time, marks
+// the view dirty once the hub takes the topic on.
 //
 // The hub numbers the commits Changed reports, 1, 2, 3 and on (Seq), and
 // keeps the number of the last commit that touched each topic (Version):
@@ -62,6 +64,7 @@ import (
 	"log/slog"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -152,7 +155,11 @@ type View struct {
 	// is watched, the definition it was first given is the one used.
 	Key string
 	// Topics mark the view dirty when a commit touches one of them, and so
-	// do the topics its last Render declared with Depends.
+	// do the topics its last Render declared with Depends. A topic is a
+	// path of segments joined by ':', such as board:42, and a commit to a
+	// topic below one touches it too: a view on board renders for a commit
+	// to board:42 (Hub.Changed). A segment is never empty and holds no '*';
+	// Serve and Watch panic on a topic that breaks this.
 	Topics []string
 	// Render renders the view in the worker's read transaction. Its ctx
 	// comes from the one Run got, with its values (a logger, the app's
@@ -242,7 +249,7 @@ type Hub struct {
 
 	mu      sync.Mutex
 	views   map[string]*view
-	topics  map[string]map[*view]struct{}
+	topics  map[string]*node // the tree of the topics views listen to, by name
 	every   map[*view]struct{}
 	dirty   []*view
 	byID    map[string]*stream
@@ -398,7 +405,7 @@ func New(o Options) *Hub {
 		older:         map[string]uint64{},
 		maxVersions:   o.Versions,
 		views:         map[string]*view{},
-		topics:        map[string]map[*view]struct{}{},
+		topics:        map[string]*node{},
 		every:         map[*view]struct{}{},
 		byID:          map[string]*stream{},
 		pending:       map[string][]pendingView{},
@@ -411,26 +418,52 @@ func New(o Options) *Hub {
 	return h
 }
 
-// Changed marks dirty every view with one of the topics. It is meant for
-// the writer's OnCommit and never waits for a render. Each call is a
-// commit: it takes the next number (Seq), which becomes the version of
-// the topics. Call it after the change is in the database, as OnCommit
-// is. An app that commits through its own store calls it after each
-// commit is visible to readers, never inside the transaction: a render
-// that begins after Changed counts the commit as part of its snapshot.
+// Changed marks dirty every view with one of the topics, or with a
+// topic above one: a commit to src:A:7 touches src:A and src as well. A
+// topic that ends in :*, such as src:A:*, touches everything at or below
+// src:A, and src above it. A topic of * alone touches everything, as
+// MarkAll. A topic or one above it that the topics name twice counts
+// once. Changed does not check the topics, as Watch does: it runs for
+// every commit.
+//
+// It is meant for the writer's OnCommit and never waits for a render.
+// Each call is a commit: it takes the next number (Seq), which becomes
+// the version of the topics it names. Call it after the change is in
+// the database, as OnCommit is. An app that commits through its own
+// store calls it after each commit is visible to readers, never inside
+// the transaction: a render that begins after Changed counts the commit
+// as part of its snapshot.
 func (h *Hub) Changed(topics []string) {
 	h.mu.Lock()
 	h.vmu.Lock()
 	n := h.commits.Load() + 1
+	all := false
 	for _, t := range topics {
-		h.setVersion(t, n)
+		if t == "*" {
+			all = true
+		} else {
+			h.setVersion(t, n)
+		}
+	}
+	if all {
+		clear(h.versions)
+		clear(h.older)
+		h.floor, h.rotated = n, n
 	}
 	h.commits.Store(n)
 	h.vmu.Unlock()
 	marked := false
-	for _, t := range topics {
-		for v := range h.topics[t] {
+	if all {
+		for _, v := range h.views {
 			marked = h.mark(v) || marked
+		}
+	} else {
+		for _, t := range topics {
+			if below, ok := strings.CutSuffix(t, ":*"); ok {
+				marked = h.markBelow(below, n) || marked
+			} else {
+				marked = h.markUp(t, n) || marked
+			}
 		}
 	}
 	h.mu.Unlock()
@@ -439,27 +472,12 @@ func (h *Hub) Changed(topics []string) {
 	}
 }
 
+var everything = []string{"*"}
+
 // MarkAll marks every view dirty, as after a change nothing tracks
 // (a migration, new templates). It counts as a commit that touched every
-// topic: Version then reports it for each.
-func (h *Hub) MarkAll() {
-	h.mu.Lock()
-	h.vmu.Lock()
-	n := h.commits.Load() + 1
-	clear(h.versions)
-	clear(h.older)
-	h.floor, h.rotated = n, n
-	h.commits.Store(n)
-	h.vmu.Unlock()
-	marked := false
-	for _, v := range h.views {
-		marked = h.mark(v) || marked
-	}
-	h.mu.Unlock()
-	if marked {
-		h.poke()
-	}
-}
+// topic: Version then reports it for each. It is Changed with *.
+func (h *Hub) MarkAll() { h.Changed(everything) }
 
 // Seq is the number of the last commit: Changed and MarkAll number them
 // from 1, and 0 is the hub's start. The numbers start again with every
@@ -663,6 +681,9 @@ func check(v View) {
 	if v.Key == "" || v.Render == nil {
 		panic("live: a View needs a Key and a Render")
 	}
+	for _, t := range v.Topics {
+		checkTopic(t)
+	}
 }
 
 func (h *Hub) poke() {
@@ -797,26 +818,6 @@ func (h *Hub) drop(w *watch) bool {
 	}
 	delete(h.every, v)
 	return false
-}
-
-// subscribe has a commit that touches t mark v dirty. Hub.mu is held.
-func (h *Hub) subscribe(v *view, t string) {
-	m := h.topics[t]
-	if m == nil {
-		m = map[*view]struct{}{}
-		h.topics[t] = m
-	}
-	m[v] = struct{}{}
-}
-
-// unsubscribe undoes subscribe. Hub.mu is held.
-func (h *Hub) unsubscribe(v *view, t string) {
-	if m := h.topics[t]; m != nil {
-		delete(m, v)
-		if len(m) == 0 {
-			delete(h.topics, t)
-		}
-	}
 }
 
 // redepend makes deps, sorted and without duplicates, the topics v's

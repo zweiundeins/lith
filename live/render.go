@@ -52,9 +52,13 @@ func Seq(ctx context.Context) uint64 {
 // that fails keeps the topics of the one before. A commit that lands
 // after the Render's snapshot and touches a topic the view takes on marks
 // it dirty as well: the hub compares the topic's Version with Seq(ctx).
+// A topic that View.Topics would refuse panics, which fails the Render.
 // Outside a Render, Depends does nothing.
 func Depends(ctx context.Context, topics ...string) {
 	if s := stateFrom(ctx); s != nil {
+		for _, t := range topics {
+			checkTopic(t)
+		}
 		s.mu.Lock()
 		s.deps = append(s.deps, topics...)
 		s.mu.Unlock()
