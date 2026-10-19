@@ -531,9 +531,52 @@ func (c Navigate) Apply(tx *writer.Tx) error {
   tab's alone. A shared view declares the same topics for everyone, since
   everyone gets the same render.
 - A render that declares what the one before declared costs a sort and a
-  compare of its topics; one that changes them, an update of the hub's map
+  compare of its topics; one that changes them, an update of the hub's tree
   per topic, about 1 µs per view for four topics in and four out
   (`BenchmarkTickDepends`).
+
+## A topic hierarchy
+
+Topics are paths, from the general to the particular: `source:space:item`.
+A commit to `confluence:SWE:123` counts for `confluence:SWE` and
+`confluence` as well; `board:42` is also `board`. Each view listens at the
+level of what it shows:
+
+- a page's view on `confluence:SWE:123`, for that page;
+- a space's list on `confluence:SWE`, for any page in it;
+- search and the counts per source on `confluence`, for anything in it.
+
+A commit to a level does not reach the levels below it. When everything
+below a level changed, as after a sync that rewrote a space, touch the
+level with `:*`, once, instead of each item:
+
+```go
+tx.Touch(live.Below(live.Topic("confluence", c.Space))) // confluence:SWE:*
+```
+
+`confluence:SWE:*` marks the views of the space and of every page below it,
+and counts for `confluence`; `hub.Version` of each page reads at least that
+commit. `*` alone touches everything, as `hub.MarkAll()`.
+
+- An id must not contain `:`, or it makes levels of its own
+  (`urn:uuid:…`). Ids from outside the app go through
+  `live.Topic(parts...)`, which escapes `:`, `*` and `%` percent-style and
+  leaves plain parts alone: `live.Topic("board", "42")` is `board:42`. An
+  empty part becomes `%`.
+- A view's topics have no empty segment and no `*`: `Serve` and `Watch`
+  panic, `Depends` fails the render. A view on `confluence:SWE` hears
+  everything below it already. `hub.Changed` does not check, it runs for
+  every commit.
+- Aggregates key on the level they cover: a space's count on
+  `hub.Version("confluence:SWE")`. The levels above the named topics have
+  their own store (`live.Options.PrefixVersions`, 32,768), so a sync of
+  79,000 pages pushes out pages, not spaces or sources, and a quiet space's
+  count survives it.
+- Each level costs a commit a little: a version per level above the named
+  topic and a step up the hub's tree of watched topics. On 1,000 views a
+  commit of two topics costs 150 ns at depth 1, 190 ns at depth 2 and
+  220 ns at depth 3 (130 ns flat, before); a `:*` walks the views below
+  it, about 50 µs for 1,000 (`BenchmarkChanged`, `BenchmarkChangedBelow`).
 
 ## Caching an aggregate against a version
 
@@ -597,7 +640,8 @@ err := s.db.View(ctx, func(tx *sql.Tx) error {
   item they changed. The sidebar tree, built from what sync writes, keys on
   `hub.Version("sync")`, so a click does not throw away what a sync built;
   search counts per source key on `hub.Version("sync:"+source)`. A value any
-  write can change keys on `hub.Seq()`.
+  write can change keys on `hub.Seq()`. Topics in a hierarchy are families
+  already: `hub.Version("items:SWE")` moves with every `items:SWE:<id>`.
 - The numbers start at 0 with each hub: keep such caches in memory, never in
   the database. `hub.MarkAll()` counts as a commit that touched every topic.
 - The hub keeps the versions of at least 32,768 topics, those changed last,
@@ -605,10 +649,15 @@ err := s.db.View(ctx, func(tx *sql.Tx) error {
   with a name of 16, 4.3 MiB at most. A topic it no longer keeps reads as
   changed when it was pushed out, so a cache computes again and is never
   wrong. Topics per tab or per row churn through it; a cache keyed on them
-  computes more often after a busy spell, nothing else. A bulk sync that
-  touches more distinct topics than that, one per item, pushes versions out
-  all along, and every cached aggregate computes again about once per
-  32,768 new topics until it ends: correct, but costly.
+  computes more often after a busy spell, nothing else.
+- The levels above the named topics (`items:SWE`, `items`) have their own
+  store, `live.Options.PrefixVersions`, 32,768 by default. A bulk sync that
+  touches more distinct topics than `Versions`, one per item, pushes items
+  out all along, and a cache keyed on an item computes again about once per
+  32,768 new topics until it ends; it pushes out no space or source, so
+  aggregates keyed on those survive it. Key aggregates on the level they
+  cover. The second lever: raise `Options.Versions` above the distinct
+  topics a sync touches, about 70 bytes a topic.
 - `live.Cache` is a different thing: it keeps rendered fragments by their
   content. Use a version for the query behind a value, the cache for the
   HTML it renders to.

@@ -12,7 +12,7 @@ A View is a part of a page. Views with the same key are one view, which renders 
 
 A view renders in one read transaction, so it agrees with itself. Views rendered by different workers can see different commits when one lands during the tick; that commit marks its views dirty, and the next tick brings them together. What must always agree belongs in one view.
 
-A view's topics are its Topics and those its last Render declared with Depends, so a view whose reads follow a row, such as a tab's route, follows them without a new key. A commit after a Render's snapshot, to a topic that Render declares for the first time, marks the view dirty once the hub takes the topic on.
+A view's topics are its Topics and those its last Render declared with Depends, so a view whose reads follow a row, such as a tab's route, follows them without a new key. Topics form a tree by their segments: a commit to src:A:7 marks the views of src:A and src as well, and one to src:A:\* those of everything below src:A. A commit after a Render's snapshot, to a topic that Render declares for the first time, marks the view dirty once the hub takes the topic on.
 
 The hub numbers the commits Changed reports, 1, 2, 3 and on (Seq), and keeps the number of the last commit that touched each topic (Version): a cache of something a Render or a GET computes, such as a count, stays good while the version of its topics is not above the number it was computed at (Seq(ctx) in a Render).
 
@@ -88,13 +88,21 @@ url := static.URL("lith/" + live.NewestFrame) // /static/lith/newest-frame.3f2a9
 
 ## Functions
 
+### func Below {#Below}
+
+```go
+func Below(t string) string
+```
+
+Below is the topic a commit touches to say that everything at or below t changed: t with :\*, for Changed and writer.Tx.Touch.
+
 ### func Depends {#Depends}
 
 ```go
 func Depends(ctx context.Context, topics ...string)
 ```
 
-Depends declares, in a Render, that the view read what the topics name, as Topics do: a commit that touches one of them marks the view dirty. The topics the Render declares replace those the Render before it declared, once it returns, so a view whose reads depend on a row, such as a tab's route, declares what it read for the route it rendered, and a commit to what an earlier route read no longer renders it. A Render that fails keeps the topics of the one before. A commit that lands after the Render's snapshot and touches a topic the view takes on marks it dirty as well: the hub compares the topic's Version with Seq(ctx). Outside a Render, Depends does nothing.
+Depends declares, in a Render, that the view read what the topics name, as Topics do: a commit that touches one of them marks the view dirty. The topics the Render declares replace those the Render before it declared, once it returns, so a view whose reads depend on a row, such as a tab's route, declares what it read for the route it rendered, and a commit to what an earlier route read no longer renders it. A Render that fails keeps the topics of the one before. A commit that lands after the Render's snapshot and touches a topic the view takes on marks it dirty as well: the hub compares the topic's Version with Seq(ctx). A topic that View.Topics would refuse panics, which fails the Render. Outside a Render, Depends does nothing.
 
 ### func Seq {#Seq}
 
@@ -113,6 +121,14 @@ counts.Add(space, count{n: n, seq: live.Seq(ctx)})
 ```
 
 Outside a Render it is 0, which keeps a value good only while none of its topics has changed since the hub started. A GET reads Hub.Seq before its read transaction begins instead.
+
+### func Topic {#Topic}
+
+```go
+func Topic(parts ...string) string
+```
+
+Topic joins parts into a topic, one segment each: Topic("src", space, uid). It escapes ':', '\*' and '%' in a part as %3A, %2A and %25, so an id from outside the app, such as urn:uuid:..., stays one segment and never reads as a level or as everything below. A part without them comes out as it is, so Topic("board", "42") is board:42. An empty part becomes %, which no other part escapes to.
 
 ## Types
 
@@ -228,7 +244,9 @@ Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New
 func (h *Hub) Changed(topics []string)
 ```
 
-Changed marks dirty every view with one of the topics. It is meant for the writer's OnCommit and never waits for a render. Each call is a commit: it takes the next number (Seq), which becomes the version of the topics. Call it after the change is in the database, as OnCommit is. An app that commits through its own store calls it after each commit is visible to readers, never inside the transaction: a render that begins after Changed counts the commit as part of its snapshot.
+Changed marks dirty every view with one of the topics, or with a topic above one: a commit to src:A:7 touches src:A and src as well. A topic that ends in :\*, such as src:A:\*, touches everything at or below src:A, and src above it. A topic of \* alone touches everything, as MarkAll. A topic or one above it that the topics name twice counts once. Changed does not check the topics, as Watch does: it runs for every commit.
+
+It is meant for the writer's OnCommit and never waits for a render. Each call is a commit: it takes the next number (Seq), which becomes the version of the topics it touches. Call it after the change is in the database, as OnCommit is. An app that commits through its own store calls it after each commit is visible to readers, never inside the transaction: a render that begins after Changed counts the commit as part of its snapshot.
 
 #### func (*Hub) Count {#Hub.Count}
 
@@ -252,7 +270,7 @@ Done is closed once the hub stops: when Run's ctx ends, or Run returns. Work tha
 func (h *Hub) MarkAll()
 ```
 
-MarkAll marks every view dirty, as after a change nothing tracks (a migration, new templates). It counts as a commit that touched every topic: Version then reports it for each.
+MarkAll marks every view dirty, as after a change nothing tracks (a migration, new templates). It counts as a commit that touched every topic: Version then reports it for each. It is Changed with \*.
 
 #### func (*Hub) Pace {#Hub.Pace}
 
@@ -320,7 +338,7 @@ Unwatch stops the stream with this ID from watching the view: after it returns, 
 func (h *Hub) Version(topics ...string) uint64
 ```
 
-Version is the number of the last commit that touched one of the topics (Seq), 0 when none did since the hub started. A topic the hub no longer keeps (Options.Versions) reads as changed at the commit that pushed it out of the hub, or at the last MarkAll; so do no topics.
+Version is the number of the last commit that touched one of the topics (Seq), 0 when none did since the hub started. A commit touches a topic as Changed says: Version of src:A moves with every commit to src:A:7, and Version of src:A:7 with one to src:A:\*. A topic with :\* reads as the topic without it, and \* as Seq. A topic the hub no longer keeps (Options.Versions, Options.PrefixVersions) reads as changed at the commit that pushed it, or a topic above it, out of the hub, or at the last MarkAll; so do no topics.
 
 #### func (*Hub) Watch {#Hub.Watch}
 
@@ -399,9 +417,19 @@ type Options struct {
 	// so does every topic while it keeps none: a cache then computes
 	// again, and is never wrong. A bulk sync that touches more distinct
 	// topics than Versions, one per item, pushes them out all along, and
-	// every cache computes again about once per Versions new topics until
-	// it ends.
+	// a cache keyed on an item computes again about once per Versions new
+	// topics until it ends. The topics above them, such as src:A above
+	// src:A:7, are in PrefixVersions, which the sync does not push out: a
+	// cache keyed on a space or a source computes again only when they
+	// change.
 	Versions int
+	// PrefixVersions is how many prefixes the hub keeps the version of,
+	// the topics above those a commit names, such as board for board:42
+	// (default 32768; negative: none). It bounds them as Versions bounds
+	// the topics the commits name, and a prefix it no longer keeps reads
+	// as changed in the same way. A topic that a commit names while the
+	// hub keeps it as a prefix stays among the prefixes.
+	PrefixVersions int
 	// SSE configures the streams. Its Compress semaphore defaults to half
 	// the CPUs, so a burst of frames leaves cores for everything else. Its
 	// Budget defaults to sse.NewBudget(sse.BudgetOptions{}): half the
@@ -558,7 +586,11 @@ type View struct {
 	// is watched, the definition it was first given is the one used.
 	Key string
 	// Topics mark the view dirty when a commit touches one of them, and so
-	// do the topics its last Render declared with Depends.
+	// do the topics its last Render declared with Depends. A topic is a
+	// path of segments joined by ':', such as board:42, and a commit to a
+	// topic below one touches it too: a view on board renders for a commit
+	// to board:42 (Hub.Changed). A segment is never empty and holds no '*';
+	// Serve and Watch panic on a topic that breaks this.
 	Topics []string
 	// Render renders the view in the worker's read transaction. Its ctx
 	// comes from the one Run got, with its values (a logger, the app's

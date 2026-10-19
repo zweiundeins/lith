@@ -43,10 +43,46 @@ When `Render` fails, the hub logs the error and the streams send nothing: the pa
 
 A topic names a part of the state that commands change: `board:1`, `card:7`, `tab:<id>`, `sid:<id>`. A command touches the topics of what it changed, and a view lists the topics of what it shows. The writer calls `hub.Changed(topics)` after each commit, through `writer.Options.OnCommit`; an app with a store of its own calls it after its own commits ([Wiring](/docs/getting-started/wiring#without-liths-writer)).
 
-- Give each thing a page shows a topic of its own. A view that listens to a topic every commit touches renders on every commit.
+Topics are paths: their segments, joined by `:`, go from the general to the particular. A commit to a topic counts for every topic above it, so `board:42` is also `board`, and a view on `board` renders for every board's commit. A commit to `board` reaches no view on `board:42` ([A topic hierarchy](#a-topic-hierarchy)).
+
+- Give each thing a page shows a topic of its own. A view that listens to a topic every commit touches renders on every commit, and so does one on a topic above them all, such as `board`.
 - A command that touches nothing leaves every page as it was, however much it changed.
 - `hub.MarkAll()` marks every view dirty, after a change no topic tracks: an `Exclusive` import, a migration at runtime.
 - `hub.Stats().RendersByKey` counts the renders of each view: a view that renders more often than its topics change listens to too much.
+
+## A topic hierarchy
+
+A sync from outside, say a wiki's pages, names its topics `source:space:item`: `confluence:SWE:123` is page 123 of the space SWE. A commit to a page counts for the levels above it, so it touches `confluence:SWE` and `confluence` as well, and each view listens at the level of what it shows:
+
+- a page's view listens to `confluence:SWE:123`, and renders when that page changes;
+- a space's list listens to `confluence:SWE`, and renders when any of its pages changes;
+- search and the counts per source listen to `confluence`, and render when anything in the source changes.
+
+A commit to a level does not reach the levels below it: one to `confluence:SWE`, a space's own settings, renders the list and search, and no page. When everything below a level changed, as when a sync rewrote a space, the command touches the level with `:*`, once, instead of each page:
+
+```go
+func (c SyncSpace) Apply(tx *writer.Tx) error {
+	for _, p := range c.Pages {
+		if _, err := tx.Exec(`INSERT INTO pages (source, space, id, title, body) VALUES ('confluence', ?, ?, ?, ?)
+			ON CONFLICT (source, space, id) DO UPDATE SET title = excluded.title, body = excluded.body`,
+			c.Space, p.ID, p.Title, p.Body); err != nil {
+			return err
+		}
+	}
+	tx.Touch(live.Below(live.Topic("confluence", c.Space))) // confluence:SWE:*
+	return nil
+}
+```
+
+`confluence:SWE:*` marks the views of the space and of every page below it, and counts for `confluence` above it. `hub.Version` of each page in the space reads at least that commit. A topic of `*` alone touches everything, as `hub.MarkAll()` does. `Tx.Touch`, `OnCommit` and `hub.Changed` take these topics as they take any other.
+
+An id inside a topic must not contain `:`, or it makes levels of its own: an iCalendar UID such as `urn:uuid:…` in `cal:` + uid is three levels, not two. Ids from outside the app go through `live.Topic(parts...)`, which escapes `:`, `*` and `%` in each part as `%3A`, `%2A` and `%25` and joins the parts with `:`. A part without them comes out as it is, so `live.Topic("board", "42")` is `board:42`, the topic an app already builds by hand. An empty part becomes `%`. `live.Below(topic)` adds the `:*`.
+
+A view's topics have no empty segment and no `*`: `Serve` and `Watch` panic on `a::b`, `a:` or `a:*`, and `Depends` fails its render. A view on `confluence:SWE` already hears everything below it. `hub.Changed` does not check its topics, since it runs for every commit.
+
+Cached aggregates key on the level they cover: a space's count on `hub.Version("confluence:SWE")`, the counts per source on `hub.Version("confluence")`. The hub keeps the versions of the levels above the topics commits name apart from theirs (`live.Options.PrefixVersions`, 32,768 by default), so a sync of 79,000 pages pushes pages out of `Options.Versions` and leaves the spaces and sources: a count of a quiet space keeps its value through a sync of another one ([caching against a version](/docs/guides/reads#caching-an-aggregate-against-a-version)).
+
+Each level costs a commit a little more. The hub records a version for each topic above the one named, and finds the views of the topic and of each level above it in a tree of the topics views listen to, which drops a level once no view listens to it or below it. On 1,000 views, a commit of two topics costs 150 ns at one level (`board7`), 190 ns at two (`board:7`) and 220 ns at three (`src:0:7`); before the hierarchy, one at two levels cost 130 ns. A `:*` costs a walk over the views below the level, about 50 µs for 1,000 of them (`BenchmarkChanged`, `BenchmarkChangedBelow` in `live`).
 
 ## Views of a tab and of a session
 
@@ -385,6 +421,7 @@ func watchdog(b int64) string {
 | `Hibernate` | never | how long a stream may stay idle before its encoder goes back ([Streams](/docs/guides/streams#hibernation)) |
 | `RenderTimeout` | 2 s | how long a render may take before its context ends |
 | `OnTick` | none | gets each tick's duration |
+| `Versions`, `PrefixVersions` | 32,768 each | the versions kept of the topics commits name, and of the levels above them ([Reads](/docs/guides/reads#caching-an-aggregate-against-a-version)) |
 | `SSE` | | the streams' options and their memory budget ([Streams](/docs/guides/streams)) |
 
 The board's settings:

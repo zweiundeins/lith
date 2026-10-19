@@ -105,7 +105,9 @@ pattern matches.
   (`pages:<space>:person:<id>`), never the route alone.
 - Every view names its topics, and every command touches the topics it
   changes. A command that touches nothing leaves pages stale; a view that
-  listens to `all` re-renders on every commit.
+  listens to `all` re-renders on every commit, and so does one on a level
+  above many topics, such as `board` above every `board:<id>`. An id from
+  outside the app goes into a topic through `live.Topic`.
 
 ## Schema
 

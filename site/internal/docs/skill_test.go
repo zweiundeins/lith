@@ -71,6 +71,7 @@ func TestSkill(t *testing.T) {
 			"Views in a shared database, per person": "/docs/guides/views#views-in-a-shared-database-per-person",
 			"Tab state and preferences":              "/docs/guides/pages#tab-state-in-sqlite",
 			"A per-tab view that navigates":          "/docs/guides/views#a-per-tab-view-that-navigates",
+			"A topic hierarchy":                      "/docs/guides/views#a-topic-hierarchy",
 			"Caching an aggregate against a version": "/docs/guides/reads#caching-an-aggregate-against-a-version",
 			"A background job":                       "/docs/guides/migrations-and-jobs#background-jobs",
 			"A bulk import":                          "/docs/guides/migrations-and-jobs#bulk-imports",

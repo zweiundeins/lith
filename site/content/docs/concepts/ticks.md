@@ -10,7 +10,7 @@ The hub decides when to render, not the request that changed something. A commit
 
 ## Topics
 
-A command names what it changed with `tx.Touch("board:42")`. After the batch commits, the writer passes the batch's topics to `OnCommit`, which is `hub.Changed`, and the hub marks every view that lists one of them in its `Topics` dirty.
+A command names what it changed with `tx.Touch("board:42")`. After the batch commits, the writer passes the batch's topics to `OnCommit`, which is `hub.Changed`, and the hub marks every view that lists one of them in its `Topics` dirty. Topics are paths: a commit to `board:42` counts for `board` as well, and marks a view that lists `board` ([A topic hierarchy](/docs/guides/views#a-topic-hierarchy)).
 
 A view's key says who shares it: every stream that watches `board:42` watches the same view, and while it is watched, the definition it was first given is the one used.
 

@@ -14,7 +14,7 @@ The guides follow one app: boards of lanes that hold cards, the domain of lith's
 | [Event sourcing](/docs/guides/events) | streams and event types, deciders with `Execute`, expected versions, inline and catch-up projectors, rebuilds, reads as of a position, upcasting, retention, `eventstest` |
 | [Migrations, jobs and imports](/docs/guides/migrations-and-jobs) | the schema's files, `Exclusive`, bulk imports, background jobs, sweeps, checkpoints |
 | [Reads](/docs/guides/reads) | `View` and `ViewValue`, query code shared through `sqlite.Querier`, `WithTx`, `Uncached`, caches against a version, the read pool |
-| [Views and the hub](/docs/guides/views) | keys and topics, topics declared with `Depends`, a tab that navigates, `Presence`, `Every`, `Watch` and `Unwatch`, `Spec.WriteTick`, the heartbeat signal, `MaxStreams` |
+| [Views and the hub](/docs/guides/views) | keys and topics, a topic hierarchy, topics declared with `Depends`, a tab that navigates, `Presence`, `Every`, `Watch` and `Unwatch`, `Spec.WriteTick`, the heartbeat signal, `MaxStreams` |
 | [Pages and Datastar](/docs/guides/pages) | the document, the fat morph, tab state in SQLite, op ids and pending, reconnecting after a deploy |
 | [Streams and compression](/docs/guides/streams) | zstd and brotli, windows, the memory budget, hibernation, `NoCompression`, slow links |
 | [The request edge](/docs/guides/edge) | sessions, CSRF, the CSP and its nonce, client addresses, slow links, rate limits, compression, static files, health |

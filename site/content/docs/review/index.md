@@ -178,7 +178,7 @@ Does every view key contain everything its `Render` filters by? Views with the s
 
 ### Commands and views that disagree on topics
 
-Every view names its topics, and every command touches the topics it changes. A command that touches nothing leaves pages stale; a view that listens to a topic every commit touches renders on every commit. `hub.Stats().RendersByKey` shows the second.
+Every view names its topics, and every command touches the topics it changes. A command that touches nothing leaves pages stale; a view that listens to a topic every commit touches renders on every commit, and so does a view on a level above many topics, such as `board` above every `board:<id>`. `hub.Stats().RendersByKey` shows the second. An id from outside the app goes into a topic through `live.Topic`, which escapes the `:` an id such as `urn:uuid:…` holds.
 
 ## Schema
 

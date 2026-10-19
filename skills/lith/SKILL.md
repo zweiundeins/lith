@@ -35,6 +35,9 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    still write while the server drains.
 3. **A command touches the topics it changes** (`tx.Touch("board:42")`).
    Views listen to topics. A command that touches nothing leaves pages stale.
+   Topics are paths: `board:42` also counts for `board`, and `src:A:*`
+   touches everything below `src:A`. Ids from outside go through
+   `live.Topic(parts...)`.
 4. **Views are `view = f(state)`.** A page region has one render function. A
    view has a key (everyone who sees the same thing shares it) and topics.
    The render loop renders each changed view once per tick, inside one read
@@ -83,7 +86,7 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 | `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Uncached` for SQL built at runtime, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
 | `events` | event sourcing on the writer: typed streams, deciders that decide from a state row (`Execute`, expected versions), `Append`, inline projectors in the same savepoint, catch-up projectors after the commit, a `Runner` that rebuilds changed projectors into copies and swaps them in, upcasters, retention, `eventstest` |
-| `live` | views and topics, topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
+| `live` | views and topics, a topic hierarchy (`board:42` is also `board`, `src:A:*` everything below `src:A`, `Topic` and `Below`), topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget, write deadlines, `ReadSignals` for any method |
 | `edge` | sessions cookie, CSRF, client IP, slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression, precompressed static files (minified with `Minify`), rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
