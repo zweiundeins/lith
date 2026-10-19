@@ -5,7 +5,7 @@ go 1.27.2
 require (
 	github.com/tdewolff/minify/v2 v2.24.19
 	github.com/tdewolff/parse/v2 v2.8.16
-	github.com/zweiundeins/lith v0.3.1
+	github.com/zweiundeins/lith v0.4.0
 )
 
 require (
