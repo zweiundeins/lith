@@ -64,6 +64,27 @@ func TestSignOnTheStream(t *testing.T) {
 	next(t, events, `"_ack":"op2","_accepted":false`)
 }
 
+// TestSignNeedsAStream refuses a signature from a tab whose stream is not
+// open: its outcome would reach no page, and its row would come from a tab
+// id the client made up. Another session's stream with that tab id does not
+// count.
+func TestSignNeedsAStream(t *testing.T) {
+	base := start(t)
+	ada, bob := client(t, base), client(t, base)
+	if code := post(t, ada, base+"/cmd/sign", `{"tab":"made-up","op":"op1","name":"Ada","message":"Hello"}`); code != http.StatusConflict {
+		t.Fatalf("a tab without a stream: %d, want 409", code)
+	}
+	events := listen(t, ada, base+"/stream?tab=tab1", nil)
+	next(t, events, `"_ack":""`)
+	if code := post(t, bob, base+"/cmd/sign", `{"tab":"tab1","op":"op1","name":"Bob","message":"Hello"}`); code != http.StatusConflict {
+		t.Fatalf("another session's tab: %d, want 409", code)
+	}
+	if code := post(t, ada, base+"/cmd/sign", `{"tab":"tab1","op":"op1","name":"Ada","message":"Hello"}`); code != http.StatusNoContent {
+		t.Fatalf("the session's own tab: %d", code)
+	}
+	next(t, events, "<p>Hello</p>")
+}
+
 // TestSlowLink checks the page's part of a slow link: it asks for
 // Chromium's network hints, and its stream sends Save-Data: on at the same
 // URL when the page measured a slow link; such a stream brings the same
@@ -313,7 +334,10 @@ func startHub(t *testing.T) (string, *live.Hub) {
 	h := http.Handler(site.Routes())
 	h = edge.Sessions{}.Handler(h)
 	h = edge.CSRF{Datastar: []string{"POST /cmd/", "POST /pace", "POST /ack"}}.Handler(h)
-	srv := httptest.NewServer(h)
+	mux := http.NewServeMux()
+	mux.Handle("GET /static/", site.Static()) // outside the sessions, as cmd/app has it
+	mux.Handle("/", h)
+	srv := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		stopHub()
 		<-hubDone

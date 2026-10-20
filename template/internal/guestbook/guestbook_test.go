@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -106,6 +107,26 @@ func TestSweep(t *testing.T) {
 	}
 	if got := touched(); !slices.Equal(got, []string{"guestbook"}) {
 		t.Errorf("the sweep touched %v", got)
+	}
+	var plan strings.Builder
+	err = db.View(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.Query(`EXPLAIN QUERY PLAN DELETE FROM tab_state WHERE seen < ?`, now.Unix())
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				return err
+			}
+			plan.WriteString(detail + "\n")
+		}
+		return rows.Err()
+	})
+	if err != nil || !strings.Contains(plan.String(), "tab_state_seen") {
+		t.Errorf("the sweep of tab state scans the table: %v\n%s", err, plan.String())
 	}
 }
 

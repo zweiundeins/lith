@@ -1,6 +1,7 @@
 // Package web serves the guestbook: its page, the tab's stream, the action,
-// and the routes that pace a stream whose page falls behind. cmd/app puts
-// the edge around Routes.
+// and the routes that pace a stream whose page falls behind, and its static
+// files. cmd/app puts the edge around Routes, and serves Static outside
+// the sessions.
 package web
 
 import (
@@ -37,8 +38,11 @@ type Server struct {
 	log    *slog.Logger
 	static *edge.Static
 	limit  *edge.Limiter
-	paces  *edge.Limiter
-	acks   *edge.Limiter
+	// /pace and /ack are limited per client address first, then per
+	// session or stream: a client mints a session with every request
+	// that sends no cookie, so a session id alone is no limiter key.
+	paceAddrs, paces *edge.Limiter
+	ackAddrs, acks   *edge.Limiter
 }
 
 // New returns the server of the database that w writes and hub renders.
@@ -65,13 +69,16 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev b
 	static.Add("lith/"+live.NewestFrame, js)
 	return &Server{
 		db: db, w: w, hub: hub, log: log, static: static,
-		limit: edge.NewLimiter(0.5, 5), // per client address: five signatures at once, then one every two seconds
-		paces: edge.NewLimiter(1, 5),   // per session: a page reports every 3 s at most
-		acks:  edge.NewLimiter(20, 40), // per stream: a paced page acknowledges ten writes a second at most
+		limit:     edge.NewLimiter(0.5, 5),  // per client address: five signatures at once, then one every two seconds
+		paceAddrs: edge.NewLimiter(4, 20),   // per client address: a few people's tabs
+		paces:     edge.NewLimiter(1, 5),    // per session: a page reports every 3 s at most
+		ackAddrs:  edge.NewLimiter(80, 160), // per client address: four paced streams
+		acks:      edge.NewLimiter(20, 40),  // per stream: a paced page acknowledges ten writes a second at most
 	}, nil
 }
 
-// Routes returns the handlers, without the edge.
+// Routes returns the handlers, without the edge and without the static
+// files.
 func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.page)
@@ -79,9 +86,13 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /cmd/sign", s.sign)
 	mux.HandleFunc("POST /pace", s.pace)
 	mux.HandleFunc("POST /ack", s.ack)
-	mux.Handle("GET /static/", s.static)
 	return mux
 }
+
+// Static serves the static files at /static/. Mount it outside the
+// sessions: its answers are public and immutable, and a session cookie on
+// one would go to everyone a shared cache gives it to.
+func (s *Server) Static() *edge.Static { return s.static }
 
 // page renders the document in one read transaction, and writes nothing:
 // the tab is new, and its row appears with its first signature.
@@ -116,7 +127,9 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 
 // stream sends the tab its views: the shared entries, then its own state.
 // A tab on a slow link gets each view's frames about four times a second.
-// The stream sends every frame until /pace paces it.
+// The stream sends every frame until /pace paces it. It counts under the
+// client's address, so one address cannot hold every stream
+// (live.Options.MaxStreamsPerClient).
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
@@ -126,6 +139,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	sid := edge.SessionID(r.Context())
 	spec := live.Spec{
 		ID:        streamID(sid, tab),
+		Client:    edge.ClientKey(r),
 		Views:     []live.View{entriesView(), tabView(sid, tab)},
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
@@ -144,7 +158,8 @@ type signRequest struct {
 }
 
 // sign answers 204 once the signature is committed. Its outcome, an entry
-// or a refusal, reaches the page on the tab's stream.
+// or a refusal, reaches the page on the tab's stream, and a tab without an
+// open stream gets 409.
 func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
 	if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
 		http.Error(w, "too many signatures, wait a moment", http.StatusTooManyRequests)
@@ -156,6 +171,12 @@ func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := edge.SessionID(r.Context())
+	// A tab whose stream is not open would never see the outcome, and its
+	// row would come from a tab id the client made up.
+	if !s.hub.HasStream(streamID(sid, req.Tab)) {
+		http.Error(w, "this tab is not connected: reload the page", http.StatusConflict)
+		return
+	}
 	cmd := guestbook.Sign{Session: sid, Tab: req.Tab, Op: req.Op, Name: req.Name, Message: req.Message, At: time.Now()}
 	err := s.w.Do(r.Context(), writer.Once(sid+":"+req.Op, cmd))
 	switch {

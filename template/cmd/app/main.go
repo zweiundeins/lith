@@ -73,6 +73,7 @@ func serve(ctx context.Context, args []string) error {
 	dbPath := f.String("db", "data/app.db", "the SQLite database")
 	synchronous := f.String("synchronous", "NORMAL", "NORMAL (a power loss can undo up to about 35 s of commits), or FULL (one fsync per batch, loses none)")
 	streams := f.Int("streams", 200, "how many streams may be open at once; more get 503")
+	clientStreams := f.Int("client-streams", 16, "how many streams one client address may hold open at once; more get 429")
 	secure := f.Bool("secure", false, "served over HTTPS: a __Host- cookie and HSTS")
 	dev := f.Bool("dev", false, "development: serve the static files as written, not minified")
 	debugLog := f.Bool("debug", false, "log at debug level")
@@ -106,7 +107,7 @@ func serve(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	hub := live.New(live.Options{Read: db.R, MaxStreams: *streams, Log: log})
+	hub := live.New(live.Options{Read: db.R, MaxStreams: *streams, MaxStreamsPerClient: *clientStreams, Log: log})
 	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed, Log: log})
 	if err != nil {
 		return errors.Join(err, db.Close())
@@ -134,14 +135,22 @@ func serve(ctx context.Context, args []string) error {
 	h = edge.Recover(log, h)
 	h = edge.LogRequests(log, h)
 
+	// The static files skip the sessions: their answers are public and
+	// immutable, and a cookie on one would go to everyone a shared cache
+	// gives it to.
+	static := edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: *secure}.Handler(site.Static())
+	static = edge.LogRequests(log, edge.Recover(log, static))
+
 	ready := &edge.Ready{Log: log}
 	ready.Add("database", func(ctx context.Context) error {
 		var one int
 		return db.R.QueryRowContext(ctx, "SELECT 1").Scan(&one)
 	})
+	ready.Add("static", site.Static().Warmed)
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", edge.Health(buildVersion()))
 	mux.Handle("GET /readyz", ready)
+	mux.Handle("GET /static/", static)
 	mux.Handle("/", h) // probes skip the edge: no cookie, no log line
 
 	srv := &http.Server{
@@ -179,7 +188,8 @@ func serve(ctx context.Context, args []string) error {
 			}
 		}()
 	}
-	log.Info("serving", "addr", *addr, "metrics", maddr, "db", *dbPath, "version", buildVersion())
+	log.Info("serving", "addr", *addr, "metrics", maddr, "db", *dbPath, "version", buildVersion(),
+		"proxy_headers_from", edge.TrustedProxies(ln.Addr()))
 	select {
 	case err = <-served:
 	case <-ctx.Done():
@@ -200,7 +210,7 @@ func serve(ctx context.Context, args []string) error {
 }
 
 // sweep keeps the tables that grow bounded, every hour: tab state of tabs
-// gone for a week, entries beyond the newest thousand, old op ids.
+// gone for a day, entries beyond the newest thousand, old op ids.
 func sweep(ctx context.Context, w *writer.Writer, log *slog.Logger) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
@@ -262,7 +272,10 @@ func backup(args []string) error {
 }
 
 // listen opens host:port, or unix:/path: a Unix socket for a proxy that runs
-// as another user, where the socket's directory decides who may connect.
+// as another user. The socket is 0660, for the app's user and group: the
+// proxy's user joins the app's group, and no other local user may connect,
+// whose X-Forwarded-For the app would believe. On a loopback port every
+// local user may.
 func listen(addr string) (net.Listener, error) {
 	path, ok := strings.CutPrefix(addr, "unix:")
 	if !ok {
@@ -273,7 +286,7 @@ func listen(addr string) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o666); err != nil {
+	if err := os.Chmod(path, 0o660); err != nil {
 		ln.Close()
 		return nil, err
 	}

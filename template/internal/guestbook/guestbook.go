@@ -7,11 +7,11 @@ package guestbook
 import "time"
 
 const (
-	MaxName    = 40                 // characters
-	MaxMessage = 280                // characters
-	Shown      = 20                 // entries on the page
-	Kept       = 1000               // entries the sweep keeps
-	TabTTL     = 7 * 24 * time.Hour // how long a tab's state outlives its last signature
+	MaxName    = 40             // characters
+	MaxMessage = 280            // characters
+	Shown      = 20             // entries on the page
+	Kept       = 1000           // entries the sweep keeps
+	TabTTL     = 24 * time.Hour // how long a tab's state outlives its last signature
 )
 
 // Topic is touched by every change to the entries.

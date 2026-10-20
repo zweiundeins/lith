@@ -39,15 +39,15 @@ const lastRoundTrip = `((x) => (performance.clearResourceTimings(), x ? Math.rou
 // has acknowledged the last (live.Hub.Pace), and sends every frame again
 // once it keeps up. It counts the report in
 // app_live_newest_frame_behind_total (live.Hub.Behind). It answers 204,
-// also to a session over its limit, whose report it drops.
+// also to an address or a session over its limit, whose report it drops.
 func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
 		http.Error(w, "bad tab id", http.StatusBadRequest)
 		return
 	}
-	sid := edge.SessionID(r.Context())
-	if s.paces.Allow(sid, 1, time.Now()) {
+	sid, now := edge.SessionID(r.Context()), time.Now()
+	if s.paceAddrs.Allow(edge.ClientKey(r), 1, now) && s.paces.Allow(sid, 1, now) {
 		id := streamID(sid, tab)
 		s.hub.Behind(id)
 		s.hub.Pace(id, 1)
@@ -57,9 +57,10 @@ func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 
 // ack takes the page's acknowledgement of its paced stream's write n
 // (live.Hub.Ack), and the round trip it reports (live.Hub.RoundTrip). It
-// answers 204, also to a stream over its limit, whose acknowledgement it
-// drops: the stream then sends its next write after live.AckTimeout. The
-// limit is per stream, so a session with several paced tabs does not share it.
+// answers 204, also to an address or a stream over its limit, whose
+// acknowledgement it drops: the stream then sends its next write after
+// live.AckTimeout. The second limit is per stream, so a session with
+// several paced tabs does not share it.
 func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	tab, token := q.Get("tab"), q.Get("s")
@@ -69,8 +70,8 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
 		return
 	}
-	id := streamID(edge.SessionID(r.Context()), tab)
-	if s.acks.Allow(id, 1, time.Now()) {
+	id, now := streamID(edge.SessionID(r.Context()), tab), time.Now()
+	if s.ackAddrs.Allow(edge.ClientKey(r), 1, now) && s.acks.Allow(id, 1, now) {
 		if rtt > 0 && rtt <= 60_000 {
 			s.hub.RoundTrip(id, time.Duration(rtt)*time.Millisecond)
 		}
