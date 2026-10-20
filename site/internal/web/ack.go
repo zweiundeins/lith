@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sse"
 
@@ -71,15 +72,16 @@ func (s *Server) owns(v demo.Viewer) bool {
 // pace paces the tab's stream once its page reports that it fell behind
 // (newest-frame-behind, live.Hub.Pace), and counts the report in
 // lith_site_live_newest_frame_behind_total (live.Hub.Behind). It reaches
-// only the request's session's streams, and answers 204, also to a
-// session over its limit, whose report it drops.
+// only the request's session's streams, and answers 204, also to an
+// address or a session over its limit, whose report it drops.
 func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 	v, ok := demo.Who(r, r.URL.Query().Get("tab"))
 	if !ok {
 		http.Error(w, "bad tab id", http.StatusBadRequest)
 		return
 	}
-	if s.paces.Allow(v.Session, 1, time.Now()) && s.owns(v) {
+	now := time.Now()
+	if s.paceAddrs.Allow(edge.ClientKey(r), 1, now) && s.paces.Allow(v.Session, 1, now) && s.owns(v) {
 		s.hub.Behind(v.Tab)
 		s.hub.Pace(v.Tab, max(s.cfg.AckWindow, 1))
 	}
@@ -89,8 +91,8 @@ func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 // ack takes a page's acknowledgement of its stream's write n
 // (live.Hub.Ack), and the round trip it reports (live.Hub.RoundTrip). It
 // reaches only the request's session's streams, and answers 204, also to
-// a session over its limit, whose acknowledgement it drops: the stream
-// then sends its next write after live.AckTimeout.
+// an address or a stream over its limit, whose acknowledgement it drops:
+// the stream then sends its next write after live.AckTimeout.
 func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	v, ok := demo.Who(r, q.Get("tab"))
@@ -101,7 +103,8 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
 		return
 	}
-	if s.acks.Allow(v.Session+"."+v.Tab, 1, time.Now()) && s.owns(v) {
+	now := time.Now()
+	if s.ackAddrs.Allow(edge.ClientKey(r), 1, now) && s.acks.Allow(v.Session+"."+v.Tab, 1, now) && s.owns(v) {
 		if rtt > 0 && rtt <= 60_000 {
 			s.hub.RoundTrip(v.Tab, time.Duration(rtt)*time.Millisecond)
 		}

@@ -89,8 +89,12 @@ type Server struct {
 	history map[string]githistory.Commit
 	// commands limits every action of the site per client address.
 	commands *edge.Limiter
-	// paces limits /pace per session, acks limits /ack per stream.
-	paces, acks *edge.Limiter
+	// paces limits /pace per session, acks limits /ack per stream, each
+	// after paceAddrs and ackAddrs per client address: a client mints a
+	// session with every request that sends no cookie, so a session id
+	// alone is no limiter key.
+	paces, acks         *edge.Limiter
+	paceAddrs, ackAddrs *edge.Limiter
 	// owners are the sessions of the open streams, by tab id (ownStream).
 	owners sync.Map
 }
@@ -105,7 +109,9 @@ type site struct {
 // New returns the server of the database that w writes and hub renders,
 // with the demos given.
 func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, list []demo.Demo) (*Server, error) {
-	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60), paces: edge.NewLimiter(1, 5), acks: edge.NewLimiter(20, 40)}
+	s := &Server{cfg: cfg, db: db, w: w, hub: hub, log: log, commands: edge.NewLimiter(20, 60),
+		paceAddrs: edge.NewLimiter(4, 20), paces: edge.NewLimiter(1, 5),
+		ackAddrs: edge.NewLimiter(80, 160), acks: edge.NewLimiter(20, 40)}
 	var err error
 	if s.docs, err = docs.Load(content.Docs, cfg.Dev); err != nil {
 		return nil, fmt.Errorf("docs: %w", err)
@@ -143,7 +149,26 @@ func New(cfg Config, db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.L
 	return s, nil
 }
 
-// Routes returns the handlers, without the edge.
+// Public returns the routes whose answers are the same for everyone and
+// may be cached, by their patterns: the static files, the icons, the
+// social image, robots.txt and the sitemap. Mount them outside the
+// sessions: a session cookie on an answer a shared cache keeps would go
+// to everyone it hands the answer to.
+func (s *Server) Public() map[string]http.Handler {
+	return map[string]http.Handler{
+		"GET /static/":              s.static,
+		"GET /favicon.ico":          s.file("image/png", iconPNG32),
+		"GET /apple-touch-icon.png": s.file("image/png", iconPNG180),
+		"GET /og.png":               s.file("image/png", socialPNG),
+		"GET /robots.txt":           s.file("text/plain; charset=utf-8", s.robotsTxt),
+		"GET /sitemap.xml":          s.file("application/xml; charset=utf-8", s.sitemapXML),
+	}
+}
+
+// Static is the site's static files, for a readiness check (Warmed).
+func (s *Server) Static() *edge.Static { return s.static }
+
+// Routes returns the handlers, without the edge and without Public's.
 func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.home)
@@ -158,13 +183,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /demos/{slug}/stream", s.demoStream)
 	mux.HandleFunc("POST /pace", s.pace)
 	mux.HandleFunc("POST /ack", s.ack)
-	mux.Handle("GET /static/", s.static)
-	mux.HandleFunc("GET /favicon.ico", s.file("image/png", iconPNG32))
-	mux.HandleFunc("GET /apple-touch-icon.png", s.file("image/png", iconPNG180))
-	mux.HandleFunc("GET /og.png", s.file("image/png", socialPNG))
-	mux.HandleFunc("GET /robots.txt", s.file("text/plain; charset=utf-8", s.robotsTxt))
-	mux.HandleFunc("GET /sitemap.xml", s.file("application/xml; charset=utf-8", s.sitemapXML))
-	deps := demo.Deps{DB: s.db, W: s.w, Hub: s.hub, Log: s.log, Commands: s.commands}
+	deps := demo.Deps{DB: s.db, W: s.w, Hub: s.hub, Log: s.log, Commands: s.commands, Open: s.owns}
 	for _, d := range s.demos {
 		if d.Mount != nil {
 			d.Mount(demo.NewKit(d.Slug, mux, deps))
@@ -329,13 +348,15 @@ func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 // stream serves the tab's stream of views until the tab leaves or the
 // server stops; then its last event re-creates the page's stream element,
 // which opens it again on the next process. A tab on a slow link gets its
-// views' frames about four times a second.
+// views' frames about four times a second. The stream counts under its
+// client's address, so that one address cannot hold every stream
+// (live.Options.MaxStreamsPerClient).
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, v demo.Viewer, vs []live.View) {
-	spec := live.Spec{ID: v.Tab, Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r)}
+	spec := live.Spec{ID: v.Tab, Client: edge.ClientKey(r), Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r)}
 	s.paceByAcks(&spec)
 	defer s.ownStream(v)()
 	err := s.hub.Serve(w, r, spec)
-	if err != nil && !errors.Is(err, live.ErrFull) && !errors.Is(err, live.ErrStopped) && !errors.Is(err, sse.ErrNoRoom) {
+	if err != nil && !errors.Is(err, live.ErrFull) && !errors.Is(err, live.ErrClientFull) && !errors.Is(err, live.ErrStopped) && !errors.Is(err, sse.ErrNoRoom) {
 		s.log.Debug("stream ended", "tab", v.Tab, "err", err)
 	}
 }

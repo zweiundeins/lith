@@ -137,6 +137,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	sid := edge.SessionID(r.Context())
 	spec := live.Spec{
 		ID:        streamID(sid, tab),
+		Client:    edge.ClientKey(r),
 		Views:     []live.View{entriesView(), tabView(sid, tab)},
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
@@ -265,8 +266,8 @@ func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad tab id", http.StatusBadRequest)
 		return
 	}
-	sid := edge.SessionID(r.Context())
-	if s.paces.Allow(sid, 1, time.Now()) {
+	sid, now := edge.SessionID(r.Context()), time.Now()
+	if s.paceAddrs.Allow(edge.ClientKey(r), 1, now) && s.paces.Allow(sid, 1, now) {
 		id := streamID(sid, tab)
 		s.hub.Behind(id)
 		s.hub.Pace(id, 1)
@@ -395,6 +396,7 @@ The stream handler uses it as the stream's `Spec.ID`, and gives the stream its `
 ```go source=template/internal/web/server.go
 	spec := live.Spec{
 		ID:        streamID(sid, tab),
+		Client:    edge.ClientKey(r),
 		Views:     []live.View{entriesView(), tabView(sid, tab)},
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
@@ -414,8 +416,8 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
 		return
 	}
-	id := streamID(edge.SessionID(r.Context()), tab)
-	if s.acks.Allow(id, 1, time.Now()) {
+	id, now := streamID(edge.SessionID(r.Context()), tab), time.Now()
+	if s.ackAddrs.Allow(edge.ClientKey(r), 1, now) && s.acks.Allow(id, 1, now) {
 		if rtt > 0 && rtt <= 60_000 {
 			s.hub.RoundTrip(id, time.Duration(rtt)*time.Millisecond)
 		}
@@ -425,7 +427,7 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Both answer 204, also over their limit. `/pace` allows a session five reports at once and one a second after (`edge.NewLimiter(1, 5)`), `/ack` 40 at once and 20 a second for each stream (`edge.NewLimiter(20, 40)`, keyed by the stream's ID), twice the ten frames a second of the template's views, so a session with several paced tabs does not share one budget: an acknowledgement the limit drops holds a stream with a window of one until `live.AckTimeout`, 10 s. Both routes go in the edge's CSRF check as actions (`edge.CSRF.Datastar`). An app whose `Watch` calls name streams by the tab alone, as this site's demos do, can keep the session that opened each stream instead: this site notes it as the stream opens and checks it in both routes (`site/internal/web/ack.go`).
+Both answer 204, also over their limit. Each limits the client's address first (`edge.ClientKey`): a client mints a new session with every request that sends no cookie, so a limit keyed by the session alone is one it can step around. Then `/pace` allows a session five reports at once and one a second after (`edge.NewLimiter(1, 5)`), `/ack` 40 at once and 20 a second for each stream (`edge.NewLimiter(20, 40)`, keyed by the stream's ID), twice the ten frames a second of the template's views, so a session with several paced tabs does not share one budget: an acknowledgement the limit drops holds a stream with a window of one until `live.AckTimeout`, 10 s. Both routes go in the edge's CSRF check as actions (`edge.CSRF.Datastar`). An app whose `Watch` calls name streams by the tab alone, as this site's demos do, can keep the session that opened each stream instead: this site notes it as the stream opens and checks it in both routes (`site/internal/web/ack.go`).
 
 ### At W=1, a paced stream is long polling
 

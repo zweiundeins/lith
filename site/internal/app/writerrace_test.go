@@ -90,6 +90,7 @@ func TestWriterRaceStream(t *testing.T) {
 	// the stream in the order it watches them.
 	next(t, events, `id="writer-race-wait-1"`)
 	next(t, events, `"ack":"op1","mine":1,"active":true`)
+	listen(t, bob, base+"/demos/writer-race/stream?tab=tab2")
 	if code := post(t, bob, base+"/cmd/writer-race/start", `{"tab":"tab2","op":"op1","producers":1,"sync":"FULL"}`); code != http.StatusNoContent {
 		t.Fatalf("bob's start: %d", code)
 	}
@@ -105,10 +106,10 @@ func TestWriterRaceStream(t *testing.T) {
 	next(t, events, `"ack":"op1","mine":1,"active":false`)
 
 	// The same session again while bob's race waits or runs: refused.
+	bobs := listen(t, bob, base+"/demos/writer-race/stream?tab=tab3")
 	if code := post(t, bob, base+"/cmd/writer-race/start", `{"tab":"tab3","op":"op2","producers":1,"sync":"FULL"}`); code != http.StatusNoContent {
 		t.Fatalf("bob's second start: %d", code)
 	}
-	bobs := listen(t, bob, base+"/demos/writer-race/stream?tab=tab3")
 	next(t, bobs, "One race at a time")
 	// Bob's race starts after the pause and runs its three seconds.
 	writerRaceNext(t, events, `id="writer-race-result-2"`)
@@ -143,6 +144,7 @@ func TestWriterRaceRestart(t *testing.T) {
 	for i, body := range []string{`{"tab":"tab1","op":"op1","producers":200,"sync":"FULL"}`, `{"tab":"tab2","op":"op1","producers":1,"sync":"NORMAL"}`} {
 		c := client(t)
 		get(t, c, base+"/demos/writer-race")
+		listen(t, c, base+"/demos/writer-race/stream?tab=tab"+strconv.Itoa(i+1))
 		if code := post(t, c, base+"/cmd/writer-race/start", body); code != http.StatusNoContent {
 			t.Fatalf("start %d: %d", i, code)
 		}

@@ -313,6 +313,7 @@ func TestCanvas(t *testing.T) {
 	// A new session has a full bucket: 60 pixels at once, then 20 a second.
 	c2 := client(t)
 	get(t, c2, base+"/demos/canvas")
+	listen(t, c2, base+"/demos/canvas/stream?tab=tab2")
 	sixty := `{"tab":"tab2","color":3,"cells":[` + strings.Join(cells, ",") + `]}`
 	first, second := post(t, c2, base+"/cmd/canvas/paint", sixty), post(t, c2, base+"/cmd/canvas/paint", sixty)
 	if first != http.StatusNoContent || second != http.StatusTooManyRequests {

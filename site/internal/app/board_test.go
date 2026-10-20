@@ -77,6 +77,7 @@ func TestBoardActions(t *testing.T) {
 	_, base := apptest.Start(t)
 	c := client(t)
 	get(t, c, base+"/demos/board")
+	listen(t, c, base+"/demos/board/stream?tab=t1")
 	for body, want := range map[string]int{
 		`{"tab":"bad tab!","op":"o","card":1,"lane":1,"index":0,"seen":0}`: http.StatusBadRequest,
 		`{"tab":"t1","op":"bad op!","card":1,"lane":1,"index":0,"seen":0}`: http.StatusBadRequest,

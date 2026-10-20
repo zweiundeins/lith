@@ -31,6 +31,11 @@ type Deps struct {
 	// Commands limits all actions of the site together, per client
 	// address, before a command's own Rate.
 	Commands *edge.Limiter
+	// Open reports whether the viewer's session has the stream of the
+	// viewer's tab open. Who, in an action that Command mounted, refuses a
+	// tab without one: its state would be a row for a tab id the client
+	// made up, which no page shows. Nil: Who checks the id alone.
+	Open func(Viewer) bool
 }
 
 // Kit is what a demo's Mount gets: the database, the writer and the hub,
@@ -55,7 +60,9 @@ func NewKit(slug string, mux *http.ServeMux, deps Deps) *Kit {
 
 // Rate limits one command per session: Burst at once, then one every
 // Every. A client address gets four times as much, since several people
-// can share one (an office, a mobile network).
+// can share one (an office, a mobile network), and its limit comes first:
+// a client mints a session with every request that sends no cookie, so a
+// session id is no limiter key on its own.
 type Rate struct {
 	Every time.Duration
 	Burst int
@@ -91,9 +98,15 @@ func (k *Kit) Command(name string, rate Rate, h http.HandlerFunc) {
 			http.Error(w, "Too many requests at once. Wait a moment.", http.StatusTooManyRequests)
 			return
 		}
+		if k.Open != nil {
+			r = r.WithContext(context.WithValue(r.Context(), openKey{}, k.Open))
+		}
 		h(w, r)
 	})
 }
+
+// openKey carries Deps.Open to Who in an action.
+type openKey struct{}
 
 // Get mounts GET /demos/<slug>/<path> (path without a leading /). The site
 // serves /demos/<slug> and /demos/<slug>/stream itself.
@@ -138,9 +151,17 @@ func Decode(w http.ResponseWriter, r *http.Request, v any) bool {
 
 // Who returns the viewer of an action: the request's session, and the tab
 // id its payload carries. It reports false when tab is not an id a page
-// makes.
+// makes, and, in an action that Command mounted, when the session has no
+// open stream for the tab (Deps.Open).
 func Who(r *http.Request, tab string) (Viewer, bool) {
-	return Viewer{Session: edge.SessionID(r.Context()), Tab: tab}, ValidID(tab)
+	v := Viewer{Session: edge.SessionID(r.Context()), Tab: tab}
+	if !ValidID(tab) {
+		return v, false
+	}
+	if open, ok := r.Context().Value(openKey{}).(func(Viewer) bool); ok && !open(v) {
+		return v, false
+	}
+	return v, true
 }
 
 // NewID returns 128 random bits in base64url: a tab id.

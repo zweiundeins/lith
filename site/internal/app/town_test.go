@@ -76,6 +76,7 @@ func TestTownActions(t *testing.T) {
 	_, base := apptest.Start(t)
 	c := client(t)
 	get(t, c, base+"/demos/town")
+	listen(t, c, base+"/demos/town/stream?tab=t1")
 	for body, want := range map[string]int{
 		`{"tab":"bad tab!","op":"o","tile":1,"kind":"house","seen":0}`: http.StatusBadRequest,
 		`{"tab":"t1","op":"o1","tile":96,"kind":"house","seen":0}`:     http.StatusBadRequest,

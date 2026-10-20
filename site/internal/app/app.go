@@ -41,16 +41,19 @@ const Namespace = "lith_site"
 
 // Config is how the site runs.
 type Config struct {
-	DB          string // the SQLite file
-	Base        string // the public URL, without a trailing /
-	Repo        string // the repository on GitHub
-	Version     string
-	Secure      bool // served over HTTPS: a __Host- cookie and HSTS
-	Dev         bool // drafts in the docs, read from ./content; scripts and stylesheets as written
-	MaxStreams  int  // open streams at most; more get 503
-	Workers     int  // render workers, each holding a read connection
-	Synchronous string
-	Log         *slog.Logger
+	DB         string // the SQLite file
+	Base       string // the public URL, without a trailing /
+	Repo       string // the repository on GitHub
+	Version    string
+	Secure     bool // served over HTTPS: a __Host- cookie and HSTS
+	Dev        bool // drafts in the docs, read from ./content; scripts and stylesheets as written
+	MaxStreams int  // open streams at most; more get 503
+	// ClientStreams is how many streams one client address may hold open
+	// at once; more get 429 (live.Options.MaxStreamsPerClient, 16 when 0).
+	ClientStreams int
+	Workers       int // render workers, each holding a read connection
+	Synchronous   string
+	Log           *slog.Logger
 	// Demos are the demos to serve; nil serves demos.All.
 	Demos []demo.Demo
 	// Pacing, AckWindow, AckOnApply, AckRelease and AckReleaseSlack change
@@ -134,9 +137,10 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return nil, err
 	}
 	hub := live.New(live.Options{
-		Read:       db.R,
-		Workers:    cfg.Workers,
-		MaxStreams: cfg.MaxStreams,
+		Read:                db.R,
+		Workers:             cfg.Workers,
+		MaxStreams:          cfg.MaxStreams,
+		MaxStreamsPerClient: cfg.ClientStreams,
 		// An idle tab gives its zstd encoder back after a minute: most tabs
 		// on a public site sit still, and an encoder holds 1 MiB or more.
 		Hibernate: time.Minute,
@@ -173,6 +177,18 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	h = edge.LogRequests(cfg.Log, h)
 	h = httpMetrics.Measure(h)
 
+	// The answers that are the same for everyone skip the sessions: a
+	// cookie on one that a shared cache keeps would go to everyone.
+	public := http.NewServeMux()
+	for pattern, ph := range site.Public() {
+		public.Handle(pattern, ph)
+	}
+	p := metrics.Route(public)
+	p = edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: cfg.Secure}.Handler(p)
+	p = edge.Recover(cfg.Log, p)
+	p = edge.LogRequests(cfg.Log, p)
+	p = httpMetrics.Measure(p)
+
 	ready := &edge.Ready{Log: cfg.Log}
 	ready.Add("database", func(ctx context.Context) error {
 		var one int
@@ -180,9 +196,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	ready.Add("writer", running(&a.writerUp))
 	ready.Add("hub", running(&a.hubUp))
+	ready.Add("static", site.Static().Warmed)
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", edge.Health(cfg.Version))
 	mux.Handle("GET /readyz", ready)
+	for pattern := range site.Public() {
+		mux.Handle(pattern, p)
+	}
 	mux.Handle("/", h) // probes skip the edge: no cookie, no log line, no count
 	a.handler = mux
 

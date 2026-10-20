@@ -24,6 +24,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zweiundeins/lith/edge"
+
 	"github.com/zweiundeins/lith/site/internal/app"
 )
 
@@ -57,6 +59,7 @@ func serve(args []string) error {
 	base := f.String("base", "", "the site's public URL, for canonical links and the sitemap (default: http://<addr>)")
 	repo := f.String("repo", "https://github.com/zweiundeins/lith", "the repository's URL")
 	streams := f.Int("streams", 300, "how many streams may be open at once; more get 503")
+	clientStreams := f.Int("client-streams", 16, "how many streams one client address may hold open at once; more get 429")
 	workers := f.Int("workers", 2, "render workers")
 	synchronous := f.String("synchronous", "NORMAL", "NORMAL (a power loss can undo up to about 35 s of commits), or FULL (one fsync per batch)")
 	secure := f.Bool("secure", false, "served over HTTPS: a __Host- cookie and HSTS")
@@ -91,7 +94,7 @@ func serve(args []string) error {
 
 	a, err := app.New(ctx, app.Config{
 		DB: *dbPath, Base: strings.TrimRight(*base, "/"), Repo: *repo, Version: buildVersion(),
-		Secure: *secure, Dev: *dev, MaxStreams: *streams, Workers: *workers, Synchronous: *synchronous, Log: log,
+		Secure: *secure, Dev: *dev, MaxStreams: *streams, ClientStreams: *clientStreams, Workers: *workers, Synchronous: *synchronous, Log: log,
 	})
 	if err != nil {
 		return err
@@ -125,7 +128,8 @@ func serve(args []string) error {
 	a.Start()
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
-	log.Info("serving", "addr", *addr, "metrics", maddr, "db", *dbPath, "version", buildVersion())
+	log.Info("serving", "addr", *addr, "metrics", maddr, "db", *dbPath, "version", buildVersion(),
+		"proxy_headers_from", edge.TrustedProxies(ln.Addr()))
 	select {
 	case err = <-served:
 	case <-ctx.Done():
@@ -187,7 +191,10 @@ func metricsListen(flagValue, addr string) (string, error) {
 	return flagValue, nil
 }
 
-// listen opens host:port, or unix:/path.
+// listen opens host:port, or unix:/path: a socket for the site's user and
+// group (0660), which the proxy's user joins. The site believes the
+// X-Forwarded-For of whoever connects to it, as on loopback, where every
+// local user may.
 func listen(addr string) (net.Listener, error) {
 	path, ok := strings.CutPrefix(addr, "unix:")
 	if !ok {
@@ -198,7 +205,7 @@ func listen(addr string) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o666); err != nil {
+	if err := os.Chmod(path, 0o660); err != nil {
 		ln.Close()
 		return nil, err
 	}

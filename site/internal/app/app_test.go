@@ -8,10 +8,12 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/site/internal/app"
 	"github.com/zweiundeins/lith/site/internal/app/apptest"
 )
 
@@ -226,6 +228,7 @@ func TestActions(t *testing.T) {
 	if code := post(t, c, base+"/cmd/guestbook/sign", `{"tab":"bad id!","op":"o1","name":"A","message":"B"}`); code != http.StatusBadRequest {
 		t.Errorf("a bad tab id: %d", code)
 	}
+	listen(t, c, base+"/demos/guestbook/stream?tab=t1")
 	codes := []int{}
 	for i := range 4 {
 		codes = append(codes, post(t, c, base+"/cmd/guestbook/sign", `{"tab":"t1","op":"op`+string(rune('a'+i))+`","name":"A","message":"Message `+string(rune('a'+i))+`"}`))
@@ -233,6 +236,82 @@ func TestActions(t *testing.T) {
 	// The bad request above took the first token of the burst of three.
 	if codes[0] != 204 || codes[1] != 204 || codes[3] != http.StatusTooManyRequests {
 		t.Errorf("a burst of signatures: %v", codes)
+	}
+}
+
+// TestActionNeedsAStream refuses an action for a tab whose stream the
+// session has not open: its state would be a row for a tab id the client
+// made up. Another session's stream of that tab does not count.
+func TestActionNeedsAStream(t *testing.T) {
+	_, base := apptest.Start(t)
+	ada, bob := client(t), client(t)
+	get(t, ada, base+"/demos/guestbook")
+	get(t, bob, base+"/demos/guestbook")
+	sign := `{"tab":"t1","op":"o1","name":"A","message":"B"}`
+	if code := post(t, ada, base+"/cmd/guestbook/sign", sign); code != http.StatusBadRequest {
+		t.Errorf("a tab without a stream: %d", code)
+	}
+	listen(t, bob, base+"/demos/guestbook/stream?tab=t1")
+	if code := post(t, ada, base+"/cmd/guestbook/sign", sign); code != http.StatusBadRequest {
+		t.Errorf("another session's tab: %d", code)
+	}
+	listen(t, ada, base+"/demos/guestbook/stream?tab=t1")
+	if code := post(t, ada, base+"/cmd/guestbook/sign", sign); code != http.StatusNoContent {
+		t.Errorf("the session's own tab: %d", code)
+	}
+}
+
+// TestPublicWithoutCookie: the answers that are the same for everyone,
+// the static files, the icons, robots.txt and the sitemap, carry no
+// session cookie that a shared cache would hand to everyone, while a page
+// mints one.
+func TestPublicWithoutCookie(t *testing.T) {
+	_, base := apptest.Start(t)
+	res, page := get(t, http.DefaultClient, base+"/")
+	if res.Header.Get("Set-Cookie") == "" {
+		t.Fatal("the page minted no session")
+	}
+	css := regexp.MustCompile(`/static/[a-z/]+\.[0-9a-f]{12}\.css`).FindString(page)
+	if css == "" {
+		t.Fatal("no stylesheet on the page")
+	}
+	for _, path := range []string{css, "/favicon.ico", "/og.png", "/robots.txt", "/sitemap.xml"} {
+		res, _ := get(t, http.DefaultClient, base+path)
+		if res.StatusCode != http.StatusOK || len(res.Header.Values("Set-Cookie")) > 0 || res.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: %d, Set-Cookie %q, X-Content-Type-Options %q", path, res.StatusCode, res.Header.Values("Set-Cookie"), res.Header.Get("X-Content-Type-Options"))
+		}
+	}
+}
+
+// TestStreamsPerClient: one client address holds -client-streams streams
+// at most and gets 429 for more, while another address still gets one.
+// The address comes from X-Forwarded-For, which the site believes from
+// loopback, as from Caddy.
+func TestStreamsPerClient(t *testing.T) {
+	_, base := apptest.Start(t, func(c *app.Config) { c.MaxStreams, c.ClientStreams = 5, 2 })
+	open := func(addr string, tab int) int {
+		t.Helper()
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		req, _ := http.NewRequestWithContext(ctx, "GET", base+"/demos/guestbook/stream?tab=tab"+strconv.Itoa(tab), nil)
+		req.Header.Set("X-Forwarded-For", addr)
+		req.Header.Set("Accept-Encoding", "identity")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusOK {
+			res.Body.Close()
+		}
+		return res.StatusCode
+	}
+	for i, want := range []int{http.StatusOK, http.StatusOK, http.StatusTooManyRequests} {
+		if got := open("198.51.100.7", i); got != want {
+			t.Fatalf("the client's stream %d: %d, want %d", i+1, got, want)
+		}
+	}
+	if got := open("203.0.113.9", 9); got != http.StatusOK {
+		t.Fatalf("another client's stream: %d", got)
 	}
 }
 
