@@ -2,12 +2,12 @@
 
 One binary and one SQLite file on a Linux server, behind Caddy. The files here:
 
-- `app.service`: the systemd unit. It runs as the `app` user, keeps the database in `/var/lib/app`, listens on the Unix socket `/run/app/app.sock`, serves its metrics on `127.0.0.1:8180`, reaches no other host and binds no other port, and is capped at 640 MB of memory.
+- `app.service`: the systemd unit. It runs as the `app` user, keeps the database in `/var/lib/app`, listens on the Unix socket `/run/app/app.sock` (mode 0660, in `/run/app` with mode 0750: only the `app` group gets in, which Caddy's user joins), serves its metrics on `127.0.0.1:8180`, reaches no other host and binds no other port, and is capped at 640 MB of memory.
 - `app-backup.service` and `app-backup.timer`: every six hours, `app backup` copies the database (VACUUM INTO) into `/var/lib/app/backups` and keeps the newest 28 copies.
-- `app.caddy`: the site block. TLS, `reverse_proxy` to the socket with the client's address in X-Forwarded-For and X-Real-IP, the access log in JSON, no `encode`, and `flush_interval -1` for the streams.
+- `app.caddy`: the site block. TLS, `reverse_proxy` to the socket with the client's address in X-Forwarded-For and X-Real-IP, request bodies of 1 MB at most, the access log in JSON with a hash in place of each tab id, no `encode`, and `flush_interval -1` for the streams.
 - `app-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
 - `observability/`: the Prometheus target of the metrics, the blackbox probes, and the Alloy file that ships the journal and the access log to Loki ([Monitoring](#monitoring)).
-- `setup-host.sh`: installs the files in `observability/` into the folders the host's Prometheus and Alloy load, and with a key, the user CI deploys as.
+- `setup-host.sh`: puts Caddy's user in the `app` group, installs the files in `observability/` into the folders the host's Prometheus and Alloy load, and with a key, creates the user CI deploys as.
 
 ## One-time setup
 
@@ -33,7 +33,13 @@ systemctl reload caddy
 bash setup-host.sh
 ```
 
-Run as root, `caddy validate` creates the access log owned by root, and the reload then fails: the `chown` fixes it. `setup-host.sh` installs the monitoring files (below).
+Run as root, `caddy validate` creates the access log owned by root, and the reload then fails: the `chown` fixes it. `setup-host.sh` puts the `caddy` user in the `app` group and installs the monitoring files (below). Restart Caddy once after that (`systemctl restart caddy`): a reload keeps the groups it started with, and without the group it cannot reach the socket.
+
+### Whom the app believes
+
+The rate limits and the cap on streams per client count by the client's address, which the app takes from X-Forwarded-For when the request comes through the socket or loopback, and from the peer otherwise. It logs at start whose headers it believes (`proxy_headers_from`). On the socket that is the `app` group, so the host needs Caddy's user in it and no other user there. On a loopback port (`-addr 127.0.0.1:8080`) every local user may connect and name any address, to dodge a limit or spend someone else's: keep the socket on a host that runs other people's code. A proxy that connects from another address, such as a container bridge, is not believed, and every client then counts as the proxy.
+
+Caddy's `servers { timeouts { read_body 10s } }` is a global option of the host's Caddyfile, not of a site block. The app needs it not: it gives an action's body 10 s itself (`sse.SignalsTimeout`). Caddy's timeout would apply to every site on the host, and it ends every stream over HTTP/1.1 after that long, since Go's server reads the connection with that deadline for as long as a request runs.
 
 ## Deploying
 

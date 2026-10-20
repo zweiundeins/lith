@@ -1,6 +1,9 @@
 # Caddy 2: the site block, with the real domain, as /etc/caddy/sites/app.caddy
 # (the host's Caddyfile imports that folder). app compresses its pages and its
-# streams itself, so there is no `encode`.
+# streams itself, so there is no `encode`. It gives a request's body 10 s
+# (sse.SignalsTimeout); Caddy's own `servers { timeouts { read_body 10s } }`
+# is a global option of the host's Caddyfile, and it also ends every stream
+# over HTTP/1.1 after that long.
 app.example.com {
 	log {
 		output file /var/log/caddy/app-access.log {
@@ -9,7 +12,21 @@ app.example.com {
 			roll_keep 5
 			roll_keep_for 720h
 		}
-		format json
+		# A tab id lets whoever has it pace or end that tab's stream: the
+		# log keeps a hash of it.
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					hash tab
+				}
+			}
+		}
+	}
+
+	# app reads 8 KiB of an action at most; nothing it takes is larger.
+	request_body {
+		max_size 1MB
 	}
 
 	reverse_proxy unix//run/app/app.sock {

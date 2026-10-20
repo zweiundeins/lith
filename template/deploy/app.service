@@ -8,9 +8,12 @@ Wants=network-online.target
 User=app
 Group=app
 # /var/lib/app holds the database and its backups, /run/app the socket.
+# The app trusts the X-Forwarded-For of whoever connects to the socket, so
+# only its group may enter /run/app, and the socket is 0660: Caddy's user
+# joins the group app (usermod -aG app caddy, see README.md).
 StateDirectory=app
 RuntimeDirectory=app
-RuntimeDirectoryMode=0755
+RuntimeDirectoryMode=0750
 WorkingDirectory=/var/lib/app
 # Optional: APP_* settings the command line leaves out, and secrets.
 EnvironmentFile=-/etc/app/app.env
@@ -46,7 +49,8 @@ TasksMax=256
 # host's other services too (Caddy's admin API, databases). An app that
 # calls out adds the addresses it needs to IPAddressAllow. To listen on a
 # loopback port instead of the socket: -addr 127.0.0.1:8080,
-# SocketBindAllow=tcp:8080, and point app.caddy there.
+# SocketBindAllow=tcp:8080, and point app.caddy there; then every local
+# user can connect and name any client address.
 IPAddressDeny=any
 IPAddressAllow=localhost
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

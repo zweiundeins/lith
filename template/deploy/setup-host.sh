@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Host setup (see README.md). Run as root on the server, from a copy of this
-# folder:
+# folder, once the user app exists:
 #
 #   bash setup-host.sh [app-deploy-key.pub]
 #
@@ -40,6 +40,22 @@ deploy_user() {
 	visudo -cqf "/etc/sudoers.d/$deploy.tmp"
 	mv -f "/etc/sudoers.d/$deploy.tmp" "/etc/sudoers.d/$deploy"
 	echo ">> ready: CI can deploy as $deploy@$(hostname)"
+}
+
+# The app believes the X-Forwarded-For of whoever connects to its socket,
+# which only the group $NAME may reach (/run/$NAME is 0750, the socket 0660):
+# Caddy's user joins that group. A running Caddy keeps its old groups until
+# it restarts.
+caddy_group() {
+	if ! id caddy >/dev/null 2>&1; then
+		echo ">> no caddy user here: give the proxy's user the group $NAME"
+		return
+	fi
+	if id -nG caddy | tr ' ' '\n' | grep -qx "$NAME"; then
+		return
+	fi
+	usermod -aG "$NAME" caddy
+	echo ">> caddy joined the group $NAME: restart Caddy once (systemctl restart caddy), a reload keeps its old groups"
 }
 
 # Prometheus watches both folders (file_sd), so it needs no reload.
@@ -91,5 +107,6 @@ alloy_dropin() {
 if [[ -n "${1:-}" ]]; then
 	deploy_user "$1"
 fi
+caddy_group
 prometheus_dropins
 alloy_dropin
