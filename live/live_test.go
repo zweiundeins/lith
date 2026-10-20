@@ -958,6 +958,84 @@ func TestRenderTimeout(t *testing.T) {
 	}
 }
 
+// A worker's Renders share a ctx until a timeout ends it: each Render has
+// its own deadline, a timer that fires for a Render that has returned
+// leaves the next one alone, and the Render after a timeout gets a new
+// ctx. A ctx derived from one that timed out ends with the cause
+// context.DeadlineExceeded.
+func TestRenderCtxPerWorker(t *testing.T) {
+	l := &logs{}
+	h := New(Options{RenderTimeout: 30 * time.Millisecond, Log: l.logger()})
+	var lim limit
+	lim.begin(h, context.Background(), context.Background())
+	defer lim.end()
+	var ctxs []context.Context
+	fast := &view{key: "fast", render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		ctxs = append(ctxs, ctx)
+		if d, ok := ctx.Deadline(); !ok || time.Until(d) <= 0 || time.Until(d) > 30*time.Millisecond {
+			t.Errorf("a deadline of %v, %v", time.Until(d), ok)
+		}
+		return nil, ctx.Err()
+	}}
+	for range 3 {
+		if _, err := lim.render(fast, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ctxs[0] != ctxs[1] || ctxs[1] != ctxs[2] {
+		t.Fatal("the Renders of a worker have ctxs of their own")
+	}
+	stale := &view{key: "stale", render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		lim.fire() // as a timer that fired for the Render before
+		return nil, ctx.Err()
+	}}
+	if _, err := lim.render(stale, nil); err != nil {
+		t.Fatalf("a stale timer ended a Render: %v", err)
+	}
+	var child context.Context
+	slow := &view{key: "slow", render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		var cancel context.CancelFunc
+		child, cancel = context.WithCancel(ctx)
+		defer cancel()
+		<-child.Done()
+		return nil, ctx.Err()
+	}}
+	if _, err := lim.render(slow, nil); err != context.DeadlineExceeded {
+		t.Fatalf("a Render that ran over: %v", err)
+	}
+	if err := context.Cause(child); err != context.DeadlineExceeded {
+		t.Fatalf("the cause of a derived ctx: %v", err)
+	}
+	if !strings.Contains(l.String(), "view=slow") || strings.Contains(l.String(), "view=stale") {
+		t.Fatalf("logged %s", l.String())
+	}
+	if _, err := lim.render(fast, nil); err != nil || ctxs[3] == ctxs[0] {
+		t.Fatalf("after a timeout: %v, the same ctx %v", err, ctxs[3] == ctxs[0])
+	}
+}
+
+// FrameBuffer has room for the view's last []byte frame and an eighth
+// more, and nothing before the first or outside a Render.
+func TestFrameBuffer(t *testing.T) {
+	if FrameBuffer(context.Background()) != nil {
+		t.Fatal("a buffer outside a Render")
+	}
+	h := start(t, Options{Tick: time.Millisecond})
+	html := bytes.Repeat([]byte("x"), 1000)
+	n := len(sse.PatchElements(html))
+	caps := make(chan int, 2)
+	serve(h, Spec{Views: []View{{Key: "v", Topics: []string{"v"}, Render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		b := FrameBuffer(ctx)
+		caps <- cap(b)
+		return sse.AppendPatchElements(b, html), nil
+	}}}}, "")
+	first := <-caps
+	h.Changed([]string{"v"})
+	if second := <-caps; first != 0 || second != n+n/8 {
+		t.Fatalf("buffers of %d and %d bytes, for a frame of %d", first, second, n)
+	}
+}
+
 // Render's ctx comes from Run's, so it carries its values.
 func TestRenderContextCarriesRunValues(t *testing.T) {
 	type key struct{}

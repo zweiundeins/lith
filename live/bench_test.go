@@ -15,7 +15,7 @@ import (
 // own, and the render workers started without a read pool; Run is not
 // called, the benchmark runs the ticks. The view of index i listens to
 // topics(i) and renders render(i).
-func benchHub(b *testing.B, n int, topics func(i int) []string, render func(i int) func(context.Context, *sql.Tx) (any, error)) (*Hub, []*worker, []*stream) {
+func benchHub(b testing.TB, n int, topics func(i int) []string, render func(i int) func(context.Context, *sql.Tx) (any, error)) (*Hub, []*worker, []*stream) {
 	h := New(Options{Workers: 4})
 	ws := make([]*worker, h.workers)
 	var wg sync.WaitGroup
@@ -178,6 +178,40 @@ func BenchmarkTickDepends(b *testing.B) {
 				take(ss)
 			}
 		})
+	}
+}
+
+// A tick of views whose frames change, and whose Depends topics move,
+// allocates about what their Renders and new frames take: three
+// allocations a view.
+func TestTickAllocs(t *testing.T) {
+	if raceEnabled || testing.Short() {
+		t.Skip("allocations differ under the race detector")
+	}
+	const n = 1000
+	var gen int
+	h, ws, ss := benchHub(t, n, fourTopics(func(j int) string { return "t:" + strconv.Itoa(j) }), func(i int) func(context.Context, *sql.Tx) (any, error) {
+		deps := [2][]string{{"d:0:" + strconv.Itoa(i)}, {"d:1:" + strconv.Itoa(i)}}
+		return func(ctx context.Context, _ *sql.Tx) (any, error) {
+			Depends(ctx, deps[gen%2]...)
+			return strconv.AppendInt(nil, int64(gen), 10), nil
+		}
+	})
+	tk := &tick{ctx: context.Background()}
+	tick := func() {
+		gen++
+		h.mu.Lock()
+		for _, v := range h.views {
+			h.mark(v)
+		}
+		h.mu.Unlock()
+		h.run(tk, ws, time.Now())
+		take(ss)
+	}
+	tick()
+	tick()
+	if a := testing.AllocsPerRun(20, tick) / n; a > 3.5 {
+		t.Fatalf("%.2f allocations a view", a)
 	}
 }
 

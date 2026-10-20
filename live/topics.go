@@ -2,6 +2,7 @@ package live
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -9,14 +10,65 @@ import (
 // above such a topic, as board is above board:42. A node goes once no
 // view listens to it or below it. Guarded by Hub.mu.
 type node struct {
-	name  string
-	up    *node
-	views map[*view]struct{}
-	kids  map[*node]struct{}
+	name string
+	up   *node
+	// The views that listen to it: few while there are fewViews or fewer,
+	// such as a tab's own topics, else many.
+	few  []*view
+	many map[*view]struct{}
+	kids map[*node]struct{}
 	// The last commit that marked the views of the node and of those
 	// above it, and the last that marked those of every node below it.
 	marked, swept uint64
 }
+
+// fewViews is the most views a node keeps in a slice.
+const fewViews = 4
+
+// add makes v listen to n, once.
+func (n *node) add(v *view) {
+	switch {
+	case n.many != nil:
+		n.many[v] = struct{}{}
+	case slices.Contains(n.few, v):
+	case len(n.few) < fewViews:
+		n.few = append(n.few, v)
+	default:
+		n.many = make(map[*view]struct{}, 2*fewViews)
+		for _, w := range n.few {
+			n.many[w] = struct{}{}
+		}
+		n.many[v] = struct{}{}
+		clear(n.few)
+		n.few = n.few[:0]
+	}
+}
+
+// remove undoes add.
+func (n *node) remove(v *view) {
+	if n.many != nil {
+		delete(n.many, v)
+		return
+	}
+	if i := slices.Index(n.few, v); i >= 0 {
+		last := len(n.few) - 1
+		n.few[i] = n.few[last]
+		n.few[last] = nil
+		n.few = n.few[:last]
+	}
+}
+
+// empty reports whether no view listens to n or below it.
+func (n *node) empty() bool {
+	return len(n.few) == 0 && len(n.many) == 0 && len(n.kids) == 0
+}
+
+// spareNodes is the most nodes the hub keeps for topics to come, and
+// spareKids the most maps of the nodes below a topic.
+const (
+	spareNodes = 1024
+	spareKids  = 4
+)
 
 // node returns t's node, and creates it and those above it that are
 // missing. Hub.mu is held.
@@ -24,12 +76,26 @@ func (h *Hub) node(t string) *node {
 	if n := h.topics[t]; n != nil {
 		return n
 	}
-	n := &node{name: t}
+	var n *node
+	if k := len(h.spare); k > 0 {
+		n = h.spare[k-1]
+		h.spare[k-1] = nil
+		h.spare = h.spare[:k-1]
+	} else {
+		n = &node{}
+	}
+	n.name = t
 	h.topics[t] = n
 	if i := strings.LastIndexByte(t, ':'); i >= 0 {
 		up := h.node(t[:i])
 		if up.kids == nil {
-			up.kids = map[*node]struct{}{}
+			if k := len(h.spareKids); k > 0 {
+				up.kids = h.spareKids[k-1]
+				h.spareKids[k-1] = nil
+				h.spareKids = h.spareKids[:k-1]
+			} else {
+				up.kids = map[*node]struct{}{}
+			}
 		}
 		up.kids[n] = struct{}{}
 		n.up = up
@@ -39,26 +105,32 @@ func (h *Hub) node(t string) *node {
 
 // subscribe has a commit that touches t mark v dirty. Hub.mu is held.
 func (h *Hub) subscribe(v *view, t string) {
-	n := h.node(t)
-	if n.views == nil {
-		n.views = map[*view]struct{}{}
-	}
-	n.views[v] = struct{}{}
+	h.node(t).add(v)
 }
 
-// unsubscribe undoes subscribe, and drops the nodes it leaves empty.
-// Hub.mu is held.
+// unsubscribe undoes subscribe, and drops the nodes it leaves empty, which
+// it keeps for topics to come. Hub.mu is held.
 func (h *Hub) unsubscribe(v *view, t string) {
 	n := h.topics[t]
 	if n == nil {
 		return
 	}
-	delete(n.views, v)
-	for ; n != nil && len(n.views) == 0 && len(n.kids) == 0; n = n.up {
+	n.remove(v)
+	for n != nil && n.empty() {
+		up := n.up
 		delete(h.topics, n.name)
-		if n.up != nil {
-			delete(n.up.kids, n)
+		if up != nil {
+			delete(up.kids, n)
 		}
+		if n.kids != nil && len(h.spareKids) < spareKids {
+			// For a topic that the views below it leave and come back to.
+			h.spareKids = append(h.spareKids, n.kids)
+		}
+		if len(h.spare) < spareNodes {
+			*n = node{few: n.few}
+			h.spare = append(h.spare, n)
+		}
+		n = up
 	}
 }
 
@@ -83,9 +155,7 @@ func (h *Hub) markFrom(n *node, seq uint64) bool {
 	marked := false
 	for ; n != nil && n.marked != seq; n = n.up {
 		n.marked = seq
-		for v := range n.views {
-			marked = h.mark(v) || marked
-		}
+		marked = h.markViews(n) || marked
 	}
 	return marked
 }
@@ -107,12 +177,21 @@ func (h *Hub) sweep(n *node, seq uint64) bool {
 		return false
 	}
 	n.marked, n.swept = seq, seq
-	marked := false
-	for v := range n.views {
-		marked = h.mark(v) || marked
-	}
+	marked := h.markViews(n)
 	for k := range n.kids {
 		marked = h.sweep(k, seq) || marked
+	}
+	return marked
+}
+
+// markViews marks the views of n. Hub.mu is held.
+func (h *Hub) markViews(n *node) bool {
+	marked := false
+	for _, v := range n.few {
+		marked = h.mark(v) || marked
+	}
+	for v := range n.many {
+		marked = h.mark(v) || marked
 	}
 	return marked
 }

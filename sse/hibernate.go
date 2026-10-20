@@ -53,6 +53,29 @@ func (s *Stream) Hibernate() error {
 	return err
 }
 
+// Ping writes events that only keep the stream open, such as a
+// heartbeat, without waking a stream that hibernates: a zstd stream
+// without an encoder sends them in a frame of raw blocks, and keeps its
+// tier and its budget's booking as they are. Any other stream writes them
+// as Write does.
+func (s *Stream) Ping(events ...[]byte) error {
+	if !s.asleep || s.err != nil {
+		return s.Write(events...)
+	}
+	n := 0
+	for _, e := range events {
+		n += len(e)
+	}
+	if n == 0 {
+		return nil
+	}
+	if s.ctx.Err() != nil {
+		return s.ended()
+	}
+	s.in += int64(n)
+	return s.send(rawFrame(events, n)...)
+}
+
 // wake gives a zstd stream without an encoder one from the pool, of the
 // tier its budget allows for its frames. It reports false when the budget
 // has no room.

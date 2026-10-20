@@ -4,11 +4,13 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 // renderState is what the Renders of a worker's tick find in their ctx.
 type renderState struct {
-	seq uint64 // Hub.Seq before the tick's read transaction began
+	seq  uint64       // Hub.Seq before the tick's read transaction began
+	size atomic.Int64 // the length of the last []byte frame of the view under way, -1 for none
 
 	mu   sync.Mutex
 	deps []string // declared by the Render under way
@@ -43,6 +45,23 @@ func Seq(ctx context.Context) uint64 {
 	return 0
 }
 
+// FrameBuffer is, in a Render, an empty buffer for the view's frame, with
+// room for its last []byte frame and an eighth more: a Render that formats
+// its frame into it (sse.AppendPatchElements, sse.NewElements) allocates
+// the frame once while it keeps about its size. It is nil before the
+// view's first []byte frame, and outside a Render.
+func FrameBuffer(ctx context.Context) []byte {
+	s := stateFrom(ctx)
+	if s == nil {
+		return nil
+	}
+	n := s.size.Load()
+	if n <= 0 {
+		return nil
+	}
+	return make([]byte, 0, n+n/8)
+}
+
 // Depends declares, in a Render, that the view read what the topics name,
 // as Topics do: a commit that touches one of them marks the view dirty.
 // The topics the Render declares replace those the Render before it
@@ -72,13 +91,15 @@ type declared struct {
 	changed bool     // the topics differ from the view's
 }
 
-// take returns what the Render that just returned declared, against the
-// view's topics prev, and makes room for the next Render's.
-func (s *renderState) take(prev []string, failed bool) declared {
+// take returns what the Render of v that just returned declared, against
+// the view's topics, and makes room for the next Render's. Topics that
+// differ go into v's spare slice, which redepend swaps with v.deps, so
+// that a view whose topics move costs no new slice.
+func (s *renderState) take(v *view, failed bool) declared {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d := s.deps
-	if len(d) == 0 && len(prev) == 0 {
+	if len(d) == 0 && len(v.deps) == 0 {
 		return declared{}
 	}
 	s.deps = s.deps[:0]
@@ -87,8 +108,9 @@ func (s *renderState) take(prev []string, failed bool) declared {
 	}
 	slices.Sort(d)
 	d = slices.Compact(d)
-	if slices.Equal(d, prev) {
+	if slices.Equal(d, v.deps) {
 		return declared{}
 	}
-	return declared{topics: slices.Clone(d), seq: s.seq, changed: true}
+	v.spare = append(v.spare[:0], d...)
+	return declared{topics: v.spare, seq: s.seq, changed: true}
 }

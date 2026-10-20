@@ -1,7 +1,6 @@
 package live
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"database/sql/driver"
@@ -144,7 +143,7 @@ type tick struct {
 	next   atomic.Int64 // the queue: index of the next view to render
 	wg     sync.WaitGroup
 
-	offers []offer
+	streams []*stream // the streams with offers (stream.offers), in the order of their first
 }
 
 // offer is a new frame for one stream's watch.
@@ -283,7 +282,10 @@ func (h *Hub) publish(t *tick) {
 		for _, w := range v.watches {
 			if !same || w.owed {
 				w.owed = false
-				t.offers = append(t.offers, offer{w, nf})
+				if len(w.s.offers) == 0 {
+					t.streams = append(t.streams, w.s)
+				}
+				w.s.offers = append(w.s.offers, offer{w, nf})
 			}
 		}
 		v.owed = false
@@ -296,12 +298,9 @@ func (h *Hub) publish(t *tick) {
 	h.mu.Unlock()
 	h.sse.Budget.Hold(booked)
 
-	slices.SortFunc(t.offers, func(a, b offer) int { return cmp.Compare(a.w.s.seq, b.w.s.seq) })
-	for i := 0; i < len(t.offers); {
-		s := t.offers[i].w.s
+	for _, s := range t.streams {
 		s.mu.Lock()
-		for ; i < len(t.offers) && t.offers[i].w.s == s; i++ {
-			o := t.offers[i]
+		for _, o := range s.offers {
 			if o.w.next != nil {
 				h.dropped.Add(1)
 			}
@@ -309,9 +308,11 @@ func (h *Hub) publish(t *tick) {
 		}
 		s.mu.Unlock()
 		s.poke()
+		clear(s.offers)
+		s.offers = s.offers[:0]
 	}
-	clear(t.offers)
-	t.offers = t.offers[:0]
+	clear(t.streams)
+	t.streams = t.streams[:0]
 
 	if t.ctx.Err() != nil {
 		return
@@ -332,6 +333,7 @@ type worker struct {
 	start chan *tick
 	stmts map[string]*stmt // prepared on conn, by their SQL text
 	lru   stmtList         // the same statements, the one used last first
+	limit limit
 }
 
 func (w *worker) run() {
@@ -363,15 +365,17 @@ func (w *worker) render(t *tick) {
 		q = &reads{w: w, tx: tx}
 		ctx = txctx.With(ctx, &txctx.Value{Tx: tx, Pool: w.h.read, Querier: q})
 	}
+	w.limit.begin(w.h, t.ctx, ctx)
 	for {
 		i := int(t.next.Add(1)) - 1
 		if i >= len(t.views) {
 			break
 		}
 		v := t.views[i]
-		t.frames[i], t.errs[i] = w.h.render(ctx, v, tx)
+		st.size.Store(int64(v.size))
+		t.frames[i], t.errs[i] = w.limit.render(v, tx)
 		// v.deps changes only in publish, after the workers are done.
-		t.deps[i] = st.take(v.deps, t.errs[i] != nil)
+		t.deps[i] = st.take(v, t.errs[i] != nil)
 		if b, ok := t.frames[i].([]byte); ok {
 			t.sums[i] = maphash.Bytes(w.h.seed, b)
 		}
@@ -381,6 +385,7 @@ func (w *worker) render(t *tick) {
 		t.views[i].renders.Add(1)
 		w.h.renders.Add(1)
 	}
+	w.limit.end()
 	if tx != nil {
 		q.release(true)
 		if err := tx.Commit(); err != nil && t.ctx.Err() == nil {
@@ -408,24 +413,122 @@ func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
 	return c.BeginTx(ctx, ro)
 }
 
-// render runs v's Render under the render timeout, and logs it when it
-// runs over.
-func (h *Hub) render(ctx context.Context, v *view, tx *sql.Tx) (any, error) {
-	rctx, cancel := context.WithTimeout(ctx, h.renderTimeout)
-	defer cancel()
-	overrun := func() {
-		if ctx.Err() == nil {
-			h.log.Warn("live: render overrun", "view", v.key, "timeout", h.renderTimeout)
-		}
+// limit ends the ctx of each Render a worker runs once the render
+// timeout has passed, and logs a Render still running then. It does so
+// with one timer that the worker keeps, and one ctx per tick that lasts
+// from one Render to the next until a timeout ends it, so that a Render
+// costs no context or timer of its own.
+type limit struct {
+	h      *Hub
+	run    context.Context // Run's ctx
+	parent context.Context // the tick's ctx, with the worker's values
+	ctx    *renderCtx      // the ctx of the next Render, nil until one needs it
+	timer  *time.Timer
+
+	mu  sync.Mutex
+	cur *renderCtx // the ctx of the Render under way, until the timer takes it
+	key string     // its view's key
+	at  time.Time  // when its time is up
+}
+
+// renderCtx is the ctx of a worker's Renders: it ends with its parent, or
+// when the timer of a Render that runs over ends it. Its Deadline is the
+// Render's, and its Err context.DeadlineExceeded after a timeout, as a ctx
+// from context.WithTimeout. The ctxs derived from it end with
+// context.Canceled and the cause context.DeadlineExceeded.
+type renderCtx struct {
+	context.Context
+	cancel context.CancelCauseFunc
+	at     atomic.Int64 // the Render's deadline, in Unix nanoseconds
+}
+
+func (c *renderCtx) Deadline() (time.Time, bool) {
+	at := time.Unix(0, c.at.Load())
+	if d, ok := c.Context.Deadline(); ok && d.Before(at) {
+		return d, true
 	}
-	stop := context.AfterFunc(rctx, overrun)
-	f, err := render(rctx, v, tx)
-	// A Render that returns as its ctx ends can stop the AfterFunc before
-	// it starts.
-	if stop() && rctx.Err() != nil {
-		overrun()
+	return at, true
+}
+
+func (c *renderCtx) Err() error {
+	err := c.Context.Err()
+	if err != nil && errors.Is(context.Cause(c.Context), context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return err
+}
+
+// begin starts a tick whose Renders take ctx, under Run's ctx run.
+func (l *limit) begin(h *Hub, run, ctx context.Context) {
+	if l.h == nil {
+		// Before the timer exists, which reads them.
+		l.h, l.run = h, run
+	}
+	l.parent = ctx
+}
+
+// end ends the tick's ctx.
+func (l *limit) end() {
+	if l.ctx != nil {
+		l.ctx.cancel(nil)
+		l.ctx = nil
+	}
+	l.parent = nil
+}
+
+// render runs v's Render, whose ctx ends after the render timeout.
+func (l *limit) render(v *view, tx *sql.Tx) (any, error) {
+	c := l.ctx
+	if c == nil {
+		ctx, cancel := context.WithCancelCause(l.parent)
+		c = &renderCtx{Context: ctx, cancel: cancel}
+		l.ctx = c
+	}
+	d := l.h.renderTimeout
+	at := time.Now().Add(d)
+	c.at.Store(at.UnixNano())
+	l.mu.Lock()
+	l.cur, l.key, l.at = c, v.key, at
+	l.mu.Unlock()
+	if l.timer == nil {
+		l.timer = time.AfterFunc(d, l.fire)
+	} else {
+		l.timer.Reset(d)
+	}
+	f, err := render(c, v, tx)
+	l.mu.Lock()
+	taken := l.cur == nil
+	l.cur = nil
+	l.mu.Unlock()
+	l.timer.Stop()
+	switch {
+	case taken:
+		// The timer ended c.
+		l.ctx = nil
+	case !time.Now().Before(at):
+		// The Render returned as its time ran out, before the timer took it.
+		l.overrun(v.key)
 	}
 	return f, err
+}
+
+// fire logs the Render under way once its time is up, and ends its ctx. A
+// timer that fired for a Render that has returned since finds the next
+// one's time not up, and leaves it alone.
+func (l *limit) fire() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if c := l.cur; c != nil && !time.Now().Before(l.at) {
+		l.cur = nil
+		l.overrun(l.key)
+		c.cancel(context.DeadlineExceeded)
+	}
+}
+
+func (l *limit) overrun(key string) {
+	if l.run.Err() == nil {
+		l.h.log.Warn("live: render overrun", "view", key, "timeout", l.h.renderTimeout)
+	}
 }
 
 func render(ctx context.Context, v *view, tx *sql.Tx) (f any, err error) {

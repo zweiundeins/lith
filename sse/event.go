@@ -2,6 +2,7 @@ package sse
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"html"
 	"iter"
@@ -52,18 +53,32 @@ type Patch struct {
 }
 
 const (
-	elementsEvent = "event: datastar-patch-elements\n"
-	signalsEvent  = "event: datastar-patch-signals\n"
+	elementsEvent  = "event: datastar-patch-elements\n"
+	signalsEvent   = "event: datastar-patch-signals\n"
+	elementsPrefix = "elements "
 )
 
 // PatchElements formats a datastar-patch-elements event. It takes at most
 // one Patch; without one, the elements are morphed in by their ids.
 func PatchElements(html []byte, p ...Patch) []byte {
+	return AppendPatchElements(nil, html, p...)
+}
+
+// AppendPatchElements is PatchElements that appends the event to dst and
+// returns the extended slice, so that a Render can format its frame into
+// a buffer of the size it needs (live.FrameBuffer), or format several
+// events into one.
+func AppendPatchElements(dst, html []byte, p ...Patch) []byte {
+	var opts [5]line
+	return appendFormat(dst, elementsEvent, patchLines(&opts, p), elementsPrefix, html)
+}
+
+// patchLines are the option lines of a Patch, in opts.
+func patchLines(opts *[5]line, p []Patch) []line {
 	var o Patch
 	if len(p) > 0 {
 		o = p[0]
 	}
-	var opts [5]line
 	n := 0
 	if o.Selector != "" {
 		opts[n] = line{"selector ", o.Selector}
@@ -86,7 +101,7 @@ func PatchElements(html []byte, p ...Patch) []byte {
 		}
 	}
 	singleLines(opts[:n])
-	return format(elementsEvent, opts[:n], "elements ", html)
+	return opts[:n]
 }
 
 // singleLines panics on an option value that holds a CR or LF.
@@ -102,9 +117,9 @@ func singleLines(opts []line) {
 // patch. With onlyIfMissing, the page keeps signals it already has.
 func PatchSignals(json []byte, onlyIfMissing bool) []byte {
 	if onlyIfMissing {
-		return format(signalsEvent, []line{{"onlyIfMissing ", "true"}}, "signals ", json)
+		return appendFormat(nil, signalsEvent, []line{{"onlyIfMissing ", "true"}}, "signals ", json)
 	}
-	return format(signalsEvent, nil, "signals ", json)
+	return appendFormat(nil, signalsEvent, nil, "signals ", json)
 }
 
 // Reconnect is the last event of a stream that ends because its server
@@ -136,9 +151,10 @@ func Comment(text string) []byte {
 
 type line struct{ key, value string }
 
-// format writes an event: its options, then one data line per line of
-// body, each with the given prefix.
-func format(event string, opts []line, prefix string, body []byte) []byte {
+// appendFormat appends an event to dst: its options, then one data line
+// per line of body, each with the given prefix. It grows dst once, and a
+// nil dst to the event's exact size.
+func appendFormat(dst []byte, event string, opts []line, prefix string, body []byte) []byte {
 	n := len(event) + 1
 	for _, o := range opts {
 		n += len("data: ") + len(o.key) + len(o.value) + 1
@@ -148,23 +164,33 @@ func format(event string, opts []line, prefix string, body []byte) []byte {
 			n += len("data: ") + len(prefix) + len(l) + 1
 		}
 	}
-	b := make([]byte, 0, n)
-	b = append(b, event...)
-	for _, o := range opts {
-		b = append(b, "data: "...)
-		b = append(b, o.key...)
-		b = append(b, o.value...)
-		b = append(b, '\n')
+	if cap(dst)-len(dst) < n {
+		b := make([]byte, len(dst), len(dst)+n)
+		copy(b, dst)
+		dst = b
 	}
+	dst = appendHead(dst, event, opts)
 	if len(body) > 0 {
 		for l := range lines(body) {
-			b = append(b, "data: "...)
-			b = append(b, prefix...)
-			b = append(b, l...)
-			b = append(b, '\n')
+			dst = append(dst, "data: "...)
+			dst = append(dst, prefix...)
+			dst = append(dst, l...)
+			dst = append(dst, '\n')
 		}
 	}
-	return append(b, '\n')
+	return append(dst, '\n')
+}
+
+// appendHead appends an event's name and its option lines to dst.
+func appendHead(dst []byte, event string, opts []line) []byte {
+	dst = append(dst, event...)
+	for _, o := range opts {
+		dst = append(dst, "data: "...)
+		dst = append(dst, o.key...)
+		dst = append(dst, o.value...)
+		dst = append(dst, '\n')
+	}
+	return dst
 }
 
 // lines yields the lines of b. Like an SSE parser, it ends a line at
@@ -200,4 +226,95 @@ func lines(b []byte) iter.Seq[[]byte] {
 		}
 		yield(b[start:])
 	}
+}
+
+// Elements formats a datastar-patch-elements event from HTML written to it
+// in pieces, such as by a template's Render: each piece goes into the
+// event as it comes, line by line, so the event holds the only copy of the
+// HTML. Its lines end as PatchElements ends them, at "\r\n", "\r" or "\n",
+// also where a write ends between a CR and its LF.
+//
+//	e := sse.NewElements(live.FrameBuffer(ctx))
+//	if err := page.Render(ctx, e); err != nil {
+//		return nil, err
+//	}
+//	return e.Event(), nil
+type Elements struct {
+	b     []byte
+	html  bool // HTML was written
+	open  bool // a data line has begun
+	cr    bool // the last byte written was a CR
+	ended bool
+}
+
+// NewElements starts an event in dst, which Event returns extended by it.
+// It takes at most one Patch, as PatchElements does.
+func NewElements(dst []byte, p ...Patch) *Elements {
+	var opts [5]line
+	return &Elements{b: appendHead(dst, elementsEvent, patchLines(&opts, p))}
+}
+
+// errEnded is the error of a write to Elements after its Event.
+var errEnded = errors.New("sse: Elements written after its Event")
+
+// Write adds HTML to the event.
+func (e *Elements) Write(p []byte) (int, error) {
+	if e.ended {
+		return 0, errEnded
+	}
+	n := len(p)
+	if n == 0 {
+		return 0, nil
+	}
+	e.html = true
+	if e.cr && p[0] == '\n' {
+		p = p[1:]
+	}
+	e.cr = false
+	cr := bytes.IndexByte(p, '\r') >= 0
+	for len(p) > 0 {
+		if !e.open {
+			e.b = append(e.b, "data: "+elementsPrefix...)
+			e.open = true
+		}
+		var i int
+		if cr {
+			i = bytes.IndexAny(p, "\r\n")
+		} else {
+			i = bytes.IndexByte(p, '\n')
+		}
+		if i < 0 {
+			e.b = append(e.b, p...)
+			break
+		}
+		e.b = append(append(e.b, p[:i]...), '\n')
+		e.open = false
+		if p[i] == '\r' {
+			switch {
+			case i+1 == len(p):
+				e.cr = true
+			case p[i+1] == '\n':
+				i++
+			}
+		}
+		p = p[i+1:]
+	}
+	return n, nil
+}
+
+// Event ends the event and returns dst with it. Later calls return the
+// same, and writes fail.
+func (e *Elements) Event() []byte {
+	if !e.ended {
+		e.ended = true
+		switch {
+		case e.open:
+			e.b = append(e.b, '\n')
+		case e.html:
+			// The HTML ended a line: an empty one follows, as PatchElements has it.
+			e.b = append(e.b, "data: "+elementsPrefix+"\n"...)
+		}
+		e.b = append(e.b, '\n')
+	}
+	return e.b
 }

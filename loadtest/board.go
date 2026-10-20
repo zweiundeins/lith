@@ -67,19 +67,24 @@ func (b Board) View(n int) live.View {
 			return nil, err
 		}
 		defer cards.Close()
-		html := make([]byte, 0, 768*rows)
-		html = fmt.Appendf(html, `<div id="board-%d" class="board" aria-label="Cards">`+"\n", n)
+		// Each card goes into the event as it is formatted, into a buffer the
+		// size of the last frame.
+		e := sse.NewElements(live.FrameBuffer(ctx))
+		html := fmt.Appendf(make([]byte, 0, 1024), `<div id="board-%d" class="board" aria-label="Cards">`+"\n", n)
+		e.Write(html)
 		for cards.Next() {
 			var c card
 			if err := cards.Scan(&c.id, &c.title, &c.labels, &c.due, &c.comments, &c.n); err != nil {
 				return nil, err
 			}
-			html = c.append(html, n)
+			html = c.append(html[:0], n)
+			e.Write(html)
 		}
 		if err := cards.Err(); err != nil {
 			return nil, err
 		}
-		return sse.PatchElements(append(html, "</div>"...)), nil
+		e.Write([]byte("</div>"))
+		return e.Event(), nil
 	}}
 }
 

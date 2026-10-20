@@ -283,6 +283,10 @@ type Hub struct {
 	sweepAt time.Time                // when pending is next swept
 	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
 	next    chan struct{}            // closed once the next tick that renders views has published its frames
+	// Nodes that left the topic tree, and the empty maps of those that had
+	// nodes below them, for topics to come.
+	spare     []*node
+	spareKids []map[*node]struct{}
 
 	ticks, renders, sent, dropped, deferred, overruns, readTxs, acks, paces, releases atomic.Int64
 	behind, behindStreams                                                             atomic.Int64
@@ -296,6 +300,7 @@ type view struct {
 	key      string
 	topics   []string
 	deps     []string // the topics its last Render declared, sorted; set in publish, with Hub.mu held
+	spare    []string // the next deps, filled by the worker that renders the view
 	render   func(ctx context.Context, tx *sql.Tx) (any, error)
 	every    time.Duration
 	presence bool
@@ -342,6 +347,7 @@ type stream struct {
 	writeTick func(*sse.Stream, []Frame) error
 	cancel    context.CancelFunc
 	wake      chan struct{}
+	offers    []offer       // its new frames while publish hands them out; the hub's loop alone uses it
 	upgrade   time.Duration // when it listens for a better tier (sse.Stream.Upgrade); negative: never
 	every     time.Duration // the least time between two frames of a view (Spec.Slow), 0 for none
 	ack       func(token string, n int64) []byte
@@ -868,7 +874,8 @@ func (h *Hub) redepend(v *view, deps []string, seq uint64) bool {
 		}
 	}
 	h.vmu.RUnlock()
-	v.deps = deps
+	clear(old)
+	v.deps, v.spare = deps, old[:0]
 	return stale
 }
 

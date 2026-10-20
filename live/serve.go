@@ -464,7 +464,6 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 	}
 	var rest <-chan time.Time // fires when the stream should hibernate
 	var restTimer *time.Timer
-	asleep := false
 	if h.hibernate > 0 {
 		restTimer = time.NewTimer(h.hibernate)
 		defer restTimer.Stop()
@@ -612,7 +611,6 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			}
 			if restTimer != nil {
 				restTimer.Reset(h.hibernate)
-				asleep = false
 			}
 		}
 
@@ -623,20 +621,15 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		case <-due:
 		case <-stall:
 		case <-idle.C:
-			if err := st.Write(h.beat()); err != nil {
+			// A stream that hibernates stays asleep.
+			if err := st.Ping(h.beat()); err != nil {
 				return err
-			}
-			if asleep {
-				if err := st.Hibernate(); err != nil {
-					return err
-				}
 			}
 			idle.Reset(h.heartbeat)
 		case <-rest:
 			if err := st.Hibernate(); err != nil {
 				return err
 			}
-			asleep = true
 		case <-listen:
 			upgrade = st.Upgrade()
 		case <-upgrade:

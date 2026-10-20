@@ -107,6 +107,14 @@ func Depends(ctx context.Context, topics ...string)
 
 Depends declares, in a Render, that the view read what the topics name, as Topics do: a commit that touches one of them marks the view dirty. The topics the Render declares replace those the Render before it declared, once it returns, so a view whose reads depend on a row, such as a tab's route, declares what it read for the route it rendered, and a commit to what an earlier route read no longer renders it. A Render that fails keeps the topics of the one before. A commit that lands after the Render's snapshot and touches a topic the view takes on marks it dirty as well: the hub compares the topic's Version with Seq(ctx). A topic that View.Topics would refuse panics, which fails the Render. Outside a Render, Depends does nothing.
 
+### func FrameBuffer {#FrameBuffer}
+
+```go
+func FrameBuffer(ctx context.Context) []byte
+```
+
+FrameBuffer is, in a Render, an empty buffer for the view's frame, with room for its last \[]byte frame and an eighth more: a Render that formats its frame into it (sse.AppendPatchElements, sse.NewElements) allocates the frame once while it keeps about its size. It is nil before the view's first \[]byte frame, and outside a Render.
+
 ### func Seq {#Seq}
 
 ```go
