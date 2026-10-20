@@ -66,6 +66,9 @@ With data-newest-frame\_\_reopen it also sets $\_slow and opens the stream again
 var (
 	// ErrFull is returned by Serve when MaxStreams streams are open.
 	ErrFull = errors.New("live: too many streams")
+	// ErrClientFull is returned by Serve when the stream's Spec.Client
+	// holds Options.MaxStreamsPerClient streams already.
+	ErrClientFull = errors.New("live: too many streams from this client")
 	// ErrStopped is returned by Serve once the hub has stopped.
 	ErrStopped = errors.New("live: hub stopped")
 )
@@ -264,6 +267,14 @@ func (h *Hub) Done() <-chan struct{}
 
 Done is closed once the hub stops: when Run's ctx ends, or Run returns. Work that only serves the hub's views ends with it, such as a clock that changes a view while someone watches it (Count).
 
+#### func (*Hub) HasStream {#Hub.HasStream}
+
+```go
+func (h *Hub) HasStream(id string) bool
+```
+
+HasStream reports whether a stream with the ID is open. An action that stores state for a tab can refuse a tab whose stream is not open, so that a client cannot make rows for tab ids it made up.
+
 #### func (*Hub) MarkAll {#Hub.MarkAll}
 
 ```go
@@ -376,6 +387,18 @@ type Options struct {
 	// (sse.BudgetOptions.Refuse), memory caps them, and MaxStreams is a
 	// backstop.
 	MaxStreams int
+	// MaxStreamsPerClient is how many streams one client, by Spec.Client,
+	// may hold open at once (default 16; negative: no cap). Serve answers
+	// 429 to more. Without it one client can take every place under
+	// MaxStreams with idle streams that cost it nothing, and every other
+	// page gets 503; and since the streams' budget shares its memory per
+	// stream, the client that came first keeps the compressed tiers while
+	// later ones go out uncompressed. A browser holds one stream per tab:
+	// 16 leaves room for a person with many tabs, or a few people behind
+	// one address, while it takes MaxStreams/16 addresses to fill the hub.
+	// An app whose users share one address (an office, a VPN) keys a
+	// signed-in user by its account instead, or raises the cap.
+	MaxStreamsPerClient int
 	// PendingWatch is how long Watch keeps a view for a stream ID that is
 	// not open yet, for the stream that opens with it (default 10s,
 	// negative: Watch keeps none). Views wait for at most MaxStreams IDs
@@ -436,8 +459,12 @@ type Options struct {
 	// process's memory limit for the streams, their encoders and the frames
 	// the hub keeps, which it books (sse.Budget.Hold); each stream gets a
 	// window that holds its frames, up to 2^19, and goes out uncompressed
-	// when not even the smallest tier fits; without a memory limit it only
-	// counts. Pass a Budget of your own for another limit, or with Refuse,
+	// when not even the smallest tier fits. A process without a memory
+	// limit gives the streams a quarter of the machine's memory, and New
+	// logs a warning; New logs the budget's limit in any case. The budget
+	// shares its room per stream: one client that opens many streams
+	// first would keep the compressed tiers, which MaxStreamsPerClient
+	// prevents. Pass a Budget of your own for another limit, or with Refuse,
 	// which Serve answers with 503 when the budget has no room for a
 	// stream: for a window that holds its first frames, or for the 32 KiB
 	// of one that compresses nothing; or one with Limit -1 to turn it off.
@@ -451,6 +478,12 @@ Options configure a Hub. The zero value of every field but Read selects its defa
 
 ```go
 type Spec struct {
+	// Client is the key that Options.MaxStreamsPerClient counts the
+	// stream under: edge.ClientKey(r) for anonymous visitors, or a
+	// signed-in user's account where users share an address. A session id
+	// is no such key: a client mints a new one with every request that
+	// sends no cookie. Empty: the stream counts under no client.
+	Client string
 	// ID names the stream for Watch and Unwatch, usually the tab id. A
 	// stream with the ID of one still open replaces it if its request
 	// came later, and else ends at once. Empty: none.

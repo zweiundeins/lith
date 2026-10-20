@@ -32,6 +32,8 @@ TimeoutStopSec=20
 LimitNOFILE=65536
 ```
 
+The app believes the `X-Forwarded-For` of whoever connects to the socket ([The request edge](/docs/guides/edge#client-addresses)), so only Caddy may: the unit makes `/run/app` mode 0750 (`RuntimeDirectoryMode`), the app makes the socket 0660, both of the group `app`, and the host puts Caddy's user in that group (`usermod -aG app caddy`, which `setup-host.sh` does), then restarts Caddy once, since a reload keeps the groups it started with. The app logs at start whose headers it believes (`proxy_headers_from`). On a loopback port every local user of the host could connect and name any client address.
+
 The rest of the unit closes the process in: it reaches no host but its own, may bind its metrics port and no other, and runs with a read-only system, private `/tmp` and devices, no capabilities, and the `@system-service` system calls. Loopback is open both ways, since Prometheus connects from 127.0.0.1, so the app could also reach the other services that listen there; an app that calls out to another host adds the addresses it needs to `IPAddressAllow` ([Metrics and monitoring](/docs/guides/monitoring#metrics-from-the-template)). Each flag of the binary can also come from the environment, `-db` as `APP_DB`, through an optional `/etc/app/app.env`.
 
 ## Memory
@@ -87,7 +89,7 @@ reverse_proxy unix//run/app/app.sock {
 }
 ```
 
-`flush_interval -1` passes every write of a stream through at once; without it, Caddy buffers frames. The access log is JSON, in `/var/log/caddy`, with mode 0640. Run as root, `caddy validate` creates the log owned by root and the next reload fails; `chown caddy:caddy` on the file fixes it.
+`flush_interval -1` passes every write of a stream through at once; without it, Caddy buffers frames. The block caps request bodies at 1 MB (`request_body { max_size 1MB }`); the app gives a body 10 s itself (`sse.SignalsTimeout`), since Caddy's `read_body` timeout is a global option of the host's Caddyfile and ends every stream over HTTP/1.1 after that long. The access log is JSON, in `/var/log/caddy`, with mode 0640, and keeps a hash of each tab id instead of the id: a tab id lets whoever has it pace or end that tab's stream, and the log keeps 30 days. Run as root, `caddy validate` creates the log owned by root and the next reload fails; `chown caddy:caddy` on the file fixes it.
 
 ## The deploy script
 
@@ -148,4 +150,4 @@ On a host that runs several apps, each app puts its files into folders that the 
 
 ## This site's deploy
 
-`site/deploy` is a second, complete example: the unit listens on a loopback port instead of a socket, its metrics listen at that port plus 100 for Prometheus only, and the unit may connect nowhere and bind those two ports alone. Its README installs it, and `site/deploy/observability` holds its probes and log shipping, beside the dashboard and the alerts in lith's `deploy/observability` ([Metrics and monitoring](/docs/guides/monitoring)).
+`site/deploy` is a second, complete example: the unit listens on a socket of its group, as the template's does, its metrics on 127.0.0.1:8197 for Prometheus only, and the unit may connect nowhere and bind that port alone; its README says how a host moves it from the loopback port it used before. Its README installs it, and `site/deploy/observability` holds its probes and log shipping, beside the dashboard and the alerts in lith's `deploy/observability` ([Metrics and monitoring](/docs/guides/monitoring)).

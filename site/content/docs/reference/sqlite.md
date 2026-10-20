@@ -85,7 +85,7 @@ type DB struct {
 }
 ```
 
-DB is one database file. W holds a single connection that takes the write lock when a transaction begins (BEGIN IMMEDIATE); only migrations and the writer use it, and it is nil with Options.ReadOnly. R is the pool of query\_only connections.
+DB is one database file. W holds a single connection that takes the write lock when a transaction begins (BEGIN IMMEDIATE); only migrations and the writer use it, and it is nil with Options.ReadOnly. R is the pool of read connections: each opens the file read-only (mode=ro) and is query\_only, so a statement that runs on one cannot write the file, not even one that starts with PRAGMA query\_only = 0. A statement can still ATTACH another file the process may open, which mode=ro does not cover: it can read it, and after that pragma write to it. Only an authorizer could refuse ATTACH, which modernc.org/sqlite does not expose. So bind every value, and build SQL texts from constants only.
 
 #### func Open {#Open}
 

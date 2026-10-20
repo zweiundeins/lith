@@ -2,6 +2,34 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+Fixes from an external security review of v0.4.0: one client can no longer hold every stream, the stream budget has a limit on a machine without a memory limit, a request body has a deadline, and the read pool opens its file read-only. What to check in an app:
+
+- Set `Client: edge.ClientKey(r)` in each public stream's `live.Spec`. `live.Options.MaxStreamsPerClient` (16 by default) then caps the streams of one address with a 429; without a `Client` a stream counts under none, as before. An app whose users share one address keys a signed-in user by the account, or raises the cap.
+- A process without GOMEMLIMIT and without a cgroup memory limit now gives the streams a quarter of the machine's memory instead of no limit, and `live.New` logs a warning; set GOMEMLIMIT or `sse.BudgetOptions.Limit`.
+- `db.R` now opens the file with `mode=ro`. Nothing changes for code that only reads through it.
+- `sse.PatchElements` panics on a CR or LF in a `Patch` option, which used to inject a line into the event.
+
+- `live`: `Spec.Client` and `Options.MaxStreamsPerClient` cap the streams of one client, counted in `Serve` and released when the stream ends; more get 429 and `ErrClientFull`. Without it, 300 idle streams from one address gave every other page a 503, and since the budget shares its room per stream, a client that came first kept the compressed tiers while a later page got a 230 KB view whole at every change (`TestLateClientKeepsCompression`). `Hub.HasStream(id)` reports whether a stream with the ID is open, for actions that store tab state.
+- `sse`: without GOMEMLIMIT or a cgroup limit, the budget takes half the machine's memory (Linux's MemTotal) as the process's limit, a quarter of it for the streams; unlimited, 2,000 zstd streams held 3.3 GiB. `BudgetStats.From` says where the limit came from, and `live.New` logs it.
+- `sse`: `ReadSignals` and `ReadSignalsLimit` give a request's body `SignalsTimeout`, 10 s, through a read deadline that they clear once the body is in. A client that declared a body and sent one byte of it held a connection and a goroutine until it left; now it gets an error, and the server closes the connection.
+- `sse`: `PatchElements` refuses a line break in `Selector`, `Mode`, `Namespace` or `ViewTransitionSelector`.
+- `sqlite`: the read pool opens the file read-only (`mode=ro`) as well as `query_only`, so a statement whose text starts with `PRAGMA query_only = 0` can no longer write through it. A statement can still `ATTACH` another file and write that one: SQL texts come from constants.
+- `edge`: `Static` compresses its files on two goroutines, and `Static.Warmed` is a readiness check that passes once they are done. `TrustedProxies(addr)` says whose proxy headers `ClientIP` believes on a listener, for a log line at start.
+- Template: streams count under the client's address (`-client-streams`, 16); `/pace` and `/ack` limit each address before each session or stream; `/static/` is mounted outside `edge.Sessions`, so its immutable answers carry no cookie; a signature from a tab whose stream is not open gets 409 and writes no row; tab state is swept after a day, by an index (`migrations/002_tab_state_seen.sql`); `/readyz` waits for the static files; the start's log line names whose proxy headers the app believes. The socket is 0660 in a 0750 `/run/app`, and `setup-host.sh` puts Caddy's user in the app's group. The Caddy block caps request bodies at 1 MB and logs a hash of each tab id instead of the id.
+- Site: the same, and the demos refuse an action for a tab whose stream the session does not have open; the site moves to a socket of its group (`site/deploy/README.md` has the steps for the host). The writer race sends for all its producers from one goroutine on a thread at low priority, rests half a pause longer for each race in line, and runs with 50 producers at most while three or more races wait. The town takes one seek a tick.
+- Docs and skill: a session id is no limiter key; the cap per client and why the budget needs it; the budget's fallback; static files outside the sessions; request bodies; whom the app believes on a socket or on loopback; `Cache-Control: no-transform` against BREACH; and review checks for unscoped `Once` keys, limits by session alone, streams without a `Client` and tab state without a stream.
+
+To update an app made from an earlier template:
+
+- In the stream handler, add `Client: edge.ClientKey(r)` to the `Spec`, and pass `MaxStreamsPerClient` to `live.New` (the template's `-client-streams`).
+- Add the per-address limiters `paceAddrs` and `ackAddrs` in front of `paces` and `acks` (`internal/web/pace.go`).
+- Take `GET /static/` out of `Routes`, mount `site.Static()` on the outer mux behind `SecurityHeaders`, `Recover` and `LogRequests`, and add `ready.Add("static", site.Static().Warmed)`.
+- In `sign`, refuse a tab without an open stream (`s.hub.HasStream(streamID(sid, req.Tab))`) before the command.
+- Copy `migrations/002_tab_state_seen.sql`, and set `TabTTL` to a day.
+- Chmod the socket 0660, set `RuntimeDirectoryMode=0750` in the unit, run `usermod -aG app caddy` and restart Caddy. Copy the `request_body` and `format filter` parts of `deploy/app.caddy`.
+
 ## v0.4.0 (2026-10-19)
 
 Views can declare what their Render read, topics form a tree by their `:` segments, and the hub numbers its commits, for caches of derived values. A read can skip the statement caches, and a stream the hub stops keeps its clean end over HTTP/2. No API was removed. What to check in an app:

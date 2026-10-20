@@ -32,6 +32,12 @@ const MaxSignals = 1 << 20
 
 MaxSignals is the most bytes of signals ReadSignals takes from a request's body.
 
+```go
+const SignalsTimeout = 10 * time.Second
+```
+
+SignalsTimeout is how long ReadSignals waits for a request's body: a client that declares a body and sends it slowly, or not at all, would otherwise hold its connection and a goroutine until it leaves. The server needs no ReadTimeout for it, which would end every stream.
+
 ## Variables
 
 ```go
@@ -92,7 +98,7 @@ PatchSignals formats a datastar-patch-signals event with a JSON merge patch. Wit
 func ReadSignals(w http.ResponseWriter, r *http.Request, v any) error
 ```
 
-ReadSignals decodes the Datastar signals of r into v. Datastar sends them as the datastar query parameter for GET and DELETE (and ReadSignals reads HEAD like GET), and as a JSON body for every other method, @query's QUERY included. A missing parameter or an empty body is no signals: v stays as it is and the error is nil. A body over MaxSignals bytes fails with an \*http.MaxBytesError, bad JSON with the decoder's error.
+ReadSignals decodes the Datastar signals of r into v. Datastar sends them as the datastar query parameter for GET and DELETE (and ReadSignals reads HEAD like GET), and as a JSON body for every other method, @query's QUERY included. A missing parameter or an empty body is no signals: v stays as it is and the error is nil. A body over MaxSignals bytes fails with an \*http.MaxBytesError, bad JSON with the decoder's error, and a body that has not arrived within SignalsTimeout with an error that matches os.ErrDeadlineExceeded: ReadSignals sets a read deadline on the connection (http.ResponseController) before it reads the body, and clears it once it has the whole body.
 
 ReadSignals reads the body to its end: over HTTP/1.1, net/http notices that a client has left only once the body has been read, or discarded when the response's headers go out. So call it before Open, and before a handler waits on its context with nothing written.
 
@@ -177,9 +183,14 @@ type BudgetOptions struct {
 	// takes half the process's memory limit: GOMEMLIMIT, else the cgroup's
 	// memory.max or memory.high, whichever is lower. The other half is for
 	// the rest of the app and for the garbage that renders and compression
-	// leave between two collections. Without a memory limit, or with a
-	// negative Limit, there is no limit: every stream gets the largest tier
-	// its options allow, and the budget only counts.
+	// leave between two collections. A process without a memory limit
+	// takes half the machine's memory as its limit (Linux's MemTotal), so
+	// the streams get a quarter of it: without a limit, every zstd stream
+	// would hold the largest tier, about 1.7 MiB, and 2000 of them more
+	// than a small server has. Where the machine's memory is not known
+	// either, or with a negative Limit, there is no limit: every stream
+	// gets the largest tier its options allow, and the budget only counts.
+	// BudgetStats.From says where the limit came from.
 	Limit int64
 	// MinWindow, if set, is the smallest window, as a base 2 logarithm,
 	// that a stream's frames need. A stream needs a window that holds its
@@ -219,6 +230,11 @@ BudgetOptions configure a Budget. The zero value takes half the process's memory
 ```go
 type BudgetStats struct {
 	Limit int64 // bytes, 0 for none
+	// From says where Limit came from: "options" (BudgetOptions.Limit or
+	// SetLimit), "GOMEMLIMIT", "cgroup", "machine" (a quarter of the
+	// machine's memory, for a process without a memory limit), or "" when
+	// there is none.
+	From string
 	// Reserved is what the open streams hold: their tiers, 32 KiB each
 	// besides, and Frames.
 	Reserved int64
@@ -340,7 +356,7 @@ type Patch struct {
 }
 ```
 
-Patch says where and how patched elements go. The zero value morphs each element into the page by its id. Values must be single lines.
+Patch says where and how patched elements go. The zero value morphs each element into the page by its id. Values must be single lines: PatchElements panics on a CR or LF in one, which would end the option's line and start another of the attacker's choosing.
 
 ViewTransition morphs inside a view transition, the whole document's unless ViewTransitionSelector names an element to scope it to. Scope it: while a transition of the document runs, Chromium gives every press on the page to \<html>, and buttons and links miss their clicks. A browser without scoped transitions morphs at once.
 

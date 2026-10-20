@@ -80,7 +80,9 @@ i5-13500 core, 2026-10-12:
   200-tab run most of 4.9 cores went into brotli. Safari decodes zstd from 26.3
   (on OS 26.3 and later); older browsers get brotli.
 - A live hub shares a memory budget among its streams by default: half the
-  process's memory limit (GOMEMLIMIT, else the cgroup's), for each stream's
+  process's memory limit (GOMEMLIMIT, else the cgroup's; without either, half
+  the machine's MemTotal, so a quarter of it, which `live.New` logs as a
+  warning: unlimited, 2000 zstd streams held 3.3 GiB), for each stream's
   encoder, 32 KiB per stream besides (hub state, stacks, net/http buffers) and
   the frames the hub keeps (its length + 8 KiB, once per view; a non-[]byte
   frame by its `Len() int`). The hub keeps the newest frame of a view that two
@@ -94,7 +96,11 @@ i5-13500 core, 2026-10-12:
   then raw blocks (with `Refuse`, never below its frame's window). brotli
   keeps its tier: its frame's window (no larger) at q4 while the budget is at
   most half full, q3 after, q3 2^16 only when that does not fit (never with
-  `Refuse`), uncompressed last. Without a memory limit nothing changes.
+  `Refuse`), uncompressed last. Where the machine's memory is unknown too,
+  the budget only counts. The budget shares per stream, not per client: a client
+  that opens many streams first keeps the compressed tiers (230 KB a frame
+  for a later page, against 4 KB), which `Spec.Client` with
+  `MaxStreamsPerClient` (16) prevents.
   Configure it with
   `live.Options{SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{...})}}`:
   `Limit` in bytes (-1: none), `MinWindow` for frames that refer back further
@@ -111,8 +117,8 @@ i5-13500 core, 2026-10-12:
   Frames that later outgrow the window cost more bytes, never the stream. In
   120 MiB, 134 zstd tabs with a 233 KB view each get in at 2^18, or 91
   brotli tabs; the rest get 503. Memory is then the stream cap: leave
-  `MaxStreams` at its default (2000) as a backstop for a process without a
-  memory limit, and open streams with retry 'error'. A stream's own
+  `MaxStreams` at its default (2000) as a backstop for a machine whose memory
+  the budget does not know, and open streams with retry 'error'. A stream's own
   ZstdWindow and BrotliWindow cap what it gets. A brotli stream below its
   frame's window (or uncompressed) with `Spec.Reconnect` set is ended with
   `sse.Reconnect` once room frees up, and the page reopens on a better tier

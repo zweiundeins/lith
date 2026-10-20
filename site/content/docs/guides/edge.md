@@ -29,6 +29,12 @@ Each layer's place has a reason:
 - `Recover` sits around `Compress`: a panic drops the compressed body held so far, and the client gets a clean 500.
 - `LogRequests` sits around `Recover`, so it logs the 500 a panic became.
 - `/healthz` and `/readyz` sit outside the chain: a probe gets no cookie and makes no log line.
+- `/static/` sits outside `Sessions`, behind the headers, `Recover` and the log: its answers are public and immutable, and a session cookie on one would go to everyone a shared cache hands it to.
+
+```go source=template/cmd/app/main.go
+static := edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: *secure}.Handler(site.Static())
+static = edge.LogRequests(log, edge.Recover(log, static))
+```
 
 The server has no `WriteTimeout`: each write to a stream has a deadline of its own, and a server-wide timeout would cut every stream after that long.
 
@@ -52,6 +58,8 @@ The cookie is `HttpOnly`, `SameSite=Lax`, and lives 400 days, the longest a brow
 - `Clear(w)` deletes the cookie, for a logout.
 - `Ensure(w, r)` returns the request's id, making one when it has none, for a handler outside `Handler`.
 - `Accept`, a function, lets a cookie carry an id in an app's older format, so a move to `Sessions` signs no one out. It must check the format: the value is the client's.
+
+A session id is an identifier, not a limiter key. `Sessions` signs nothing and keeps no record, so any well-formed id is valid, and a request without a cookie gets a new one: a client that sends no cookie is a new session with every request. A limit or a "one per session" rule keyed by it alone is one a client steps around; put a limit by the client's address ([below](#rate-limits)) in front of it. Guessing and fixation are not at issue: 256 random bits, `__Host-`, and `Renew` at login.
 
 ## Cross-site requests
 
@@ -102,6 +110,8 @@ header_up X-Real-IP {http.request.remote.host}
 
 `edge.ClientKey(r)` is the address as a rate-limit key: an IPv6 client counts by its /64, since one subscriber holds a whole /64 and could rotate through it.
 
+Whoever can connect to the app's listener from loopback or through its socket can name any address. On a loopback port that is every local user of the host, another app's compromised service user too. The template listens on a Unix socket of mode 0660 in a directory of mode 0750, both of the app's group, which Caddy's user joins, so only Caddy gets in ([Deploying](/docs/guides/deploying#caddy)). A proxy that connects from another address, such as a container bridge, is not believed at all: every client then counts as the proxy, and one abuser spends the limit of all. `edge.TrustedProxies(ln.Addr())` says which case a listener is, and the template logs it at start as `proxy_headers_from`.
+
 ## Slow links
 
 `edge.SlowLink(r)` reports whether a request says its client is on a slow link: the `Save-Data: on` header, which a browser sends when its user asked to save data, and a lith page sends on its stream's request when it measured a slow link as it started or fell behind its stream later (`live.NewestFrame`); Chromium's client hints `ECT` (slow-2g, 2g or 3g), `RTT` (over 300 ms) and `Downlink` (under 0.8 Mbit/s); or the query parameter `net=slow`, which pages put in their stream's URL before they sent `Save-Data`, so that tabs still open from then keep their slow stream. Chromium sends those hints once a document asked for them with `Accept-CH`, whose value is `edge.NetworkHints`. A stream handler passes the answer to `live.Spec.Slow` ([Streams: slow links](/docs/guides/streams#slow-links)).
@@ -133,7 +143,13 @@ Pass `time.Now()` to `Allow`: its monotonic reading keeps a step of the wall clo
 
 ## Compression
 
-`edge.Compress` compresses the answers to GET, HEAD and QUERY (`@query`, a read like GET) with brotli, zstd or gzip, the one the request accepts best, brotli first when it accepts them equally. It leaves alone event streams, which compress themselves, answers that set their own `Content-Encoding`, partial content, types that do not compress, and bodies under 512 bytes. Other methods pass untouched. Caddy does not compress (`encode` stays out of the site block): the app compresses everything itself.
+`edge.Compress` compresses the answers to GET, HEAD and QUERY (`@query`, a read like GET) with brotli, zstd or gzip, the one the request accepts best, brotli first when it accepts them equally. It leaves alone event streams, which compress themselves, answers that set their own `Content-Encoding`, partial content, types that do not compress, bodies under 512 bytes, and answers with `Cache-Control: no-transform`. Other methods pass untouched. Caddy does not compress (`encode` stays out of the site block): the app compresses everything itself.
+
+A compressed page that holds a secret of the user beside text the request reflected leaks the secret to an attacker who can make the browser send requests and read their sizes (BREACH). lith's pages hold none: the session lives in the cookie, and the CSRF check reads headers. A page that renders such a secret, a token or an address next to a search term, sends `Cache-Control: no-transform`, and goes out uncompressed.
+
+## Request bodies
+
+`sse.ReadSignals` and `ReadSignalsLimit` cap an action's body (1 MiB, the template's 8 KiB), and give it `sse.SignalsTimeout`, 10 s, to arrive: they set a read deadline on the connection through `http.ResponseController` before they read, and clear it once the body is in. A client that declares a body and sends one byte of it then gets an error, and the server closes the connection, where it held a goroutine until the client left. The server itself has no `ReadTimeout`, which would end every stream. The template's Caddy block caps bodies at 1 MB as well (`request_body { max_size 1MB }`); Caddy's own `read_body` timeout is a global option, and Go's server, which Caddy is, ends a stream over HTTP/1.1 once a request has run that long.
 
 ## Static files
 
@@ -168,7 +184,7 @@ ready.Add("database", func(ctx context.Context) error {
 })
 ```
 
-A check must not queue behind the writer: a command waits for every batch ahead of it, which turns a busy writer into a failed probe. Read from the read pool, or look at state in memory, as this site does for its writer and hub.
+A check must not queue behind the writer: a command waits for every batch ahead of it, which turns a busy writer into a failed probe. Read from the read pool, or look at state in memory, as this site does for its writer and hub. `edge.Static.Warmed` is such a check: it passes once the static files are compressed, on two goroutines from the start, and until then a request for a file not compressed yet waits for it. The template and this site register it as `static`.
 
 ## Errors and logs
 

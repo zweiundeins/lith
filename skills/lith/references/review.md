@@ -30,14 +30,22 @@ pattern matches.
   with a ctx from `sqlite.Uncached`.
 - `rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go` inside commands:
   network calls do not belong in the writer. Use `tx.AfterCommit`.
+- `rg -n 'writer\.Once(Result)?\(' --type go`: `Once` and `OnceResult` keys
+  are one namespace per database. Every key starts with who sent it
+  (`sid + ":" + op`); a key from the payload alone lets a client that learns
+  another user's op id turn that user's command into a no-op, or read its
+  recorded result. `rg -n 'Once(Result)?\([a-z]+\.(Op|ID|Key)\b' --type go`
+  finds the plainest case.
 
 ## Reads
 
 - Render code queries through the transaction it is given. A render that
   opens its own transactions (one for the list, one per open dialog) mixes
   snapshots. (kanban's card dialogs did.)
-- No `db.W` outside the writer and migrations; `db.R` is `query_only` and
-  refuses writes, so a write there fails loudly.
+- No `db.W` outside the writer and migrations; `db.R` opens the file
+  read-only (`mode=ro`) and is `query_only`, so a write there fails loudly,
+  even after a `PRAGMA query_only = 0` in the text. It can still `ATTACH`
+  another file and write that one: no SQL text from outside, ever.
 - ``rg -n 'Query(Row)?Context\(ctx, (fmt\.Sprintf|"[^"]*" *\+|`[^`]*` *\+)' --type go``:
   SQL built at runtime on the read side takes a place in a read
   connection's statement cache, or a render worker's, for every text it
@@ -70,6 +78,19 @@ pattern matches.
   `$proxy_add_x_forwarded_for`). Caddy passes on an X-Real-IP the client sent
   unless the site block sets it, so a check that believes X-Real-IP first can
   be dodged.
+- `rg -n '\.Allow\((edge\.SessionID|sid\b|v\.Session)' --type go`: a
+  session id is no limiter key on its own. A client mints a new one with
+  every request that sends no cookie, so each limit by session needs a limit
+  by `edge.ClientKey(r)` before it on the same route.
+- `rg -n 'Handle\("GET /static/"' --type go`: static files are mounted
+  outside `edge.Sessions`, which mints a cookie for any request without one:
+  a `Set-Cookie` on a public, immutable answer goes to everyone a shared
+  cache hands it to.
+- A page that renders a secret of the user (a token, an address) beside
+  input the request reflects, compressed, leaks it to BREACH: send it with
+  `Cache-Control: no-transform`, which `edge.Compress` honours. lith's
+  sessions live in the cookie and its CSRF check in headers, so the template
+  has nothing to leak.
 - Every non-GET route passes the CSRF middleware; exemptions are listed.
 - Every route that changes data checks authentication and membership.
 - `rg -n 'edge\.NewWindow\(' --type go`: a limit promised to people, such as
@@ -86,6 +107,13 @@ pattern matches.
 - Every stream counts against a cap, every network write has a deadline, and
   shutdown cancels stream contexts. A slot or lock held across a network
   write lets a few stalled clients stop every stream.
+- `rg -n 'live\.Spec\{' --type go`: a public stream sets `Client:
+  edge.ClientKey(r)`, or one address holds every place under `MaxStreams`
+  with idle streams, and keeps the budget's compressed tiers while later
+  pages go out uncompressed (`Options.MaxStreamsPerClient`, 16).
+- An action that stores tab state checks that the tab's stream is open
+  (`live.Hub.HasStream`, or the session that opened it) before the command:
+  otherwise each made-up tab id is a row.
 - `rg -n "retry: '(always|auto)'|@(get|post)\('[^']*(stream|sse|live)" -g '*.templ' -g '*.go'`:
   a page's stream opens with `retry: 'error'` from an element whose id is the
   stream's `Spec.Reconnect`. `'auto'` (the default) leaves pages stale after

@@ -18,18 +18,26 @@ db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{
 })
 ```
 
-`sqlite.Open` opens one write connection and a pool of `query_only` read connections on the same file, in WAL mode. It applies the migrations numbered above the database's `user_version`, each in a transaction of its own, and refuses a database that is newer than its newest file. `db.W` belongs to the writer and the migrations; everything else reads through `db.R`.
+`sqlite.Open` opens one write connection and a pool of read connections on the same file, in WAL mode. The readers open the file read-only (`mode=ro`) and are `query_only` besides, so a statement that turns `query_only` off first still cannot write it; one can still `ATTACH` another file, which neither covers, so SQL texts come from constants and values are bound. It applies the migrations numbered above the database's `user_version`, each in a transaction of its own, and refuses a database that is newer than its newest file. `db.W` belongs to the writer and the migrations; everything else reads through `db.R`.
 
 `synchronous` is NORMAL unless you set it: SQLite syncs its log only at checkpoints, so a power loss or a kernel crash can undo up to about 35 seconds of commits, while a crash of the process loses none. With `Synchronous: "FULL"` every batch waits for its own fsync.
 
 ## The writer and the hub
 
 ```go
-hub := live.New(live.Options{Read: db.R, MaxStreams: 200, Log: log})
+hub := live.New(live.Options{
+	Read:                db.R,
+	MaxStreams:          200,
+	MaxStreamsPerClient: 16,
+	SSE:                 sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{Limit: 224 << 20})},
+	Log:                 log,
+})
 w, err := writer.New(db, writer.Options{OnCommit: hub.Changed, Log: log})
 ```
 
-The writer takes the write connection over. After each batch commits, it hands `OnCommit` the topics that the batch's commands touched, and `hub.Changed` marks every view that listens to one of them dirty. The hub renders dirty views in ticks, on workers that each hold a read connection for the hub's life, and sends the frames to the streams that watch them. `MaxStreams` caps the open streams: the next one gets a 503.
+The writer takes the write connection over. After each batch commits, it hands `OnCommit` the topics that the batch's commands touched, and `hub.Changed` marks every view that listens to one of them dirty. The hub renders dirty views in ticks, on workers that each hold a read connection for the hub's life, and sends the frames to the streams that watch them. `MaxStreams` caps the open streams: the next one gets a 503. `MaxStreamsPerClient` caps those of one client, by the key the stream handler puts in `live.Spec.Client` (`edge.ClientKey(r)`, the client's address): the next one gets a 429, so one address cannot take every place with idle streams.
+
+The budget is the memory the streams' encoders and the frames the hub keeps may hold together; it shares it per stream, which the cap per client keeps one client from hoarding. Without a `Limit` it takes half of GOMEMLIMIT or of the cgroup's memory limit, and in a process with neither a quarter of the machine's memory. `live.New` logs the limit and where it came from. Set it, or GOMEMLIMIT, to what the host gives the app; the template's unit sets GOMEMLIMIT.
 
 The read pool needs a connection for every worker (GOMAXPROCS of them by default) and some for GET requests besides. `Readers` defaults to GOMAXPROCS + 4, and at least 8.
 
@@ -62,7 +70,9 @@ h = edge.LogRequests(log, h)
 
 The chain is built from the inside out. `Sessions` hands every browser an opaque id in a cookie and stores nothing: a row appears with the first command that needs one, so a crawler's GET costs nothing. `CSRF` refuses cross-site actions, and wants Datastar's `Datastar-Request` header on the action routes. `SecurityHeaders` sets a Content Security Policy with a new nonce for each request, `'unsafe-eval'` included, since Datastar compiles its expressions. `Compress` compresses GET answers; streams compress themselves.
 
-The health checks stay outside the edge, so probes get no cookie and no log line. `edge.Health(version)` at `/healthz` answers as long as the process serves, and `edge.Ready` at `/readyz` runs the checks the app registers, such as a `SELECT 1` on the read pool.
+The health checks stay outside the edge, so probes get no cookie and no log line. `edge.Health(version)` at `/healthz` answers as long as the process serves, and `edge.Ready` at `/readyz` runs the checks the app registers, such as a `SELECT 1` on the read pool, and `edge.Static.Warmed`, which passes once the static files are compressed.
+
+The static files stay outside `Sessions` too, behind `SecurityHeaders`, `Recover` and `LogRequests`: their answers are public and immutable, and a session cookie on one would go to everyone a shared cache hands it to. `Sessions` mints a cookie for every request without one.
 
 ## Starting and stopping
 
@@ -78,4 +88,4 @@ The writer runs on a context that outlives the HTTP server. Once `w.Run`'s conte
 3. `w.Close()` applies what is queued, runs `PRAGMA optimize` and gives the connection back.
 4. `db.Close()` closes both pools.
 
-The template also starts an hourly sweep from `main`, on the signal's context: it deletes the state of tabs gone for a week, entries beyond the newest thousand and old op ids. Every table that grows needs a sweep, and a sweep only works if something starts it.
+The template also starts an hourly sweep from `main`, on the signal's context: it deletes the state of tabs gone for a day, entries beyond the newest thousand and old op ids. Every table that grows needs a sweep, and a sweep only works if something starts it.

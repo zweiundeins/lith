@@ -54,11 +54,15 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    commands: tab state per tab id, preferences per session. Ephemeral client
    state lives in `_`-prefixed signals. No maps of tabs in memory.
 7. **GET never writes.** Sessions start as a cookie (`edge`); a row appears
-   with the first command that needs one. `@get` for streams and reads whose
+   with the first command that needs one. A session id is an identifier, not
+   a limiter key: a client mints a new one with every request that sends no
+   cookie, so limit by `edge.ClientKey(r)` first. Static files are mounted
+   outside `edge.Sessions`: a cookie on a public, immutable answer goes to
+   everyone a shared cache hands it to. `@get` for streams and reads whose
    signals are all `_`; `@query` for reads that send real signals (searches,
    filters), with `openWhenHidden: false` when it opens a stream; `@post` for
    commands. Read signals with `sse.ReadSignals` for any method, before
-   `sse.Open`.
+   `sse.Open`: it caps the body and gives it 10 s (`sse.SignalsTimeout`).
 8. **Reads go through the transaction you are given**: the worker's in a
    view, `db.View` for a GET document. A render's ctx carries its
    transaction, so a store that calls `db.View(ctx, fn)` from a render joins
@@ -68,11 +72,16 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    `QueryRow` before the same query runs again: a command's Tx and a
    render's Querier run each SQL text on one cached statement, and an
    unscanned row keeps it busy. SQL built at runtime runs with
-   `sqlite.Uncached(ctx)`, or `tx.QueryUncached` in a command. `db.R` is
-   `query_only`; `db.W` belongs to the writer and migrations.
-9. **Every stream is bounded**: a cap on open streams, a deadline on every
-   network write, the newest frame wins (in the page too, with
-   `newest-frame.js`), shutdown cancels streams.
+   `sqlite.Uncached(ctx)`, or `tx.QueryUncached` in a command. `db.R` opens
+   the file read-only (`mode=ro`) and is `query_only`, but can still ATTACH
+   another file, so SQL texts come from constants; `db.W` belongs to the
+   writer and migrations.
+9. **Every stream is bounded**: a cap on open streams, and one per client
+   (`Spec.Client: edge.ClientKey(r)`, `Options.MaxStreamsPerClient`, 16), a
+   memory budget (set GOMEMLIMIT or a `Limit`), a deadline on every network
+   write, the newest frame wins (in the page too, with `newest-frame.js`),
+   shutdown cancels streams. An action that stores tab state refuses a tab
+   without an open stream (`Hub.HasStream`).
 10. **Keys are rowids or time-ordered.** Random tokens go on small tables; a
     bulk insert sorts its batch by key first.
 11. **Measure.** Writer `Stats()`, the hub's `Stats()` (read transactions,
@@ -83,12 +92,12 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 
 | Package | Holds |
 | --- | --- |
-| `sqlite` | `Open`: one write connection and a `query_only` read pool (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Uncached` for SQL built at runtime, `Backup` (VACUUM INTO), a wrapping `Driver` |
+| `sqlite` | `Open`: one write connection and a read pool opened read-only and `query_only` (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Uncached` for SQL built at runtime, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
 | `events` | event sourcing on the writer: typed streams, deciders that decide from a state row (`Execute`, expected versions), `Append`, inline projectors in the same savepoint, catch-up projectors after the commit, a `Runner` that rebuilds changed projectors into copies and swaps them in, upcasters, retention, `eventstest` |
-| `live` | views and topics, a topic hierarchy (`board:42` is also `board`, `src:A:*` everything below `src:A`, `Topic` and `Below`), topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream cap, presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
-| `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget, write deadlines, `ReadSignals` for any method |
-| `edge` | sessions cookie, CSRF, client IP, slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression, precompressed static files (minified with `Minify`), rate limiters (bucket, fixed or sliding window), health |
+| `live` | views and topics, a topic hierarchy (`board:42` is also `board`, `src:A:*` everything below `src:A`, `Topic` and `Below`), topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream caps, overall and per client (`Spec.Client`, `HasStream`), presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
+| `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget (a quarter of the machine's memory without a memory limit), write deadlines, `ReadSignals` for any method, with a deadline on the body |
+| `edge` | sessions cookie, CSRF, client IP (`TrustedProxies` for the log line at start), slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression (`Cache-Control: no-transform` opts a page out: one with a user's secret beside reflected input, against BREACH), precompressed static files (minified with `Minify`, `Warmed` for readiness), rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
 | `prom` | Prometheus collector for `writer.Stats`, `live.Hub.Stats`, the stream budget and the event store's and runner's stats: `<ns>_writer_*`, `<ns>_live_*`, `<ns>_sse_budget_*`, `<ns>_events_*` (nested module) |
 | `minify` | `minify.Bytes` for `edge.Minify`: JavaScript and CSS minified with tdewolff/minify before `edge.Static` hashes and precompresses them (nested module) |

@@ -57,7 +57,7 @@ A budget picks that window for each stream from its largest write ([below](#the-
 
 A hub shares a memory budget among its streams, so that the server holds what its memory allows, however many tabs are open. The budget books what each stream holds: its encoder, 32 KiB for the rest of it (the hub's state, the goroutines' stacks, net/http's buffers), and the newest frame of each view that two or more streams watch, once for all of them. A tab's own view books nothing: the hub drops its frame once the tab's stream has it, and keeps the frame's length and hash for the unchanged-frame check. The default needs no setting:
 
-- The limit is half the process's memory limit: `GOMEMLIMIT`, else the cgroup's `memory.max` or `memory.high`, whichever is lower. The other half is for the rest of the app and for the garbage between two collections: a render of a 233 KB view allocates about 1 MiB. Without a memory limit the budget only counts, and every stream gets the largest window its options allow.
+- The limit is half the process's memory limit: `GOMEMLIMIT`, else the cgroup's `memory.max` or `memory.high`, whichever is lower. The other half is for the rest of the app and for the garbage between two collections: a render of a 233 KB view allocates about 1 MiB. A process with neither takes half the machine's memory as its limit (Linux's `MemTotal`), so the streams get a quarter of it, and `live.New` logs a warning: without any limit every zstd stream would hold the largest tier, about 1.7 MiB, and the 2,000 streams `MaxStreams` allows 3.3 GiB. Where the machine's memory is not known either, the budget only counts, and every stream gets the largest window its options allow. `live.New` logs the limit and where it came from (`BudgetStats.From`).
 - A stream's first write picks its tier. The window must hold the stream's largest write with a sixteenth to spare, or a frame cannot refer to the one before: at 2^18, a 259 KB frame takes 249 bytes and a 266 KB one 29,719.
 - A zstd stream takes the largest window that fits both its fair share (what the limit leaves after the frames and the streams, divided by the streams that compress) and what is left. When a stream finds no room, every zstd stream above the fair share of that moment moves to a smaller window at its next frame, down to the window its frame needs. That frame starts without history, once. A zstd stream without room sends raw blocks, and compresses again at a later frame once room frees up (with `Refuse`, a stream always has the window its frame needs, [below](#refusing-streams)).
 - A brotli body is one stream with one window, so a brotli stream keeps its tier until it closes. It takes the window its frame needs and no larger one, which would send no fewer bytes: at quality 4 while the budget stays at most half full, then at quality 3, and only when that does not fit, quality 3 at 2^16 (720 KiB), which compresses each frame alone: 17 KB for a 235 KB board instead of 259 bytes. When not even that fits, it goes out uncompressed.
@@ -65,7 +65,7 @@ A hub shares a memory budget among its streams, so that the server holds what it
 
 | `sse.BudgetOptions` | Default | What it does |
 | --- | --- | --- |
-| `Limit` | half the memory limit | bytes the streams may hold together, encoders and frames; -1 for no limit |
+| `Limit` | half the memory limit, or a quarter of the machine's memory | bytes the streams may hold together, encoders and frames; -1 for no limit |
 | `MinWindow` | none | the smallest window a stream's frames need, for pages whose frames refer back further than one write |
 | `MaxWindow` | 19 | the largest window a stream gets |
 | `Refuse` | false | 503 for a stream the budget has no room for (32 KiB and the smallest tier whose window holds its frame, or 32 KiB when it compresses nothing), instead of no compression or a window below its frame |
@@ -86,7 +86,26 @@ With `Refuse`, `sse.Open` returns `sse.ErrNoRoom` for every stream the budget ha
 
 A stream the budget lets in keeps a window that holds its frame until it closes: a zstd stream keeps that tier booked while it has no encoder, before its first frame and while it hibernates, and moves no lower; a brotli stream takes no window below its frame. When the budget turns a stream away, the zstd streams above their frame's window move down to it at their next write, until the stream would fit. A stream whose frames outgrow its window later keeps its tier and sends more bytes a frame, and is never cut off: a zstd stream moves up once room frees up, a brotli stream with `Spec.Reconnect` opens again. A refused stream gets a 503 from the hub, and a page that opens its stream with `retry: 'error'` asks again, with Datastar's backoff, until a stream closes and makes room. In 120 MiB, 134 zstd tabs with a 233 KB view each get in at 2^18, or 91 brotli tabs ([the budget's measurements](/docs/performance/budget#what-lith-took-from-it)).
 
-So memory caps the streams: the budget books what each tab holds and turns away the tab it has no room for, whatever its page. Such an app leaves `live.Options.MaxStreams` high, at its default of 2000, as a backstop for a process without a memory limit, where the budget only counts, and every page opens its stream with `retry: 'error'`.
+So memory caps the streams: the budget books what each tab holds and turns away the tab it has no room for, whatever its page. Such an app leaves `live.Options.MaxStreams` high, at its default of 2000, as a backstop for a machine whose memory the budget does not know, where it only counts, and every page opens its stream with `retry: 'error'`.
+
+### One client, many streams
+
+`MaxStreams` and the budget count streams, not clients. An idle stream costs its client nothing, so one address that opens 200 of them gives every other page a 503 on its stream; and since the budget shares its room per stream and never takes a tier back, the streams that came first keep the compressed tiers while a page that comes later gets every frame whole, or, with `Refuse`, a 503. A stream handler names the client in `live.Spec.Client`, and the hub caps each client at `Options.MaxStreamsPerClient` streams, 16 by default, with a 429 (`live.ErrClientFull`):
+
+```go source=template/internal/web/server.go
+	spec := live.Spec{
+		ID:        streamID(sid, tab),
+		Client:    edge.ClientKey(r),
+		Views:     []live.View{entriesView(), tabView(sid, tab)},
+		Reconnect: "stream",
+		Slow:      edge.SlowLink(r),
+		Ack:       ackEvent(tab),
+	}
+```
+
+The key is the client's address (`edge.ClientKey`, an IPv6 client by its /64), not the session, which a client mints anew with every request that sends no cookie. A browser holds one stream per tab: 16 leaves room for a person with many tabs, or a few people behind one address, while it takes an attacker MaxStreams/16 addresses to fill the hub, 13 for the template's 200. An app whose users share one address, an office or a VPN, keys a signed-in user by the account instead, or raises the cap; a negative cap turns it off, and a stream without a `Client` counts under none. In `TestLateClientKeepsCompression`, with a budget for four streams at the window a 230 KB view needs, a client that opened ten streams first left a later client 230,639 bytes for each change of the view; capped at three, the later client kept its window and sent about 4 KB.
+
+`Watch` keeps a view for a stream ID that is not open yet for 10 s, for at most `MaxStreams` IDs. The cap per client does not bound them, and need not: an app calls `Watch` with IDs it checked, such as a stream named after the request's session (the template's `streamID`), or from an action that refuses a tab without an open stream (this site's demos), so a client cannot fill it with made-up IDs.
 
 ## Hibernation
 

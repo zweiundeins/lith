@@ -27,7 +27,12 @@ db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{
 	// Synchronous defaults to NORMAL: a power loss can undo up to about 35 s
 	// of commits. "FULL" where it must not (see performance.md).
 })
-hub := live.New(live.Options{Read: db.R})
+hub := live.New(live.Options{
+	Read: db.R,
+	// The streams' encoders and kept frames: set a Limit, or GOMEMLIMIT.
+	// Without either the budget takes a quarter of the machine's memory.
+	SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{Limit: 224 << 20})},
+})
 w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
 
 go w.Run(context.Background()) // not the signal context: see below
@@ -101,7 +106,7 @@ var opts []edge.StaticOption
 if !dev {
 	opts = append(opts, edge.Minify(minify.Bytes))
 }
-static, err := edge.NewStatic(files, "/static/", opts...) // mount at GET /static/
+static, err := edge.NewStatic(files, "/static/", opts...) // mount at GET /static/, outside edge.Sessions
 url := static.URL("style.css")                           // /static/style.3f2a9c1b2d4e.css
 ```
 
@@ -298,7 +303,7 @@ func boardView(id int64) live.View {
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := readTabID(r)
-	s.hub.Serve(w, r, live.Spec{ID: tab, Views: []live.View{boardView(id), s.tabView(sid, tab)}, Reconnect: "stream"})
+	s.hub.Serve(w, r, live.Spec{ID: tab, Client: edge.ClientKey(r), Views: []live.View{boardView(id), s.tabView(sid, tab)}, Reconnect: "stream"})
 }
 ```
 
@@ -351,15 +356,17 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   most of its frames, every 3 s while behind. The template's `<body>`
   posts it (`data-on:newest-frame-behind`, `@post` with
   `requestCancellation: 'disabled'`, on `<body>`, never on the stream's
-  element) to `POST /pace`, which validates the tab id, limits each
-  session (`edge.NewLimiter(1, 5)`), calls `hub.Behind(id)` and
+  element) to `POST /pace`, which validates the tab id, limits each client
+  address (`edge.NewLimiter(4, 20)`), then each session
+  (`edge.NewLimiter(1, 5)`), calls `hub.Behind(id)` and
   `hub.Pace(id, 1)`, and answers 204: the hybrid in place, the default.
   Every stream has `Spec.Ack` and no `Window`, so it starts unpaced;
   `Release` (5 s) and `ReleaseSlack` (100 ms) stay at their defaults. Each
   paced write ends with an `<i>` patched inner into the stream's element
   whose `data-init` posts `POST /ack?tab=&s=&n=&rtt=` after the paint, the
-  round trip from Resource Timing; `/ack` validates, limits each session
-  (`edge.NewLimiter(30, 60)`), calls `hub.RoundTrip` then `hub.Ack`, and
+  round trip from Resource Timing; `/ack` validates, limits each client
+  address (`edge.NewLimiter(80, 160)`), then each stream
+  (`edge.NewLimiter(20, 40)`), calls `hub.RoundTrip` then `hub.Ack`, and
   answers 204. The stream ID names the session and the tab
   (`streamID(sid, tab)`), built the same way in the stream handler and
   both routes, so a post reaches only its session's streams. Both routes

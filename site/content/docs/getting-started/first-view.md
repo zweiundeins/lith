@@ -123,10 +123,10 @@ The page's GET renders the counter from one read transaction (`db.View`), the sa
 The stream's handler adds the view to the tab's stream:
 
 ```go
-s.hub.Serve(w, r, live.Spec{ID: tab, Views: []live.View{counterView(), tabView(sid, tab)}, Reconnect: "stream"})
+s.hub.Serve(w, r, live.Spec{ID: tab, Client: edge.ClientKey(r), Views: []live.View{counterView(), tabView(sid, tab)}, Reconnect: "stream"})
 ```
 
-`Reconnect` names the element that opened the stream. When the server stops for a deploy, the stream's last event replaces that element with a copy, the copy's `data-init` runs again, and `retry: 'error'` keeps the request trying through the restart until the next process answers.
+`Client` counts the stream under the client's address, so that one address cannot hold every stream (`live.Options.MaxStreamsPerClient`). `Reconnect` names the element that opened the stream. When the server stops for a deploy, the stream's last event replaces that element with a copy, the copy's `data-init` runs again, and `retry: 'error'` keeps the request trying through the restart until the next process answers.
 
 ## Pending and refused
 

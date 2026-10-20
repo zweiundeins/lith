@@ -64,10 +64,19 @@ Every command queued behind a command waits while it runs, so a command that wai
 rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go
 ```
 
+### An op id that is not scoped to who sent it
+
+`writer.Once` and `writer.OnceResult` keep their keys in one table per database. A key that comes from the payload alone lets a client that learns another user's op id turn that user's command into a no-op, or receive its recorded result. Every key starts with who sent it, as the template's `sid + ":" + op` does ([Commands](/docs/guides/commands)). The first command lists every call to check, the second the plainest mistake:
+
+```sh
+rg -n 'writer\.Once(Result)?\(' --type go
+rg -n 'Once(Result)?\([a-z]+\.(Op|ID|Key)\b' --type go
+```
+
 ## Reads
 
 - **A render that opens its own transactions.** A render reads through the transaction it is given: `sqlite.QuerierFrom(ctx)`, or a store whose `db.View(ctx, fn)` joins the render's. One that opens transactions of its own, one for the list and one per open dialog, mixes snapshots and shows two moments at once.
-- **`db.W` outside the writer and the migrations.** `db.R` is `query_only` and refuses writes, so a write through it fails loudly; one through `db.W` competes with the writer.
+- **`db.W` outside the writer and the migrations.** `db.R` opens the file read-only (`mode=ro`) and is `query_only` besides, so a write through it fails loudly, even one whose text starts with `PRAGMA query_only = 0`; one through `db.W` competes with the writer. A statement on `db.R` can still `ATTACH` another file and, after that pragma, write to it: no SQL text comes from outside.
 
 ### SQL built at runtime in a read
 
@@ -122,6 +131,26 @@ rg -n 'r\.Header\.Get\("X-(Real-IP|Forwarded-For)"\)' --type go
 
 The proxy must set `X-Forwarded-For`: Caddy's `reverse_proxy` does by default, nginx with `$proxy_add_x_forwarded_for`. Caddy passes on an `X-Real-IP` the client sent unless the site block sets it, so a check that believes `X-Real-IP` first can be dodged. The template's Caddy block replaces both ([The request edge](/docs/guides/edge#client-addresses)).
 
+### A limit keyed by the session alone
+
+`edge.Sessions` accepts any well-formed session id and mints one for a request without a cookie, so a client that sends no cookie is a new session with every request. A limit by session alone is one it steps around; each needs a limit by the client's address (`edge.ClientKey(r)`) before it on the same route, as the template's `/pace` and `/ack` have.
+
+```sh
+rg -n '\.Allow\((edge\.SessionID|sid\b|v\.Session)' --type go
+```
+
+### Static files inside the sessions
+
+`edge.Sessions` sets its cookie on any answer to a request without one. On a static file, which goes out public and immutable, a shared cache keeps the `Set-Cookie` with it and hands that session to everyone who asks for the file after. Mount `/static/` on the outer mux, outside `Sessions`, as the template does.
+
+```sh
+rg -n 'Handle\("GET /static/"' --type go
+```
+
+### A secret beside reflected input, compressed
+
+A compressed page that holds a secret of the user (a token, an address) beside text the request put there leaks the secret byte by byte to an attacker who can make the browser send requests and watch their sizes (BREACH). lith's session lives in the cookie and its CSRF check in headers, so the template's pages hold nothing to leak. A page that does send it with `Cache-Control: no-transform`, which `edge.Compress` leaves uncompressed ([The request edge](/docs/guides/edge)).
+
 ### Routes without the CSRF check, or without authentication
 
 Every route that changes data passes `edge.CSRF`, and the routes it exempts are listed with a reason. Every such route also checks that the session may do what it asks: the CSRF check says where a request comes from, and only the session says who sent it.
@@ -147,6 +176,18 @@ rg -n 'datastar\.NewSSE|WithBrotli\(' --type go
 ### A stream without a cap or a deadline
 
 Every stream counts against a cap, every write to the network has a deadline, and shutdown cancels the streams. A slot or a lock held across a network write lets a few stalled clients stop every stream.
+
+### A stream that counts under no client
+
+`MaxStreams` is one cap for everyone: one address that opens 200 idle streams, which cost it nothing, gives every other page a 503, and since the streams' budget shares its memory per stream, the streams that came first keep the compressed tiers while later pages get every frame uncompressed. A public stream sets `Client: edge.ClientKey(r)` in its `live.Spec`, and the hub then caps each address at `Options.MaxStreamsPerClient` (16) with a 429 ([Streams](/docs/guides/streams)).
+
+```sh
+rg -n 'live\.Spec\{' --type go
+```
+
+### Tab state for a tab without a stream
+
+An action that stores state for a tab checks first that the session has the tab's stream open (`live.Hub.HasStream` with the stream's ID, or the session the app noted when the stream opened). Otherwise every tab id a client makes up is a row until the sweep, and the sweep's `DELETE` runs in the writer's transaction.
 
 ### A stream that does not come back after a deploy
 
