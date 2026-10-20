@@ -35,7 +35,7 @@ const (
 	Later   = 3
 
 	placeEvery, placeBurst   = 200 * time.Millisecond, 10 // a session's changes: five a second, after ten at once
-	seekEvery, seekBurst     = 25 * time.Millisecond, 80  // a session's slider: 40 positions a second, after 80
+	seekEvery, seekBurst     = 50 * time.Millisecond, 40  // a session's slider: one position a tick, as the page sends them, after 40
 	followEvery, followBurst = time.Second, 5             // a stream's hello
 	// Throttle is how often a dragged slider sends its position at most:
 	// once a tick, and the last one where it comes to rest.

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"testing/fstest"
 	"time"
 
@@ -60,6 +59,22 @@ func (c transfer) Apply(tx *writer.Tx) error {
 		return err
 	}
 	tx.Touch(c.topic)
+	return nil
+}
+
+// produced is a producer's transfer: once it has committed, it hands the
+// producer back to the race's driver, which sends the producer's next.
+type produced struct {
+	transfer
+	producer int64
+	done     chan<- int64
+}
+
+func (c produced) Apply(tx *writer.Tx) error {
+	if err := c.transfer.Apply(tx); err != nil {
+		return err
+	}
+	tx.AfterCommit(func() { c.done <- c.producer })
 	return nil
 }
 
@@ -128,9 +143,12 @@ func (e *Engine) Clean() {
 // Run runs race id: it opens the race's file, seeds ten accounts for each
 // producer, and lets the producers send transfers for Duration, each
 // waiting for its commit before it sends the next, as a request handler
-// waits in Do. It calls sample every Every with the writer's numbers,
-// and once more at the end. When ctx ends, the producers stop early.
-// Whatever happens, the file is gone when Run returns.
+// waits in Do. One goroutine, the driver, sends for all of them, on a
+// thread with the writer's lower priority, and a commit hands its producer
+// back to it: so the producers cost no goroutine at the site's priority.
+// It calls sample every Every with the writer's numbers, and once more at
+// the end. When ctx ends, the producers stop early. Whatever happens, the
+// file is gone when Run returns.
 func (e *Engine) Run(ctx context.Context, id int64, s Settings, sample func(Sample)) (Sample, error) {
 	path := e.path(id)
 	defer e.remove(path)
@@ -146,10 +164,15 @@ func (e *Engine) Run(ctx context.Context, id int64, s Settings, sample func(Samp
 		return Sample{}, err
 	}
 	defer db.Close()
+	// A producer's commit hands it back to the driver (produced), a
+	// failure ends it.
+	committed := make(chan int64, s.Producers)
+	failures := make(chan error, s.Producers)
 	w, err := writer.New(db, writer.Options{
 		QueueSize:     256, // a producer has one command in flight at most
 		OptimizeEvery: -1,
 		Log:           e.Log,
+		OnSendError:   func(_ writer.Command, err error) { failures <- err },
 		// Nothing renders from the race's file, but the writer collects
 		// and sorts each batch's topics for OnCommit as an app's does for
 		// its hub, and as lith's benchmark has it do.
@@ -204,29 +227,56 @@ func (e *Engine) Run(ctx context.Context, id int64, s Settings, sample func(Samp
 		}
 	}
 	deadline := start.Add(e.Duration)
-	var wg sync.WaitGroup
-	var failed error
-	var once sync.Once
-	for p := range int64(s.Producers) {
-		wg.Go(func() {
-			first := p*Accounts + 1
-			topic := fmt.Sprint("producer:", p)
-			for i := int64(0); time.Now().Before(deadline) && ctx.Err() == nil; i++ {
-				from, to := first+i%Accounts, first+(i+1)%Accounts
-				c := transfer{from: from, to: to, amount: 1 + i%100, topic: topic}
-				if err := w.Do(ctx, c); err != nil {
-					if ctx.Err() == nil {
-						once.Do(func() { failed = err })
-					}
-					return
-				}
-			}
-		})
+	topics := make([]string, s.Producers)
+	sent := make([]int64, s.Producers) // each producer's transfers so far
+	for p := range topics {
+		topics[p] = fmt.Sprint("producer:", p)
 	}
+	send := func(p int64) error {
+		first, i := p*Accounts+1, sent[p]
+		sent[p]++
+		c := transfer{from: first + i%Accounts, to: first + (i+1)%Accounts, amount: 1 + i%100, topic: topics[p]}
+		return w.Send(produced{transfer: c, producer: p, done: committed})
+	}
+	var failed error
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(done)
+		defer close(done)
+		if runtime.GOMAXPROCS(0) > 1 {
+			runtime.LockOSThread() // never unlocked, as the writer's thread
+			if err := lowerPriority(); err != nil {
+				e.Log.Debug("writer race: lower the producers' priority", "err", err)
+			}
+		}
+		fail := func(err error) {
+			if failed == nil && ctx.Err() == nil {
+				failed = err
+			}
+		}
+		waiting := 0 // producers whose transfer has not committed yet
+		for p := range int64(s.Producers) {
+			if err := send(p); err != nil {
+				fail(err)
+				continue
+			}
+			waiting++
+		}
+		for waiting > 0 {
+			select {
+			case p := <-committed:
+				waiting--
+				if time.Now().Before(deadline) && ctx.Err() == nil {
+					if err := send(p); err != nil {
+						fail(err)
+						continue
+					}
+					waiting++
+				}
+			case err := <-failures:
+				waiting-- // that producer stops
+				fail(err)
+			}
+		}
 	}()
 	t := time.NewTicker(e.Every)
 	defer t.Stop()

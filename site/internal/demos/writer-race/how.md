@@ -30,24 +30,26 @@ func (c transfer) Apply(tx *writer.Tx) error {
 
 ## The producers
 
-A producer is a goroutine that waits in `w.Do` until its command has committed, as a request handler does, and then sends the next one. While the writer runs a batch, the commands of the other producers queue up, and the next batch takes all of them. One producer gets a transaction for every command. With two hundred, a transaction takes a hundred commands or more, and they share its commit, and with `synchronous=FULL` its fsync.
+A producer waits until its command has committed, as a request handler waits in `w.Do`, and then sends the next one. While the writer runs a batch, the commands of the other producers queue up, and the next batch takes all of them. One producer gets a transaction for every command. With two hundred, a transaction takes a hundred commands or more, and they share its commit, and with `synchronous=FULL` its fsync.
+
+Two hundred goroutines waiting in `w.Do` kept most of a core busy at the site's priority. So one goroutine, the driver, sends for every producer, on a thread with the writer's lower priority, and each command hands its producer back to the driver with `tx.AfterCommit`, which runs on the writer's thread:
 
 ```go title=race.go
-for p := range int64(s.Producers) {
-	wg.Go(func() {
-		first := p*Accounts + 1
-		topic := fmt.Sprint("producer:", p)
-		for i := int64(0); time.Now().Before(deadline) && ctx.Err() == nil; i++ {
-			from, to := first+i%Accounts, first+(i+1)%Accounts
-			c := transfer{from: from, to: to, amount: 1 + i%100, topic: topic}
-			if err := w.Do(ctx, c); err != nil {
-				if ctx.Err() == nil {
-					once.Do(func() { failed = err })
-				}
-				return
+for waiting > 0 {
+	select {
+	case p := <-committed:
+		waiting--
+		if time.Now().Before(deadline) && ctx.Err() == nil {
+			if err := send(p); err != nil {
+				fail(err)
+				continue
 			}
+			waiting++
 		}
-	})
+	case err := <-failures:
+		waiting-- // that producer stops
+		fail(err)
+	}
 }
 ```
 
@@ -124,17 +126,21 @@ func (r *runner) races() error {
 			return nil // nobody waits
 		default:
 			r.run(n.Race)
-			time.Sleep(r.pause)
+			// The host rests longer the more races wait: half a pause
+			// more for each.
+			time.Sleep(r.pause + time.Duration(n.Behind)*r.pause/2)
 		}
 	}
 }
 ```
 
+A long line also makes each race smaller: with three or more races behind it, a race runs with 50 producers at most, and the track says so.
+
 ## What a race costs this server
 
 The race's writer is one goroutine, so a race keeps one core busy at most, and less with `FULL`, where it waits for the disk. On the development machine of lith's benchmarks, an Intel i5-13500, with 100 tabs open on this page, the whole site used 0.8 to 1 core while a race of 200 producers with `NORMAL` ran, and its heap rose by about 20 MiB at the peak. The race's file grows to about 7 MiB and is deleted when the race ends; the site deletes any that a restart left behind when it starts.
 
-The writer's goroutine stays on a thread of its own, at a lower CPU and disk priority, so the site and the other services on this server win whenever they want the CPU or the disk. The thread ends with the race.
+The writer's goroutine and the producers' driver each stay on a thread of their own, at a lower CPU and disk priority, so the site and the other services on this server win whenever they want the CPU or the disk. The threads end with the race.
 
 ```go title=prio_linux.go
 func lowerPriority() error {

@@ -17,10 +17,12 @@ const (
 	Slug     = "writer-race"
 	Duration = 3 * time.Second        // how long the producers of a race send
 	Every    = 50 * time.Millisecond  // a sample of the race's writer, one tick of the hub
-	Pause    = 2 * time.Second        // between two races, for the host
+	Pause    = 2 * time.Second        // between two races, for the host, and half of it more for each race in line
 	Dwell    = 800 * time.Millisecond // a race's least time in line: every tab sees it join before it leaves
 	Accounts = 10                     // accounts of each producer, as in lith's writer benchmark
 	Waiting  = 6                      // races in line at most
+	Deep     = 3                      // races behind one that cap its producers at Capped
+	Capped   = 50                     // producers of a race while the line is deep
 	Shown    = 8                      // races in the table of results
 	Kept     = 100                    // races the sweep keeps
 	Charted  = 12                     // races whose samples the sweep keeps

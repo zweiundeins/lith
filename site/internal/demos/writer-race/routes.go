@@ -47,12 +47,12 @@ func mount(k *demo.Kit) {
 
 // runner takes the races in line onto the track, one at a time. A race
 // that joins the line wakes it; it runs races until the line is empty,
-// with a pause after each, and stops.
+// with a pause after each that grows with the line, and stops.
 type runner struct {
 	w     *writer.Writer // the site's: the line, the samples, the results
 	e     *Engine
 	log   *slog.Logger
-	pause time.Duration // after a race
+	pause time.Duration // after a race with none behind it
 	dwell time.Duration // a race's least time in line
 
 	mu          sync.Mutex
@@ -130,7 +130,9 @@ func (r *runner) races() error {
 			return nil // nobody waits
 		default:
 			r.run(n.Race)
-			time.Sleep(r.pause)
+			// The host rests longer the more races wait: half a pause
+			// more for each.
+			time.Sleep(r.pause + time.Duration(n.Behind)*r.pause/2)
 		}
 	}
 }

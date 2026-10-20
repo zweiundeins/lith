@@ -536,3 +536,37 @@ func must[T any](v T, err error) T {
 	}
 	return v
 }
+
+// TestDeepLine: a race with Deep races or more behind it runs with Capped
+// producers at most, and its row says so; claim reports how many wait
+// behind it, which the runner's pause grows with.
+func TestDeepLine(t *testing.T) {
+	e := demotest.Open(t, Demo)
+	t0 := time.UnixMilli(1_800_000_000_000)
+	for i := range Deep + 1 {
+		e.Do(t, startCmd(demo.Viewer{Session: fmt.Sprint("s", i), Tab: "t"}, "op", 200, "NORMAL", t0))
+	}
+	claimAt := func() next {
+		t.Helper()
+		n, err := e.W.DoValue(context.Background(), claim(t0.Add(time.Minute), Dwell))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	n := claimAt()
+	if n.Race.ID != 1 || n.Behind != Deep || n.Race.Producers != Capped {
+		t.Fatalf("with %d behind: %+v", Deep, n)
+	}
+	var producers int
+	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT producers FROM writer_race_races WHERE id = 1`).Scan(&producers)
+	})
+	if producers != Capped {
+		t.Errorf("the row says %d producers", producers)
+	}
+	e.Do(t, Finish{Race: 1, EndedAt: t0.Add(time.Minute)})
+	if n := claimAt(); n.Race.ID != 2 || n.Behind != Deep-1 || n.Race.Producers != 200 {
+		t.Fatalf("with %d behind: %+v", Deep-1, n)
+	}
+}

@@ -82,17 +82,19 @@ func (c Start) Apply(tx *writer.Tx) error {
 	return demo.SaveTab(tx, Slug, c.Viewer, state, c.At)
 }
 
-// next is what claim found: the race it took onto the track, or how long
-// the first in line still waits before it may go (Dwell), or neither when
-// nobody waits.
+// next is what claim found: the race it took onto the track and how many
+// wait behind it, or how long the first in line still waits before it may
+// go (Dwell), or neither when nobody waits.
 type next struct {
-	Race Race
-	Wait time.Duration
+	Race   Race
+	Behind int
+	Wait   time.Duration
 }
 
 // claim takes the race first in line onto the track once it has waited
 // dwell (Dwell on the site), so that every tab sees it join the line
-// before it leaves it. The runner calls it between races, so a race still
+// before it leaves it, with Capped producers at most when Deep races or
+// more wait behind it. The runner calls it between races, so a race still
 // marked running is one that the process before this one left behind:
 // claim ends it as interrupted first.
 func claim(now time.Time, dwell time.Duration) func(tx *writer.Tx) (next, error) {
@@ -117,12 +119,19 @@ func claim(now time.Time, dwell time.Duration) func(tx *writer.Tx) (next, error)
 		if wait := time.UnixMilli(queued).Add(dwell).Sub(now); wait > 0 {
 			return next{Wait: wait}, nil
 		}
-		if _, err := tx.Exec(`UPDATE writer_race_races SET state = 'running', started_at = ? WHERE id = ?`, now.UnixMilli(), r.ID); err != nil {
+		var behind int
+		if err := tx.QueryRow(`SELECT count(*) - 1 FROM writer_race_races WHERE state = 'queued'`).Scan(&behind); err != nil {
+			return next{}, err
+		}
+		if behind >= Deep {
+			r.Producers = min(r.Producers, Capped)
+		}
+		if _, err := tx.Exec(`UPDATE writer_race_races SET state = 'running', started_at = ?, producers = ? WHERE id = ?`, now.UnixMilli(), r.Producers, r.ID); err != nil {
 			return next{}, err
 		}
 		r.State = "running"
 		tx.Touch(LineTopic, Topic, LiveTopic)
-		return next{Race: r}, nil
+		return next{Race: r, Behind: behind}, nil
 	}
 }
 
