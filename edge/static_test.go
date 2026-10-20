@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 func TestPrecompress(t *testing.T) {
@@ -584,5 +585,36 @@ func TestStaticAddMinifies(t *testing.T) {
 		if w := serveStatic(s, s.URL("site.css")); w.Body.String() != string(bundle) {
 			t.Errorf("%d options: the added CSS was changed", len(opts))
 		}
+	}
+}
+
+// Warmed fails until the files NewStatic read are compressed, for a
+// readiness check, and passes from then on; a Static without files passes
+// at once.
+func TestStaticWarmed(t *testing.T) {
+	files := fstest.MapFS{}
+	for i := range 6 {
+		files[fmt.Sprintf("app%d.js", i)] = &fstest.MapFile{Data: bytes.Repeat([]byte(fmt.Sprintf("console.log(%d);\n", i)), 20000)}
+	}
+	s, err := NewStatic(files, "/static/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for s.Warmed(t.Context()) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the files are still not compressed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for name := range files {
+		f := s.files[name]
+		if br, _ := precompress(f.body, f.sum); len(br) == 0 || len(br) >= len(f.body) {
+			t.Fatalf("%s: %d bytes of brotli", name, len(br))
+		}
+	}
+	empty, _ := NewStatic(nil, "/static/")
+	if err := empty.Warmed(t.Context()); err != nil {
+		t.Fatalf("without files: %v", err)
 	}
 }

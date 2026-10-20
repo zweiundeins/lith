@@ -2,14 +2,17 @@ package edge
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"mime"
 	"net/http"
 	"path"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +26,8 @@ import (
 // name with another number of hex digits, from 8 to 64), comes with no-cache
 // and its ETag, so browsers ask each time and mostly get a 304. Text files go
 // out precompressed (see Precompress), compressed in the background from the
-// start; other files go out as they are, with ranges. With Minify, its
+// start (Warmed reports when that is done); other files go out as they are,
+// with ranges. With Minify, its
 // JavaScript and CSS go out minified.
 type Static struct {
 	fsys    fs.FS
@@ -34,6 +38,7 @@ type Static struct {
 	mu     sync.RWMutex
 	files  map[string]*staticFile // by name
 	hashed map[string]*staticFile // by hashed name
+	warmed chan struct{}          // closed once NewStatic's files are compressed
 }
 
 type staticFile struct {
@@ -81,11 +86,12 @@ func NewStatic(fsys fs.FS, prefix string, opts ...StaticOption) (*Static, error)
 	if !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	s := &Static{fsys: fsys, prefix: prefix, hashLen: 12, files: map[string]*staticFile{}, hashed: map[string]*staticFile{}}
+	s := &Static{fsys: fsys, prefix: prefix, hashLen: 12, files: map[string]*staticFile{}, hashed: map[string]*staticFile{}, warmed: make(chan struct{})}
 	for _, opt := range opts {
 		opt(s)
 	}
 	if fsys == nil {
+		close(s.warmed)
 		return s, nil
 	}
 	var text []*staticFile
@@ -109,12 +115,43 @@ func NewStatic(fsys fs.FS, prefix string, opts ...StaticOption) (*Static, error)
 	if err != nil {
 		return nil, err
 	}
-	go func() {
-		for _, f := range text {
-			warm(f)
-		}
-	}()
+	go s.warm(text)
 	return s, nil
+}
+
+// warm compresses the text files on up to two goroutines, one on a
+// machine with fewer than four CPUs: a request for a file not compressed
+// yet waits for it, so they should be done soon after a start, but brotli
+// at quality 11 holds tens of MiB a file for a moment.
+func (s *Static) warm(files []*staticFile) {
+	defer close(s.warmed)
+	next := make(chan *staticFile)
+	var wg sync.WaitGroup
+	for range min(2, max(1, runtime.GOMAXPROCS(0)/2)) {
+		wg.Go(func() {
+			for f := range next {
+				warm(f)
+			}
+		})
+	}
+	for _, f := range files {
+		next <- f
+	}
+	close(next)
+	wg.Wait()
+}
+
+// Warmed returns nil once the files NewStatic read are compressed, and an
+// error until then, for a readiness check (Ready.Add("static",
+// s.Warmed)): until then, a request for a file not compressed yet waits
+// for it.
+func (s *Static) Warmed(context.Context) error {
+	select {
+	case <-s.warmed:
+		return nil
+	default:
+		return errors.New("compressing the static files")
+	}
 }
 
 // Add serves data as the file name, in place of a file of that name. URL
