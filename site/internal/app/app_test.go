@@ -240,8 +240,8 @@ func TestActions(t *testing.T) {
 }
 
 // TestActionNeedsAStream refuses an action for a tab whose stream the
-// session has not open: its state would be a row for a tab id the client
-// made up. Another session's stream of that tab does not count.
+// session does not have open: its state would be a row for a tab id the
+// client made up. Another session's stream of that tab does not count.
 func TestActionNeedsAStream(t *testing.T) {
 	_, base := apptest.Start(t)
 	ada, bob := client(t), client(t)
