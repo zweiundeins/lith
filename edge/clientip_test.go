@@ -1,7 +1,11 @@
 package edge
 
 import (
+	"net"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,5 +59,32 @@ func TestClientIPTrustsOnlyTheLocalProxy(t *testing.T) {
 				t.Errorf("ClientKey = %s, want %s", got, c.key)
 			}
 		})
+	}
+}
+
+// TrustedProxies names whom a listener's proxy headers come from: the
+// socket with its mode, every local user on loopback, and on another
+// address no one but loopback peers.
+func TestTrustedProxies(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "app.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	os.Chmod(sock, 0o660)
+	for _, c := range []struct {
+		addr net.Addr
+		want string
+	}{
+		{ln.Addr(), "Unix socket " + sock + " (mode 0660)"},
+		{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}, "every local user"},
+		{&net.TCPAddr{IP: net.ParseIP("::1"), Port: 8080}, "every local user"},
+		{&net.TCPAddr{IP: net.IPv4(172, 17, 0, 2), Port: 8080}, "one client for all"},
+		{&net.TCPAddr{IP: net.IPv4zero, Port: 8080}, "one client for all"},
+	} {
+		if got := TrustedProxies(c.addr); !strings.Contains(got, c.want) {
+			t.Errorf("%s: %q, want %q in it", c.addr, got, c.want)
+		}
 	}
 }

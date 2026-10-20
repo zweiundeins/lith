@@ -1,8 +1,11 @@
 package edge
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
 )
 
@@ -61,4 +64,29 @@ func parseAddr(s string) netip.Addr {
 		return a.Unmap().WithZone("")
 	}
 	return netip.Addr{}
+}
+
+// TrustedProxies says, for a log line at start, whose X-Forwarded-For and
+// X-Real-IP ClientIP believes on a server that listens at addr (a
+// listener's Addr). ClientIP believes peers on loopback and on a Unix
+// socket: every local user who can connect to them can name any client
+// address, and so dodge a per-address limit or spend someone else's. A
+// socket whose mode lets only the proxy's group in (0660, the app's group
+// holding the proxy's user) narrows that to the proxy. A proxy on another
+// host, or on a container bridge, is not believed: every client then
+// counts as the proxy's address, and one abuser spends the limit of all.
+func TrustedProxies(addr net.Addr) string {
+	switch a := addr.(type) {
+	case *net.UnixAddr:
+		if fi, err := os.Stat(a.Name); err == nil {
+			return fmt.Sprintf("whoever may connect to the Unix socket %s (mode %04o)", a.Name, fi.Mode().Perm())
+		}
+		return "whoever may connect to the Unix socket " + a.Name
+	case *net.TCPAddr:
+		if a.IP.IsLoopback() {
+			return "every local user: peers on loopback, where the proxy connects from"
+		}
+		return "peers on loopback only: a proxy that connects from another address counts as one client for all"
+	}
+	return "peers on loopback and on Unix sockets"
 }
