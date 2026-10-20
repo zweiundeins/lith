@@ -2,12 +2,12 @@
 
 lith's website (lith.zweiundeins.gmbh) is one binary and one SQLite file, behind Caddy, on the same host as the other apps. The files here:
 
-- `lith-site.service`: the systemd unit. It runs as the `lith-site` user, keeps the database in `/var/lib/lith-site`, serves the site on `127.0.0.1:8097` and its metrics on `127.0.0.1:8197`, connects nowhere and may bind no other port. Memory: `MemoryHigh=224M`, `MemoryMax=256M`, `GOMEMLIMIT=192MiB`, at most 300 open streams. `CPUWeight=50` lets the host's other apps go first when the cores are busy.
+- `lith-site.service`: the systemd unit. It runs as the `lith-site` user, keeps the database in `/var/lib/lith-site`, serves the site on the Unix socket `/run/lith-site/lith-site.sock` (mode 0660, in `/run/lith-site` with mode 0750: only the `lith-site` group gets in, which Caddy's user joins) and its metrics on `127.0.0.1:8197`, connects nowhere and may bind no other port. Memory: `MemoryHigh=224M`, `MemoryMax=256M`, `GOMEMLIMIT=192MiB`, at most 300 open streams. `CPUWeight=50` lets the host's other apps go first when the cores are busy.
 - `lith-site.env.example`: optional settings, installed as `/etc/lith-site/lith-site.env`.
-- `lith-site.caddy`: the site block. TLS, `reverse_proxy` to the loopback port with the client's address in X-Forwarded-For and X-Real-IP, the access log in JSON at `/var/log/caddy/lith-access.log`, no `encode`, and `flush_interval -1` for the streams.
-- `lith-site-deploy`: installs a binary, restarts the unit, waits for `/healthz`, and puts the old binary back if the new one does not answer.
+- `lith-site.caddy`: the site block. TLS, `reverse_proxy` to the socket with the client's address in X-Forwarded-For and X-Real-IP, request bodies of 1 MB at most, the access log in JSON at `/var/log/caddy/lith-access.log` with a hash in place of each tab id, no `encode`, and `flush_interval -1` for the streams.
+- `lith-site-deploy`: installs a binary, restarts the unit, waits for `/healthz` (on the socket, or on `127.0.0.1:8097` while the unit from before the socket runs), and puts the old binary back if the new one does not answer.
 - `observability/`: the Prometheus target, the blackbox probes and the Alloy file, for the folders the host's Prometheus and Alloy load ([Monitoring](#monitoring)). The Grafana dashboard for lith apps and their alert rules are in `deploy/observability` at lith's root.
-- `setup-host.sh`: installs the files in `observability/`, and with a key, creates the user that CI deploys as, whose key may run `lith-site-deploy -` and nothing else.
+- `setup-host.sh`: puts Caddy's user in the `lith-site` group, installs the files in `observability/`, and with a key, creates the user that CI deploys as, whose key may run `lith-site-deploy -` and nothing else.
 
 The database holds the demos' data only, which the sweep keeps small: it needs no backup.
 
@@ -35,9 +35,30 @@ systemctl reload caddy
 bash setup-host.sh
 ```
 
-Run as root, `caddy validate` creates the access log owned by root and the reload then fails: the `chown` fixes it. `setup-host.sh` installs the monitoring files ([Monitoring](#monitoring)).
+Run as root, `caddy validate` creates the access log owned by root and the reload then fails: the `chown` fixes it. `setup-host.sh` puts the `caddy` user in the `lith-site` group and installs the monitoring files ([Monitoring](#monitoring)). Restart Caddy once after that (`systemctl restart caddy`): a reload keeps the groups it started with, and without the group it cannot reach the socket.
 
-`-base` in the unit is the public URL: canonical links, the Open Graph image and the sitemap start with it. A move to another domain changes it, the Caddy block, the probe targets and the URL in the deploy workflow together. Another port changes `-addr`, `SocketBindAllow`, the Caddy block, `HEALTH` in `lith-site-deploy` and `observability/lith-site.metrics.yml`; the metrics follow at the port + 100.
+### Whom the site believes
+
+The rate limits and the cap on streams per client (`-client-streams`, 16) count by the client's address, which the site takes from X-Forwarded-For when the request comes through the socket or loopback, and from the peer otherwise. It logs at start whose headers it believes (`proxy_headers_from`). On the socket that is the `lith-site` group: Caddy's user, and no one else. On a loopback port every local user of the host may connect and name any address, to dodge a limit or spend someone else's, which is why the unit uses the socket.
+
+### Moving from the loopback port to the socket
+
+A host set up before the socket runs the site on `127.0.0.1:8097`. CI deploys only the binary, which listens wherever the unit says, so nothing changes until the files here are installed, together, as root from this folder:
+
+```sh
+bash setup-host.sh                    # caddy joins lith-site; lith-site-deploy is reinstalled only with a key
+install -m 0755 lith-site-deploy /usr/local/bin/
+install -m 0644 lith-site.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl restart lith-site           # now on /run/lith-site/lith-site.sock
+install -m 0644 lith-site.caddy /etc/caddy/sites/
+caddy validate --config /etc/caddy/Caddyfile
+systemctl restart caddy               # a restart, for the new group
+```
+
+The new `lith-site-deploy` asks the socket when it is there and the port otherwise, so either order of deploys works.
+
+`-base` in the unit is the public URL: canonical links, the Open Graph image and the sitemap start with it. A move to another domain changes it, the Caddy block, the probe targets and the URL in the deploy workflow together. Another metrics port changes `-metrics`, `SocketBindAllow` and `observability/lith-site.metrics.yml`.
 
 ### Deploys from CI
 

@@ -8,16 +8,22 @@ Wants=network-online.target
 [Service]
 User=lith-site
 Group=lith-site
-# /var/lib/lith-site holds the database, the only state.
+# /var/lib/lith-site holds the database, the only state; /run/lith-site the
+# socket. The site believes the X-Forwarded-For of whoever connects to the
+# socket, so only its group may enter /run/lith-site, and the socket is
+# 0660: Caddy's user joins the group lith-site (setup-host.sh).
 StateDirectory=lith-site
+RuntimeDirectory=lith-site
+RuntimeDirectoryMode=0750
 WorkingDirectory=/var/lib/lith-site
 # Optional: LITH_SITE_* settings the command line leaves out.
 EnvironmentFile=-/etc/lith-site/lith-site.env
-# The site on 127.0.0.1:8097 for Caddy, /metrics on 127.0.0.1:8197 (port +
-# 100) for Prometheus only. Logs go to stdout as JSON, one object per line,
-# for journald and Alloy.
+# The site on the socket for Caddy, /metrics on 127.0.0.1:8197 for
+# Prometheus only. Logs go to stdout as JSON, one object per line, for
+# journald and Alloy.
 ExecStart=/opt/lith-site/lith-site serve \
-	-addr 127.0.0.1:8097 \
+	-addr unix:/run/lith-site/lith-site.sock \
+	-metrics 127.0.0.1:8197 \
 	-db /var/lib/lith-site/site.db \
 	-base https://lith.zweiundeins.gmbh \
 	-secure \
@@ -46,13 +52,12 @@ TasksMax=128
 # demos cannot slow the apps beside it down when the cores are busy.
 CPUWeight=50
 
-# Network: loopback only, both ways. Caddy and Prometheus connect from
-# 127.0.0.1; the site itself connects nowhere, not even to DNS. It may bind
-# its two ports and no other.
+# Network: loopback only, both ways. Prometheus connects from 127.0.0.1,
+# Caddy through the socket; the site itself connects nowhere, not even to
+# DNS. It may bind its metrics port and no other.
 IPAddressDeny=any
 IPAddressAllow=localhost
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-SocketBindAllow=tcp:8097
 SocketBindAllow=tcp:8197
 SocketBindDeny=any
 

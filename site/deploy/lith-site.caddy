@@ -1,8 +1,11 @@
 # --- lith (github.com/zweiundeins/lith): the website of lith, the runtime
 # of the Go, SQLite and Datastar apps, with its docs and live demos.
-# Separate systemd unit (lith-site), loopback :8097; its /metrics listen on
-# :8197 for Prometheus only. The app compresses its pages, files and
-# streams itself, so no `encode`. ---
+# Separate systemd unit (lith-site) on the socket /run/lith-site/lith-site.sock,
+# which Caddy reaches as a member of the group lith-site; its /metrics
+# listen on 127.0.0.1:8197 for Prometheus only. The app compresses its
+# pages, files and streams itself, so no `encode`. It gives a request's
+# body 10 s itself (sse.SignalsTimeout): Caddy's read_body is a global
+# option, which would also end every stream over HTTP/1.1 after that long. ---
 lith.zweiundeins.gmbh {
 	log {
 		output file /var/log/caddy/lith-access.log {
@@ -11,12 +14,26 @@ lith.zweiundeins.gmbh {
 			roll_keep 5
 			roll_keep_for 720h
 		}
-		format json
+		# A tab id lets whoever has it pace or end that tab's stream: the
+		# log keeps a hash of it.
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					hash tab
+				}
+			}
+		}
 	}
 
-	reverse_proxy 127.0.0.1:8097 {
+	# An action's body is 8 KiB at most; nothing the site takes is larger.
+	request_body {
+		max_size 1MB
+	}
+
+	reverse_proxy unix//run/lith-site/lith-site.sock {
 		# The client's address for the rate limits. lith-site takes it
-		# only from loopback, the last X-Forwarded-For address before
+		# only from the socket, the last X-Forwarded-For address before
 		# X-Real-IP, and a client cannot set either: these replace them.
 		header_up X-Forwarded-For {http.request.remote.host}
 		header_up X-Real-IP {http.request.remote.host}

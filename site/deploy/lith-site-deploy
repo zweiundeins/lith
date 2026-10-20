@@ -12,13 +12,24 @@ set -euo pipefail
 
 NAME=lith-site
 DIR=/opt/$NAME
-HEALTH=http://127.0.0.1:8097/healthz
+# The socket of the unit in this folder; a unit from before it listens on
+# the loopback port.
+SOCKET=/run/$NAME/$NAME.sock
+PORT_HEALTH=http://127.0.0.1:8097/healthz
 HEALTH_TIMEOUT=30
 MAX_BYTES=$((200 << 20))
 
+health() {
+	if [[ -S "$SOCKET" ]]; then
+		curl -fsS --max-time 2 --unix-socket "$SOCKET" http://localhost/healthz
+	else
+		curl -fsS --max-time 2 "$PORT_HEALTH"
+	fi
+}
+
 healthy() { # waits for /healthz to answer "ok <version>"
 	for ((i = 0; i < HEALTH_TIMEOUT; i++)); do
-		[[ "$(curl -fsS --max-time 2 "$HEALTH" 2>/dev/null || true)" == "ok $1" ]] && return 0
+		[[ "$(health 2>/dev/null || true)" == "ok $1" ]] && return 0
 		sleep 1
 	done
 	return 1
