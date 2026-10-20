@@ -2,6 +2,7 @@ package edge
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -63,14 +64,16 @@ func html(body []byte) http.HandlerFunc {
 
 func TestCompressNegotiates(t *testing.T) {
 	for accept, want := range map[string]string{
-		"gzip, deflate, br, zstd": "br",
+		"gzip, deflate, br, zstd": "zstd",
+		"gzip, deflate, br":       "br",
 		"zstd":                    "zstd",
 		"gzip":                    "gzip",
 		"x-gzip":                  "gzip",
 		"br;q=0, gzip":            "gzip",
 		"gzip;q=1, br;q=0.5":      "gzip",
-		"zstd;q=0.9, br;q=0.9":    "br",
-		"*":                       "br",
+		"zstd;q=0.9, br;q=0.9":    "zstd",
+		"zstd;q=0.8, br;q=0.9":    "br",
+		"*":                       "zstd",
 		"*;q=0, gzip":             "gzip",
 		"deflate":                 "",
 		"br;q=0.0, zstd;q=0":      "",
@@ -99,7 +102,8 @@ func TestNegotiate(t *testing.T) {
 		codings []string
 		want    string
 	}{
-		{"gzip, deflate, br, zstd", nil, "br"},
+		{"gzip, deflate, br, zstd", nil, "zstd"},
+		{"gzip, deflate, br", nil, "br"},
 		{"zstd", nil, "zstd"},
 		{"zstd, gzip", nil, "zstd"},
 		{"gzip;q=1, br;q=0.5", nil, "gzip"},
@@ -300,5 +304,61 @@ func TestCompressStatus(t *testing.T) {
 	w = serveCompressed(func(w http.ResponseWriter, r *http.Request) {}, "GET", "br")
 	if w.Code != http.StatusOK || len(w.Header()) != 0 {
 		t.Errorf("an empty answer: %d %v", w.Code, w.Header())
+	}
+}
+
+// boardPage is a page of about 150 KB like a kanban board's: lists of
+// cards with titles, labels and Datastar attributes.
+func boardPage() []byte {
+	words := strings.Fields("release plan review design copy fix bug invoice client meeting draft deploy sprint backlog migrate test docs search export import mobile layout cache report budget")
+	var b bytes.Buffer
+	b.WriteString(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Board</title></head><body><main id="board" class="board">`)
+	x := uint32(1)
+	next := func(n int) int { x ^= x << 13; x ^= x >> 17; x ^= x << 5; return int(x % uint32(n)) }
+	for list := 0; b.Len() < 150_000; list++ {
+		fmt.Fprintf(&b, `<section class="list" id="list-%d"><h2 class="list__title">List %d</h2><ol class="list__cards">`, list, list)
+		for card := range 40 {
+			id := list*100 + card
+			fmt.Fprintf(&b, `<li class="card" id="card-%d" draggable="true" data-on:click="@post('/cmd/open?card=%d')" data-on:dragstart="$drag = %d">`, id, id, id)
+			fmt.Fprintf(&b, `<span class="card__title">%s %s %s</span>`, words[next(len(words))], words[next(len(words))], words[next(len(words))])
+			fmt.Fprintf(&b, `<span class="card__label card__label--%d">%s</span><time datetime="2026-10-%02d">Oct %d</time></li>`, next(6), words[next(len(words))], 1+next(28), 1+next(28))
+		}
+		b.WriteString(`</ol></section>`)
+	}
+	b.WriteString(`</main></body></html>`)
+	return b.Bytes()
+}
+
+type discard struct{ h http.Header }
+
+func (d *discard) Header() http.Header         { return d.h }
+func (d *discard) Write(p []byte) (int, error) { return len(p), nil }
+func (d *discard) WriteHeader(int)             {}
+
+// BenchmarkCompress compresses a 150 KB page with each coding, as
+// Compress does for every request that accepts it.
+//
+//	go test ./edge -run '^$' -bench Compress -count 10
+func BenchmarkCompress(b *testing.B) {
+	body := boardPage()
+	h := Compress(html(body))
+	for _, coding := range []string{"br", "zstd", "gzip"} {
+		b.Run(coding, func(b *testing.B) {
+			r := httptest.NewRequest("GET", "/", nil)
+			r.Header.Set("Accept-Encoding", coding)
+			out := httptest.NewRecorder()
+			h.ServeHTTP(out, r)
+			if got := out.Header().Get("Content-Encoding"); got != coding {
+				b.Fatalf("Content-Encoding %q", got)
+			}
+			w := &discard{h: http.Header{}}
+			b.SetBytes(int64(len(body)))
+			b.ReportAllocs()
+			for b.Loop() {
+				clear(w.h)
+				h.ServeHTTP(w, r)
+			}
+			b.ReportMetric(100*float64(out.Body.Len())/float64(len(body)), "%-of-input")
+		})
 	}
 }
