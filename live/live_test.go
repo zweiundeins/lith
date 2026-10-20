@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -1746,5 +1747,17 @@ func TestHasStream(t *testing.T) {
 	c.leave(t)
 	if h.HasStream("tab1") {
 		t.Fatal("HasStream after the stream ended")
+	}
+}
+
+// New logs the streams' budget it starts with, and where its limit came
+// from, so that a server without a memory limit shows in its first lines.
+func TestNewLogsTheBudget(t *testing.T) {
+	old := debug.SetMemoryLimit(1 << 30)
+	defer debug.SetMemoryLimit(old)
+	var l logs
+	New(Options{Log: l.logger()})
+	if got := l.String(); !strings.Contains(got, "streams' budget") || !strings.Contains(got, "budget_mib=512 from=GOMEMLIMIT") {
+		t.Fatalf("New logged %q", got)
 	}
 }

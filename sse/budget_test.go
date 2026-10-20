@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"math"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -1201,11 +1202,49 @@ func TestMemoryLimit(t *testing.T) {
 
 	old := debug.SetMemoryLimit(1 << 30)
 	defer debug.SetMemoryLimit(old)
-	if got := memoryLimit(); got != 1<<30 {
-		t.Fatalf("with GOMEMLIMIT: %d", got)
+	if got, from := memoryLimit(); got != 1<<30 || from != "GOMEMLIMIT" {
+		t.Fatalf("with GOMEMLIMIT: %d from %q", got, from)
 	}
-	if got := NewBudget(BudgetOptions{}).Stats().Limit; got != 512<<20 {
-		t.Fatalf("the default budget: %d", got)
+	if st := NewBudget(BudgetOptions{}).Stats(); st.Limit != 512<<20 || st.From != "GOMEMLIMIT" {
+		t.Fatalf("the default budget: %d from %q", st.Limit, st.From)
+	}
+	if st := NewBudget(BudgetOptions{Limit: 64 << 20}).Stats(); st.From != "options" {
+		t.Fatalf("a budget with a Limit: from %q", st.From)
+	}
+	if st := NewBudget(BudgetOptions{Limit: -1}).Stats(); st.Limit != 0 || st.From != "" {
+		t.Fatalf("a budget without a limit: %d from %q", st.Limit, st.From)
+	}
+}
+
+// A process without GOMEMLIMIT or a cgroup limit takes half the machine's
+// memory as its limit, so the streams' budget is a quarter of it rather
+// than none.
+func TestBudgetWithoutMemoryLimit(t *testing.T) {
+	dir := t.TempDir()
+	meminfo := filepath.Join(dir, "meminfo")
+	os.WriteFile(meminfo, []byte("MemTotal:        4015104 kB\nMemFree:          123456 kB\n"), 0o644)
+	if got := machineMemory(meminfo); got != 4015104<<10 {
+		t.Errorf("MemTotal: %d", got)
+	}
+	os.WriteFile(meminfo, []byte("MemFree: 1 kB\n"), 0o644)
+	if got := machineMemory(meminfo); got != 0 {
+		t.Errorf("without MemTotal: %d", got)
+	}
+	if got := machineMemory(filepath.Join(dir, "none")); got != 0 {
+		t.Errorf("without meminfo: %d", got)
+	}
+
+	old := debug.SetMemoryLimit(math.MaxInt64)
+	defer debug.SetMemoryLimit(old)
+	if cgroupLimit("/proc/self/cgroup", "/sys/fs/cgroup") > 0 {
+		t.Skip("this process runs in a cgroup with a memory limit")
+	}
+	total := machineMemory("/proc/meminfo")
+	if total == 0 {
+		t.Skip("no /proc/meminfo here")
+	}
+	if st := NewBudget(BudgetOptions{}).Stats(); st.Limit != total/4 || st.From != "machine" {
+		t.Fatalf("the default budget without a memory limit: %d from %q, want a quarter of %d", st.Limit, st.From, total)
 	}
 }
 

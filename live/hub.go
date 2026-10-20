@@ -163,8 +163,12 @@ type Options struct {
 	// process's memory limit for the streams, their encoders and the frames
 	// the hub keeps, which it books (sse.Budget.Hold); each stream gets a
 	// window that holds its frames, up to 2^19, and goes out uncompressed
-	// when not even the smallest tier fits; without a memory limit it only
-	// counts. Pass a Budget of your own for another limit, or with Refuse,
+	// when not even the smallest tier fits. A process without a memory
+	// limit gives the streams a quarter of the machine's memory, and New
+	// logs a warning; New logs the budget's limit in any case. The budget
+	// shares its room per stream: one client that opens many streams
+	// first would keep the compressed tiers, which MaxStreamsPerClient
+	// prevents. Pass a Budget of your own for another limit, or with Refuse,
 	// which Serve answers with 503 when the budget has no room for a
 	// stream: for a window that holds its first frames, or for the 32 KiB
 	// of one that compresses nothing; or one with Limit -1 to turn it off.
@@ -401,6 +405,11 @@ func New(o Options) *Hub {
 	}
 	if o.SSE.Budget == nil {
 		o.SSE.Budget = sse.NewBudget(sse.BudgetOptions{})
+	}
+	if st := o.SSE.Budget.Stats(); st.From == "machine" {
+		o.Log.Warn("live: no GOMEMLIMIT and no memory limit on the cgroup: the streams' budget takes a quarter of the machine's memory; set GOMEMLIMIT or sse.BudgetOptions.Limit", "budget_mib", st.Limit>>20)
+	} else {
+		o.Log.Info("live: the streams' budget", "budget_mib", st.Limit>>20, "from", cmp.Or(st.From, "none"))
 	}
 	if o.SSE.Compress == nil {
 		o.SSE.Compress = make(chan struct{}, max(1, runtime.GOMAXPROCS(0)/2))

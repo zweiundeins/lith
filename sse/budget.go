@@ -33,9 +33,14 @@ type BudgetOptions struct {
 	// takes half the process's memory limit: GOMEMLIMIT, else the cgroup's
 	// memory.max or memory.high, whichever is lower. The other half is for
 	// the rest of the app and for the garbage that renders and compression
-	// leave between two collections. Without a memory limit, or with a
-	// negative Limit, there is no limit: every stream gets the largest tier
-	// its options allow, and the budget only counts.
+	// leave between two collections. A process without a memory limit
+	// takes half the machine's memory as its limit (Linux's MemTotal), so
+	// the streams get a quarter of it: without a limit, every zstd stream
+	// would hold the largest tier, about 1.7 MiB, and 2000 of them more
+	// than a small server has. Where the machine's memory is not known
+	// either, or with a negative Limit, there is no limit: every stream
+	// gets the largest tier its options allow, and the budget only counts.
+	// BudgetStats.From says where the limit came from.
 	Limit int64
 	// MinWindow, if set, is the smallest window, as a base 2 logarithm,
 	// that a stream's frames need. A stream needs a window that holds its
@@ -118,7 +123,8 @@ type BudgetOptions struct {
 // to 16 KiB: zstd at its fastest level, brotli at quality 3 and 4. Other
 // levels and qualities hold more.
 type Budget struct {
-	limit                int64 // 0: none
+	limit                int64  // 0: none
+	from                 string // BudgetStats.From
 	minWindow, maxWindow int
 	refuse               bool
 	reopenEvery          time.Duration // the least time between two streams asked to open again
@@ -142,14 +148,21 @@ type Budget struct {
 
 // NewBudget returns a budget for streams to share through Options.Budget.
 func NewBudget(o BudgetOptions) *Budget {
-	if o.Limit == 0 {
-		o.Limit = memoryLimit() / 2
+	from := "options"
+	switch {
+	case o.Limit == 0:
+		var l int64
+		l, from = memoryLimit()
+		o.Limit = l / 2
+	case o.Limit < 0:
+		from = ""
 	}
 	if o.MaxWindow <= 0 {
 		o.MaxWindow = 19
 	}
 	return &Budget{
 		limit:       max(0, o.Limit),
+		from:        from,
 		minWindow:   max(0, o.MinWindow),
 		maxWindow:   max(o.MinWindow, o.MaxWindow),
 		refuse:      o.Refuse,
@@ -161,6 +174,11 @@ func NewBudget(o BudgetOptions) *Budget {
 // BudgetStats describe a budget at one moment.
 type BudgetStats struct {
 	Limit int64 // bytes, 0 for none
+	// From says where Limit came from: "options" (BudgetOptions.Limit or
+	// SetLimit), "GOMEMLIMIT", "cgroup", "machine" (a quarter of the
+	// machine's memory, for a process without a memory limit), or "" when
+	// there is none.
+	From string
 	// Reserved is what the open streams hold: their tiers, 32 KiB each
 	// besides, and Frames.
 	Reserved int64
@@ -179,7 +197,7 @@ type BudgetStats struct {
 func (b *Budget) Stats() BudgetStats {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	s := BudgetStats{Limit: b.limit, Reserved: b.reserved, Frames: b.held, Refused: b.refused, Reopened: b.reopened,
+	s := BudgetStats{Limit: b.limit, From: b.from, Reserved: b.reserved, Frames: b.held, Refused: b.refused, Reopened: b.reopened,
 		Streams: make(map[string]int, len(b.streams))}
 	for k, n := range b.streams {
 		s.Streams[k] = n
@@ -198,6 +216,10 @@ func (b *Budget) SetLimit(n int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.limit = max(0, n)
+	b.from = "options"
+	if b.limit == 0 {
+		b.from = ""
+	}
 	b.starved.Add(1)
 	b.free()
 }
@@ -807,14 +829,46 @@ func (b *Budget) promote() {
 	})
 }
 
-// memoryLimit is the process's memory limit in bytes: GOMEMLIMIT (or
-// debug.SetMemoryLimit) when set, else the cgroup's memory.max or
-// memory.high, whichever is lower, or 0 when there is none.
-func memoryLimit() int64 {
+// memoryLimit is the process's memory limit in bytes, and where it comes
+// from: GOMEMLIMIT (or debug.SetMemoryLimit) when set, else the cgroup's
+// memory.max or memory.high, whichever is lower, else half the machine's
+// memory, or 0 and "" when none is known.
+func memoryLimit() (int64, string) {
 	if l := debug.SetMemoryLimit(-1); l > 0 && l < math.MaxInt64 {
-		return l
+		return l, "GOMEMLIMIT"
 	}
-	return cgroupLimit("/proc/self/cgroup", "/sys/fs/cgroup")
+	if l := cgroupLimit("/proc/self/cgroup", "/sys/fs/cgroup"); l > 0 {
+		return l, "cgroup"
+	}
+	if l := machineMemory("/proc/meminfo"); l > 0 {
+		return l / 2, "machine"
+	}
+	return 0, ""
+}
+
+// machineMemory reads the machine's memory in bytes from meminfo's
+// MemTotal (Linux), 0 when it cannot.
+func machineMemory(meminfo string) int64 {
+	b, err := os.ReadFile(meminfo)
+	if err != nil {
+		return 0
+	}
+	for line := range strings.Lines(string(b)) {
+		rest, ok := strings.CutPrefix(line, "MemTotal:")
+		if !ok {
+			continue
+		}
+		kb, ok := strings.CutSuffix(strings.TrimSpace(rest), " kB")
+		if !ok {
+			return 0
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(kb), 10, 64)
+		if err != nil || n <= 0 {
+			return 0
+		}
+		return n << 10
+	}
+	return 0
 }
 
 // cgroupLimit reads the memory limit of the process's cgroup (v2), 0 for

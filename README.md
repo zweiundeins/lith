@@ -63,7 +63,12 @@ db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{
 	Migrations: migrations,
 	Checkpoint: sqlite.CheckpointWriter,
 })
-hub := live.New(live.Options{Read: db.R})
+hub := live.New(live.Options{
+	Read: db.R,
+	// What the streams' encoders and frames may hold together: set it, or
+	// GOMEMLIMIT, to what the host gives the app.
+	SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{Limit: 256 << 20})},
+})
 w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
 
 go w.Run(appCtx)
@@ -74,6 +79,12 @@ go hub.Run(hubCtx)
 undo up to about 35 seconds of acknowledged commits, those since the last
 checkpoint, with Linux's default writeback. Set `Synchronous: "FULL"` where
 that matters, at one fsync per batch.
+
+Without a `Limit`, the budget takes half of GOMEMLIMIT or of the cgroup's
+memory limit, and in a process with neither a quarter of the machine's memory,
+which `live.New` logs as a warning. A stream handler sets
+`Spec.Client: edge.ClientKey(r)`, so that one address cannot hold every stream
+(`Options.MaxStreamsPerClient`, 16 by default).
 
 A command reads and writes in one `Apply` and touches the topics it changes; a
 handler sends it and answers 204; the page learns the outcome from its stream.
