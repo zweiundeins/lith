@@ -2,6 +2,13 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `live`: a tick allocates 3 times a view instead of 13 (`BenchmarkTick`, 49 bytes instead of 864). Each render worker ends its Renders' ctx with one timer it keeps, where every Render took a context with a timeout and an `AfterFunc`; a Render's ctx still reports its own deadline and `context.DeadlineExceeded`, a ctx derived from it ends with `context.Canceled` and the cause `context.DeadlineExceeded`, and an overrun is still logged with the view's key while the Render runs. Publishing a tick no longer sorts every offer by stream.
+- `live`: a view whose `Depends` topics move allocates nothing in the topic tree: a topic keeps up to four views in a slice, and the tree reuses the nodes and maps that leave it. `BenchmarkTickDepends` with four topics in and four out takes 3.0 allocations a view instead of 26.1, fewer than before the tree.
+- `sse`: `AppendPatchElements(dst, html, p...)` formats an event into a buffer of the caller's, and `NewElements(dst, p...)` is an `io.Writer` that a template renders into, which puts each line into the event as it comes. `live.FrameBuffer(ctx)` is, in a Render, a buffer with room for the view's last frame, so a frame is one allocation of its size instead of the HTML and a copy. `PatchElements` is unchanged.
+- `sse`: `Stream.Ping` writes events such as a heartbeat without waking a hibernating zstd stream, in a frame of raw blocks. live's heartbeats use it, as `Options.Hibernate` said they did: an idle stream no longer takes an encoder back from the pool, or builds one of 0.6 to 1.7 MiB, every `Heartbeat`.
+
 ## v0.4.0 (2026-10-19)
 
 Views can declare what their Render read, topics form a tree by their `:` segments, and the hub numbers its commits, for caches of derived values. A read can skip the statement caches, and a stream the hub stops keeps its clean end over HTTP/2. No API was removed. What to check in an app:
