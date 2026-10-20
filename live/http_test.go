@@ -75,12 +75,17 @@ func (l smallBuffers) Accept() (net.Conn, error) {
 }
 
 // get opens a stream; the test ends it. The stalled stream gets a
-// connection of its own with a small receive buffer.
+// connection of its own with a small receive buffer and, over HTTP/2, a
+// small flow control window: Go's client reads a stream's data off the
+// connection until its window of 4 MB is full, whether the body is read
+// or not, so a server that skips to the newest frame might not fill it
+// with the test's ten frames, and would never block.
 func get(t *testing.T, ctx context.Context, srv *httptest.Server, path string, h2 bool) *http.Response {
 	t.Helper()
 	client := srv.Client()
 	if path == "/stalled" {
 		tr := client.Transport.(*http.Transport).Clone()
+		tr.HTTP2 = &http.HTTP2Config{MaxReceiveBufferPerStream: 64 << 10}
 		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			c, err := (&net.Dialer{}).DialContext(ctx, network, addr)
 			if tc, ok := c.(*net.TCPConn); ok {
