@@ -36,10 +36,14 @@ func TestNewestFrame(t *testing.T) {
 	p.Wait(t, `document.querySelector('.live-badge.is-live')`, 30*time.Second)
 	freshSoup(t, a)
 
+	// A new stream's first two frames can arrive a few ms apart, and the
+	// plugin rightly applies only the second: count from after them.
+	time.Sleep(500 * time.Millisecond)
+	start := frameStats(t, p)
 	time.Sleep(4 * time.Second)
 	full := frameStats(t, p)
-	if full.Applied < 25 || full.Dropped > 0 || full.Stale > 0 {
-		t.Errorf("at full speed, the board's frames: %+v", full)
+	if full.Applied-start.Applied < 25 || full.Dropped > start.Dropped || full.Stale > 0 {
+		t.Errorf("at full speed, the board's frames: %+v, %+v before", full, start)
 	}
 	p.Eval(t, `window.__nf.cost = 300`, nil)
 	time.Sleep(5 * time.Second)
