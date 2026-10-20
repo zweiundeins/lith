@@ -87,6 +87,13 @@ type Options struct {
 	// before the writer checkpoints it (default 1000). It applies only
 	// when the database was opened with sqlite.CheckpointWriter.
 	CheckpointPages int
+	// CheckpointAside runs those checkpoints on a connection of their own
+	// (sqlite.DB.Checkpointer), in a goroutine of their own, instead of on
+	// the write connection between batches: after a large write the next
+	// batch does not wait for the checkpoint that copies it. The writer
+	// still counts the pages and truncates the WAL when idle. It applies
+	// only with sqlite.CheckpointWriter.
+	CheckpointAside bool
 	// SlowCommand is how long a command may run before the writer logs
 	// its type, once per command, and again when it ends (default 5s,
 	// negative: never). Every other command waits meanwhile, so a command
@@ -186,6 +193,12 @@ type Writer struct {
 	txAfter  []func()
 	txRows   []*sql.Rows
 
+	aside     *sql.DB       // CheckpointAside's connection
+	ckpt      chan struct{} // asks the aside goroutine for a checkpoint
+	ckptDone  chan struct{} // closed once it ended
+	ckptEnded atomic.Bool   // the checkpoint asked for ended
+	asked     bool          // a checkpoint was asked for, and its end not seen
+
 	run running
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
@@ -275,7 +288,7 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("writer: take the write connection (one Writer per database): %w", err)
 	}
-	return &Writer{
+	w := &Writer{
 		conn:   conn,
 		opts:   opts,
 		mode:   dbo.Checkpoint,
@@ -284,7 +297,16 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 		done:   make(chan struct{}),
 		stmts:  map[string]*list.Element{},
 		topics: map[string]struct{}{},
-	}, nil
+	}
+	if opts.CheckpointAside && w.mode == sqlite.CheckpointWriter {
+		if w.aside, err = db.Checkpointer(); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("writer: open the checkpoint connection: %w", err)
+		}
+		w.ckpt = make(chan struct{}, 1)
+		w.ckptDone = make(chan struct{})
+	}
+	return w, nil
 }
 
 // Run applies batches until Close is called or ctx ends. Either way it
@@ -523,6 +545,9 @@ func (w *Writer) loop(ctx context.Context) {
 		quit := make(chan struct{})
 		defer close(quit)
 		go w.watch(quit)
+	}
+	if w.aside != nil {
+		go w.checkpointAside()
 	}
 	stop := ctx.Done()
 	var optimize <-chan time.Time
@@ -853,16 +878,62 @@ func (w *Writer) checkpoint() {
 		w.opts.Log.Warn("writer: read the WAL size", "err", err)
 		return
 	}
-	if n == 0 {
+	if n > 0 {
+		w.dirty = true
+		w.pages += n
+	}
+	if w.aside != nil {
+		w.checkpointBeside()
 		return
 	}
-	w.dirty = true
-	if w.pages += n; w.pages < w.opts.CheckpointPages {
+	if w.pages < w.opts.CheckpointPages {
 		return
 	}
 	w.pages = 0
+	w.passive()
+}
+
+func (w *Writer) passive() {
 	if err := w.exec("PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
 		w.opts.Log.Warn("writer: checkpoint", "err", err)
+	}
+}
+
+// checkpointBeside asks the aside goroutine for a checkpoint once the
+// batches wrote CheckpointPages pages. SQLite starts the WAL over only at
+// a write that finds it copied whole, which a checkpoint beside the
+// batches rarely leaves: so once one ended, the writer copies what the
+// batches wrote meanwhile itself, between two batches as without
+// CheckpointAside.
+func (w *Writer) checkpointBeside() {
+	if w.asked {
+		if !w.ckptEnded.Swap(false) {
+			return
+		}
+		w.asked = false
+		if w.pages > 0 {
+			w.pages = 0
+			w.passive()
+		}
+		return
+	}
+	if w.pages < w.opts.CheckpointPages {
+		return
+	}
+	w.pages = 0
+	w.asked = true
+	w.ckpt <- struct{}{}
+}
+
+// checkpointAside runs the checkpoints that checkpointBeside asks for on
+// the aside connection, until finish closes ckpt.
+func (w *Writer) checkpointAside() {
+	defer close(w.ckptDone)
+	for range w.ckpt {
+		if _, err := w.aside.Exec("PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
+			w.opts.Log.Warn("writer: checkpoint", "err", err)
+		}
+		w.ckptEnded.Store(true)
 	}
 }
 
@@ -938,6 +1009,13 @@ func (w *Writer) finish() error {
 	w.forget()
 	if err := w.conn.Close(); err != nil {
 		errs = append(errs, err)
+	}
+	if w.aside != nil {
+		close(w.ckpt)
+		<-w.ckptDone
+		if err := w.aside.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }
