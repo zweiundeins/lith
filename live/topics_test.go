@@ -85,9 +85,16 @@ func TestTopicTreeRenders(t *testing.T) {
 		return r["a"] == 2 && r["a:b"] == 2
 	})
 	h.Changed([]string{"a:b:*"})
-	waitFor(t, "a:b:c:d", func() bool { return h.Stats().RendersByKey["a:b:c:d"] == 2 })
+	// The workers count each view as they render it, and a view whose
+	// stream has not taken its last frame yet renders in a later tick: wait
+	// for all three, and for a:b:c:d's frame, whose tick then has published,
+	// so a:x would have rendered in it too.
+	waitFor(t, "a, a:b and a:b:c:d", func() bool {
+		r := h.Stats().RendersByKey
+		return r["a"] >= 3 && r["a:b"] >= 3 && r["a:b:c:d"] >= 2 && strings.Count(string(c.bytes()), `<p id="a:b:c:d">`) == 2
+	})
 	r := h.Stats().RendersByKey
-	if r["a"] != 3 || r["a:b"] != 3 || r["a:x"] != 1 {
+	if r["a"] != 3 || r["a:b"] != 3 || r["a:b:c:d"] != 2 || r["a:x"] != 1 {
 		t.Fatalf("renders %v", r)
 	}
 	c.leave(t)
