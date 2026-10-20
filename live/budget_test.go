@@ -577,7 +577,7 @@ func TestRefusedStreamKeepsItsWatches(t *testing.T) {
 // later would get its frames uncompressed. MaxStreamsPerClient stops
 // that: one client's streams past its cap get 429, and a later client's
 // stream on the same 230 KB view keeps a window that holds the frame,
-// and sends about 4 KB for each change. Without the cap it finds no room
+// and sends 4 to 10 KB for each change, by the tier it gets. Without the cap it finds no room
 // and sends the whole frame.
 func TestLateClientKeepsCompression(t *testing.T) {
 	const zstdNeed = (880 + 32) << 10
@@ -618,7 +618,7 @@ func TestLateClientKeepsCompression(t *testing.T) {
 		return len(late.bytes()) - before, refused
 	}
 	n, refused := perFrame(t, 3)
-	if refused != 7 || n > 8<<10 {
+	if refused != 7 || n > 16<<10 {
 		t.Errorf("with a cap of 3: %d streams refused, the late client sent %d bytes for a change", refused, n)
 	}
 	if n, refused := perFrame(t, -1); refused != 0 || n < 64<<10 {
