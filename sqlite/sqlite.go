@@ -152,7 +152,13 @@ func (o Options) withDefaults() (Options, error) {
 // DB is one database file. W holds a single connection that takes the
 // write lock when a transaction begins (BEGIN IMMEDIATE); only migrations
 // and the writer use it, and it is nil with Options.ReadOnly. R is the
-// pool of query_only connections.
+// pool of read connections: each opens the file read-only (mode=ro) and
+// is query_only, so a statement that runs on one cannot write the file,
+// not even one that starts with PRAGMA query_only = 0. A statement can
+// still ATTACH another file the process may open, which mode=ro does not
+// cover: it can read it, and after that pragma write to it. Only an
+// authorizer could refuse ATTACH, which modernc.org/sqlite does not
+// expose. So bind every value, and build SQL texts from constants only.
 type DB struct {
 	W    *sql.DB
 	R    *sql.DB
@@ -179,19 +185,21 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		fmt.Sprintf("cache_size(%d)", -opts.CacheKiB),
 	}
 	var w *sql.DB
-	var ro url.Values
 	if opts.ReadOnly {
 		if _, err := os.Stat(path); err != nil {
 			return nil, fmt.Errorf("sqlite: open read-only: %w", err)
 		}
-		ro = url.Values{"mode": {"ro"}}
 	} else {
-		common = append(common, "journal_mode(WAL)", "synchronous("+opts.Synchronous+")")
-		if w, err = openWriter(ctx, path, opts, common); err != nil {
+		wp := append(slices.Clone(common), "journal_mode(WAL)", "synchronous("+opts.Synchronous+")")
+		if w, err = openWriter(ctx, path, opts, wp); err != nil {
 			return nil, err
 		}
 	}
 
+	// The readers open the file read-only, and query_only besides: a
+	// pragma in a statement's text can turn query_only off, but not the
+	// handle's mode.
+	ro := url.Values{"mode": {"ro"}}
 	rp := append(slices.Clone(common), "query_only(1)")
 	if opts.MmapBytes > 0 {
 		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))

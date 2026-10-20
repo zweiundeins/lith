@@ -546,3 +546,54 @@ func TestDriver(t *testing.T) {
 		t.Errorf("an unknown driver: %v", err)
 	}
 }
+
+// The read pool opens the file read-only: a statement that turns
+// query_only off first still cannot write, on any of its connections.
+// ATTACH still works, as the DB's doc says: mode=ro covers the main file.
+func TestReadPoolIsReadOnly(t *testing.T) {
+	ctx := context.Background()
+	d := open(t, Options{Readers: 2, Migrations: files(map[string]string{
+		"001_t.sql": "CREATE TABLE t (x INTEGER);",
+	})})
+	if _, err := d.W.Exec(`INSERT INTO t VALUES (1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO t VALUES (2)`,
+		`PRAGMA query_only = 0; INSERT INTO t VALUES (2)`,
+		`PRAGMA query_only = OFF; DELETE FROM t`,
+	} {
+		// Both connections of the pool, held at once.
+		cs := make([]*sql.Conn, 2)
+		for i := range cs {
+			c, err := d.R.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cs[i] = c
+			if _, err := c.ExecContext(ctx, q); err == nil {
+				t.Errorf("reader %d wrote: %s", i, q)
+			}
+		}
+		for _, c := range cs {
+			c.Close()
+		}
+	}
+	var n int
+	if err := d.W.QueryRow(`SELECT count(*) FROM t`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("rows: %d, %v", n, err)
+	}
+
+	other := open(t, Options{Migrations: files(map[string]string{"001_s.sql": "CREATE TABLE s (y TEXT); INSERT INTO s VALUES ('other');"})}).Path
+	c, err := d.R.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.ExecContext(ctx, `ATTACH DATABASE ? AS o`, other); err != nil {
+		t.Fatalf("ATTACH on a reader: %v", err)
+	}
+	if _, err := c.ExecContext(ctx, `DETACH DATABASE o`); err != nil {
+		t.Fatal(err)
+	}
+}
