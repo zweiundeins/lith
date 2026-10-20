@@ -87,6 +87,12 @@ type Options struct {
 	// before the writer checkpoints it (default 1000). It applies only
 	// when the database was opened with sqlite.CheckpointWriter.
 	CheckpointPages int
+	// SlowCommand is how long a command may run before the writer logs
+	// its type, once per command, and again when it ends (default 5s,
+	// negative: never). Every other command waits meanwhile, so a command
+	// that blocks on something besides the database stops the writer;
+	// Stats.Running shows one under way.
+	SlowCommand time.Duration
 	// Log gets panics, failed batches, failed Sends without OnSendError
 	// and maintenance errors (default slog.Default()).
 	Log *slog.Logger
@@ -107,6 +113,7 @@ type Stats struct {
 	LastCommit time.Duration // the last batch, from BEGIN to the end of COMMIT
 	P99Commit  time.Duration // 99th percentile of the last 1024 batches
 	Busy       time.Duration // time spent in batches
+	Running    time.Duration // how long the command under way has run, 0 between commands
 	// Sizes counts the batches by the commands they took, in powers of
 	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
 	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.
@@ -179,9 +186,62 @@ type Writer struct {
 	txAfter  []func()
 	txRows   []*sql.Rows
 
+	run running
+
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
 	sizes                                            [SizeBuckets]atomic.Int64
 	times                                            durations
+}
+
+// running is the command under way, for Stats and the slow command log.
+type running struct {
+	mu     sync.Mutex
+	cmd    Command // nil between commands
+	start  time.Time
+	logged bool
+}
+
+func (r *running) begin(cmd Command) {
+	r.mu.Lock()
+	r.cmd, r.start, r.logged = cmd, time.Now(), false
+	r.mu.Unlock()
+}
+
+// end clears the command and reports how long a logged one ran.
+func (r *running) end() (logged bool, took time.Duration) {
+	r.mu.Lock()
+	logged = r.logged
+	if logged {
+		took = time.Since(r.start)
+	}
+	r.cmd, r.logged = nil, false
+	r.mu.Unlock()
+	return logged, took
+}
+
+func (r *running) since() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cmd == nil {
+		return 0
+	}
+	return time.Since(r.start)
+}
+
+// slow returns the command under way if it has run for d and was not
+// logged yet, and marks it logged.
+func (r *running) slow(d time.Duration) (Command, time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cmd == nil || r.logged {
+		return nil, 0
+	}
+	took := time.Since(r.start)
+	if took < d {
+		return nil, 0
+	}
+	r.logged = true
+	return r.cmd, took
 }
 
 // New takes the write connection of db and keeps it until the writer
@@ -198,6 +258,9 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 	}
 	if opts.CheckpointPages <= 0 {
 		opts.CheckpointPages = 1000
+	}
+	if opts.SlowCommand == 0 {
+		opts.SlowCommand = 5 * time.Second
 	}
 	if opts.Log == nil {
 		opts.Log = slog.Default()
@@ -446,6 +509,7 @@ func (w *Writer) Stats() Stats {
 		LastCommit: last,
 		P99Commit:  p99,
 		Busy:       time.Duration(w.busyNanos.Load()),
+		Running:    w.run.since(),
 	}
 	for i := range s.Sizes {
 		s.Sizes[i] = w.sizes[i].Load()
@@ -455,6 +519,11 @@ func (w *Writer) Stats() Stats {
 
 func (w *Writer) loop(ctx context.Context) {
 	defer close(w.done)
+	if w.opts.SlowCommand > 0 {
+		quit := make(chan struct{})
+		defer close(quit)
+		go w.watch(quit)
+	}
 	stop := ctx.Done()
 	var optimize <-chan time.Time
 	if w.opts.OptimizeEvery > 0 {
@@ -673,7 +742,11 @@ func (w *Writer) only(r *request) (cmdErr error, keep bool) {
 // run1 applies r's command in a Tx of its own, and ends the Tx.
 func (w *Writer) run1(r *request) (tx *Tx, cmdErr error, keep bool) {
 	tx = &Tx{w: w, ctx: r.ctx, topics: w.txTopics[:0], after: w.txAfter[:0], rows: w.txRows[:0]}
+	w.run.begin(r.cmd)
 	cmdErr, keep = unkept(w.call(r.cmd, tx))
+	if logged, took := w.run.end(); logged {
+		w.opts.Log.Warn("writer: slow command ended", "cmd", fmt.Sprintf("%T", r.cmd), "took", took)
+	}
 	tx.end()
 	return tx, cmdErr, keep
 }
@@ -790,6 +863,23 @@ func (w *Writer) checkpoint() {
 	w.pages = 0
 	if err := w.exec("PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
 		w.opts.Log.Warn("writer: checkpoint", "err", err)
+	}
+}
+
+// watch logs a command that runs longer than SlowCommand, until quit is
+// closed.
+func (w *Writer) watch(quit <-chan struct{}) {
+	t := time.NewTicker(max(min(w.opts.SlowCommand/4, time.Second), time.Millisecond))
+	defer t.Stop()
+	for {
+		select {
+		case <-quit:
+			return
+		case <-t.C:
+			if cmd, took := w.run.slow(w.opts.SlowCommand); cmd != nil {
+				w.opts.Log.Warn("writer: slow command, every other command waits", "cmd", fmt.Sprintf("%T", cmd), "running", took)
+			}
+		}
 	}
 }
 
