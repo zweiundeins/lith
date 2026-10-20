@@ -272,7 +272,7 @@ func Topic(parts ...string) string {
 	plain := true
 	for _, p := range parts {
 		n += len(p)
-		plain = plain && p != "" && strings.IndexAny(p, ":*%") < 0
+		plain = plain && p != "" && !strings.ContainsAny(p, ":*%")
 	}
 	if plain {
 		return strings.Join(parts, ":")

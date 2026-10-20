@@ -61,15 +61,14 @@ func TestHibernation(t *testing.T) {
 		for _, hib := range []int{0, 30, 120} {
 			before := liveHeap()
 			type tab struct {
-				st         *sse.Stream
-				sink       *sink
-				session    [][]byte
-				next       int
-				lastFrame  int
-				lastWrite  int
-				asleep     bool
-				secondDue  int // the list frame that follows a modal, -1 for none
-				wakeFrames int
+				st        *sse.Stream
+				sink      *sink
+				session   [][]byte
+				next      int
+				lastFrame int
+				lastWrite int
+				asleep    bool
+				secondDue int // the list frame that follows a modal, -1 for none
 			}
 			ts := make([]*tab, tabs)
 			for i := range ts {

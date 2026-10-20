@@ -188,7 +188,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	ctx, cancelCause := context.WithCancelCause(r.Context())
 	cancel := func() { cancelCause(nil) }
 	defer cancel()
-	defer context.AfterFunc(h.done, func() { cancelCause(shutdown.Cause) })()
+	defer context.AfterFunc(h.done, func() { cancelCause(shutdown.ErrShutdown) })()
 	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1), upgrade: -1}
 	if spec.Reconnect != "" {
 		s.upgrade = h.upgradeAfter(spec.ID)

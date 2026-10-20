@@ -271,6 +271,9 @@ func TestSeed(t *testing.T) {
 	e.Do(t, Seed(time.Now()))
 	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
 		b, err := bounds(ctx, tx)
+		if err != nil {
+			return err
+		}
 		if b != (Bounds{First: 1, Head: int64(len(start))}) {
 			t.Errorf("after two seeds: %+v", b)
 		}
