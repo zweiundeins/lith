@@ -4,11 +4,13 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 // renderState is what the Renders of a worker's tick find in their ctx.
 type renderState struct {
-	seq uint64 // Hub.Seq before the tick's read transaction began
+	seq  uint64       // Hub.Seq before the tick's read transaction began
+	size atomic.Int64 // the length of the last []byte frame of the view under way, -1 for none
 
 	mu   sync.Mutex
 	deps []string // declared by the Render under way
@@ -41,6 +43,23 @@ func Seq(ctx context.Context) uint64 {
 		return s.seq
 	}
 	return 0
+}
+
+// FrameBuffer is, in a Render, an empty buffer for the view's frame, with
+// room for its last []byte frame and an eighth more: a Render that formats
+// its frame into it (sse.AppendPatchElements, sse.NewElements) allocates
+// the frame once while it keeps about its size. It is nil before the
+// view's first []byte frame, and outside a Render.
+func FrameBuffer(ctx context.Context) []byte {
+	s := stateFrom(ctx)
+	if s == nil {
+		return nil
+	}
+	n := s.size.Load()
+	if n <= 0 {
+		return nil
+	}
+	return make([]byte, 0, n+n/8)
 }
 
 // Depends declares, in a Render, that the view read what the topics name,

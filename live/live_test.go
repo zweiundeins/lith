@@ -1013,6 +1013,28 @@ func TestRenderCtxPerWorker(t *testing.T) {
 	}
 }
 
+// FrameBuffer has room for the view's last []byte frame and an eighth
+// more, and nothing before the first or outside a Render.
+func TestFrameBuffer(t *testing.T) {
+	if FrameBuffer(context.Background()) != nil {
+		t.Fatal("a buffer outside a Render")
+	}
+	h := start(t, Options{Tick: time.Millisecond})
+	html := bytes.Repeat([]byte("x"), 1000)
+	n := len(sse.PatchElements(html))
+	caps := make(chan int, 2)
+	serve(h, Spec{Views: []View{{Key: "v", Topics: []string{"v"}, Render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		b := FrameBuffer(ctx)
+		caps <- cap(b)
+		return sse.AppendPatchElements(b, html), nil
+	}}}}, "")
+	first := <-caps
+	h.Changed([]string{"v"})
+	if second := <-caps; first != 0 || second != n+n/8 {
+		t.Fatalf("buffers of %d and %d bytes, for a frame of %d", first, second, n)
+	}
+}
+
 // Render's ctx comes from Run's, so it carries its values.
 func TestRenderContextCarriesRunValues(t *testing.T) {
 	type key struct{}

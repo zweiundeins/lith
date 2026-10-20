@@ -2,6 +2,7 @@ package sse
 
 import (
 	"bytes"
+	"math/rand/v2"
 	"slices"
 	"testing"
 )
@@ -38,6 +39,60 @@ func TestPatchElements(t *testing.T) {
 	} {
 		if got := string(PatchElements([]byte(c.html), c.p...)); got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+}
+
+// AppendPatchElements appends what PatchElements formats, and grows a
+// buffer with room for the event not at all.
+func TestAppendPatchElements(t *testing.T) {
+	html := []byte("<ul id=\"l\">\r\n<li>1</li>\n</ul>")
+	p := Patch{Selector: "#l", Mode: Inner}
+	want := PatchElements(html, p)
+	got := AppendPatchElements([]byte("before\n"), html, p)
+	if string(got) != "before\n"+string(want) {
+		t.Fatalf("got %q", got)
+	}
+	buf := make([]byte, 0, len(want))
+	if got := AppendPatchElements(buf, html, p); &got[0] != &buf[:1][0] || !bytes.Equal(got, want) {
+		t.Fatal("a buffer with room was not used")
+	}
+	if n := testing.AllocsPerRun(10, func() { AppendPatchElements(buf, html, p) }); n != 0 {
+		t.Fatalf("%v allocations into a buffer with room", n)
+	}
+}
+
+// Elements formats what PatchElements does from the same HTML, however
+// the writes cut it, CRs and LFs included.
+func TestElements(t *testing.T) {
+	r := rand.New(rand.NewPCG(7, 8))
+	pieces := []string{"<p>", "x", "\n", "\r", "\r\n", "</p>", ""}
+	for i := range 2000 {
+		var html []byte
+		for range r.IntN(12) {
+			html = append(html, pieces[r.IntN(len(pieces))]...)
+		}
+		var p []Patch
+		if i%3 == 0 {
+			p = []Patch{{Selector: "#s", Mode: Append}}
+		}
+		e := NewElements([]byte("x"), p...)
+		for rest := html; len(rest) > 0; {
+			k := min(len(rest), r.IntN(4))
+			if n, err := e.Write(rest[:k]); n != k || err != nil {
+				t.Fatalf("a write of %d: %d, %v", k, n, err)
+			}
+			rest = rest[k:]
+		}
+		want := "x" + string(PatchElements(html, p...))
+		if got := string(e.Event()); got != want {
+			t.Fatalf("%q:\n got %q\nwant %q", html, got, want)
+		}
+		if got := string(e.Event()); got != want {
+			t.Fatalf("a second Event: %q", got)
+		}
+		if _, err := e.Write([]byte("y")); err == nil {
+			t.Fatal("a write after Event")
 		}
 	}
 }
@@ -116,5 +171,36 @@ func BenchmarkPatchElementsLarge(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		PatchElements(page)
+	}
+}
+
+// BenchmarkAppendPatchElementsLarge is BenchmarkPatchElementsLarge into a
+// buffer the size of the last frame, as live.FrameBuffer gives a Render.
+func BenchmarkAppendPatchElementsLarge(b *testing.B) {
+	row := []byte(`<tr><td class="num">1,234</td><td>Alpha Centauri</td><td>G2V</td><td class="num">4.37</td></tr>`)
+	page := bytes.Repeat(row, 230<<10/len(row))
+	page = append(page, '\n')
+	n := len(PatchElements(page))
+	b.SetBytes(int64(len(page)))
+	b.ReportAllocs()
+	for b.Loop() {
+		AppendPatchElements(make([]byte, 0, n+n/8), page)
+	}
+}
+
+// BenchmarkElementsLarge is the same page written to Elements row by row,
+// as a template renders it, into the same buffer.
+func BenchmarkElementsLarge(b *testing.B) {
+	row := []byte(`<tr><td class="num">1,234</td><td>Alpha Centauri</td><td>G2V</td><td class="num">4.37</td></tr>` + "\n")
+	rows := 230 << 10 / len(row)
+	n := len(PatchElements(bytes.Repeat(row, rows)))
+	b.SetBytes(int64(rows * len(row)))
+	b.ReportAllocs()
+	for b.Loop() {
+		e := NewElements(make([]byte, 0, n+n/8))
+		for range rows {
+			e.Write(row)
+		}
+		e.Event()
 	}
 }

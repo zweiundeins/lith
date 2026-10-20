@@ -372,6 +372,7 @@ func (w *worker) render(t *tick) {
 			break
 		}
 		v := t.views[i]
+		st.size.Store(int64(v.size))
 		t.frames[i], t.errs[i] = w.limit.render(v, tx)
 		// v.deps changes only in publish, after the workers are done.
 		t.deps[i] = st.take(v, t.errs[i] != nil)
