@@ -7,11 +7,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // MaxSignals is the most bytes of signals ReadSignals takes from a
 // request's body.
 const MaxSignals = 1 << 20
+
+// SignalsTimeout is how long ReadSignals waits for a request's body: a
+// client that declares a body and sends it slowly, or not at all, would
+// otherwise hold its connection and a goroutine until it leaves. The
+// server needs no ReadTimeout for it, which would end every stream.
+const SignalsTimeout = 10 * time.Second
+
+// signalsTimeout is SignalsTimeout, shorter in tests.
+var signalsTimeout = SignalsTimeout
 
 // ErrBodyConsumed is returned by ReadSignals when the request's body was
 // read before it, as net/http does when Open sends the headers.
@@ -22,7 +32,11 @@ var ErrBodyConsumed = errors.New("sse: the request's body was read before ReadSi
 // reads HEAD like GET), and as a JSON body for every other method, @query's
 // QUERY included. A missing parameter or an empty body is no signals: v
 // stays as it is and the error is nil. A body over MaxSignals bytes fails
-// with an *http.MaxBytesError, bad JSON with the decoder's error.
+// with an *http.MaxBytesError, bad JSON with the decoder's error, and a
+// body that has not arrived within SignalsTimeout with an error that
+// matches os.ErrDeadlineExceeded: ReadSignals sets a read deadline on the
+// connection (http.ResponseController) before it reads the body, and
+// clears it once it has the whole body.
 //
 // ReadSignals reads the body to its end: over HTTP/1.1, net/http notices
 // that a client has left only once the body has been read, or discarded
@@ -45,8 +59,15 @@ func ReadSignalsLimit(w http.ResponseWriter, r *http.Request, v any, limit int64
 		if r.Body == nil || r.Body == http.NoBody {
 			return nil
 		}
+		rc := http.NewResponseController(w)
+		deadline := rc.SetReadDeadline(time.Now().Add(signalsTimeout)) == nil
 		var err error
 		b, err = io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+		if deadline && err == nil {
+			// After a failed read the deadline stays, so the server closes
+			// the connection instead of waiting for the rest of the body.
+			rc.SetReadDeadline(time.Time{})
+		}
 		switch {
 		case errors.Is(err, http.ErrBodyReadAfterClose), err == nil && len(b) == 0 && r.ContentLength > 0:
 			return ErrBodyConsumed

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -165,5 +166,55 @@ func TestReadSignalsAfterOpen(t *testing.T) {
 	res.Body.Close()
 	if err := <-got; !errors.Is(err, ErrBodyConsumed) {
 		t.Errorf("got %v, want ErrBodyConsumed", err)
+	}
+}
+
+// A client that declares a body and sends one byte of it, then nothing,
+// gets an error once SignalsTimeout has passed, and the server closes its
+// connection: it holds no goroutine until the client leaves. A body that
+// arrives in time is read as before, and the deadline does not outlive the
+// read.
+func TestReadSignalsTimesOut(t *testing.T) {
+	defer func(d time.Duration) { signalsTimeout = d }(signalsTimeout)
+	signalsTimeout = 200 * time.Millisecond
+	errs := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var v signals
+		err := ReadSignalsLimit(w, r, &v, 8<<10)
+		if err == nil {
+			time.Sleep(2 * signalsTimeout) // past the deadline, had it stayed
+			_, err = w.Write([]byte(v.Query))
+		}
+		errs <- err
+	}))
+	defer srv.Close()
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprint(conn, "POST /cmd/sign HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{")
+	select {
+	case err := <-errs:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("a half-sent body: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReadSignals still waits for the body")
+	}
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.ReadAll(conn); err != nil {
+		t.Fatalf("the server did not close the connection: %v", err)
+	}
+
+	res, err := http.Post(srv.URL, "application/json", strings.NewReader(`{"query":"lith"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err := <-errs; err != nil || string(b) != "lith" {
+		t.Fatalf("a body sent at once: %v, %q", err, b)
 	}
 }
