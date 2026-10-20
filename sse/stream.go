@@ -633,9 +633,9 @@ func (s *Stream) abort() {
 }
 
 // shuttingDown reports whether the request's context ended because the
-// hub stops (shutdown.Cause), while the client is still there.
+// hub stops (shutdown.ErrShutdown), while the client is still there.
 func (s *Stream) shuttingDown() bool {
-	return errors.Is(context.Cause(s.ctx), shutdown.Cause)
+	return errors.Is(context.Cause(s.ctx), shutdown.ErrShutdown)
 }
 
 // ended is the error of a write that the end of the request's context

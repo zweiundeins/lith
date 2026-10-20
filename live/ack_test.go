@@ -148,7 +148,7 @@ func TestPaceAStreamLater(t *testing.T) {
 	if h.Pace("other", 1) || h.Ack("tab", "x", 1) {
 		t.Error("Pace or Ack took a stream that is not open")
 	}
-	if !h.Pace("tab", 1) || !h.Pace("tab", 1) {
+	if first, second := h.Pace("tab", 1), h.Pace("tab", 1); !first || !second {
 		t.Fatal("Pace did not find the stream")
 	}
 	if p := h.Stats().Paces; p != 1 {

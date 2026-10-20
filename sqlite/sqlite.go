@@ -354,6 +354,29 @@ func (d *DB) backup(ctx context.Context, dst string) error {
 	return f.Sync()
 }
 
+// Checkpointer opens a connection of its own for checkpoints of the WAL
+// beside the write connection (writer.Options.CheckpointAside), with
+// SQLite's automatic checkpoints off. The caller closes it.
+func (d *DB) Checkpointer() (*sql.DB, error) {
+	if d.W == nil {
+		return nil, errors.New("sqlite: a ReadOnly database has no checkpoints")
+	}
+	pragmas := []string{
+		fmt.Sprintf("busy_timeout(%d)", d.opts.BusyTimeout.Milliseconds()),
+		"synchronous(" + d.opts.Synchronous + ")",
+		"wal_autocheckpoint(0)",
+	}
+	c, err := sql.Open(d.opts.Driver, dsn(d.Path, pragmas, nil))
+	if err != nil {
+		return nil, err
+	}
+	c.SetMaxOpenConns(1)
+	c.SetMaxIdleConns(1)
+	c.SetConnMaxLifetime(0)
+	c.SetConnMaxIdleTime(0)
+	return c, nil
+}
+
 // Close closes both pools. Close the writer first.
 func (d *DB) Close() error {
 	err := d.R.Close()

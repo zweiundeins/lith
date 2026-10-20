@@ -186,7 +186,8 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	switch q := c.Conn.(type) {
 	case driver.QueryerContext:
 		rows, err = q.QueryContext(ctx, query, args)
-	case driver.Queryer: //nolint:staticcheck // the fallback database/sql uses too
+	//lint:ignore SA1019 the fallback database/sql uses too
+	case driver.Queryer:
 		var vals []driver.Value
 		if vals, err = legacyArgs(ctx, args); err == nil {
 			rows, err = q.Query(query, vals)
@@ -204,7 +205,8 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	switch e := c.Conn.(type) {
 	case driver.ExecerContext:
 		res, err = e.ExecContext(ctx, query, args)
-	case driver.Execer: //nolint:staticcheck // the fallback database/sql uses too
+	//lint:ignore SA1019 the fallback database/sql uses too
+	case driver.Execer:
 		var vals []driver.Value
 		if vals, err = legacyArgs(ctx, args); err == nil {
 			res, err = e.Exec(query, vals)
@@ -230,7 +232,8 @@ func (c *conn) Prepare(query string) (driver.Stmt, error) {
 // database/sql when it has one.
 func (c *conn) stmt(s driver.Stmt, query string) driver.Stmt {
 	w := &stmt{Stmt: s, conn: c.Conn, query: query, rec: c.rec}
-	if _, ok := s.(driver.ColumnConverter); ok { //nolint:staticcheck // still consulted by database/sql
+	//lint:ignore SA1019 still consulted by database/sql
+	if _, ok := s.(driver.ColumnConverter); ok {
 		return converterStmt{w}
 	}
 	return w
@@ -263,7 +266,8 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 	if opts.ReadOnly {
 		return nil, errors.New("sql: driver does not support read-only transactions")
 	}
-	tx, err := c.Conn.Begin() //nolint:staticcheck // the fallback database/sql uses too
+	//lint:ignore SA1019 the fallback database/sql uses too
+	tx, err := c.Conn.Begin()
 	if err == nil && ctx.Err() != nil {
 		_ = tx.Rollback()
 		return nil, ctx.Err()
@@ -321,7 +325,8 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 	} else {
 		var vals []driver.Value
 		if vals, err = legacyArgs(ctx, args); err == nil {
-			rows, err = s.Stmt.Query(vals) //nolint:staticcheck // the fallback database/sql uses too
+			//lint:ignore SA1019 the fallback database/sql uses too
+			rows, err = s.Stmt.Query(vals)
 		}
 	}
 	return s.rec.rows(s.query, rows, err, time.Since(start))
@@ -336,7 +341,8 @@ func (s *stmt) ExecContext(ctx context.Context, args []driver.NamedValue) (drive
 	} else {
 		var vals []driver.Value
 		if vals, err = legacyArgs(ctx, args); err == nil {
-			res, err = s.Stmt.Exec(vals) //nolint:staticcheck // the fallback database/sql uses too
+			//lint:ignore SA1019 the fallback database/sql uses too
+			res, err = s.Stmt.Exec(vals)
 		}
 	}
 	s.rec.record(OpExec, s.query, time.Since(start))
@@ -374,7 +380,8 @@ func (s *stmt) CheckNamedValue(nv *driver.NamedValue) error {
 type converterStmt struct{ *stmt }
 
 func (s converterStmt) ColumnConverter(idx int) driver.ValueConverter {
-	return s.Stmt.(driver.ColumnConverter).ColumnConverter(idx) //nolint:staticcheck // still consulted by database/sql
+	//lint:ignore SA1019 still consulted by database/sql
+	return s.Stmt.(driver.ColumnConverter).ColumnConverter(idx)
 }
 
 // rows records a failed query at once and a successful one when its rows are

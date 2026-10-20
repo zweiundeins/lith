@@ -181,7 +181,8 @@ func cbFill(t *testing.T, a *app.App) {
 		for n := range checkboxes.Chunks {
 			on = 0
 			for i := range bits {
-				bits[i] = byte(rand.IntN(256)) & byte(rand.IntN(256))
+				x, y := byte(rand.IntN(256)), byte(rand.IntN(256))
+				bits[i] = x & y
 				for b := bits[i]; b != 0; b &= b - 1 {
 					on++
 				}

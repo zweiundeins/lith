@@ -2,7 +2,9 @@
 // up while a batch runs, and the next batch takes all of them (up to
 // MaxBatch, without waiting for more) into one transaction with a
 // savepoint per command: under load one commit, and one fsync, covers many
-// commands, and a command that fails undoes only its own changes.
+// commands, and a command that fails undoes only its own changes. A batch
+// of one command needs no savepoint: when it fails, its transaction rolls
+// back.
 // Commands are applied in the order they arrive in the queue, from Send
 // and Do alike.
 //
@@ -85,6 +87,19 @@ type Options struct {
 	// before the writer checkpoints it (default 1000). It applies only
 	// when the database was opened with sqlite.CheckpointWriter.
 	CheckpointPages int
+	// CheckpointAside runs those checkpoints on a connection of their own
+	// (sqlite.DB.Checkpointer), in a goroutine of their own, instead of on
+	// the write connection between batches: after a large write the next
+	// batch does not wait for the checkpoint that copies it. The writer
+	// still counts the pages and truncates the WAL when idle. It applies
+	// only with sqlite.CheckpointWriter.
+	CheckpointAside bool
+	// SlowCommand is how long a command may run before the writer logs
+	// its type, once per command, and again when it ends (default 5s,
+	// negative: never). Every other command waits meanwhile, so a command
+	// that blocks on something besides the database stops the writer;
+	// Stats.Running shows one under way.
+	SlowCommand time.Duration
 	// Log gets panics, failed batches, failed Sends without OnSendError
 	// and maintenance errors (default slog.Default()).
 	Log *slog.Logger
@@ -105,6 +120,7 @@ type Stats struct {
 	LastCommit time.Duration // the last batch, from BEGIN to the end of COMMIT
 	P99Commit  time.Duration // 99th percentile of the last 1024 batches
 	Busy       time.Duration // time spent in batches
+	Running    time.Duration // how long the command under way has run, 0 between commands
 	// Sizes counts the batches by the commands they took, in powers of
 	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
 	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.
@@ -124,6 +140,18 @@ type request struct {
 	ex   *exclusive // Exclusive's
 	ctx  context.Context
 	done chan error // nil for Send
+}
+
+// The requests of Do and Send are reused: Do's once it has its answer,
+// Send's once the writer has answered them.
+var (
+	doRequests   = sync.Pool{New: func() any { return &request{done: make(chan error, 1)} }}
+	sendRequests = sync.Pool{New: func() any { return new(request) }}
+)
+
+func putRequest(pool *sync.Pool, r *request) {
+	r.cmd, r.ctx = nil, nil
+	pool.Put(r)
 }
 
 // exclusive is an Exclusive's fn. Whoever takes it first decides: the
@@ -161,10 +189,72 @@ type Writer struct {
 	opsReady bool        // lith_ops exists
 	resReady bool        // lith_results exists
 	locals   map[any]any // Tx.SetLocal's
+	txTopics []string    // the backing arrays of the next Tx
+	txAfter  []func()
+	txRows   []*sql.Rows
+
+	aside     *sql.DB       // CheckpointAside's connection
+	ckpt      chan struct{} // asks the aside goroutine for a checkpoint
+	ckptDone  chan struct{} // closed once it ended
+	ckptEnded atomic.Bool   // the checkpoint asked for ended
+	asked     bool          // a checkpoint was asked for, and its end not seen
+
+	run running
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
 	sizes                                            [SizeBuckets]atomic.Int64
 	times                                            durations
+}
+
+// running is the command under way, for Stats and the slow command log.
+type running struct {
+	mu     sync.Mutex
+	cmd    Command // nil between commands
+	start  time.Time
+	logged bool
+}
+
+func (r *running) begin(cmd Command) {
+	r.mu.Lock()
+	r.cmd, r.start, r.logged = cmd, time.Now(), false
+	r.mu.Unlock()
+}
+
+// end clears the command and reports how long a logged one ran.
+func (r *running) end() (logged bool, took time.Duration) {
+	r.mu.Lock()
+	logged = r.logged
+	if logged {
+		took = time.Since(r.start)
+	}
+	r.cmd, r.logged = nil, false
+	r.mu.Unlock()
+	return logged, took
+}
+
+func (r *running) since() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cmd == nil {
+		return 0
+	}
+	return time.Since(r.start)
+}
+
+// slow returns the command under way if it has run for d and was not
+// logged yet, and marks it logged.
+func (r *running) slow(d time.Duration) (Command, time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cmd == nil || r.logged {
+		return nil, 0
+	}
+	took := time.Since(r.start)
+	if took < d {
+		return nil, 0
+	}
+	r.logged = true
+	return r.cmd, took
 }
 
 // New takes the write connection of db and keeps it until the writer
@@ -182,6 +272,9 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 	if opts.CheckpointPages <= 0 {
 		opts.CheckpointPages = 1000
 	}
+	if opts.SlowCommand == 0 {
+		opts.SlowCommand = 5 * time.Second
+	}
 	if opts.Log == nil {
 		opts.Log = slog.Default()
 	}
@@ -195,7 +288,7 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("writer: take the write connection (one Writer per database): %w", err)
 	}
-	return &Writer{
+	w := &Writer{
 		conn:   conn,
 		opts:   opts,
 		mode:   dbo.Checkpoint,
@@ -204,7 +297,16 @@ func New(db *sqlite.DB, opts Options) (*Writer, error) {
 		done:   make(chan struct{}),
 		stmts:  map[string]*list.Element{},
 		topics: map[string]struct{}{},
-	}, nil
+	}
+	if opts.CheckpointAside && w.mode == sqlite.CheckpointWriter {
+		if w.aside, err = db.Checkpointer(); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("writer: open the checkpoint connection: %w", err)
+		}
+		w.ckpt = make(chan struct{}, 1)
+		w.ckptDone = make(chan struct{})
+	}
+	return w, nil
 }
 
 // Run applies batches until Close is called or ctx ends. Either way it
@@ -248,7 +350,13 @@ func (w *Writer) Send(cmd Command) error {
 	if err := validate(cmd); err != nil {
 		return err
 	}
-	return w.enqueue(nil, &request{cmd: cmd, ctx: context.Background()})
+	r := sendRequests.Get().(*request)
+	r.cmd, r.ctx = cmd, context.Background()
+	if err := w.offer(r); err != nil {
+		putRequest(&sendRequests, r)
+		return err
+	}
+	return nil
 }
 
 // Do queues cmd, waiting for room until ctx ends, and returns cmd's own
@@ -263,11 +371,17 @@ func (w *Writer) Do(ctx context.Context, cmd Command) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r := &request{cmd: cmd, ctx: context.WithoutCancel(ctx), done: make(chan error, 1)}
-	if err := w.enqueue(ctx, r); err != nil {
-		return err
+	r := doRequests.Get().(*request)
+	r.cmd, r.ctx = cmd, ctx
+	if ctx.Done() != nil {
+		r.ctx = context.WithoutCancel(ctx)
 	}
-	return <-r.done
+	err := w.enqueue(ctx, r)
+	if err == nil {
+		err = <-r.done
+	}
+	putRequest(&doRequests, r)
+	return err
 }
 
 // DoValue runs fn as a command, like Do, and returns what fn returned once
@@ -375,20 +489,27 @@ func validate(cmd Command) error {
 	return nil
 }
 
-// enqueue waits for room until ctx ends; with a nil ctx it does not wait.
-func (w *Writer) enqueue(ctx context.Context, r *request) error {
+// offer queues r if there is room.
+func (w *Writer) offer(r *request) error {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	if w.closed {
 		return ErrClosed
 	}
-	if ctx == nil {
-		select {
-		case w.queue <- r:
-			return nil
-		default:
-			return ErrQueueFull
-		}
+	select {
+	case w.queue <- r:
+		return nil
+	default:
+		return ErrQueueFull
+	}
+}
+
+// enqueue waits for room until ctx ends.
+func (w *Writer) enqueue(ctx context.Context, r *request) error {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.closed {
+		return ErrClosed
 	}
 	select {
 	case w.queue <- r:
@@ -410,6 +531,7 @@ func (w *Writer) Stats() Stats {
 		LastCommit: last,
 		P99Commit:  p99,
 		Busy:       time.Duration(w.busyNanos.Load()),
+		Running:    w.run.since(),
 	}
 	for i := range s.Sizes {
 		s.Sizes[i] = w.sizes[i].Load()
@@ -419,6 +541,14 @@ func (w *Writer) Stats() Stats {
 
 func (w *Writer) loop(ctx context.Context) {
 	defer close(w.done)
+	if w.opts.SlowCommand > 0 {
+		quit := make(chan struct{})
+		defer close(quit)
+		go w.watch(quit)
+	}
+	if w.aside != nil {
+		go w.checkpointAside()
+	}
 	stop := ctx.Done()
 	var optimize <-chan time.Time
 	if w.opts.OptimizeEvery > 0 {
@@ -499,21 +629,32 @@ func (w *Writer) apply(batch []*request) {
 	}
 	errs := w.errs[:len(batch)]
 	var failed error
+	// committed is also true when the batch's one command failed and its
+	// transaction rolled back as planned: the batch then committed nothing,
+	// as a batch whose commands all failed does.
 	committed := false
 	if err := w.exec("BEGIN IMMEDIATE"); err != nil {
 		failed = fmt.Errorf("writer: begin: %w", err)
 	} else {
+		end, what := "COMMIT", "commit"
 		for i, r := range batch {
-			if r.cmd == nil {
-				continue
+			switch {
+			case r.cmd == nil:
+			case n == 1:
+				var keep bool
+				if errs[i], keep = w.only(r); !keep {
+					end, what = "ROLLBACK", "roll back"
+				}
+			default:
+				errs[i], failed = w.one(r)
 			}
-			if errs[i], failed = w.one(r); failed != nil {
+			if failed != nil {
 				break
 			}
 		}
 		if failed == nil {
-			if err := w.exec("COMMIT"); err != nil {
-				failed = fmt.Errorf("writer: commit: %w", err)
+			if err := w.exec(end); err != nil {
+				failed = fmt.Errorf("writer: %s: %w", what, err)
 			} else {
 				committed = true
 			}
@@ -572,12 +713,16 @@ func (w *Writer) apply(batch []*request) {
 		err := errs[i]
 		switch {
 		case r.done != nil:
-			r.done <- err
+			r.done <- err // r is Do's again from here
+			continue
 		case err == nil:
 		case w.opts.OnSendError != nil:
 			w.safely("OnSendError", func() { w.opts.OnSendError(r.cmd, err) })
 		case err != failed && !errors.Is(err, ErrPanic):
 			w.opts.Log.Warn("writer: command failed", "cmd", fmt.Sprintf("%T", r.cmd), "err", err)
+		}
+		if r.cmd != nil {
+			putRequest(&sendRequests, r)
 		}
 	}
 	clear(errs)
@@ -590,24 +735,61 @@ func (w *Writer) one(r *request) (cmdErr, batchErr error) {
 	if err := w.exec("SAVEPOINT cmd"); err != nil {
 		return nil, fmt.Errorf("writer: savepoint: %w", err)
 	}
-	tx := &Tx{w: w, ctx: r.ctx}
-	cmdErr, keep := unkept(w.call(r.cmd, tx))
-	tx.end()
+	tx, cmdErr, keep := w.run1(r)
 	if !keep {
 		if err := w.exec("ROLLBACK TO cmd"); err != nil {
+			w.drop(tx)
 			return cmdErr, fmt.Errorf("writer: roll back to savepoint: %w", err)
 		}
 	}
 	if err := w.exec("RELEASE cmd"); err != nil {
+		w.drop(tx)
 		return cmdErr, fmt.Errorf("writer: release savepoint: %w", err)
 	}
 	if keep {
-		for _, t := range tx.topics {
-			w.topics[t] = struct{}{}
-		}
-		w.after = append(w.after, tx.after...)
+		w.keep(tx)
 	}
+	w.drop(tx)
 	return cmdErr, nil
+}
+
+// only runs the batch's one command, without a savepoint: its changes
+// stay unless the batch rolls back, which keep says it must.
+func (w *Writer) only(r *request) (cmdErr error, keep bool) {
+	tx, cmdErr, keep := w.run1(r)
+	if keep {
+		w.keep(tx)
+	}
+	w.drop(tx)
+	return cmdErr, keep
+}
+
+// run1 applies r's command in a Tx of its own, and ends the Tx.
+func (w *Writer) run1(r *request) (tx *Tx, cmdErr error, keep bool) {
+	tx = &Tx{w: w, ctx: r.ctx, topics: w.txTopics[:0], after: w.txAfter[:0], rows: w.txRows[:0]}
+	w.run.begin(r.cmd)
+	cmdErr, keep = unkept(w.call(r.cmd, tx))
+	if logged, took := w.run.end(); logged {
+		w.opts.Log.Warn("writer: slow command ended", "cmd", fmt.Sprintf("%T", r.cmd), "took", took)
+	}
+	tx.end()
+	return tx, cmdErr, keep
+}
+
+// keep takes the topics and AfterCommit functions of a command whose
+// changes stay.
+func (w *Writer) keep(tx *Tx) {
+	for _, t := range tx.topics {
+		w.topics[t] = struct{}{}
+	}
+	w.after = append(w.after, tx.after...)
+}
+
+// drop gives the ended tx's slices back for the next command.
+func (w *Writer) drop(tx *Tx) {
+	clear(tx.topics)
+	clear(tx.after)
+	w.txTopics, w.txAfter, w.txRows = tx.topics[:0], tx.after[:0], tx.rows[:0]
 }
 
 // kept is the error of a command whose changes stay all the same:
@@ -696,16 +878,79 @@ func (w *Writer) checkpoint() {
 		w.opts.Log.Warn("writer: read the WAL size", "err", err)
 		return
 	}
-	if n == 0 {
+	if n > 0 {
+		w.dirty = true
+		w.pages += n
+	}
+	if w.aside != nil {
+		w.checkpointBeside()
 		return
 	}
-	w.dirty = true
-	if w.pages += n; w.pages < w.opts.CheckpointPages {
+	if w.pages < w.opts.CheckpointPages {
 		return
 	}
 	w.pages = 0
+	w.passive()
+}
+
+func (w *Writer) passive() {
 	if err := w.exec("PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
 		w.opts.Log.Warn("writer: checkpoint", "err", err)
+	}
+}
+
+// checkpointBeside asks the aside goroutine for a checkpoint once the
+// batches wrote CheckpointPages pages. SQLite starts the WAL over only at
+// a write that finds it copied whole, which a checkpoint beside the
+// batches rarely leaves: so once one ended, the writer copies what the
+// batches wrote meanwhile itself, between two batches as without
+// CheckpointAside.
+func (w *Writer) checkpointBeside() {
+	if w.asked {
+		if !w.ckptEnded.Swap(false) {
+			return
+		}
+		w.asked = false
+		if w.pages > 0 {
+			w.pages = 0
+			w.passive()
+		}
+		return
+	}
+	if w.pages < w.opts.CheckpointPages {
+		return
+	}
+	w.pages = 0
+	w.asked = true
+	w.ckpt <- struct{}{}
+}
+
+// checkpointAside runs the checkpoints that checkpointBeside asks for on
+// the aside connection, until finish closes ckpt.
+func (w *Writer) checkpointAside() {
+	defer close(w.ckptDone)
+	for range w.ckpt {
+		if _, err := w.aside.Exec("PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
+			w.opts.Log.Warn("writer: checkpoint", "err", err)
+		}
+		w.ckptEnded.Store(true)
+	}
+}
+
+// watch logs a command that runs longer than SlowCommand, until quit is
+// closed.
+func (w *Writer) watch(quit <-chan struct{}) {
+	t := time.NewTicker(max(min(w.opts.SlowCommand/4, time.Second), time.Millisecond))
+	defer t.Stop()
+	for {
+		select {
+		case <-quit:
+			return
+		case <-t.C:
+			if cmd, took := w.run.slow(w.opts.SlowCommand); cmd != nil {
+				w.opts.Log.Warn("writer: slow command, every other command waits", "cmd", fmt.Sprintf("%T", cmd), "running", took)
+			}
+		}
 	}
 }
 
@@ -764,6 +1009,13 @@ func (w *Writer) finish() error {
 	w.forget()
 	if err := w.conn.Close(); err != nil {
 		errs = append(errs, err)
+	}
+	if w.aside != nil {
+		close(w.ckpt)
+		<-w.ckptDone
+		if err := w.aside.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }

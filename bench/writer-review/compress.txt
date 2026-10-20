@@ -1,0 +1,37 @@
+# BenchmarkCompress (edge), ten runs
+13:18:25 edge load 3.24 7.88 26.06
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/edge
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkCompress/br-12 	     733	   1434581 ns/op	 108.75 MB/s	         7.034 %-of-input	     424 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     860	   1396275 ns/op	 111.74 MB/s	         7.034 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     854	   1402517 ns/op	 111.24 MB/s	         7.034 %-of-input	     205 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     848	   1409607 ns/op	 110.68 MB/s	         7.034 %-of-input	     287 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     878	   1389640 ns/op	 112.27 MB/s	         7.034 %-of-input	     131 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     856	   1396659 ns/op	 111.71 MB/s	         7.034 %-of-input	     286 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     841	   1409841 ns/op	 110.66 MB/s	         7.034 %-of-input	     129 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     840	   1397309 ns/op	 111.65 MB/s	         7.034 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     848	   1406539 ns/op	 110.92 MB/s	         7.034 %-of-input	     287 B/op	       4 allocs/op
+BenchmarkCompress/br-12 	     818	   1666956 ns/op	  93.59 MB/s	         7.034 %-of-input	     293 B/op	       4 allocs/op
+BenchmarkCompress/zstd-12         	    7466	    176921 ns/op	 881.84 MB/s	         8.229 %-of-input	     442 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7399	    159767 ns/op	 976.52 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7244	    163857 ns/op	 952.15 MB/s	         8.229 %-of-input	     452 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7134	    167137 ns/op	 933.46 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7054	    164413 ns/op	 948.93 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7353	    164634 ns/op	 947.65 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7071	    162660 ns/op	 959.15 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    6936	    166683 ns/op	 936.00 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7047	    164562 ns/op	 948.07 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/zstd-12         	    7419	    165041 ns/op	 945.32 MB/s	         8.229 %-of-input	     148 B/op	       6 allocs/op
+BenchmarkCompress/gzip-12         	    4976	    231246 ns/op	 674.68 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    4952	    233100 ns/op	 669.31 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    5194	    239317 ns/op	 651.92 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    4957	    250090 ns/op	 623.84 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    3961	    280104 ns/op	 556.99 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    4928	    249206 ns/op	 626.05 MB/s	         8.856 %-of-input	     349 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    5018	    231810 ns/op	 673.03 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    5274	    229648 ns/op	 679.37 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    5293	    228265 ns/op	 683.49 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+BenchmarkCompress/gzip-12         	    5066	    229016 ns/op	 681.24 MB/s	         8.856 %-of-input	     128 B/op	       4 allocs/op
+PASS

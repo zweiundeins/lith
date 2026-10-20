@@ -110,7 +110,7 @@ func stopped(r Race) string {
 }
 
 func (b bar) title() string {
-	size := b.Label
+	var size string
 	switch b.Label {
 	case "1":
 		size = "1 command"

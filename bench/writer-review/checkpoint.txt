@@ -1,0 +1,93 @@
+# BenchmarkWriterCheckpoint, this branch, ten runs
+start 13:47:43 7.61 5.85 7.86
+end 13:50:36 4.22 4.93 7.15
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	   90753	     32045 ns/op	     31206 cmds/s	       148.5 cmds/tx	         4.603 ms/tx	        12.79 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   98605	     26929 ns/op	     37135 cmds/s	       151.0 cmds/tx	         3.951 ms/tx	        10.08 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  209625	     10977 ns/op	     91103 cmds/s	       123.7 cmds/tx	         1.093 ms/tx	         3.007 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  249690	      9549 ns/op	    104728 cmds/s	       131.6 cmds/tx	         1.153 ms/tx	         3.302 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	  108024	     29219 ns/op	     34224 cmds/s	       139.6 cmds/tx	         3.955 ms/tx	        12.02 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   97436	     27013 ns/op	     37019 cmds/s	       150.6 cmds/tx	         3.931 ms/tx	        11.95 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  260156	     12760 ns/op	     78369 cmds/s	       138.1 cmds/tx	         1.303 ms/tx	         7.726 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  255704	     10563 ns/op	     94670 cmds/s	       130.4 cmds/tx	         1.273 ms/tx	         4.771 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	  108920	     27944 ns/op	     35785 cmds/s	       146.4 cmds/tx	         3.954 ms/tx	        11.30 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   82797	     31276 ns/op	     31973 cmds/s	       155.1 cmds/tx	         4.684 ms/tx	        12.44 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  222266	     12419 ns/op	     80523 cmds/s	       145.2 cmds/tx	         1.368 ms/tx	         6.387 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  207679	     10155 ns/op	     98473 cmds/s	       142.4 cmds/tx	         1.289 ms/tx	         4.562 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	   81986	     28156 ns/op	     35517 cmds/s	       143.1 cmds/tx	         3.890 ms/tx	        11.10 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	  101073	     24648 ns/op	     40572 cmds/s	       145.8 cmds/tx	         3.496 ms/tx	        11.20 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  280192	     12932 ns/op	     77325 cmds/s	       147.4 cmds/tx	         1.412 ms/tx	         6.993 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  238508	      9906 ns/op	    100948 cmds/s	       142.8 cmds/tx	         1.278 ms/tx	         3.980 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	  105254	     23983 ns/op	     41695 cmds/s	       146.2 cmds/tx	         3.389 ms/tx	         9.326 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   83224	     32704 ns/op	     30577 cmds/s	       157.6 cmds/tx	         4.960 ms/tx	        12.15 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  238939	     12073 ns/op	     82830 cmds/s	       143.9 cmds/tx	         1.388 ms/tx	         6.230 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  219019	      9822 ns/op	    101815 cmds/s	       137.1 cmds/tx	         1.219 ms/tx	         3.838 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	   85072	     27861 ns/op	     35892 cmds/s	       153.3 cmds/tx	         4.122 ms/tx	        11.01 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	  103087	     26647 ns/op	     37528 cmds/s	       152.5 cmds/tx	         3.926 ms/tx	        12.17 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  249182	     10618 ns/op	     94177 cmds/s	       146.2 cmds/tx	         1.296 ms/tx	         4.350 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  232855	     10075 ns/op	     99251 cmds/s	       133.8 cmds/tx	         1.216 ms/tx	         3.641 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	   91321	     26706 ns/op	     37445 cmds/s	       146.3 cmds/tx	         3.771 ms/tx	        11.73 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   89610	     29340 ns/op	     34083 cmds/s	       149.3 cmds/tx	         4.232 ms/tx	        10.50 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  284478	     12121 ns/op	     82504 cmds/s	       134.5 cmds/tx	         1.263 ms/tx	         3.919 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  262234	      9859 ns/op	    101425 cmds/s	       130.0 cmds/tx	         1.141 ms/tx	         2.733 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	   28730	     91476 ns/op	     10932 cmds/s	       153.6 cmds/tx	        13.73 ms/tx	        26.65 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   26455	     91566 ns/op	     10921 cmds/s	       150.3 cmds/tx	        13.51 ms/tx	        33.26 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  248481	     11334 ns/op	     88231 cmds/s	       148.7 cmds/tx	         1.381 ms/tx	         4.676 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  232327	     10622 ns/op	     94142 cmds/s	       123.1 cmds/tx	         1.142 ms/tx	         2.850 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	   37039	     80890 ns/op	     12362 cmds/s	       148.2 cmds/tx	        11.76 ms/tx	        25.95 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   26041	     90682 ns/op	     11028 cmds/s	       159.8 cmds/tx	        14.01 ms/tx	        29.68 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  231723	     11299 ns/op	     88502 cmds/s	       140.9 cmds/tx	         1.310 ms/tx	         5.380 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  230631	     10243 ns/op	     97624 cmds/s	       123.8 cmds/tx	         1.144 ms/tx	         5.077 p99-ms/tx
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkWriterCheckpoint/FULL/producers=200-12         	   29558	     73712 ns/op	     13566 cmds/s	       156.4 cmds/tx	        11.34 ms/tx	        24.98 p99-ms/tx
+BenchmarkWriterCheckpoint/FULL/producers=200/aside-12   	   32972	     89419 ns/op	     11183 cmds/s	       140.3 cmds/tx	        12.32 ms/tx	        26.49 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200-12       	  230846	     11230 ns/op	     89047 cmds/s	       147.1 cmds/tx	         1.333 ms/tx	         4.772 p99-ms/tx
+BenchmarkWriterCheckpoint/NORMAL/producers=200/aside-12 	  217360	     10122 ns/op	     98797 cmds/s	       131.9 cmds/tx	         1.225 ms/tx	         3.871 p99-ms/tx
+PASS

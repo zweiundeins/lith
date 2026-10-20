@@ -737,13 +737,14 @@ for lo := int64(1); lo <= last; lo += chunk {
 }
 ```
 
-Measured on 2026-10-19 (i5-13500, NORMAL, 45,000 rows of 4 KB, 185 MB,
+Measured on 2026-10-19 and 2026-10-20 (i5-13500, NORMAL, 45,000 rows of 4 KB, 185 MB,
 under 800 commands a second and a board rendered every tick;
 `BenchmarkLargeWrite`, bench/RESULTS.md):
 
-- One UPDATE of all rows: 0.49 s, then a 0.38 s checkpoint of the 186 MB
-  it wrote to the WAL. Every other command waited up to 0.88 s (`Do`
-  p50 632 ms), and the pages got no frame for as long: the hub keeps
+- One UPDATE of all rows: 0.33 s (0.47 s up to v0.4.0, in a savepoint),
+  then a 0.36 s checkpoint of the 186 MB it wrote to the WAL. Every other
+  command waited up to 0.68 s (`Do` p50 520 ms), and the pages got no
+  frame for as long: the hub keeps
   ticking, but without commits it has nothing to render. The WAL stays at
   186 MB until a second without commands.
 - In chunks of 1,000 rows: 1.07 s in all, other commands at most 45 ms, a
@@ -752,12 +753,16 @@ under 800 commands a second and a board rendered every tick;
   41 MB. Start at a chunk that writes for about one tick (50 ms) and size
   it by bytes, not rows: 1,000 rows of 4 KB is about 24 ms.
 - With FULL, the same chunks cost a few milliseconds more per command.
+- `writer.Options.CheckpointAside` checkpoints on a connection of its
+  own, beside the batches: after the one UPDATE other commands waited at
+  most 0.34 s, its own time, and in chunks of 1,000 the update took
+  0.73 s, the WAL up to 15 MB. Off by default.
 - DELETE was cheap here: all 45,000 rows in 102 ms in one command, the WAL
   unchanged. Chunks of 5,000 kept other commands under 18 ms. Measure a
   delete on the app's own rows before chunking it.
-- `w.Exclusive` with one transaction wrote the update in 0.34 s (likely
-  because it runs no savepoint) and held everything for as long as one command, checkpoint
-  included. It is right when the change must land whole and the pause is
+- `w.Exclusive` with one transaction wrote the update in 0.34 s, as fast
+  as a command alone in its batch, which runs no savepoint either, and
+  held everything for as long as one command, checkpoint included. It is right when the change must land whole and the pause is
   acceptable (a maintenance window, a deploy step), or for what a
   transaction cannot hold. It reaches no `OnCommit`: call `hub.Changed`
   or `hub.MarkAll` after it.

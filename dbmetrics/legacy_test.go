@@ -95,6 +95,31 @@ func (c execerConn) Query(_ string, args []driver.Value) (driver.Rows, error) {
 	return legacyStmt(c.legacyConn).Query(args)
 }
 
+// contextConn adds QueryerContext and ExecerContext, and keeps the
+// contexts they got.
+type contextConn struct {
+	legacyConn
+	ctxs *[]context.Context
+}
+
+func (c contextConn) ExecContext(ctx context.Context, _ string, args []driver.NamedValue) (driver.Result, error) {
+	*c.ctxs = append(*c.ctxs, ctx)
+	return legacyStmt(c.legacyConn).Exec(values(args))
+}
+
+func (c contextConn) QueryContext(ctx context.Context, _ string, args []driver.NamedValue) (driver.Rows, error) {
+	*c.ctxs = append(*c.ctxs, ctx)
+	return legacyStmt(c.legacyConn).Query(values(args))
+}
+
+func values(args []driver.NamedValue) []driver.Value {
+	vals := make([]driver.Value, len(args))
+	for i, a := range args {
+		vals[i] = a.Value
+	}
+	return vals
+}
+
 // checkingConn converts points, which the default converter refuses, and its
 // statements convert the other arguments with a ColumnConverter.
 type checkingConn struct{ legacyConn }
@@ -209,6 +234,35 @@ func TestTheLegacyExecerSkipsPrepare(t *testing.T) {
 		t.Errorf("prepared %d statements, want the Execer and Queryer used directly", s.prepares)
 	}
 	if obs := rec.take(); len(obs) != 2 {
+		t.Errorf("observations = %+v, want one exec and one query", obs)
+	}
+}
+
+// TestTheContextMethodsAreForwarded checks that a driver's QueryerContext
+// and ExecerContext stay visible through the wrapper: database/sql calls
+// them with the caller's context, and prepares nothing.
+func TestTheContextMethodsAreForwarded(t *testing.T) {
+	rec := &recorder{}
+	s := &seen{}
+	var ctxs []context.Context
+	db := openFake(t, func() driver.Conn { return contextConn{legacyConn{s}, &ctxs} }, true, dbmetrics.Options{Observer: rec})
+	db.SetMaxOpenConns(1)
+
+	type key struct{}
+	ctx := context.WithValue(context.Background(), key{}, "caller")
+	if _, err := db.ExecContext(ctx, `INSERT`, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := readAll(db.QueryContext(ctx, `SELECT`, int64(7))); err != nil || !reflect.DeepEqual(got, []int64{7}) {
+		t.Errorf("rows = %v, %v; want 7", got, err)
+	}
+	if s.prepares != 0 {
+		t.Errorf("prepared %d statements, want ExecContext and QueryContext used directly", s.prepares)
+	}
+	if len(ctxs) != 2 || ctxs[0].Value(key{}) != "caller" || ctxs[1].Value(key{}) != "caller" {
+		t.Errorf("the driver got %d contexts, or not the caller's", len(ctxs))
+	}
+	if obs := rec.take(); len(obs) != 2 || obs[0].op != dbmetrics.OpExec || obs[1].op != dbmetrics.OpQuery {
 		t.Errorf("observations = %+v, want one exec and one query", obs)
 	}
 }

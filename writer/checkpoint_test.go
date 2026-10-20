@@ -139,3 +139,40 @@ func TestCheckpointThroughAWrappingDriver(t *testing.T) {
 		t.Fatalf("the writer could not read the WAL size:\n%s", log)
 	}
 }
+
+// With CheckpointAside the checkpoints run on a connection of their own,
+// beside the batches, and keep the WAL as small.
+func TestCheckpointAside(t *testing.T) {
+	t.Parallel()
+	f := start(t, sqlite.Options{Checkpoint: sqlite.CheckpointWriter}, Options{CheckpointPages: 64, CheckpointAside: true})
+	if f.w.aside == nil {
+		t.Fatal("no checkpoint connection")
+	}
+	fill(t, f, 200)
+	// What the batches write while a checkpoint runs waits for the next,
+	// so the WAL grows with the time a checkpoint takes: well under the
+	// 13 MB of TestCheckpointExternalLeavesTheWAL, but less so on a busy
+	// machine.
+	if size := walSize(t, f.db); size > 10<<20 {
+		t.Fatalf("WAL %d bytes after 200 batches", size)
+	}
+	waitFor(t, "the idle checkpoint to truncate the WAL", func() bool { return walSize(t, f.db) == 0 })
+	if n := f.count(t, "SELECT count(*) FROM blobs"); n != 200 {
+		t.Fatalf("%d rows", n)
+	}
+	if err := f.w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if log := f.log.String(); log != "" {
+		t.Fatalf("logged:\n%s", log)
+	}
+}
+
+// CheckpointAside does nothing unless the writer checkpoints.
+func TestCheckpointAsideNeedsCheckpointWriter(t *testing.T) {
+	t.Parallel()
+	f := start(t, sqlite.Options{}, Options{CheckpointAside: true})
+	if f.w.aside != nil {
+		t.Fatal("a checkpoint connection with CheckpointAuto")
+	}
+}

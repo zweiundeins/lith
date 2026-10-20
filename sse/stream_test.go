@@ -464,7 +464,7 @@ func TestContextEndAbortsClose(t *testing.T) {
 	}
 }
 
-// When the hub stops (shutdown.Cause) while the stream is idle, the
+// When the hub stops (shutdown.ErrShutdown) while the stream is idle, the
 // response stays whole: no write deadline is left behind, later events
 // are refused, and Close still ends the compressed stream.
 func TestShutdownEndsStreamCleanly(t *testing.T) {
@@ -477,9 +477,9 @@ func TestShutdownEndsStreamCleanly(t *testing.T) {
 	if err := s.Write(Comment("x")); err != nil {
 		t.Fatal(err)
 	}
-	cancel(shutdown.Cause)
+	cancel(shutdown.ErrShutdown)
 	s.abort()
-	if err := s.Write(Comment("y")); !errors.Is(err, shutdown.Cause) {
+	if err := s.Write(Comment("y")); !errors.Is(err, shutdown.ErrShutdown) {
 		t.Fatalf("a write after the shutdown: %v", err)
 	}
 	if err := s.Close(); err != nil {
@@ -528,7 +528,7 @@ func TestCloseWithDuringShutdown(t *testing.T) {
 		if err := s.Write(Comment("x")); err != nil {
 			t.Fatal(err)
 		}
-		cancel(shutdown.Cause)
+		cancel(shutdown.ErrShutdown)
 		s.abort()
 		if err := s.CloseWith(Comment("last")); err != nil {
 			t.Fatalf("%q: %v", enc, err)
@@ -559,7 +559,7 @@ func TestShutdownBoundsEndFrame(t *testing.T) {
 	if err := s.Write(Comment("x")); err != nil {
 		t.Fatal(err)
 	}
-	cancel(shutdown.Cause)
+	cancel(shutdown.ErrShutdown)
 	s.abort()
 	w.stall(true)
 	start := time.Now()
@@ -585,10 +585,10 @@ func TestShutdownCutsWriteUnderWay(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.Write(Comment("x")) }()
 	<-w.blocked
-	cancel(shutdown.Cause)
+	cancel(shutdown.ErrShutdown)
 	select {
 	case err := <-done:
-		if !errors.Is(err, shutdown.Cause) {
+		if !errors.Is(err, shutdown.ErrShutdown) {
 			t.Fatalf("the write failed with %v", err)
 		}
 	case <-time.After(endTimeout + 2*time.Second):
@@ -616,7 +616,7 @@ func TestShutdownLetsWriteUnderWayFinish(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.Write(Comment("x")) }()
 	<-w.blocked
-	cancel(shutdown.Cause)
+	cancel(shutdown.ErrShutdown)
 	s.abort()
 	if d := w.writeDeadline(); !time.Now().Before(d) || time.Until(d) > endTimeout {
 		t.Fatalf("the write under way got a deadline in %v", time.Until(d))

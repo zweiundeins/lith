@@ -8,7 +8,7 @@ order: 2
 
 Import path `github.com/zweiundeins/lith/writer`. Generated from the doc comments in [writer/](https://github.com/zweiundeins/lith/tree/main/writer).
 
-Commands queue up while a batch runs, and the next batch takes all of them (up to MaxBatch, without waiting for more) into one transaction with a savepoint per command: under load one commit, and one fsync, covers many commands, and a command that fails undoes only its own changes. Commands are applied in the order they arrive in the queue, from Send and Do alike.
+Commands queue up while a batch runs, and the next batch takes all of them (up to MaxBatch, without waiting for more) into one transaction with a savepoint per command: under load one commit, and one fsync, covers many commands, and a command that fails undoes only its own changes. A batch of one command needs no savepoint: when it fails, its transaction rolls back. Commands are applied in the order they arrive in the queue, from Send and Do alike.
 
 ```go
 w, err := writer.New(db, writer.Options{OnCommit: views.Changed})
@@ -158,6 +158,19 @@ type Options struct {
 	// before the writer checkpoints it (default 1000). It applies only
 	// when the database was opened with sqlite.CheckpointWriter.
 	CheckpointPages int
+	// CheckpointAside runs those checkpoints on a connection of their own
+	// (sqlite.DB.Checkpointer), in a goroutine of their own, instead of on
+	// the write connection between batches: after a large write the next
+	// batch does not wait for the checkpoint that copies it. The writer
+	// still counts the pages and truncates the WAL when idle. It applies
+	// only with sqlite.CheckpointWriter.
+	CheckpointAside bool
+	// SlowCommand is how long a command may run before the writer logs
+	// its type, once per command, and again when it ends (default 5s,
+	// negative: never). Every other command waits meanwhile, so a command
+	// that blocks on something besides the database stops the writer;
+	// Stats.Running shows one under way.
+	SlowCommand time.Duration
 	// Log gets panics, failed batches, failed Sends without OnSendError
 	// and maintenance errors (default slog.Default()).
 	Log *slog.Logger
@@ -223,6 +236,7 @@ type Stats struct {
 	LastCommit time.Duration // the last batch, from BEGIN to the end of COMMIT
 	P99Commit  time.Duration // 99th percentile of the last 1024 batches
 	Busy       time.Duration // time spent in batches
+	Running    time.Duration // how long the command under way has run, 0 between commands
 	// Sizes counts the batches by the commands they took, in powers of
 	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
 	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.

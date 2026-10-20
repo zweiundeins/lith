@@ -84,7 +84,7 @@ ClientKey is ClientIP as a rate-limit key. An IPv6 client counts by its /64, sin
 func Compress(next http.Handler) http.Handler
 ```
 
-Compress compresses the responses to GET, HEAD and QUERY with brotli, zstd or gzip, whichever the request accepts best (in that order when it accepts them equally). It leaves alone a response that sets its own Content-Encoding (precompressed files, streams that compress themselves), event streams, partial content, types that don't compress, and bodies under 512 bytes. Other methods pass untouched: Datastar's POST streams compress themselves, across frames.
+Compress compresses the responses to GET, HEAD and QUERY with zstd, brotli or gzip, whichever the request accepts best (in that order when it accepts them equally: zstd takes about an eighth of brotli's time for a page, for about a sixth more bytes, and Safari, which sends no zstd, gets brotli). It leaves alone a response that sets its own Content-Encoding (precompressed files, streams that compress themselves), event streams, partial content, types that don't compress, and bodies under 512 bytes. Other methods pass untouched: Datastar's POST streams compress themselves, across frames.
 
 A Flush sends everything written so far to the client. The writer unwraps for http.ResponseController, so a stream can still set its deadlines.
 
@@ -110,7 +110,7 @@ LogRequests logs a line for each request as it ends: method, path, status, bytes
 func Negotiate(acceptEncoding string, codings ...string) string
 ```
 
-Negotiate returns the one of codings that an Accept-Encoding header rates highest, earlier ones winning ties, or "" when it accepts none of them. Without codings it chooses among br, zstd and gzip, as Compress does. A handler with prerendered variants names the ones it has, such as br and gzip from Precompress.
+Negotiate returns the one of codings that an Accept-Encoding header rates highest, earlier ones winning ties, or "" when it accepts none of them. Without codings it chooses among zstd, br and gzip, as Compress does. A handler with prerendered variants names the ones it has, such as br and gzip from Precompress.
 
 ### func Nonce {#Nonce}
 

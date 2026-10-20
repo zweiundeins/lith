@@ -73,16 +73,21 @@ func BenchmarkWriter(b *testing.B) {
 
 // BenchmarkWriterCheckpoint is the busiest case of BenchmarkWriter with
 // sqlite.CheckpointWriter: the writer checkpoints after answering a batch,
-// where SQLite would checkpoint inside the COMMIT that passes 1000 pages.
+// where SQLite would checkpoint inside the COMMIT that passes 1000 pages;
+// with aside, a goroutine of its own checkpoints beside the batches
+// (Options.CheckpointAside).
 func BenchmarkWriterCheckpoint(b *testing.B) {
 	for _, sync := range []string{"FULL", "NORMAL"} {
 		b.Run(sync+"/producers=200", func(b *testing.B) {
 			benchTransfers(b, sync, sqlite.CheckpointWriter, 200)
 		})
+		b.Run(sync+"/producers=200/aside", func(b *testing.B) {
+			benchTransfers(b, sync, sqlite.CheckpointWriter, 200, Options{CheckpointAside: true})
+		})
 	}
 }
 
-func benchTransfers(b *testing.B, synchronous string, checkpoint sqlite.Checkpoint, producers int) {
+func benchTransfers(b *testing.B, synchronous string, checkpoint sqlite.Checkpoint, producers int, opts ...Options) {
 	ctx := context.Background()
 	db, err := sqlite.Open(ctx, filepath.Join(b.TempDir(), "bench.db"), sqlite.Options{
 		Synchronous: synchronous,
@@ -94,7 +99,12 @@ func benchTransfers(b *testing.B, synchronous string, checkpoint sqlite.Checkpoi
 	}
 	defer db.Close()
 	var topics atomic.Int64
-	w, err := New(db, Options{OnCommit: func(t []string) { topics.Add(int64(len(t))) }})
+	var o Options
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	o.OnCommit = func(t []string) { topics.Add(int64(len(t))) }
+	w, err := New(db, o)
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -47,8 +47,9 @@ CREATE VIRTUAL TABLE loadtest_comments_fts USING fts5(body, content='loadtest_co
 // rebuilds the comments' FTS5 index (fts). It runs as one command, as
 // commands of 1,000 or 5,000 rows by rowid range sent one after the
 // other with Do, or in Writer.Exclusive. The database is checkpointed by
-// the writer. An iteration is one run: 2 s of load, 2 s measured before
-// the write, the write, and 2 s after it.
+// the writer, between batches or, in the cases named aside, beside them
+// (writer.Options.CheckpointAside). An iteration is one run: 2 s of load,
+// 2 s measured before the write, the write, and 2 s after it.
 //
 //	touch /tmp/lith-bench.lock
 //	flock /tmp/lith-bench.lock taskset -c 0-11 go test ./loadtest -run '^$' -bench LargeWrite -benchtime 1x -count 3 -timeout 1h
@@ -56,14 +57,19 @@ func BenchmarkLargeWrite(b *testing.B) {
 	type bench struct {
 		sync, op string
 		chunk    int // rows per command; 0: one command, -1: Exclusive
+		aside    bool
 	}
 	var cases []bench
 	for _, op := range []string{"update", "delete"} {
 		for _, chunk := range []int{0, 1000, 5000, -1} {
-			cases = append(cases, bench{"NORMAL", op, chunk})
+			cases = append(cases, bench{"NORMAL", op, chunk, false})
 		}
 	}
-	cases = append(cases, bench{"FULL", "update", 1000}, bench{"FULL", "update", 5000}, bench{"NORMAL", "fts", 0})
+	cases = append(cases, bench{"FULL", "update", 1000, false}, bench{"FULL", "update", 5000, false}, bench{"NORMAL", "fts", 0, false})
+	for _, chunk := range []int{0, 1000, 5000} {
+		cases = append(cases, bench{"NORMAL", "update", chunk, true})
+	}
+	cases = append(cases, bench{"FULL", "update", 1000, true}, bench{"NORMAL", "fts", 0, true})
 	for _, c := range cases {
 		how := "one"
 		switch {
@@ -72,11 +78,14 @@ func BenchmarkLargeWrite(b *testing.B) {
 		case c.chunk < 0:
 			how = "exclusive"
 		}
+		if c.aside {
+			how += "/aside"
+		}
 		b.Run(c.sync+"/"+c.op+"/"+how, func(b *testing.B) {
 			var r largeReport
 			for b.Loop() {
 				var err error
-				if r, err = largeWrite(b.Context(), c.sync, c.op, c.chunk); err != nil {
+				if r, err = largeWrite(b.Context(), c.sync, c.op, c.chunk, c.aside); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -241,7 +250,7 @@ func largeSQL(op string) (all, chunk string) {
 	}
 }
 
-func largeWrite(ctx context.Context, synchronous, op string, chunk int) (rep largeReport, err error) {
+func largeWrite(ctx context.Context, synchronous, op string, chunk int, aside bool) (rep largeReport, err error) {
 	if err := largeRegister(); err != nil {
 		return rep, err
 	}
@@ -278,7 +287,7 @@ func largeWrite(ctx context.Context, synchronous, op string, chunk int) (rep lar
 		ticks = append(ticks, tick{time.Now(), d})
 		tickMu.Unlock()
 	}})
-	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
+	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed, CheckpointAside: aside})
 	if err != nil {
 		return rep, err
 	}

@@ -179,8 +179,6 @@ func safe(s string) templ.SafeURL { return templ.SafeURL(s) }
 // vtName is a style that gives an element a view-transition name.
 func vtName(name string) string { return "view-transition-name: " + name }
 
-func itoa(n int) string { return strconv.Itoa(n) }
-
 func pressed(b bool) string {
 	if b {
 		return "true"
