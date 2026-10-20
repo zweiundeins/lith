@@ -38,7 +38,7 @@ func TestWrite(t *testing.T) {
 		t.Errorf("go.mod:\n%s", gomod)
 	}
 	main := read(t, dir, "cmd/visitor-log/main.go")
-	for _, want := range []string{`fmt.Println("visitor-log", `, `"VISITOR_LOG_" + strings.ToUpper(fl.Name)`, `"example.com/acme/visitor-log/internal/web"`} {
+	for _, want := range []string{`fmt.Println("visitor-log", `, `"VISITOR_LOG_" + strings.ToUpper(strings.ReplaceAll(fl.Name, "-", "_"))`, `"example.com/acme/visitor-log/internal/web"`} {
 		if !strings.Contains(main, want) {
 			t.Errorf("main.go lacks %s", want)
 		}
