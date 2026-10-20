@@ -19,9 +19,10 @@ const minSize = 512
 // Compress compresses the responses to GET, HEAD and QUERY with zstd, brotli or
 // gzip, whichever the request accepts best (in that order when it accepts them
 // equally: zstd takes about an eighth of brotli's time for a page, for about a
-// sixth more bytes, and Safari, which sends no zstd, gets brotli). It leaves alone a response that sets its own Content-Encoding
-// (precompressed files, streams that compress themselves), event streams,
-// partial content, types that don't compress, and bodies under 512 bytes.
+// sixth more bytes, and Safari, which sends no zstd, gets brotli). It leaves
+// alone a response that sets its own Content-Encoding (precompressed files,
+// streams that compress themselves), event streams, partial content, types
+// that don't compress, and bodies under 512 bytes.
 // Other methods pass untouched: Datastar's POST streams compress themselves,
 // across frames.
 //

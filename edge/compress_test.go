@@ -307,7 +307,7 @@ func TestCompressStatus(t *testing.T) {
 	}
 }
 
-// boardPage is a page of about 150 KB like a kanban board's: lists of
+// boardPage is a page of about 156 KB like a kanban board's: lists of
 // cards with titles, labels and Datastar attributes.
 func boardPage() []byte {
 	words := strings.Fields("release plan review design copy fix bug invoice client meeting draft deploy sprint backlog migrate test docs search export import mobile layout cache report budget")
@@ -335,7 +335,7 @@ func (d *discard) Header() http.Header         { return d.h }
 func (d *discard) Write(p []byte) (int, error) { return len(p), nil }
 func (d *discard) WriteHeader(int)             {}
 
-// BenchmarkCompress compresses a 150 KB page with each coding, as
+// BenchmarkCompress compresses a 156 KB page with each coding, as
 // Compress does for every request that accepts it.
 //
 //	go test ./edge -run '^$' -bench Compress -count 10
