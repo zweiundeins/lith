@@ -1,0 +1,785 @@
+# BenchmarkLargeWrite, this branch, ten runs a case
+13:18:25 edge load 3.24 7.88 26.06
+13:29:08 large load 4.25 4.21 14.76
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       362.7 after-max-ms	        13.04 before-p99-ms	       359.0 ckpt-max-ms	         0 dropped	       672.7 during-max-ms	       517.7 during-p50-ms	       668.9 during-p99-ms	        34.00 renders	       637.5 tick-gap-ms	         3.426 tick-max-ms	         3.420 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.3094 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 309ms in 1 commands; database 185 MB
+        Do before: p50 510µs, p95 1.16ms, p99 13.04ms, max 22.96ms
+        Do during: p50 517.71ms, p95 656.42ms, p99 668.92ms, max 672.67ms
+        Do after:  p50 650µs, p95 262.77ms, p99 342.75ms, max 362.74ms
+        ticks: 34, p50 850µs, p95 3.01ms, p99 3.42ms, max 3.43ms, longest gap 638ms
+        renders 34, frames 6817 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 359ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       351.4 after-max-ms	         8.477 before-p99-ms	       347.0 ckpt-max-ms	         0 dropped	       678.8 during-max-ms	       515.2 during-p50-ms	       675.1 during-p99-ms	        34.00 renders	       636.4 tick-gap-ms	         3.919 tick-max-ms	         3.773 tick-p99-ms	       186.2 wal-end-MB	       186.2 wal-max-MB	         0.3274 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 327ms in 1 commands; database 185 MB
+        Do before: p50 480µs, p95 1.15ms, p99 8.48ms, max 18.91ms
+        Do during: p50 515.18ms, p95 661.35ms, p99 675.1ms, max 678.82ms
+        Do after:  p50 620µs, p95 251.71ms, p99 331.67ms, max 351.43ms
+        ticks: 34, p50 3.48ms, p95 3.72ms, p99 3.77ms, max 3.92ms, longest gap 636ms
+        renders 34, frames 6911 sent, 0 dropped
+        WAL: 4.1 MB before, 186.2 MB at most, 186.2 MB at the end; 2 checkpoints of 1 ms or more, the longest 347ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       355.3 after-max-ms	         9.392 before-p99-ms	       350.0 ckpt-max-ms	         0 dropped	       672.9 during-max-ms	       514.0 during-p50-ms	       669.1 during-p99-ms	        34.00 renders	       632.3 tick-gap-ms	         4.452 tick-max-ms	         4.328 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.3182 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 318ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.12ms, p99 9.39ms, max 21.87ms
+        Do during: p50 513.96ms, p95 656.42ms, p99 669.11ms, max 672.85ms
+        Do after:  p50 630µs, p95 255.53ms, p99 335.49ms, max 355.32ms
+        ticks: 34, p50 2.98ms, p95 4.02ms, p99 4.33ms, max 4.45ms, longest gap 632ms
+        renders 34, frames 6927 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 350ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       408.6 after-max-ms	         2.813 before-p99-ms	       405.0 ckpt-max-ms	         0 dropped	       742.2 during-max-ms	       576.0 during-p50-ms	       738.5 during-p99-ms	        33.00 renders	       733.7 tick-gap-ms	         4.243 tick-max-ms	         3.836 tick-p99-ms	       186.2 wal-end-MB	       186.2 wal-max-MB	         0.3336 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 334ms in 1 commands; database 185 MB
+        Do before: p50 510µs, p95 1.06ms, p99 2.81ms, max 743.43ms
+        Do during: p50 576.03ms, p95 724.73ms, p99 738.46ms, max 742.21ms
+        Do after:  p50 680µs, p95 308.63ms, p99 388.58ms, max 408.61ms
+        ticks: 33, p50 3.47ms, p95 3.83ms, p99 3.84ms, max 4.24ms, longest gap 734ms
+        renders 33, frames 6599 sent, 0 dropped
+        WAL: 4.1 MB before, 186.2 MB at most, 186.2 MB at the end; 2 checkpoints of 1 ms or more, the longest 405ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       379.6 after-max-ms	        19.64 before-p99-ms	       376.0 ckpt-max-ms	         0 dropped	       722.0 during-max-ms	       550.7 during-p50-ms	       718.2 during-p99-ms	        34.00 renders	       707.8 tick-gap-ms	         3.751 tick-max-ms	         2.018 tick-p99-ms	       186.0 wal-end-MB	       186.0 wal-max-MB	         0.3430 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 343ms in 1 commands; database 185 MB
+        Do before: p50 530µs, p95 1.19ms, p99 19.64ms, max 723.21ms
+        Do during: p50 550.74ms, p95 704.46ms, p99 718.2ms, max 721.95ms
+        Do after:  p50 660µs, p95 279.58ms, p99 359.56ms, max 379.56ms
+        ticks: 34, p50 750µs, p95 1.33ms, p99 2.02ms, max 3.75ms, longest gap 708ms
+        renders 34, frames 6725 sent, 0 dropped
+        WAL: 4.1 MB before, 186.0 MB at most, 186.0 MB at the end; 2 checkpoints of 1 ms or more, the longest 376ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       336.3 after-max-ms	         8.724 before-p99-ms	       332.0 ckpt-max-ms	         0 dropped	       673.7 during-max-ms	       505.1 during-p50-ms	       669.9 during-p99-ms	        34.00 renders	       665.6 tick-gap-ms	         4.524 tick-max-ms	         4.001 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.3376 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 338ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.15ms, p99 8.72ms, max 19.45ms
+        Do during: p50 505.05ms, p95 656.12ms, p99 669.91ms, max 673.67ms
+        Do after:  p50 620µs, p95 236.44ms, p99 316.41ms, max 336.31ms
+        ticks: 34, p50 3.48ms, p95 3.99ms, p99 4ms, max 4.52ms, longest gap 666ms
+        renders 34, frames 6800 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 332ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       405.8 after-max-ms	        10.58 before-p99-ms	       403.0 ckpt-max-ms	         0 dropped	       794.4 during-max-ms	       600.8 during-p50-ms	       789.4 during-p99-ms	        33.00 renders	       790.4 tick-gap-ms	         7.817 tick-max-ms	         3.822 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.3885 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 389ms in 1 commands; database 185 MB
+        Do before: p50 460µs, p95 1.16ms, p99 10.58ms, max 21.87ms
+        Do during: p50 600.79ms, p95 774.45ms, p99 789.43ms, max 794.43ms
+        Do after:  p50 730µs, p95 305.8ms, p99 385.78ms, max 405.77ms
+        ticks: 33, p50 1.01ms, p95 2.22ms, p99 3.82ms, max 7.82ms, longest gap 790ms
+        renders 33, frames 6600 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 403ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       332.7 after-max-ms	         9.312 before-p99-ms	       330.0 ckpt-max-ms	         0 dropped	       660.1 during-max-ms	       496.4 during-p50-ms	       656.3 during-p99-ms	        34.00 renders	       647.0 tick-gap-ms	         3.879 tick-max-ms	         3.736 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.3266 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 327ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.17ms, p99 9.31ms, max 661.31ms
+        Do during: p50 496.36ms, p95 642.55ms, p99 656.32ms, max 660.06ms
+        Do after:  p50 640µs, p95 232.72ms, p99 312.64ms, max 332.71ms
+        ticks: 34, p50 3.44ms, p95 3.72ms, p99 3.74ms, max 3.88ms, longest gap 647ms
+        renders 34, frames 6800 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 330ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       358.0 after-max-ms	        10.30 before-p99-ms	       354.0 ckpt-max-ms	         0 dropped	       685.4 during-max-ms	       521.7 during-p50-ms	       681.7 during-p99-ms	        34.00 renders	       647.7 tick-gap-ms	         5.873 tick-max-ms	         3.669 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.3283 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 328ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.13ms, p99 10.3ms, max 22.79ms
+        Do during: p50 521.72ms, p95 667.91ms, p99 681.68ms, max 685.43ms
+        Do after:  p50 620µs, p95 258.06ms, p99 338.01ms, max 358ms
+        ticks: 34, p50 3.23ms, p95 3.63ms, p99 3.67ms, max 5.87ms, longest gap 648ms
+        renders 34, frames 6923 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 354ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       367.5 after-max-ms	        13.22 before-p99-ms	       361.0 ckpt-max-ms	         0 dropped	       723.5 during-max-ms	       546.0 during-p50-ms	       719.8 during-p99-ms	        34.00 renders	       713.5 tick-gap-ms	         4.326 tick-max-ms	         3.944 tick-p99-ms	       190.2 wal-end-MB	       190.2 wal-max-MB	         0.3562 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:92: 
+        write: 356ms in 1 commands; database 185 MB
+        Do before: p50 510µs, p95 1.15ms, p99 13.22ms, max 724.72ms
+        Do during: p50 546.02ms, p95 704.69ms, p99 719.75ms, max 723.47ms
+        Do after:  p50 630µs, p95 267.42ms, p99 347.5ms, max 367.53ms
+        ticks: 34, p50 3.49ms, p95 3.93ms, p99 3.94ms, max 4.33ms, longest gap 714ms
+        renders 34, frames 6800 sent, 0 dropped
+        WAL: 4.8 MB before, 190.2 MB at most, 190.2 MB at the end; 2 checkpoints of 1 ms or more, the longest 361ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        26.89 after-max-ms	         3.704 before-p99-ms	        25.00 ckpt-max-ms	         0 dropped	        41.94 during-max-ms	        22.12 during-p50-ms	        37.20 during-p99-ms	        60.00 renders	        53.34 tick-gap-ms	         4.013 tick-max-ms	         3.817 tick-p99-ms	         6.477 wal-end-MB	         6.477 wal-max-MB	         1.044 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.044s in 45 commands; database 185 MB
+        Do before: p50 520µs, p95 1.1ms, p99 3.7ms, max 12.42ms
+        Do during: p50 22.12ms, p95 33.65ms, p99 37.2ms, max 41.94ms
+        Do after:  p50 520µs, p95 1.17ms, p99 13.15ms, max 26.89ms
+        ticks: 60, p50 1.5ms, p95 3.8ms, p99 3.82ms, max 4.01ms, longest gap 53ms
+        renders 60, frames 12090 sent, 0 dropped
+        WAL: 4.1 MB before, 6.5 MB at most, 6.5 MB at the end; 46 checkpoints of 1 ms or more, the longest 25ms
+        writer: at most 29 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        24.99 after-max-ms	         7.457 before-p99-ms	        29.00 ckpt-max-ms	         0 dropped	        69.17 during-max-ms	        23.24 during-p50-ms	        57.92 during-p99-ms	        61.00 renders	        66.48 tick-gap-ms	         3.863 tick-max-ms	         3.666 tick-p99-ms	         8.281 wal-end-MB	         8.281 wal-max-MB	         1.095 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.095s in 45 commands; database 185 MB
+        Do before: p50 480µs, p95 1.15ms, p99 7.46ms, max 70.41ms
+        Do during: p50 23.24ms, p95 41.94ms, p99 57.92ms, max 69.17ms
+        Do after:  p50 510µs, p95 1.1ms, p99 9.79ms, max 24.99ms
+        ticks: 61, p50 950µs, p95 3.55ms, p99 3.67ms, max 3.86ms, longest gap 66ms
+        renders 61, frames 12200 sent, 0 dropped
+        WAL: 4.1 MB before, 8.3 MB at most, 8.3 MB at the end; 45 checkpoints of 1 ms or more, the longest 29ms
+        writer: at most 42 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        19.95 after-max-ms	         8.978 before-p99-ms	        19.00 ckpt-max-ms	         0 dropped	        53.94 during-max-ms	        22.98 during-p50-ms	        48.33 during-p99-ms	        61.00 renders	        54.06 tick-gap-ms	         4.144 tick-max-ms	         3.955 tick-p99-ms	         4.882 wal-end-MB	         4.882 wal-max-MB	         1.075 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.075s in 45 commands; database 185 MB
+        Do before: p50 510µs, p95 1.16ms, p99 8.98ms, max 22.7ms
+        Do during: p50 22.98ms, p95 39.22ms, p99 48.33ms, max 53.94ms
+        Do after:  p50 500µs, p95 1.14ms, p99 7.47ms, max 19.95ms
+        ticks: 61, p50 2.07ms, p95 3.81ms, p99 3.95ms, max 4.14ms, longest gap 54ms
+        renders 61, frames 12189 sent, 0 dropped
+        WAL: 4.1 MB before, 4.9 MB at most, 4.9 MB at the end; 46 checkpoints of 1 ms or more, the longest 19ms
+        writer: at most 31 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        68.61 after-max-ms	        10.77 before-p99-ms	        53.00 ckpt-max-ms	         0 dropped	        50.87 during-max-ms	        23.39 during-p50-ms	        44.63 during-p99-ms	        61.00 renders	        53.29 tick-gap-ms	         4.014 tick-max-ms	         3.847 tick-p99-ms	         4.870 wal-end-MB	         4.870 wal-max-MB	         1.104 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.104s in 45 commands; database 185 MB
+        Do before: p50 500µs, p95 1.19ms, p99 10.77ms, max 22ms
+        Do during: p50 23.39ms, p95 37.59ms, p99 44.63ms, max 50.87ms
+        Do after:  p50 520µs, p95 1.27ms, p99 48.68ms, max 68.61ms
+        ticks: 61, p50 1.34ms, p95 3.69ms, p99 3.85ms, max 4.01ms, longest gap 53ms
+        renders 61, frames 12337 sent, 0 dropped
+        WAL: 4.1 MB before, 4.9 MB at most, 4.9 MB at the end; 46 checkpoints of 1 ms or more, the longest 53ms
+        writer: at most 43 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        69.94 after-max-ms	        11.73 before-p99-ms	        55.00 ckpt-max-ms	         0 dropped	        55.24 during-max-ms	        23.54 during-p50-ms	        47.34 during-p99-ms	        61.00 renders	        53.46 tick-gap-ms	         3.827 tick-max-ms	         3.799 tick-p99-ms	         8.994 wal-end-MB	         8.994 wal-max-MB	         1.078 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.078s in 45 commands; database 185 MB
+        Do before: p50 510µs, p95 1.17ms, p99 11.73ms, max 25.57ms
+        Do during: p50 23.54ms, p95 39.48ms, p99 47.34ms, max 55.24ms
+        Do after:  p50 530µs, p95 1.26ms, p99 49.99ms, max 69.94ms
+        ticks: 61, p50 3.11ms, p95 3.79ms, p99 3.8ms, max 3.83ms, longest gap 53ms
+        renders 61, frames 12200 sent, 0 dropped
+        WAL: 4.9 MB before, 9.0 MB at most, 9.0 MB at the end; 45 checkpoints of 1 ms or more, the longest 55ms
+        writer: at most 45 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        31.06 after-max-ms	        22.56 before-p99-ms	        39.00 ckpt-max-ms	         0 dropped	        84.18 during-max-ms	        23.21 during-p50-ms	        72.93 during-p99-ms	        61.00 renders	        73.69 tick-gap-ms	         4.364 tick-max-ms	         3.845 tick-p99-ms	         4.759 wal-end-MB	         4.759 wal-max-MB	         1.078 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.078s in 45 commands; database 185 MB
+        Do before: p50 520µs, p95 1.2ms, p99 22.56ms, max 40.71ms
+        Do during: p50 23.21ms, p95 45.94ms, p99 72.93ms, max 84.18ms
+        Do after:  p50 510µs, p95 1.17ms, p99 12.33ms, max 31.06ms
+        ticks: 61, p50 3.42ms, p95 3.72ms, p99 3.84ms, max 4.36ms, longest gap 74ms
+        renders 61, frames 12200 sent, 0 dropped
+        WAL: 4.1 MB before, 4.8 MB at most, 4.8 MB at the end; 46 checkpoints of 1 ms or more, the longest 39ms
+        writer: at most 51 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        43.10 after-max-ms	        12.77 before-p99-ms	        38.00 ckpt-max-ms	         0 dropped	        54.66 during-max-ms	        23.18 during-p50-ms	        48.66 during-p99-ms	        62.00 renders	        53.64 tick-gap-ms	         3.999 tick-max-ms	         3.836 tick-p99-ms	         4.870 wal-end-MB	         4.870 wal-max-MB	         1.086 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.086s in 45 commands; database 185 MB
+        Do before: p50 510µs, p95 1.16ms, p99 12.77ms, max 25.2ms
+        Do during: p50 23.18ms, p95 40.58ms, p99 48.66ms, max 54.66ms
+        Do after:  p50 530µs, p95 1.19ms, p99 23.13ms, max 43.1ms
+        ticks: 62, p50 2.78ms, p95 3.72ms, p99 3.84ms, max 4ms, longest gap 54ms
+        renders 62, frames 12219 sent, 0 dropped
+        WAL: 4.1 MB before, 4.9 MB at most, 4.9 MB at the end; 46 checkpoints of 1 ms or more, the longest 38ms
+        writer: at most 33 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        18.55 after-max-ms	        28.94 before-p99-ms	        65.00 ckpt-max-ms	         0 dropped	       137.2 during-max-ms	        24.48 during-p50-ms	       124.7 during-p99-ms	        61.00 renders	       128.0 tick-gap-ms	         3.939 tick-max-ms	         3.903 tick-p99-ms	         4.647 wal-end-MB	         4.647 wal-max-MB	         1.148 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.148s in 45 commands; database 185 MB
+        Do before: p50 490µs, p95 1.24ms, p99 28.94ms, max 48.91ms
+        Do during: p50 24.48ms, p95 81ms, p99 124.67ms, max 137.2ms
+        Do after:  p50 520µs, p95 1.15ms, p99 8.19ms, max 18.55ms
+        ticks: 61, p50 3.18ms, p95 3.89ms, p99 3.9ms, max 3.94ms, longest gap 128ms
+        renders 61, frames 12200 sent, 0 dropped
+        WAL: 4.1 MB before, 4.6 MB at most, 4.6 MB at the end; 46 checkpoints of 1 ms or more, the longest 65ms
+        writer: at most 74 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        34.36 after-max-ms	        12.38 before-p99-ms	        31.00 ckpt-max-ms	         0 dropped	        46.78 during-max-ms	        21.81 during-p50-ms	        40.15 during-p99-ms	        60.00 renders	        52.63 tick-gap-ms	         3.754 tick-max-ms	         3.654 tick-p99-ms	         8.281 wal-end-MB	         8.281 wal-max-MB	         1.016 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.016s in 45 commands; database 185 MB
+        Do before: p50 490µs, p95 1.16ms, p99 12.38ms, max 48.02ms
+        Do during: p50 21.81ms, p95 34.28ms, p99 40.15ms, max 46.78ms
+        Do after:  p50 490µs, p95 1.16ms, p99 14.42ms, max 34.36ms
+        ticks: 60, p50 2.99ms, p95 3.61ms, p99 3.65ms, max 3.75ms, longest gap 53ms
+        renders 60, frames 12000 sent, 0 dropped
+        WAL: 4.1 MB before, 8.3 MB at most, 8.3 MB at the end; 45 checkpoints of 1 ms or more, the longest 31ms
+        writer: at most 32 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000-12 	       1	        35.60 after-max-ms	        13.08 before-p99-ms	        31.00 ckpt-max-ms	         0 dropped	        57.63 during-max-ms	        22.25 during-p50-ms	        48.89 during-p99-ms	        60.00 renders	        53.40 tick-gap-ms	         3.926 tick-max-ms	         3.830 tick-p99-ms	         8.273 wal-end-MB	         8.273 wal-max-MB	         1.034 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000-12
+    largewrite_test.go:92: 
+        write: 1.034s in 45 commands; database 185 MB
+        Do before: p50 510µs, p95 1.17ms, p99 13.08ms, max 58.88ms
+        Do during: p50 22.25ms, p95 36.7ms, p99 48.89ms, max 57.63ms
+        Do after:  p50 490µs, p95 1.18ms, p99 15.61ms, max 35.6ms
+        ticks: 60, p50 3.44ms, p95 3.78ms, p99 3.83ms, max 3.93ms, longest gap 53ms
+        renders 60, frames 12000 sent, 0 dropped
+        WAL: 4.1 MB before, 8.3 MB at most, 8.3 MB at the end; 45 checkpoints of 1 ms or more, the longest 31ms
+        writer: at most 34 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       138.0 after-max-ms	        26.73 before-p99-ms	       127.0 ckpt-max-ms	         0 dropped	      2890 during-max-ms	      1515 during-p50-ms	      2861 during-p99-ms	        39.00 renders	      2878 tick-gap-ms	         3.910 tick-max-ms	         3.823 tick-p99-ms	        56.32 wal-end-MB	        56.32 wal-max-MB	         2.760 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.76s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.24ms, p99 26.73ms, max 37.97ms
+        Do during: p50 1.515s, p95 2.75119s, p99 2.8611s, max 2.88984s
+        Do after:  p50 550µs, p95 38.06ms, p99 118.02ms, max 138.04ms
+        ticks: 38, p50 3.36ms, p95 3.8ms, p99 3.82ms, max 3.91ms, longest gap 2.878s
+        renders 39, frames 7600 sent, 0 dropped
+        WAL: 4.1 MB before, 56.3 MB at most, 56.3 MB at the end; 2 checkpoints of 1 ms or more, the longest 127ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       135.6 after-max-ms	        11.87 before-p99-ms	       125.0 ckpt-max-ms	         0 dropped	      2972 during-max-ms	      1555 during-p50-ms	      2944 during-p99-ms	        38.00 renders	      2934 tick-gap-ms	         4.407 tick-max-ms	         4.013 tick-p99-ms	        56.46 wal-end-MB	        56.46 wal-max-MB	         2.845 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.845s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.16ms, p99 11.87ms, max 21.85ms
+        Do during: p50 1.55481s, p95 2.82983s, p99 2.94355s, max 2.97225s
+        Do after:  p50 570µs, p95 35.56ms, p99 115.63ms, max 135.57ms
+        ticks: 38, p50 3.39ms, p95 3.95ms, p99 4.01ms, max 4.41ms, longest gap 2.934s
+        renders 38, frames 7723 sent, 0 dropped
+        WAL: 4.1 MB before, 56.5 MB at most, 56.5 MB at the end; 2 checkpoints of 1 ms or more, the longest 125ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       141.8 after-max-ms	         5.895 before-p99-ms	       133.0 ckpt-max-ms	         0 dropped	      2882 during-max-ms	      1513 during-p50-ms	      2854 during-p99-ms	        38.00 renders	      2875 tick-gap-ms	         4.623 tick-max-ms	         3.820 tick-p99-ms	        56.48 wal-end-MB	        56.48 wal-max-MB	         2.746 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.746s in 1 commands; database 240 MB
+        Do before: p50 520µs, p95 1.15ms, p99 5.9ms, max 21.71ms
+        Do during: p50 1.5128s, p95 2.74455s, p99 2.85449s, max 2.88207s
+        Do after:  p50 570µs, p95 41.8ms, p99 121.77ms, max 141.77ms
+        ticks: 38, p50 3.47ms, p95 3.77ms, p99 3.82ms, max 4.62ms, longest gap 2.875s
+        renders 38, frames 7600 sent, 0 dropped
+        WAL: 4.1 MB before, 56.5 MB at most, 56.5 MB at the end; 2 checkpoints of 1 ms or more, the longest 133ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       157.5 after-max-ms	         9.617 before-p99-ms	       139.0 ckpt-max-ms	         0 dropped	      2903 during-max-ms	      1533 during-p50-ms	      2874 during-p99-ms	        39.00 renders	      2856 tick-gap-ms	         3.894 tick-max-ms	         3.784 tick-p99-ms	        56.48 wal-end-MB	        56.48 wal-max-MB	         2.758 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.758s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.16ms, p99 9.62ms, max 20.86ms
+        Do during: p50 1.53297s, p95 2.76432s, p99 2.8743s, max 2.90304s
+        Do after:  p50 550µs, p95 57.41ms, p99 137.43ms, max 157.45ms
+        ticks: 39, p50 3.5ms, p95 3.77ms, p99 3.78ms, max 3.89ms, longest gap 2.856s
+        renders 39, frames 7800 sent, 0 dropped
+        WAL: 4.1 MB before, 56.5 MB at most, 56.5 MB at the end; 2 checkpoints of 1 ms or more, the longest 139ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       143.6 after-max-ms	        10.14 before-p99-ms	       125.0 ckpt-max-ms	         0 dropped	      2879 during-max-ms	      1515 during-p50-ms	      2851 during-p99-ms	        38.00 renders	      2838 tick-gap-ms	         5.341 tick-max-ms	         3.779 tick-p99-ms	        56.48 wal-end-MB	        56.48 wal-max-MB	         2.746 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.746s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.14ms, p99 10.14ms, max 21.4ms
+        Do during: p50 1.51477s, p95 2.74132s, p99 2.85123s, max 2.87868s
+        Do after:  p50 530µs, p95 43.62ms, p99 123.67ms, max 143.65ms
+        ticks: 38, p50 3.44ms, p95 3.73ms, p99 3.78ms, max 5.34ms, longest gap 2.838s
+        renders 38, frames 7777 sent, 0 dropped
+        WAL: 4.1 MB before, 56.5 MB at most, 56.5 MB at the end; 2 checkpoints of 1 ms or more, the longest 125ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       127.9 after-max-ms	         2.145 before-p99-ms	       117.0 ckpt-max-ms	         0 dropped	      2961 during-max-ms	      1546 during-p50-ms	      2932 during-p99-ms	        40.00 renders	      2914 tick-gap-ms	         6.807 tick-max-ms	         4.105 tick-p99-ms	        56.56 wal-end-MB	        56.56 wal-max-MB	         2.841 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.841s in 1 commands; database 240 MB
+        Do before: p50 510µs, p95 1.06ms, p99 2.14ms, max 10.04ms
+        Do during: p50 1.54648s, p95 2.81842s, p99 2.93215s, max 2.96087s
+        Do after:  p50 520µs, p95 27.88ms, p99 107.89ms, max 127.9ms
+        ticks: 40, p50 3.16ms, p95 4.08ms, p99 4.11ms, max 6.81ms, longest gap 2.914s
+        renders 40, frames 7871 sent, 0 dropped
+        WAL: 4.1 MB before, 56.6 MB at most, 56.6 MB at the end; 2 checkpoints of 1 ms or more, the longest 117ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       132.9 after-max-ms	        26.90 before-p99-ms	       122.0 ckpt-max-ms	         0 dropped	      3043 during-max-ms	      1589 during-p50-ms	      3013 during-p99-ms	        39.00 renders	      3008 tick-gap-ms	         5.405 tick-max-ms	         4.212 tick-p99-ms	        56.42 wal-end-MB	        56.42 wal-max-MB	         2.918 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.918s in 1 commands; database 240 MB
+        Do before: p50 520µs, p95 1.21ms, p99 26.9ms, max 46.88ms
+        Do during: p50 1.58876s, p95 2.89724s, p99 3.01348s, max 3.04343s
+        Do after:  p50 550µs, p95 32.93ms, p99 112.87ms, max 132.92ms
+        ticks: 39, p50 2.07ms, p95 4.03ms, p99 4.21ms, max 5.4ms, longest gap 3.008s
+        renders 39, frames 7720 sent, 0 dropped
+        WAL: 4.1 MB before, 56.4 MB at most, 56.4 MB at the end; 2 checkpoints of 1 ms or more, the longest 122ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       127.3 after-max-ms	        15.29 before-p99-ms	       113.0 ckpt-max-ms	         0 dropped	      2882 during-max-ms	      1507 during-p50-ms	      2854 during-p99-ms	        39.00 renders	      2844 tick-gap-ms	         4.086 tick-max-ms	         3.885 tick-p99-ms	        56.47 wal-end-MB	        56.47 wal-max-MB	         2.764 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.764s in 1 commands; database 240 MB
+        Do before: p50 500µs, p95 1.17ms, p99 15.29ms, max 25.61ms
+        Do during: p50 1.50696s, p95 2.74379s, p99 2.85374s, max 2.88242s
+        Do after:  p50 570µs, p95 27.34ms, p99 107.33ms, max 127.33ms
+        ticks: 39, p50 3.46ms, p95 3.81ms, p99 3.88ms, max 4.09ms, longest gap 2.844s
+        renders 39, frames 7767 sent, 0 dropped
+        WAL: 4.1 MB before, 56.5 MB at most, 56.5 MB at the end; 2 checkpoints of 1 ms or more, the longest 113ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       146.6 after-max-ms	        11.42 before-p99-ms	       129.0 ckpt-max-ms	         0 dropped	      2902 during-max-ms	      1527 during-p50-ms	      2873 during-p99-ms	        38.00 renders	      2863 tick-gap-ms	         4.287 tick-max-ms	         3.858 tick-p99-ms	        56.50 wal-end-MB	        56.50 wal-max-MB	         2.767 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.767s in 1 commands; database 240 MB
+        Do before: p50 500µs, p95 1.15ms, p99 11.42ms, max 22.66ms
+        Do during: p50 1.52743s, p95 2.7632s, p99 2.87304s, max 2.90174s
+        Do after:  p50 540µs, p95 46.51ms, p99 126.55ms, max 146.55ms
+        ticks: 38, p50 3.56ms, p95 3.85ms, p99 3.86ms, max 4.29ms, longest gap 2.863s
+        renders 38, frames 7730 sent, 0 dropped
+        WAL: 4.1 MB before, 56.5 MB at most, 56.5 MB at the end; 2 checkpoints of 1 ms or more, the longest 129ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one-12            	       1	       121.9 after-max-ms	        14.98 before-p99-ms	       111.0 ckpt-max-ms	         0 dropped	      3027 during-max-ms	      1575 during-p50-ms	      2997 during-p99-ms	        39.00 renders	      2984 tick-gap-ms	         5.258 tick-max-ms	         3.852 tick-p99-ms	        56.45 wal-end-MB	        56.45 wal-max-MB	         2.913 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one-12
+    largewrite_test.go:92: 
+        write: 2.913s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.18ms, p99 14.98ms, max 28.73ms
+        Do during: p50 1.57534s, p95 2.88047s, p99 2.99665s, max 3.0266s
+        Do after:  p50 530µs, p95 23.18ms, p99 101.93ms, max 121.92ms
+        ticks: 39, p50 1.05ms, p95 3.81ms, p99 3.85ms, max 5.26ms, longest gap 2.984s
+        renders 39, frames 7971 sent, 0 dropped
+        WAL: 4.1 MB before, 56.5 MB at most, 56.5 MB at the end; 2 checkpoints of 1 ms or more, the longest 111ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       128.9 after-max-ms	         4.672 before-p99-ms	       253.0 ckpt-max-ms	         0 dropped	       332.2 during-max-ms	       165.9 during-p50-ms	       328.4 during-p99-ms	        42.00 renders	       283.6 tick-gap-ms	         4.491 tick-max-ms	         3.984 tick-p99-ms	       186.9 wal-end-MB	       186.9 wal-max-MB	         0.3321 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 332ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.17ms, p99 4.67ms, max 10.74ms
+        Do during: p50 165.86ms, p95 314.67ms, p99 328.42ms, max 332.16ms
+        Do after:  p50 560µs, p95 28.99ms, p99 108.93ms, max 128.91ms
+        ticks: 42, p50 3.53ms, p95 3.81ms, p99 3.98ms, max 4.49ms, longest gap 284ms
+        renders 42, frames 8001 sent, 0 dropped
+        WAL: 4.2 MB before, 186.9 MB at most, 186.9 MB at the end; 4 checkpoints of 1 ms or more, the longest 253ms
+        writer: at most 266 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       129.8 after-max-ms	         4.378 before-p99-ms	       223.0 ckpt-max-ms	         0 dropped	       343.2 during-max-ms	       172.0 during-p50-ms	       339.5 during-p99-ms	        40.00 renders	       303.7 tick-gap-ms	         3.827 tick-max-ms	         3.820 tick-p99-ms	       186.8 wal-end-MB	       186.8 wal-max-MB	         0.3432 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 343ms in 1 commands; database 185 MB
+        Do before: p50 490µs, p95 1.16ms, p99 4.38ms, max 10.64ms
+        Do during: p50 171.99ms, p95 325.76ms, p99 339.5ms, max 343.25ms
+        Do after:  p50 550µs, p95 29.82ms, p99 109.8ms, max 129.77ms
+        ticks: 40, p50 930µs, p95 3.5ms, p99 3.82ms, max 3.83ms, longest gap 304ms
+        renders 40, frames 8133 sent, 0 dropped
+        WAL: 4.2 MB before, 186.8 MB at most, 186.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 223ms
+        writer: at most 274 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       132.7 after-max-ms	         1.259 before-p99-ms	       256.0 ckpt-max-ms	         0 dropped	       368.5 during-max-ms	       184.9 during-p50-ms	       364.7 during-p99-ms	        40.00 renders	       363.2 tick-gap-ms	         3.996 tick-max-ms	         3.691 tick-p99-ms	       191.1 wal-end-MB	       191.1 wal-max-MB	         0.3672 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 367ms in 1 commands; database 185 MB
+        Do before: p50 490µs, p95 1.11ms, p99 1.26ms, max 8.29ms
+        Do during: p50 184.87ms, p95 349.78ms, p99 364.75ms, max 368.49ms
+        Do after:  p50 540µs, p95 32.77ms, p99 112.75ms, max 132.74ms
+        ticks: 40, p50 3.12ms, p95 3.67ms, p99 3.69ms, max 4ms, longest gap 363ms
+        renders 40, frames 8000 sent, 0 dropped
+        WAL: 4.8 MB before, 191.1 MB at most, 191.1 MB at the end; 4 checkpoints of 1 ms or more, the longest 256ms
+        writer: at most 294 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       179.6 after-max-ms	         5.298 before-p99-ms	       261.0 ckpt-max-ms	         0 dropped	       390.9 during-max-ms	       196.0 during-p50-ms	       385.9 during-p99-ms	        39.00 renders	       383.1 tick-gap-ms	         4.220 tick-max-ms	         1.303 tick-p99-ms	       186.8 wal-end-MB	       186.8 wal-max-MB	         0.3910 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 391ms in 1 commands; database 185 MB
+        Do before: p50 540µs, p95 1.15ms, p99 5.3ms, max 9.98ms
+        Do during: p50 196.01ms, p95 370.97ms, p99 385.93ms, max 390.92ms
+        Do after:  p50 570µs, p95 79.77ms, p99 159.68ms, max 179.65ms
+        ticks: 39, p50 840µs, p95 1.24ms, p99 1.3ms, max 4.22ms, longest gap 383ms
+        renders 39, frames 7800 sent, 0 dropped
+        WAL: 8.4 MB before, 186.8 MB at most, 186.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 261ms
+        writer: at most 312 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       169.5 after-max-ms	         4.269 before-p99-ms	       258.0 ckpt-max-ms	         0 dropped	       336.4 during-max-ms	       169.0 during-p50-ms	       332.7 during-p99-ms	        40.00 renders	       327.4 tick-gap-ms	         5.259 tick-max-ms	         4.725 tick-p99-ms	       186.7 wal-end-MB	       186.7 wal-max-MB	         0.3360 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 336ms in 1 commands; database 185 MB
+        Do before: p50 510µs, p95 1.14ms, p99 4.27ms, max 12.02ms
+        Do during: p50 168.96ms, p95 318.91ms, p99 332.65ms, max 336.45ms
+        Do after:  p50 580µs, p95 69.54ms, p99 149.51ms, max 169.5ms
+        ticks: 40, p50 930µs, p95 3.93ms, p99 4.73ms, max 5.26ms, longest gap 327ms
+        renders 40, frames 7871 sent, 0 dropped
+        WAL: 4.2 MB before, 186.7 MB at most, 186.7 MB at the end; 4 checkpoints of 1 ms or more, the longest 258ms
+        writer: at most 268 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       127.1 after-max-ms	         2.270 before-p99-ms	       253.0 ckpt-max-ms	         0 dropped	       368.6 during-max-ms	       184.9 during-p50-ms	       364.9 during-p99-ms	        40.00 renders	       328.7 tick-gap-ms	         4.252 tick-max-ms	         3.893 tick-p99-ms	       195.2 wal-end-MB	       195.2 wal-max-MB	         0.3685 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 369ms in 1 commands; database 185 MB
+        Do before: p50 510µs, p95 1.15ms, p99 2.27ms, max 7.91ms
+        Do during: p50 184.88ms, p95 350ms, p99 364.87ms, max 368.61ms
+        Do after:  p50 540µs, p95 37.75ms, p99 107.11ms, max 127.05ms
+        ticks: 40, p50 3.45ms, p95 3.89ms, p99 3.89ms, max 4.25ms, longest gap 329ms
+        renders 40, frames 8150 sent, 0 dropped
+        WAL: 9.0 MB before, 195.2 MB at most, 195.2 MB at the end; 4 checkpoints of 1 ms or more, the longest 253ms
+        writer: at most 295 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       156.7 after-max-ms	         4.458 before-p99-ms	       265.0 ckpt-max-ms	         0 dropped	       540.8 during-max-ms	       271.0 during-p50-ms	       534.6 during-p99-ms	        40.00 renders	       532.3 tick-gap-ms	         5.543 tick-max-ms	         4.007 tick-p99-ms	       186.8 wal-end-MB	       186.8 wal-max-MB	         0.5392 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 539ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.17ms, p99 4.46ms, max 540.01ms
+        Do during: p50 270.98ms, p95 513.36ms, p99 534.59ms, max 540.83ms
+        Do after:  p50 590µs, p95 56.79ms, p99 136.76ms, max 156.74ms
+        ticks: 40, p50 860µs, p95 3.48ms, p99 4.01ms, max 5.54ms, longest gap 532ms
+        renders 40, frames 7990 sent, 0 dropped
+        WAL: 4.2 MB before, 186.8 MB at most, 186.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 265ms
+        writer: at most 431 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       106.9 after-max-ms	         2.311 before-p99-ms	       217.0 ckpt-max-ms	         0 dropped	       342.7 during-max-ms	       171.5 during-p50-ms	       339.0 during-p99-ms	        41.00 renders	       333.7 tick-gap-ms	         4.246 tick-max-ms	         4.179 tick-p99-ms	       186.8 wal-end-MB	       186.8 wal-max-MB	         0.3426 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 343ms in 1 commands; database 185 MB
+        Do before: p50 490µs, p95 1.14ms, p99 2.31ms, max 12.06ms
+        Do during: p50 171.46ms, p95 325.25ms, p99 338.99ms, max 342.74ms
+        Do after:  p50 520µs, p95 6.9ms, p99 86.91ms, max 106.9ms
+        ticks: 41, p50 3.2ms, p95 4.15ms, p99 4.18ms, max 4.25ms, longest gap 334ms
+        renders 41, frames 8136 sent, 0 dropped
+        WAL: 4.2 MB before, 186.8 MB at most, 186.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 217ms
+        writer: at most 274 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       126.6 after-max-ms	         2.017 before-p99-ms	       226.0 ckpt-max-ms	         0 dropped	       338.6 during-max-ms	       169.8 during-p50-ms	       334.9 during-p99-ms	        40.00 renders	       325.2 tick-gap-ms	         4.358 tick-max-ms	         3.661 tick-p99-ms	       186.7 wal-end-MB	       186.7 wal-max-MB	         0.3378 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 338ms in 1 commands; database 185 MB
+        Do before: p50 510µs, p95 1.17ms, p99 2.02ms, max 10.68ms
+        Do during: p50 169.81ms, p95 321.05ms, p99 334.89ms, max 338.64ms
+        Do after:  p50 550µs, p95 26.6ms, p99 106.58ms, max 126.58ms
+        ticks: 40, p50 3.15ms, p95 3.52ms, p99 3.66ms, max 4.36ms, longest gap 325ms
+        renders 40, frames 8000 sent, 0 dropped
+        WAL: 12.5 MB before, 186.7 MB at most, 186.7 MB at the end; 4 checkpoints of 1 ms or more, the longest 226ms
+        writer: at most 271 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one/aside-12   	       1	       132.0 after-max-ms	         1.649 before-p99-ms	       237.0 ckpt-max-ms	         0 dropped	       341.0 during-max-ms	       171.1 during-p50-ms	       337.3 during-p99-ms	        41.00 renders	       292.1 tick-gap-ms	         4.236 tick-max-ms	         4.167 tick-p99-ms	       186.8 wal-end-MB	       186.8 wal-max-MB	         0.3407 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one/aside-12
+    largewrite_test.go:92: 
+        write: 341ms in 1 commands; database 185 MB
+        Do before: p50 520µs, p95 1.15ms, p99 1.65ms, max 9.96ms
+        Do during: p50 171.09ms, p95 323.54ms, p99 337.26ms, max 341.01ms
+        Do after:  p50 550µs, p95 32.09ms, p99 112.01ms, max 132.04ms
+        ticks: 41, p50 3.23ms, p95 3.83ms, p99 4.17ms, max 4.24ms, longest gap 292ms
+        renders 41, frames 8121 sent, 0 dropped
+        WAL: 4.2 MB before, 186.8 MB at most, 186.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 237ms
+        writer: at most 273 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        12.38 after-max-ms	         4.852 before-p99-ms	        37.00 ckpt-max-ms	         0 dropped	        57.45 during-max-ms	        17.56 during-p50-ms	        52.73 during-p99-ms	        55.00 renders	        53.18 tick-gap-ms	         4.036 tick-max-ms	         3.862 tick-p99-ms	        13.05 wal-end-MB	        13.05 wal-max-MB	         0.7673 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 767ms in 45 commands; database 185 MB
+        Do before: p50 490µs, p95 1.17ms, p99 4.85ms, max 16.09ms
+        Do during: p50 17.56ms, p95 43.78ms, p99 52.73ms, max 57.45ms
+        Do after:  p50 510µs, p95 1.15ms, p99 4.34ms, max 12.38ms
+        ticks: 55, p50 2.11ms, p95 3.84ms, p99 3.86ms, max 4.04ms, longest gap 53ms
+        renders 55, frames 10914 sent, 0 dropped
+        WAL: 4.2 MB before, 13.1 MB at most, 13.1 MB at the end; 34 checkpoints of 1 ms or more, the longest 37ms
+        writer: at most 36 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        25.96 after-max-ms	         3.803 before-p99-ms	        29.00 ckpt-max-ms	         0 dropped	        53.57 during-max-ms	        17.17 during-p50-ms	        48.40 during-p99-ms	        55.00 renders	        53.08 tick-gap-ms	         3.857 tick-max-ms	         3.777 tick-p99-ms	        13.06 wal-end-MB	        13.06 wal-max-MB	         0.7414 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 741ms in 45 commands; database 185 MB
+        Do before: p50 500µs, p95 1.14ms, p99 3.8ms, max 10.88ms
+        Do during: p50 17.17ms, p95 40.04ms, p99 48.4ms, max 53.57ms
+        Do after:  p50 500µs, p95 1.13ms, p99 5.98ms, max 25.96ms
+        ticks: 55, p50 3.22ms, p95 3.73ms, p99 3.78ms, max 3.86ms, longest gap 53ms
+        renders 55, frames 10929 sent, 0 dropped
+        WAL: 4.8 MB before, 13.1 MB at most, 13.1 MB at the end; 34 checkpoints of 1 ms or more, the longest 29ms
+        writer: at most 29 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        30.15 after-max-ms	         1.418 before-p99-ms	        38.00 ckpt-max-ms	         0 dropped	        52.88 during-max-ms	        16.74 during-p50-ms	        46.23 during-p99-ms	        54.00 renders	        52.52 tick-gap-ms	         3.920 tick-max-ms	         3.804 tick-p99-ms	        16.56 wal-end-MB	        16.56 wal-max-MB	         0.7168 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 717ms in 45 commands; database 185 MB
+        Do before: p50 500µs, p95 1.14ms, p99 1.42ms, max 9.39ms
+        Do during: p50 16.74ms, p95 39.58ms, p99 46.23ms, max 52.88ms
+        Do after:  p50 520µs, p95 1.13ms, p99 11.9ms, max 30.15ms
+        ticks: 54, p50 1.05ms, p95 3.77ms, p99 3.8ms, max 3.92ms, longest gap 53ms
+        renders 54, frames 10800 sent, 0 dropped
+        WAL: 4.2 MB before, 16.6 MB at most, 16.6 MB at the end; 32 checkpoints of 1 ms or more, the longest 38ms
+        writer: at most 30 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        16.15 after-max-ms	         5.002 before-p99-ms	        29.00 ckpt-max-ms	         0 dropped	        46.83 during-max-ms	        16.50 during-p50-ms	        43.08 during-p99-ms	        54.00 renders	        52.21 tick-gap-ms	         4.540 tick-max-ms	         3.896 tick-p99-ms	        12.93 wal-end-MB	        12.93 wal-max-MB	         0.7314 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 731ms in 45 commands; database 185 MB
+        Do before: p50 490µs, p95 1.16ms, p99 5ms, max 11.56ms
+        Do during: p50 16.5ms, p95 38.97ms, p99 43.08ms, max 46.83ms
+        Do after:  p50 500µs, p95 1.15ms, p99 3.72ms, max 16.15ms
+        ticks: 54, p50 3.36ms, p95 3.84ms, p99 3.9ms, max 4.54ms, longest gap 52ms
+        renders 54, frames 10800 sent, 0 dropped
+        WAL: 4.2 MB before, 12.9 MB at most, 12.9 MB at the end; 34 checkpoints of 1 ms or more, the longest 29ms
+        writer: at most 30 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        23.03 after-max-ms	         5.789 before-p99-ms	        46.00 ckpt-max-ms	         0 dropped	        64.39 during-max-ms	        18.17 during-p50-ms	        59.39 during-p99-ms	        55.00 renders	        54.14 tick-gap-ms	         5.510 tick-max-ms	         4.025 tick-p99-ms	        24.81 wal-end-MB	        24.81 wal-max-MB	         0.7520 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 752ms in 45 commands; database 185 MB
+        Do before: p50 500µs, p95 1.14ms, p99 5.79ms, max 30.66ms
+        Do during: p50 18.17ms, p95 49.4ms, p99 59.39ms, max 64.39ms
+        Do after:  p50 510µs, p95 1.15ms, p99 6.88ms, max 23.03ms
+        ticks: 55, p50 2.61ms, p95 3.57ms, p99 4.02ms, max 5.51ms, longest gap 54ms
+        renders 55, frames 11000 sent, 0 dropped
+        WAL: 4.2 MB before, 24.8 MB at most, 24.8 MB at the end; 30 checkpoints of 1 ms or more, the longest 46ms
+        writer: at most 44 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        29.25 after-max-ms	         2.621 before-p99-ms	        38.00 ckpt-max-ms	         0 dropped	        54.23 during-max-ms	        16.73 during-p50-ms	        49.23 during-p99-ms	        54.00 renders	        53.40 tick-gap-ms	         3.908 tick-max-ms	         3.877 tick-p99-ms	        24.83 wal-end-MB	        24.83 wal-max-MB	         0.6908 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 691ms in 45 commands; database 185 MB
+        Do before: p50 530µs, p95 1.12ms, p99 2.62ms, max 6.27ms
+        Do during: p50 16.73ms, p95 40.11ms, p99 49.23ms, max 54.23ms
+        Do after:  p50 540µs, p95 1.13ms, p99 10.22ms, max 29.25ms
+        ticks: 54, p50 1.56ms, p95 3.73ms, p99 3.88ms, max 3.91ms, longest gap 53ms
+        renders 54, frames 10708 sent, 0 dropped
+        WAL: 4.2 MB before, 24.8 MB at most, 24.8 MB at the end; 31 checkpoints of 1 ms or more, the longest 38ms
+        writer: at most 37 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        12.59 after-max-ms	         3.216 before-p99-ms	        34.00 ckpt-max-ms	         0 dropped	        51.93 during-max-ms	        16.42 during-p50-ms	        44.43 during-p99-ms	        55.00 renders	        52.58 tick-gap-ms	         4.036 tick-max-ms	         3.930 tick-p99-ms	        17.15 wal-end-MB	        17.15 wal-max-MB	         0.7279 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 728ms in 45 commands; database 185 MB
+        Do before: p50 510µs, p95 1.15ms, p99 3.22ms, max 12.5ms
+        Do during: p50 16.42ms, p95 38.57ms, p99 44.43ms, max 51.93ms
+        Do after:  p50 510µs, p95 1.13ms, p99 3.3ms, max 12.59ms
+        ticks: 55, p50 3.13ms, p95 3.79ms, p99 3.93ms, max 4.04ms, longest gap 53ms
+        renders 55, frames 10898 sent, 0 dropped
+        WAL: 4.2 MB before, 17.2 MB at most, 17.2 MB at the end; 34 checkpoints of 1 ms or more, the longest 34ms
+        writer: at most 35 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        15.82 after-max-ms	         4.113 before-p99-ms	        30.00 ckpt-max-ms	         0 dropped	        45.77 during-max-ms	        16.99 during-p50-ms	        42.59 during-p99-ms	        54.00 renders	        52.60 tick-gap-ms	         4.017 tick-max-ms	         3.789 tick-p99-ms	        16.56 wal-end-MB	        16.56 wal-max-MB	         0.7253 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 725ms in 45 commands; database 185 MB
+        Do before: p50 500µs, p95 1.15ms, p99 4.11ms, max 29.01ms
+        Do during: p50 16.99ms, p95 38.85ms, p99 42.59ms, max 45.77ms
+        Do after:  p50 510µs, p95 1.13ms, p99 1.3ms, max 15.82ms
+        ticks: 54, p50 3.08ms, p95 3.41ms, p99 3.79ms, max 4.02ms, longest gap 53ms
+        renders 54, frames 10800 sent, 0 dropped
+        WAL: 4.3 MB before, 16.6 MB at most, 16.6 MB at the end; 32 checkpoints of 1 ms or more, the longest 30ms
+        writer: at most 30 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        46.16 after-max-ms	         1.352 before-p99-ms	        45.00 ckpt-max-ms	         0 dropped	        54.03 during-max-ms	        17.71 during-p50-ms	        51.16 during-p99-ms	        55.00 renders	        53.14 tick-gap-ms	         4.065 tick-max-ms	         4.052 tick-p99-ms	        13.07 wal-end-MB	        13.07 wal-max-MB	         0.7380 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 738ms in 45 commands; database 185 MB
+        Do before: p50 480µs, p95 1.13ms, p99 1.35ms, max 5.29ms
+        Do during: p50 17.71ms, p95 42.34ms, p99 51.16ms, max 54.03ms
+        Do after:  p50 510µs, p95 1.21ms, p99 26.18ms, max 46.16ms
+        ticks: 55, p50 3.42ms, p95 3.75ms, p99 4.05ms, max 4.07ms, longest gap 53ms
+        renders 55, frames 10993 sent, 0 dropped
+        WAL: 4.2 MB before, 13.1 MB at most, 13.1 MB at the end; 32 checkpoints of 1 ms or more, the longest 45ms
+        writer: at most 41 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12         	       1	        29.08 after-max-ms	         2.106 before-p99-ms	        34.00 ckpt-max-ms	         0 dropped	        70.71 during-max-ms	        19.75 during-p50-ms	        61.96 during-p99-ms	        56.00 renders	        51.34 tick-gap-ms	         1.861 tick-max-ms	         1.497 tick-p99-ms	        12.44 wal-end-MB	        12.44 wal-max-MB	         0.8018 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/chunks=1000/aside-12
+    largewrite_test.go:92: 
+        write: 802ms in 45 commands; database 185 MB
+        Do before: p50 500µs, p95 1.11ms, p99 2.11ms, max 8.81ms
+        Do during: p50 19.75ms, p95 45.26ms, p99 61.96ms, max 70.71ms
+        Do after:  p50 520µs, p95 1.11ms, p99 9.09ms, max 29.08ms
+        ticks: 56, p50 780µs, p95 1.14ms, p99 1.5ms, max 1.86ms, longest gap 51ms
+        renders 56, frames 11200 sent, 0 dropped
+        WAL: 4.2 MB before, 12.4 MB at most, 12.4 MB at the end; 34 checkpoints of 1 ms or more, the longest 34ms
+        writer: at most 37 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        45.82 after-max-ms	         2.822 before-p99-ms	        87.00 ckpt-max-ms	         0 dropped	      2789 during-max-ms	      1399 during-p50-ms	      2760 during-p99-ms	        41.00 renders	      2777 tick-gap-ms	         4.558 tick-max-ms	         3.801 tick-p99-ms	        56.56 wal-end-MB	        56.56 wal-max-MB	         2.787 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 2.787s in 1 commands; database 240 MB
+        Do before: p50 520µs, p95 1.09ms, p99 2.82ms, max 7.82ms
+        Do during: p50 1.39896s, p95 2.64875s, p99 2.75997s, max 2.78871s
+        Do after:  p50 520µs, p95 1.2ms, p99 25.84ms, max 45.82ms
+        ticks: 41, p50 3.06ms, p95 3.8ms, p99 3.8ms, max 4.56ms, longest gap 2.777s
+        renders 41, frames 8200 sent, 0 dropped
+        WAL: 4.3 MB before, 56.6 MB at most, 56.6 MB at the end; 4 checkpoints of 1 ms or more, the longest 87ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        53.34 after-max-ms	         1.512 before-p99-ms	        73.00 ckpt-max-ms	         0 dropped	      3134 during-max-ms	      1573 during-p50-ms	      3101 during-p99-ms	        41.00 renders	      3087 tick-gap-ms	         3.912 tick-max-ms	         3.873 tick-p99-ms	        56.86 wal-end-MB	        56.86 wal-max-MB	         3.133 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 3.133s in 1 commands; database 240 MB
+        Do before: p50 510µs, p95 1.08ms, p99 1.51ms, max 4.14ms
+        Do during: p50 1.57253s, p95 2.97626s, p99 3.10122s, max 3.13369s
+        Do after:  p50 510µs, p95 1.3ms, p99 33.35ms, max 53.34ms
+        ticks: 41, p50 3.53ms, p95 3.83ms, p99 3.87ms, max 3.91ms, longest gap 3.087s
+        renders 41, frames 8370 sent, 0 dropped
+        WAL: 4.1 MB before, 56.9 MB at most, 56.9 MB at the end; 4 checkpoints of 1 ms or more, the longest 73ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        44.28 after-max-ms	         1.126 before-p99-ms	       106.0 ckpt-max-ms	         0 dropped	      2856 during-max-ms	      1433 during-p50-ms	      2827 during-p99-ms	        41.00 renders	      2848 tick-gap-ms	         3.926 tick-max-ms	         3.475 tick-p99-ms	        56.88 wal-end-MB	        56.88 wal-max-MB	         2.855 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 2.855s in 1 commands; database 240 MB
+        Do before: p50 490µs, p95 1.06ms, p99 1.13ms, max 2.85739s
+        Do during: p50 1.43346s, p95 2.71247s, p99 2.8274s, max 2.85614s
+        Do after:  p50 520µs, p95 1.27ms, p99 30.63ms, max 44.28ms
+        ticks: 41, p50 2.99ms, p95 3.45ms, p99 3.48ms, max 3.93ms, longest gap 2.848s
+        renders 41, frames 8200 sent, 0 dropped
+        WAL: 4.2 MB before, 56.9 MB at most, 56.9 MB at the end; 4 checkpoints of 1 ms or more, the longest 106ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        47.01 after-max-ms	         1.123 before-p99-ms	        80.00 ckpt-max-ms	         0 dropped	      2891 during-max-ms	      1451 during-p50-ms	      2861 during-p99-ms	        41.00 renders	      2881 tick-gap-ms	         3.556 tick-max-ms	         3.427 tick-p99-ms	        56.85 wal-end-MB	        56.85 wal-max-MB	         2.890 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 2.89s in 1 commands; database 240 MB
+        Do before: p50 500µs, p95 1.07ms, p99 1.12ms, max 2.89246s
+        Do during: p50 1.45125s, p95 2.74614s, p99 2.86109s, max 2.89121s
+        Do after:  p50 520µs, p95 1.13ms, p99 27.02ms, max 47.01ms
+        ticks: 41, p50 760µs, p95 3.3ms, p99 3.43ms, max 3.56ms, longest gap 2.881s
+        renders 41, frames 8200 sent, 0 dropped
+        WAL: 4.1 MB before, 56.9 MB at most, 56.9 MB at the end; 4 checkpoints of 1 ms or more, the longest 80ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        49.65 after-max-ms	         2.176 before-p99-ms	        76.00 ckpt-max-ms	         0 dropped	      2774 during-max-ms	      1392 during-p50-ms	      2745 during-p99-ms	        41.00 renders	      2730 tick-gap-ms	         4.045 tick-max-ms	         3.900 tick-p99-ms	        60.93 wal-end-MB	        60.93 wal-max-MB	         2.773 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 2.773s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.13ms, p99 2.18ms, max 8.3ms
+        Do during: p50 1.39244s, p95 2.63494s, p99 2.74491s, max 2.77375s
+        Do after:  p50 510µs, p95 1.22ms, p99 29.66ms, max 49.65ms
+        ticks: 41, p50 3.5ms, p95 3.88ms, p99 3.9ms, max 4.05ms, longest gap 2.73s
+        renders 41, frames 8383 sent, 0 dropped
+        WAL: 4.8 MB before, 60.9 MB at most, 60.9 MB at the end; 4 checkpoints of 1 ms or more, the longest 76ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        52.79 after-max-ms	         2.316 before-p99-ms	        78.00 ckpt-max-ms	         0 dropped	      3122 during-max-ms	      1567 during-p50-ms	      3091 during-p99-ms	        41.00 renders	      3083 tick-gap-ms	         4.460 tick-max-ms	         4.087 tick-p99-ms	        56.83 wal-end-MB	        56.83 wal-max-MB	         3.121 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 3.121s in 1 commands; database 240 MB
+        Do before: p50 500µs, p95 1.13ms, p99 2.32ms, max 6.09ms
+        Do during: p50 1.56688s, p95 2.9656s, p99 3.09063s, max 3.12182s
+        Do after:  p50 500µs, p95 1.29ms, p99 32.81ms, max 52.79ms
+        ticks: 41, p50 3.45ms, p95 3.99ms, p99 4.09ms, max 4.46ms, longest gap 3.083s
+        renders 41, frames 8289 sent, 0 dropped
+        WAL: 4.2 MB before, 56.8 MB at most, 56.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 78ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        47.59 after-max-ms	         4.408 before-p99-ms	        89.00 ckpt-max-ms	         0 dropped	      2757 during-max-ms	      1383 during-p50-ms	      2728 during-p99-ms	        41.00 renders	      2716 tick-gap-ms	         3.854 tick-max-ms	         3.810 tick-p99-ms	        56.79 wal-end-MB	        56.79 wal-max-MB	         2.756 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 2.756s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.16ms, p99 4.41ms, max 9.94ms
+        Do during: p50 1.38256s, p95 2.61795s, p99 2.7279s, max 2.75663s
+        Do after:  p50 530µs, p95 1.19ms, p99 27.57ms, max 47.59ms
+        ticks: 41, p50 3.46ms, p95 3.81ms, p99 3.81ms, max 3.85ms, longest gap 2.716s
+        renders 41, frames 8364 sent, 0 dropped
+        WAL: 4.2 MB before, 56.8 MB at most, 56.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 89ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        61.73 after-max-ms	         1.928 before-p99-ms	        80.00 ckpt-max-ms	         0 dropped	      2843 during-max-ms	      1427 during-p50-ms	      2814 during-p99-ms	        41.00 renders	      2804 tick-gap-ms	         5.377 tick-max-ms	         4.339 tick-p99-ms	        56.79 wal-end-MB	        56.79 wal-max-MB	         2.843 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 2.843s in 1 commands; database 240 MB
+        Do before: p50 480µs, p95 1.14ms, p99 1.93ms, max 10.6ms
+        Do during: p50 1.42698s, p95 2.70071s, p99 2.81443s, max 2.84316s
+        Do after:  p50 530µs, p95 1.33ms, p99 41.73ms, max 61.73ms
+        ticks: 41, p50 3.52ms, p95 3.95ms, p99 4.34ms, max 5.38ms, longest gap 2.804s
+        renders 41, frames 8333 sent, 0 dropped
+        WAL: 4.2 MB before, 56.8 MB at most, 56.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 80ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        51.89 after-max-ms	         4.131 before-p99-ms	        88.00 ckpt-max-ms	         0 dropped	      3146 during-max-ms	      1579 during-p50-ms	      3114 during-p99-ms	        41.00 renders	      3102 tick-gap-ms	         7.737 tick-max-ms	         4.854 tick-p99-ms	        56.84 wal-end-MB	        56.84 wal-max-MB	         3.145 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 3.145s in 1 commands; database 240 MB
+        Do before: p50 530µs, p95 1.3ms, p99 4.13ms, max 12.88ms
+        Do during: p50 1.57924s, p95 2.9886s, p99 3.11354s, max 3.14607s
+        Do after:  p50 580µs, p95 2.69ms, p99 31.91ms, max 51.89ms
+        ticks: 41, p50 790µs, p95 4.59ms, p99 4.85ms, max 7.74ms, longest gap 3.102s
+        renders 41, frames 8321 sent, 0 dropped
+        WAL: 4.2 MB before, 56.8 MB at most, 56.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 88ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/fts/one/aside-12                    	       1	        72.90 after-max-ms	         7.354 before-p99-ms	        96.00 ckpt-max-ms	         0 dropped	      3158 during-max-ms	      1584 during-p50-ms	      3125 during-p99-ms	        41.00 renders	      3140 tick-gap-ms	         4.058 tick-max-ms	         3.837 tick-p99-ms	        56.82 wal-end-MB	        56.82 wal-max-MB	         3.157 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/fts/one/aside-12
+    largewrite_test.go:92: 
+        write: 3.157s in 1 commands; database 240 MB
+        Do before: p50 560µs, p95 1.97ms, p99 7.35ms, max 3.16034s
+        Do during: p50 1.58407s, p95 2.99913s, p99 3.12533s, max 3.15784s
+        Do after:  p50 540µs, p95 2.92ms, p99 52.88ms, max 72.9ms
+        ticks: 41, p50 860µs, p95 3.57ms, p99 3.84ms, max 4.06ms, longest gap 3.14s
+        renders 41, frames 8200 sent, 0 dropped
+        WAL: 4.2 MB before, 56.8 MB at most, 56.8 MB at the end; 4 checkpoints of 1 ms or more, the longest 96ms
+        writer: at most 512 commands a transaction; 0 errors
+PASS
+## v0.4.0 (7495607), NORMAL/update/one
+13:38:18 large-base load 2.96 3.36 9.57
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/loadtest
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       376.5 after-max-ms	        18.79 before-p99-ms	       374.0 ckpt-max-ms	         0 dropped	       843.9 during-max-ms	       610.3 during-p50-ms	       838.9 during-p99-ms	        34.00 renders	       798.9 tick-gap-ms	         4.640 tick-max-ms	         3.840 tick-p99-ms	       185.9 wal-end-MB	       185.9 wal-max-MB	         0.4670 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 467ms in 1 commands; database 185 MB
+        Do before: p50 520µs, p95 1.19ms, p99 18.79ms, max 33.7ms
+        Do during: p50 610.29ms, p95 820.18ms, p99 838.9ms, max 843.89ms
+        Do after:  p50 690µs, p95 276.54ms, p99 356.57ms, max 376.53ms
+        ticks: 34, p50 3.41ms, p95 3.78ms, p99 3.84ms, max 4.64ms, longest gap 799ms
+        renders 34, frames 6910 sent, 0 dropped
+        WAL: 4.1 MB before, 185.9 MB at most, 185.9 MB at the end; 2 checkpoints of 1 ms or more, the longest 374ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       392.1 after-max-ms	        16.69 before-p99-ms	       382.0 ckpt-max-ms	         0 dropped	       855.5 during-max-ms	       624.3 during-p50-ms	       850.5 during-p99-ms	        33.00 renders	       848.0 tick-gap-ms	         4.754 tick-max-ms	         4.467 tick-p99-ms	       185.9 wal-end-MB	       185.9 wal-max-MB	         0.4640 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 464ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.21ms, p99 16.69ms, max 29.6ms
+        Do during: p50 624.33ms, p95 831.78ms, p99 850.51ms, max 855.49ms
+        Do after:  p50 660µs, p95 292.2ms, p99 372.19ms, max 392.08ms
+        ticks: 33, p50 3.46ms, p95 3.8ms, p99 4.47ms, max 4.75ms, longest gap 848ms
+        renders 33, frames 6600 sent, 0 dropped
+        WAL: 4.1 MB before, 185.9 MB at most, 185.9 MB at the end; 2 checkpoints of 1 ms or more, the longest 382ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       373.6 after-max-ms	        37.98 before-p99-ms	       370.0 ckpt-max-ms	         0 dropped	       837.0 during-max-ms	       605.9 during-p50-ms	       832.0 during-p99-ms	        34.00 renders	       790.9 tick-gap-ms	         4.002 tick-max-ms	         4.001 tick-p99-ms	       186.0 wal-end-MB	       186.0 wal-max-MB	         0.4639 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 464ms in 1 commands; database 185 MB
+        Do before: p50 530µs, p95 1.29ms, p99 37.98ms, max 57.95ms
+        Do during: p50 605.92ms, p95 813.31ms, p99 832.05ms, max 837.04ms
+        Do after:  p50 680µs, p95 273.45ms, p99 353.45ms, max 373.56ms
+        ticks: 35, p50 3.46ms, p95 3.84ms, p99 4ms, max 4ms, longest gap 791ms
+        renders 34, frames 6826 sent, 0 dropped
+        WAL: 4.1 MB before, 186.0 MB at most, 186.0 MB at the end; 2 checkpoints of 1 ms or more, the longest 370ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       767.4 after-max-ms	        50.34 before-p99-ms	       755.0 ckpt-max-ms	         0 dropped	      1255 during-max-ms	      1011 during-p50-ms	      1250 during-p99-ms	        27.00 renders	      1206 tick-gap-ms	         1.283 tick-max-ms	         1.220 tick-p99-ms	       185.6 wal-end-MB	       185.6 wal-max-MB	         0.4873 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 487ms in 1 commands; database 185 MB
+        Do before: p50 620µs, p95 12.8ms, p99 50.34ms, max 70.33ms
+        Do during: p50 1.01106s, p95 1.22977s, p99 1.24975s, max 1.25475s
+        Do after:  p50 900µs, p95 667.37ms, p99 747.36ms, max 767.39ms
+        ticks: 27, p50 690µs, p95 840µs, p99 1.22ms, max 1.28ms, longest gap 1.206s
+        renders 27, frames 5400 sent, 0 dropped
+        WAL: 4.1 MB before, 185.6 MB at most, 185.6 MB at the end; 1 checkpoints of 1 ms or more, the longest 755ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       397.8 after-max-ms	        15.68 before-p99-ms	       395.0 ckpt-max-ms	         0 dropped	       850.1 during-max-ms	       623.9 during-p50-ms	       845.1 during-p99-ms	        33.00 renders	       845.8 tick-gap-ms	         5.506 tick-max-ms	         3.926 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.4527 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 453ms in 1 commands; database 185 MB
+        Do before: p50 520µs, p95 1.19ms, p99 15.68ms, max 29.41ms
+        Do during: p50 623.93ms, p95 826.35ms, p99 845.13ms, max 850.12ms
+        Do after:  p50 680µs, p95 297.78ms, p99 377.81ms, max 397.77ms
+        ticks: 33, p50 3.45ms, p95 3.85ms, p99 3.93ms, max 5.51ms, longest gap 846ms
+        renders 33, frames 6600 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 395ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       354.3 after-max-ms	        13.19 before-p99-ms	       350.0 ckpt-max-ms	         0 dropped	       851.6 during-max-ms	       602.9 during-p50-ms	       846.6 during-p99-ms	        34.00 renders	       851.7 tick-gap-ms	         3.606 tick-max-ms	         3.535 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.4975 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 498ms in 1 commands; database 185 MB
+        Do before: p50 530µs, p95 1.21ms, p99 13.19ms, max 28.17ms
+        Do during: p50 602.95ms, p95 826.64ms, p99 846.64ms, max 851.64ms
+        Do after:  p50 640µs, p95 254.31ms, p99 334.28ms, max 354.29ms
+        ticks: 34, p50 3.12ms, p95 3.46ms, p99 3.54ms, max 3.61ms, longest gap 852ms
+        renders 34, frames 6800 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 350ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       343.3 after-max-ms	         7.021 before-p99-ms	       339.0 ckpt-max-ms	         0 dropped	       843.1 during-max-ms	       593.2 during-p50-ms	       838.1 during-p99-ms	        34.00 renders	       800.4 tick-gap-ms	         5.152 tick-max-ms	         4.123 tick-p99-ms	       186.2 wal-end-MB	       186.2 wal-max-MB	         0.5006 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 501ms in 1 commands; database 185 MB
+        Do before: p50 520µs, p95 1.17ms, p99 7.02ms, max 18.02ms
+        Do during: p50 593.17ms, p95 818.11ms, p99 838.14ms, max 843.13ms
+        Do after:  p50 650µs, p95 243.26ms, p99 323.28ms, max 343.28ms
+        ticks: 34, p50 3.41ms, p95 3.96ms, p99 4.12ms, max 5.15ms, longest gap 800ms
+        renders 34, frames 6932 sent, 0 dropped
+        WAL: 4.1 MB before, 186.2 MB at most, 186.2 MB at the end; 2 checkpoints of 1 ms or more, the longest 339ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       330.4 after-max-ms	        11.77 before-p99-ms	       327.0 ckpt-max-ms	         0 dropped	       793.8 during-max-ms	       562.7 during-p50-ms	       788.8 during-p99-ms	        35.00 renders	       754.0 tick-gap-ms	         4.352 tick-max-ms	         4.277 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.4640 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 464ms in 1 commands; database 185 MB
+        Do before: p50 500µs, p95 1.18ms, p99 11.77ms, max 22.85ms
+        Do during: p50 562.7ms, p95 770.1ms, p99 788.84ms, max 793.83ms
+        Do after:  p50 670µs, p95 230.3ms, p99 310.36ms, max 330.36ms
+        ticks: 35, p50 3.05ms, p95 4.13ms, p99 4.28ms, max 4.35ms, longest gap 754ms
+        renders 35, frames 7041 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 327ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       366.0 after-max-ms	        11.58 before-p99-ms	       362.0 ckpt-max-ms	         0 dropped	       904.5 during-max-ms	       635.9 during-p50-ms	       898.3 during-p99-ms	        34.00 renders	       866.3 tick-gap-ms	         4.186 tick-max-ms	         4.157 tick-p99-ms	       186.2 wal-end-MB	       186.2 wal-max-MB	         0.5383 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 538ms in 1 commands; database 185 MB
+        Do before: p50 540µs, p95 1.24ms, p99 11.58ms, max 31.53ms
+        Do during: p50 635.93ms, p95 877.07ms, p99 898.3ms, max 904.55ms
+        Do after:  p50 640µs, p95 266.14ms, p99 346.08ms, max 366.03ms
+        ticks: 34, p50 3.48ms, p95 3.84ms, p99 4.16ms, max 4.19ms, longest gap 866ms
+        renders 34, frames 6922 sent, 0 dropped
+        WAL: 4.1 MB before, 186.2 MB at most, 186.2 MB at the end; 2 checkpoints of 1 ms or more, the longest 362ms
+        writer: at most 512 commands a transaction; 0 errors
+BenchmarkLargeWrite/NORMAL/update/one-12         	       1	       369.1 after-max-ms	        12.00 before-p99-ms	       367.0 ckpt-max-ms	         0 dropped	       844.0 during-max-ms	       606.5 during-p50-ms	       839.0 during-p99-ms	        34.00 renders	       839.4 tick-gap-ms	         4.083 tick-max-ms	         3.922 tick-p99-ms	       186.1 wal-end-MB	       186.1 wal-max-MB	         0.4748 write-s
+--- BENCH: BenchmarkLargeWrite/NORMAL/update/one-12
+    largewrite_test.go:83: 
+        write: 475ms in 1 commands; database 185 MB
+        Do before: p50 510µs, p95 1.18ms, p99 12ms, max 24.33ms
+        Do during: p50 606.55ms, p95 820.25ms, p99 838.98ms, max 843.96ms
+        Do after:  p50 670µs, p95 269.11ms, p99 349.08ms, max 369.14ms
+        ticks: 34, p50 3.53ms, p95 3.87ms, p99 3.92ms, max 4.08ms, longest gap 839ms
+        renders 34, frames 6800 sent, 0 dropped
+        WAL: 4.1 MB before, 186.1 MB at most, 186.1 MB at the end; 2 checkpoints of 1 ms or more, the longest 367ms
+        writer: at most 512 commands a transaction; 0 errors
+PASS

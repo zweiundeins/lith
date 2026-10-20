@@ -1,0 +1,124 @@
+# One UPDATE through database/sql's prepared statement and through the driver's under Conn.Raw (a throwaway benchmark, not in the repository), ten runs
+13:36:47 raw load 3.63 3.38 10.24
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1105857	      1022 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1540999	       777.2 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1231711	       979.9 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1532755	       778.8 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1232017	       974.6 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1516358	       793.4 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	  919383	      1472 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1141455	      1065 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1000000	      1289 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1525416	       782.3 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1274970	       939.6 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1555033	       771.4 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1236921	       968.7 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1554163	       772.3 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1155744	      1019 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1547576	       770.7 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	 1000000	      1287 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1000000	      1325 ns/op	      21 B/op	       2 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/writer
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkZZExec/database-sql-12         	  899030	      1181 ns/op	     133 B/op	       4 allocs/op
+BenchmarkZZExec/raw-12                  	 1533684	       781.5 ns/op	      21 B/op	       2 allocs/op
+PASS
+
+# The benchmark, put in writer/ for the run:
+
+func BenchmarkZZExec(b *testing.B) {
+	for _, raw := range []bool{false, true} {
+		name := "database-sql"
+		if raw {
+			name = "raw"
+		}
+		b.Run(name, func(b *testing.B) {
+			db := openDB(b, sqlite.Options{})
+			defer db.Close()
+			ctx := context.Background()
+			conn, err := db.W.Conn(ctx)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer conn.Close()
+			const q = "UPDATE counters SET n = n + ? WHERE id = ?"
+			st, _ := conn.PrepareContext(ctx, q)
+			var ds driver.Stmt
+			conn.Raw(func(dc any) error {
+				ds, err = dc.(driver.ConnPrepareContext).PrepareContext(ctx, q)
+				return err
+			})
+			args := make([]driver.NamedValue, 2)
+			b.ReportAllocs()
+			for i := 0; b.Loop(); i++ {
+				if i%100 == 0 {
+					conn.ExecContext(ctx, "BEGIN")
+				}
+				if raw {
+					err = conn.Raw(func(any) error {
+						args[0] = driver.NamedValue{Ordinal: 1, Value: int64(1)}
+						args[1] = driver.NamedValue{Ordinal: 2, Value: int64(1 + i%2)}
+						_, err := ds.(driver.StmtExecContext).ExecContext(ctx, args)
+						return err
+					})
+				} else {
+					_, err = st.ExecContext(ctx, 1, 1+i%2)
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+				if i%100 == 99 {
+					conn.ExecContext(ctx, "COMMIT")
+				}
+			}
+			conn.ExecContext(ctx, "ROLLBACK")
+		})
+	}
+}

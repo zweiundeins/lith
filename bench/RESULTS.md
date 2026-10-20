@@ -338,6 +338,89 @@ The hub's own benchmarks in `live` ran right after, the same way: six runs of ea
 
 Medians; every run of a case was within 6% of its median but the moved `TickDepends`, 1.56 to 1.81 ms and 2.46 to 3.20 ms. A view that changes its topics now updates the hub's tree for each, about 2.1 µs a view for four in and four out against 1.2 µs before, with 4 more allocations; the rest moved by a few percent at most.
 
+## After the v0.4.0 review: the writer and edge.Compress
+
+Measured on 2026-10-20 between 13:07 and 13:51 UTC on the development machine of the Writer section, an Intel i5-13500 (20 threads) under Linux 6.18 (Unraid), with Go 1.27.2, modernc.org/sqlite v1.60.1, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, the databases in `/tmp`. v0.4.0 is 7495607 (the tag with its modules' requirements); the changes are the branch `review-writer-perf`. Each test binary was built once, and the runs took `flock /tmp/lith-bench.lock`, pinned to the performance cores. Other agents' jobs shared the machine: the 1-minute load average fell from 25 to 3 during the first set (the large writes, the compression, the first writer runs, discarded for the second set) and stayed between 2.4 and 7.6 after. The output of every run, with the load average, is in `bench/writer-review/`.
+
+### One command without a savepoint
+
+A batch of one command runs it without `SAVEPOINT` and `RELEASE`, and rolls the batch back if it fails. `BenchmarkWriter`, ten runs of each binary alternating, 2 s a case, at a load average of 2.4 to 4.2:
+
+    taskset -c 0-11 ./writer.test -test.run '^$' -test.bench 'Writer$' -test.benchtime 2s -test.count 1
+
+| synchronous | producers | v0.4.0, commands/s | now | benchstat |
+|---|---|---|---|---|
+| FULL | 1 | 325 | 332 | ~ (p=1.00) |
+| FULL | 50 | 6,785 | 6,840 | ~ (p=0.74) |
+| FULL | 200 | 29,460 | 33,820 | ~ (p=0.05) |
+| NORMAL | 1 | 25,240 | 26,560 | +5% (p=0.02) |
+| NORMAL | 50 | 94,250 | 95,770 | ~ (p=0.25) |
+| NORMAL | 200 | 86,960 | 86,820 | ~ (p=0.68) |
+
+Medians. With 50 and 200 producers the batches hold 25 to 150 commands, and each keeps its savepoint, so nothing changes there; one producer runs six statements a command instead of eight, and gains 5%. One run of v0.4.0 and two of the branch at NORMAL with one producer stalled at 8,000 to 10,000 commands a second, the disk's doing. A `Do` of a command that touches a topic allocates 8 times instead of 19 (`TestDoAllocations`): BEGIN's and COMMIT's results in database/sql and the driver, the `Tx`, and the topics for `OnCommit`, where v0.4.0 added the request, its channel, `context.WithoutCancel`, a growing topic slice and the savepoint's two statements.
+
+The savepoint cost most for the large write. `BenchmarkLargeWrite`'s update of 186 MB in one command, ten runs each:
+
+| | v0.4.0 | now |
+|---|---|---|
+| write took | 0.47 s (0.45 to 0.54) | 0.33 s (0.31 to 0.39) |
+| Do while it ran, max | 847 ms (794 to 1,255) | 682 ms (660 to 794) |
+| longest gap between ticks | 843 ms (754 to 1,206) | 657 ms (632 to 790) |
+| longest checkpoint | 369 ms | 357 ms |
+
+The command alone in its batch now writes as fast as `Exclusive` did above (0.34 s): with a savepoint open, SQLite keeps a journal of every page the update changes, to roll back to it.
+
+### Checkpoints beside the batches
+
+`writer.Options.CheckpointAside` runs the passive checkpoints on a connection of their own (`sqlite.DB.Checkpointer`, with `wal_autocheckpoint(0)`) in a goroutine of their own, and the writer goes on with the next batch. SQLite starts the WAL over only at a write that finds it copied whole, which a checkpoint beside the batches rarely leaves, so once one has ended the writer copies what the batches wrote meanwhile itself, between two batches; without that, the WAL of `TestCheckpointAside` grew to 14 MB over 200 batches, every frame of them. `BenchmarkLargeWrite`, ten runs of each case, medians and ranges:
+
+    taskset -c 0-11 ./loadtest.test -test.run '^$' -test.bench 'LargeWrite/NORMAL/(update|fts)/(one|chunks=1000)' -test.benchtime 1x -test.count 10
+
+| write | as | checkpoints | write took | Do while it ran, p50 | max | longest gap between ticks | Do in the 2 s after, max | WAL at most | longest checkpoint |
+|---|---|---|---|---|---|---|---|---|---|
+| update | one command | between batches | 0.33 s | 520 ms | 682 ms | 657 ms | 360 ms | 186 MB | 357 ms |
+| update | one command | aside | 0.34 s (0.33 to 0.54) | 172 ms | 343 ms (332 to 541) | 328 ms (284 to 532) | 131 ms | 187 MB | 253 ms |
+| update | chunks of 1,000 | between batches | 1.08 s | 23.2 ms | 55 ms | 54 ms | 33 ms | 5.7 MB (4.6 to 9.0) | 35 ms |
+| update | chunks of 1,000 | aside | 0.73 s (0.69 to 0.80) | 17.1 ms | 54 ms | 53 ms | 25 ms | 14.8 MB (12.4 to 24.8) | 36 ms |
+| FTS5 rebuild | one command | between batches | 2.77 s | 1,530 ms | 2,903 ms | 2,877 ms | 137 ms | 56.5 MB | 125 ms |
+| FTS5 rebuild | one command | aside | 2.87 s | 1,442 ms | 2,874 ms | 2,865 ms | 51 ms | 56.8 MB | 84 ms |
+
+After a write in one command, the other commands now wait for the write alone, not for the checkpoint after it: the slowest waited 343 ms instead of 682, and the pages went 328 ms without a frame instead of 657. In chunks the update took a third less time, since a chunk no longer waits for the checkpoint of the one before, and the WAL grew to 15 MB instead of 6, by what the chunks wrote while a checkpoint ran. The FTS5 rebuild is one long statement either way. No run dropped a frame.
+
+`BenchmarkWriterCheckpoint`, ten runs, at a load average of 4.2 to 7.6:
+
+| synchronous | producers | between batches, commands/s | aside | p99 per transaction |
+|---|---|---|---|---|
+| NORMAL | 200 | 85,530 | 99,020 (+16%) | 5.1 ms, aside 3.9 ms |
+| FULL | 200 | 34,870 | 33,030 (~) | 11.9 ms, aside 12.2 ms |
+
+It is not the default. It opens a second connection to every database, which a `tenant` pool of many files doubles, and the WAL grows by what the batches write while a checkpoint runs: with sustained writes that is the write rate times the checkpoint's time, where the checkpoint between batches keeps it near `CheckpointPages`. Its gains matter for writes of tens of megabytes in one command, which the docs already say to split, and for the last 16% at NORMAL with hundreds of producers. An app that has such writes turns it on.
+
+### edge.Compress: zstd before brotli
+
+`edge.Compress` compresses every GET of a page, which is `no-store`, on every request; browsers send `gzip, deflate, br, zstd` at equal weight, and the earlier coding of `Negotiate`'s list wins a tie. `BenchmarkCompress` (`edge/compress_test.go`) compresses a board page of 156 KB, 560 cards in lists of 40, through `Compress` with each coding, ten runs:
+
+| coding | time | output | throughput |
+|---|---|---|---|
+| brotli, quality 5, 2^18 | 1.41 ms | 7.0%, 11.0 KB | 106 MiB/s |
+| zstd, default level, 2^18 | 0.165 ms | 8.2%, 12.8 KB | 904 MiB/s |
+| gzip, default level | 0.233 ms | 8.9%, 13.8 KB | 640 MiB/s |
+
+zstd takes an eighth of brotli's time for 1.9 KB more, so `Compress` now prefers it; Safari sends no zstd and keeps brotli. On four cores that is the difference between about 2,800 and 24,000 such pages a second of compression. `edge.Static` keeps its brotli -11 and gzip -9 copies, made once.
+
+### database/sql's share, and SQLITE_OPEN_NOMUTEX
+
+The review measured database/sql's plumbing as 70% of the writer's garbage and suggested running a batch on the driver's connection. That does not fit the writer as it is: `Tx.Query` and `Tx.QueryRow` return `*sql.Rows` and `*sql.Row`, which only database/sql makes, and `sql.Conn.Raw` holds the connection's lock while its function runs, so a batch inside one `Raw` cannot run a query through database/sql on the same connection. What remains is `Exec` on the driver's statement, one `Raw` per call. Ten runs of one UPDATE by id in a transaction (`bench/writer-review/raw-exec.txt`, a throwaway benchmark):
+
+| | time | allocations |
+|---|---|---|
+| `*sql.Stmt.ExecContext` | 1.02 µs | 4, 133 B |
+| `Raw` and the driver's `StmtExecContext`, arguments reused | 0.78 µs | 2, 21 B |
+
+That is 0.24 µs per `Exec`, about 0.7 µs of the 11.5 µs a transfer of three `Exec`s and a `QueryRow` costs at 200 producers, 6%, for a second path that converts arguments as database/sql does (`driver.Valuer`, `NamedValueChecker`, `sql.Named`, the column converters `dbmetrics` passes on) and returns the driver's result. Not done: a small app runs hundreds of commands a second, not the benchmark's 87,000.
+
+`SQLITE_OPEN_NOMUTEX` cannot be set: modernc.org/sqlite v1.60.1 opens every connection with `SQLITE_OPEN_FULLMUTEX` (`conn.go`, `newConn`), and SQLite's URI parameters have no mutex mode. The writer's connection is used by one goroutine, so the mutexes are never contended; their cost is the calls, which a fork of the driver would remove.
+
 ## Stream budget and hibernation
 
 Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1; the settings and the floor again on 2026-10-14 between 17:28 and 17:34 UTC, on lith's main at ff7e536 (v0.2.0, whose streams flush their brotli encoders within a frame), with the 1-minute load average between 1.5 and 4.9. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:
