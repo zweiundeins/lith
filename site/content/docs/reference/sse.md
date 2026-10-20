@@ -54,6 +54,14 @@ ErrNoRoom is returned by Open when the budget has no room for the stream and Bud
 
 ## Functions
 
+### func AppendPatchElements {#AppendPatchElements}
+
+```go
+func AppendPatchElements(dst, html []byte, p ...Patch) []byte
+```
+
+AppendPatchElements is PatchElements that appends the event to dst and returns the extended slice, so that a Render can format its frame into a buffer of the size it needs (live.FrameBuffer), or format several events into one.
+
 ### func Comment {#Comment}
 
 ```go
@@ -236,6 +244,48 @@ type BudgetStats struct {
 
 BudgetStats describe a budget at one moment.
 
+### type Elements {#Elements}
+
+```go
+type Elements struct {
+	// contains filtered or unexported fields
+}
+```
+
+Elements formats a datastar-patch-elements event from HTML written to it in pieces, such as by a template's Render: each piece goes into the event as it comes, line by line, so the event holds the only copy of the HTML. Its lines end as PatchElements ends them, at "\\r\\n", "\\r" or "\\n", also where a write ends between a CR and its LF.
+
+```go
+e := sse.NewElements(live.FrameBuffer(ctx))
+if err := page.Render(ctx, e); err != nil {
+	return nil, err
+}
+return e.Event(), nil
+```
+
+#### func NewElements {#NewElements}
+
+```go
+func NewElements(dst []byte, p ...Patch) *Elements
+```
+
+NewElements starts an event in dst, which Event returns extended by it. It takes at most one Patch, as PatchElements does.
+
+#### func (*Elements) Event {#Elements.Event}
+
+```go
+func (e *Elements) Event() []byte
+```
+
+Event ends the event and returns dst with it. Later calls return the same, and writes fail.
+
+#### func (*Elements) Write {#Elements.Write}
+
+```go
+func (e *Elements) Write(p []byte) (int, error)
+```
+
+Write adds HTML to the event.
+
 ### type Mode {#Mode}
 
 ```go
@@ -401,6 +451,14 @@ func (s *Stream) Hibernate() error
 ```
 
 Hibernate ends the stream's zstd frame and gives its encoder to a pool shared by streams, and its tier back to its budget, so that an idle stream holds neither. The next write takes an encoder from the pool and starts a new frame, without the history of the frames before; with a budget, of the tier the budget then allows, or in raw blocks while it allows none. A budget with BudgetOptions.Refuse keeps the least tier that holds the stream's frame booked for it, which its next write takes when no larger one fits. A Content-Encoding: zstd body may hold any number of frames one after another, and browsers decode them as one stream. Hibernate does nothing to a stream of another coding: a brotli or gzip body is a single stream, which cannot start over without its history.
+
+#### func (*Stream) Ping {#Stream.Ping}
+
+```go
+func (s *Stream) Ping(events ...[]byte) error
+```
+
+Ping writes events that only keep the stream open, such as a heartbeat, without waking a stream that hibernates: a zstd stream without an encoder sends them in a frame of raw blocks, and keeps its tier and its budget's booking as they are. Any other stream writes them as Write does.
 
 #### func (*Stream) Sent {#Stream.Sent}
 
