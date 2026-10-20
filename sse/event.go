@@ -2,9 +2,11 @@ package sse
 
 import (
 	"bytes"
+	"fmt"
 	"html"
 	"iter"
 	"strconv"
+	"strings"
 )
 
 // Mode is how patched elements are applied to the page.
@@ -32,7 +34,9 @@ const (
 )
 
 // Patch says where and how patched elements go. The zero value morphs
-// each element into the page by its id. Values must be single lines.
+// each element into the page by its id. Values must be single lines:
+// PatchElements panics on a CR or LF in one, which would end the option's
+// line and start another of the attacker's choosing.
 //
 // ViewTransition morphs inside a view transition, the whole document's
 // unless ViewTransitionSelector names an element to scope it to. Scope
@@ -81,7 +85,17 @@ func PatchElements(html []byte, p ...Patch) []byte {
 			n++
 		}
 	}
+	singleLines(opts[:n])
 	return format(elementsEvent, opts[:n], "elements ", html)
+}
+
+// singleLines panics on an option value that holds a CR or LF.
+func singleLines(opts []line) {
+	for _, o := range opts {
+		if strings.ContainsAny(o.value, "\r\n") {
+			panic(fmt.Sprintf("sse: the Patch option %q holds a line break", strings.TrimSpace(o.key)))
+		}
+	}
 }
 
 // PatchSignals formats a datastar-patch-signals event with a JSON merge

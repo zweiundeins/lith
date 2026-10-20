@@ -118,3 +118,24 @@ func BenchmarkPatchElementsLarge(b *testing.B) {
 		PatchElements(page)
 	}
 }
+
+// A Patch option with a line break would end its data line and inject
+// another, or a new event: PatchElements refuses it.
+func TestPatchOptionsAreSingleLines(t *testing.T) {
+	for _, p := range []Patch{
+		{Selector: "#a\ndata: elements <p>x</p>"},
+		{Selector: "#a\r\n\r\nevent: datastar-patch-signals"},
+		{ViewTransition: true, ViewTransitionSelector: "#a\rb"},
+		{Mode: "inner\n"},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("PatchElements took %+v", p)
+				}
+			}()
+			PatchElements([]byte(`<p id="a"></p>`), p)
+		}()
+	}
+	PatchElements([]byte(`<p id="a"></p>`), Patch{Selector: "#a", Mode: Inner, ViewTransition: true, ViewTransitionSelector: "#a"})
+}
