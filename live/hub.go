@@ -91,6 +91,18 @@ type Options struct {
 	// (sse.BudgetOptions.Refuse), memory caps them, and MaxStreams is a
 	// backstop.
 	MaxStreams int
+	// MaxStreamsPerClient is how many streams one client, by Spec.Client,
+	// may hold open at once (default 16; negative: no cap). Serve answers
+	// 429 to more. Without it one client can take every place under
+	// MaxStreams with idle streams that cost it nothing, and every other
+	// page gets 503; and since the streams' budget shares its memory per
+	// stream, the client that came first keeps the compressed tiers while
+	// later ones go out uncompressed. A browser holds one stream per tab:
+	// 16 leaves room for a person with many tabs, or a few people behind
+	// one address, while it takes MaxStreams/16 addresses to fill the hub.
+	// An app whose users share one address (an office, a VPN) keys a
+	// signed-in user by its account instead, or raises the cap.
+	MaxStreamsPerClient int
 	// PendingWatch is how long Watch keeps a view for a stream ID that is
 	// not open yet, for the stream that opens with it (default 10s,
 	// negative: Watch keeps none). Views wait for at most MaxStreams IDs
@@ -229,6 +241,7 @@ type Hub struct {
 	tick          time.Duration
 	workers       int
 	maxStreams    int
+	maxPerClient  int // 0: no cap
 	pendingFor    time.Duration
 	heartbeat     time.Duration
 	hibernate     time.Duration
@@ -261,6 +274,7 @@ type Hub struct {
 	dirty   []*view
 	byID    map[string]*stream
 	streams int
+	clients map[string]int           // open streams by Spec.Client
 	pending map[string][]pendingView // by stream ID, in the order of Watch
 	sweepAt time.Time                // when pending is next swept
 	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
@@ -319,6 +333,7 @@ type watch struct {
 type stream struct {
 	seq       uint64 // order of arrival
 	id        string
+	client    string // Spec.Client
 	write     func(*sse.Stream, string, any) error
 	writeTick func(*sse.Stream, []Frame) error
 	cancel    context.CancelFunc
@@ -363,6 +378,9 @@ func New(o Options) *Hub {
 	if o.MaxStreams <= 0 {
 		o.MaxStreams = 2000
 	}
+	if o.MaxStreamsPerClient == 0 {
+		o.MaxStreamsPerClient = 16
+	}
 	if o.PendingWatch == 0 {
 		o.PendingWatch = 10 * time.Second
 	}
@@ -398,6 +416,7 @@ func New(o Options) *Hub {
 		tick:          o.Tick,
 		workers:       o.Workers,
 		maxStreams:    o.MaxStreams,
+		maxPerClient:  max(0, o.MaxStreamsPerClient),
 		pendingFor:    o.PendingWatch,
 		heartbeat:     o.Heartbeat,
 		hibernate:     max(0, o.Hibernate),
@@ -417,6 +436,7 @@ func New(o Options) *Hub {
 		topics:        map[string]*node{},
 		every:         map[*view]struct{}{},
 		byID:          map[string]*stream{},
+		clients:       map[string]int{},
 		pending:       map[string][]pendingView{},
 		asked:         map[string]time.Time{},
 		next:          make(chan struct{}),

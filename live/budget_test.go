@@ -568,3 +568,57 @@ func TestRefusedStreamKeepsItsWatches(t *testing.T) {
 	})
 	again.leave(t)
 }
+
+// The budget shares its room per stream, so a client that opens many
+// streams first would keep the compressed tiers, and a client that comes
+// later would get its frames uncompressed. MaxStreamsPerClient stops
+// that: one client's streams past its cap get 429, and a later client's
+// stream on the same 230 KB view keeps a window that holds the frame,
+// and sends about 4 KB for each change. Without the cap it finds no room
+// and sends the whole frame.
+func TestLateClientKeepsCompression(t *testing.T) {
+	const zstdNeed = (880 + 32) << 10
+	perFrame := func(t *testing.T, perClient int) (bytes int, refused int) {
+		var version atomic.Int64
+		board := tabView("board", 1410, &version)
+		f, _ := board.Render(t.Context(), nil)
+		frame := int64(len(f.([]byte)))
+		b := sse.NewBudget(sse.BudgetOptions{Limit: frame + 8<<10 + 4*zstdNeed})
+		h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, MaxStreamsPerClient: perClient, SSE: sse.Options{Budget: b}})
+		var open []*client
+		sent := int64(0)
+		round := func() {
+			t.Helper()
+			version.Add(1)
+			h.Changed([]string{"tabs"})
+			sent += int64(len(open))
+			waitFor(t, "a frame to every stream", func() bool { return h.Stats().FramesSent == sent })
+		}
+		for range 10 {
+			c := serve(h, Spec{Client: "198.51.100.7", Views: []View{board}}, sse.Zstd)
+			waitFor(t, "the frame or a refusal", func() bool { return h.Stats().FramesSent == sent+1 || c.status() != 0 })
+			if c.status() == http.StatusTooManyRequests {
+				refused++
+				continue
+			}
+			sent++
+			open = append(open, c)
+			round()
+		}
+		late := serve(h, Spec{Client: "203.0.113.9", Views: []View{board}}, sse.Zstd)
+		sent++
+		open = append(open, late)
+		waitFor(t, "the late client's first frame", func() bool { return h.Stats().FramesSent == sent })
+		round()
+		before := len(late.bytes())
+		round()
+		return len(late.bytes()) - before, refused
+	}
+	n, refused := perFrame(t, 3)
+	if refused != 7 || n > 8<<10 {
+		t.Errorf("with a cap of 3: %d streams refused, the late client sent %d bytes for a change", refused, n)
+	}
+	if n, refused := perFrame(t, -1); refused != 0 || n < 64<<10 {
+		t.Errorf("without a cap: %d streams refused, the late client sent %d bytes for a change", refused, n)
+	}
+}

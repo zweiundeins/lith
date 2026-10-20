@@ -1692,3 +1692,59 @@ func TestRenderQuerierUncached(t *testing.T) {
 		return struct{}{}, nil
 	})
 }
+
+// One client cannot take every place under MaxStreams: past
+// MaxStreamsPerClient its streams get 429, and another client still gets
+// a stream. Streams without a client are not counted, and a place frees
+// up when one of the client's streams ends.
+func TestMaxStreamsPerClient(t *testing.T) {
+	h := start(t, Options{MaxStreams: 5, MaxStreamsPerClient: 2})
+	v := text("a", nil, func(context.Context, *sql.Tx) (string, error) { return "a", nil })
+	open := func(client string) *client {
+		t.Helper()
+		c := serve(h, Spec{Client: client, Views: []View{v}}, "")
+		waitFor(t, "a stream or a refusal", func() bool { return c.has(`<p id="a">a</p>`) || c.status() != 0 })
+		return c
+	}
+	a1, a2 := open("198.51.100.7"), open("198.51.100.7")
+	for i := range 3 {
+		c := open("198.51.100.7")
+		if err := c.returned(t); !errors.Is(err, ErrClientFull) || c.status() != http.StatusTooManyRequests {
+			t.Fatalf("the client's stream %d past its cap: %v, status %d", i+3, err, c.status())
+		}
+	}
+	b := open("2001:db8::/64")
+	if !b.has(`<p id="a">a</p>`) {
+		t.Fatalf("another client got status %d", b.status())
+	}
+	if n := open("").status(); n != 0 && n != http.StatusOK {
+		t.Fatalf("a stream without a client: status %d", n)
+	}
+	a1.leave(t)
+	a3 := open("198.51.100.7")
+	if !a3.has(`<p id="a">a</p>`) {
+		t.Fatalf("the client's stream after one of its own ended: status %d", a3.status())
+	}
+	if c := open("203.0.113.9"); !c.has(`<p id="a">a</p>`) {
+		t.Fatalf("the fifth stream: status %d", c.status())
+	}
+	if c := open("203.0.113.10"); c.status() != http.StatusServiceUnavailable {
+		t.Fatalf("a sixth stream: status %d, want 503 from MaxStreams", c.status())
+	}
+	a2.leave(t)
+}
+
+// HasStream tells an open stream's ID from one that never opened or ended.
+func TestHasStream(t *testing.T) {
+	h := start(t, Options{})
+	v := text("a", nil, func(context.Context, *sql.Tx) (string, error) { return "a", nil })
+	c := serve(h, Spec{ID: "tab1", Views: []View{v}}, "")
+	waitFor(t, "the stream", func() bool { return c.has(`<p id="a">a</p>`) })
+	if !h.HasStream("tab1") || h.HasStream("tab2") || h.HasStream("") {
+		t.Fatal("HasStream with tab1 open")
+	}
+	c.leave(t)
+	if h.HasStream("tab1") {
+		t.Fatal("HasStream after the stream ended")
+	}
+}

@@ -15,6 +15,12 @@ import (
 
 // Spec describes a stream.
 type Spec struct {
+	// Client is the key that Options.MaxStreamsPerClient counts the
+	// stream under: edge.ClientKey(r) for anonymous visitors, or a
+	// signed-in user's account where users share an address. A session id
+	// is no such key: a client mints a new one with every request that
+	// sends no cookie. Empty: the stream counts under no client.
+	Client string
 	// ID names the stream for Watch and Unwatch, usually the tab id. A
 	// stream with the ID of one still open replaces it if its request
 	// came later, and else ends at once. Empty: none.
@@ -138,6 +144,9 @@ type Frame struct {
 var (
 	// ErrFull is returned by Serve when MaxStreams streams are open.
 	ErrFull = errors.New("live: too many streams")
+	// ErrClientFull is returned by Serve when the stream's Spec.Client
+	// holds Options.MaxStreamsPerClient streams already.
+	ErrClientFull = errors.New("live: too many streams from this client")
 	// ErrStopped is returned by Serve once the hub has stopped.
 	ErrStopped = errors.New("live: hub stopped")
 )
@@ -177,19 +186,26 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		h.mu.Unlock()
 		http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
 		return ErrStopped
+	case spec.Client != "" && h.maxPerClient > 0 && h.clients[spec.Client] >= h.maxPerClient:
+		h.mu.Unlock()
+		http.Error(w, "too many streams from this address", http.StatusTooManyRequests)
+		return ErrClientFull
 	case h.streams >= h.maxStreams:
 		h.mu.Unlock()
 		http.Error(w, "too many streams", http.StatusServiceUnavailable)
 		return ErrFull
 	}
 	h.streams++
+	if spec.Client != "" {
+		h.clients[spec.Client]++
+	}
 	h.mu.Unlock()
 
 	ctx, cancelCause := context.WithCancelCause(r.Context())
 	cancel := func() { cancelCause(nil) }
 	defer cancel()
 	defer context.AfterFunc(h.done, func() { cancelCause(shutdown.Cause) })()
-	s := &stream{seq: seq, id: spec.ID, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1), upgrade: -1}
+	s := &stream{seq: seq, id: spec.ID, client: spec.Client, write: spec.Write, writeTick: spec.WriteTick, cancel: cancel, wake: make(chan struct{}, 1), upgrade: -1}
 	if spec.Reconnect != "" {
 		s.upgrade = h.upgradeAfter(spec.ID)
 	}
@@ -335,6 +351,11 @@ func (h *Hub) detach(s *stream, refused bool, spec []View) {
 	s.watches = nil
 	s.mu.Unlock()
 	h.streams--
+	if s.client != "" {
+		if h.clients[s.client]--; h.clients[s.client] <= 0 {
+			delete(h.clients, s.client)
+		}
+	}
 	h.mu.Unlock()
 	if marked {
 		h.poke()
@@ -623,6 +644,18 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			return errReopen
 		}
 	}
+}
+
+// HasStream reports whether a stream with the ID is open. An action that
+// stores state for a tab can refuse a tab whose stream is not open, so
+// that a client cannot make rows for tab ids it made up.
+func (h *Hub) HasStream(id string) bool {
+	if id == "" {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.byID[id] != nil
 }
 
 // Behind counts a report that the page of the open stream with the ID fell
