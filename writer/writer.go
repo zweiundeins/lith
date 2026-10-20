@@ -2,7 +2,9 @@
 // up while a batch runs, and the next batch takes all of them (up to
 // MaxBatch, without waiting for more) into one transaction with a
 // savepoint per command: under load one commit, and one fsync, covers many
-// commands, and a command that fails undoes only its own changes.
+// commands, and a command that fails undoes only its own changes. A batch
+// of one command needs no savepoint: when it fails, its transaction rolls
+// back.
 // Commands are applied in the order they arrive in the queue, from Send
 // and Do alike.
 //
@@ -126,6 +128,18 @@ type request struct {
 	done chan error // nil for Send
 }
 
+// The requests of Do and Send are reused: Do's once it has its answer,
+// Send's once the writer has answered them.
+var (
+	doRequests   = sync.Pool{New: func() any { return &request{done: make(chan error, 1)} }}
+	sendRequests = sync.Pool{New: func() any { return new(request) }}
+)
+
+func putRequest(pool *sync.Pool, r *request) {
+	r.cmd, r.ctx = nil, nil
+	pool.Put(r)
+}
+
 // exclusive is an Exclusive's fn. Whoever takes it first decides: the
 // writer to run it, or the caller to give up waiting.
 type exclusive struct {
@@ -161,6 +175,9 @@ type Writer struct {
 	opsReady bool        // lith_ops exists
 	resReady bool        // lith_results exists
 	locals   map[any]any // Tx.SetLocal's
+	txTopics []string    // the backing arrays of the next Tx
+	txAfter  []func()
+	txRows   []*sql.Rows
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
 	sizes                                            [SizeBuckets]atomic.Int64
@@ -248,7 +265,13 @@ func (w *Writer) Send(cmd Command) error {
 	if err := validate(cmd); err != nil {
 		return err
 	}
-	return w.enqueue(nil, &request{cmd: cmd, ctx: context.Background()})
+	r := sendRequests.Get().(*request)
+	r.cmd, r.ctx = cmd, context.Background()
+	if err := w.offer(r); err != nil {
+		putRequest(&sendRequests, r)
+		return err
+	}
+	return nil
 }
 
 // Do queues cmd, waiting for room until ctx ends, and returns cmd's own
@@ -263,11 +286,17 @@ func (w *Writer) Do(ctx context.Context, cmd Command) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r := &request{cmd: cmd, ctx: context.WithoutCancel(ctx), done: make(chan error, 1)}
-	if err := w.enqueue(ctx, r); err != nil {
-		return err
+	r := doRequests.Get().(*request)
+	r.cmd, r.ctx = cmd, ctx
+	if ctx.Done() != nil {
+		r.ctx = context.WithoutCancel(ctx)
 	}
-	return <-r.done
+	err := w.enqueue(ctx, r)
+	if err == nil {
+		err = <-r.done
+	}
+	putRequest(&doRequests, r)
+	return err
 }
 
 // DoValue runs fn as a command, like Do, and returns what fn returned once
@@ -375,20 +404,27 @@ func validate(cmd Command) error {
 	return nil
 }
 
-// enqueue waits for room until ctx ends; with a nil ctx it does not wait.
-func (w *Writer) enqueue(ctx context.Context, r *request) error {
+// offer queues r if there is room.
+func (w *Writer) offer(r *request) error {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	if w.closed {
 		return ErrClosed
 	}
-	if ctx == nil {
-		select {
-		case w.queue <- r:
-			return nil
-		default:
-			return ErrQueueFull
-		}
+	select {
+	case w.queue <- r:
+		return nil
+	default:
+		return ErrQueueFull
+	}
+}
+
+// enqueue waits for room until ctx ends.
+func (w *Writer) enqueue(ctx context.Context, r *request) error {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.closed {
+		return ErrClosed
 	}
 	select {
 	case w.queue <- r:
@@ -499,21 +535,32 @@ func (w *Writer) apply(batch []*request) {
 	}
 	errs := w.errs[:len(batch)]
 	var failed error
+	// committed is also true when the batch's one command failed and its
+	// transaction rolled back as planned: the batch then committed nothing,
+	// as a batch whose commands all failed does.
 	committed := false
 	if err := w.exec("BEGIN IMMEDIATE"); err != nil {
 		failed = fmt.Errorf("writer: begin: %w", err)
 	} else {
+		end, what := "COMMIT", "commit"
 		for i, r := range batch {
-			if r.cmd == nil {
-				continue
+			switch {
+			case r.cmd == nil:
+			case n == 1:
+				var keep bool
+				if errs[i], keep = w.only(r); !keep {
+					end, what = "ROLLBACK", "roll back"
+				}
+			default:
+				errs[i], failed = w.one(r)
 			}
-			if errs[i], failed = w.one(r); failed != nil {
+			if failed != nil {
 				break
 			}
 		}
 		if failed == nil {
-			if err := w.exec("COMMIT"); err != nil {
-				failed = fmt.Errorf("writer: commit: %w", err)
+			if err := w.exec(end); err != nil {
+				failed = fmt.Errorf("writer: %s: %w", what, err)
 			} else {
 				committed = true
 			}
@@ -572,12 +619,16 @@ func (w *Writer) apply(batch []*request) {
 		err := errs[i]
 		switch {
 		case r.done != nil:
-			r.done <- err
+			r.done <- err // r is Do's again from here
+			continue
 		case err == nil:
 		case w.opts.OnSendError != nil:
 			w.safely("OnSendError", func() { w.opts.OnSendError(r.cmd, err) })
 		case err != failed && !errors.Is(err, ErrPanic):
 			w.opts.Log.Warn("writer: command failed", "cmd", fmt.Sprintf("%T", r.cmd), "err", err)
+		}
+		if r.cmd != nil {
+			putRequest(&sendRequests, r)
 		}
 	}
 	clear(errs)
@@ -590,24 +641,57 @@ func (w *Writer) one(r *request) (cmdErr, batchErr error) {
 	if err := w.exec("SAVEPOINT cmd"); err != nil {
 		return nil, fmt.Errorf("writer: savepoint: %w", err)
 	}
-	tx := &Tx{w: w, ctx: r.ctx}
-	cmdErr, keep := unkept(w.call(r.cmd, tx))
-	tx.end()
+	tx, cmdErr, keep := w.run1(r)
 	if !keep {
 		if err := w.exec("ROLLBACK TO cmd"); err != nil {
+			w.drop(tx)
 			return cmdErr, fmt.Errorf("writer: roll back to savepoint: %w", err)
 		}
 	}
 	if err := w.exec("RELEASE cmd"); err != nil {
+		w.drop(tx)
 		return cmdErr, fmt.Errorf("writer: release savepoint: %w", err)
 	}
 	if keep {
-		for _, t := range tx.topics {
-			w.topics[t] = struct{}{}
-		}
-		w.after = append(w.after, tx.after...)
+		w.keep(tx)
 	}
+	w.drop(tx)
 	return cmdErr, nil
+}
+
+// only runs the batch's one command, without a savepoint: its changes
+// stay unless the batch rolls back, which keep says it must.
+func (w *Writer) only(r *request) (cmdErr error, keep bool) {
+	tx, cmdErr, keep := w.run1(r)
+	if keep {
+		w.keep(tx)
+	}
+	w.drop(tx)
+	return cmdErr, keep
+}
+
+// run1 applies r's command in a Tx of its own, and ends the Tx.
+func (w *Writer) run1(r *request) (tx *Tx, cmdErr error, keep bool) {
+	tx = &Tx{w: w, ctx: r.ctx, topics: w.txTopics[:0], after: w.txAfter[:0], rows: w.txRows[:0]}
+	cmdErr, keep = unkept(w.call(r.cmd, tx))
+	tx.end()
+	return tx, cmdErr, keep
+}
+
+// keep takes the topics and AfterCommit functions of a command whose
+// changes stay.
+func (w *Writer) keep(tx *Tx) {
+	for _, t := range tx.topics {
+		w.topics[t] = struct{}{}
+	}
+	w.after = append(w.after, tx.after...)
+}
+
+// drop gives the ended tx's slices back for the next command.
+func (w *Writer) drop(tx *Tx) {
+	clear(tx.topics)
+	clear(tx.after)
+	w.txTopics, w.txAfter, w.txRows = tx.topics[:0], tx.after[:0], tx.rows[:0]
 }
 
 // kept is the error of a command whose changes stay all the same:

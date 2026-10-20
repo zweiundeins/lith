@@ -38,7 +38,7 @@ A handler hands the command over in one of three ways:
 
 ## Batches with a savepoint each
 
-While a batch runs, new commands queue up. The next batch takes all of them, up to 512, into one `BEGIN IMMEDIATE` transaction, each command in a savepoint of its own. A command that fails rolls back to its savepoint, and its error goes to its `Do`; the others commit together. The batch needs one commit, and with `synchronous=FULL` one fsync.
+While a batch runs, new commands queue up. The next batch takes all of them, up to 512, into one `BEGIN IMMEDIATE` transaction, each command in a savepoint of its own. A command that fails rolls back to its savepoint, and its error goes to its `Do`; the others commit together. The batch needs one commit, and with `synchronous=FULL` one fsync. A command alone in its batch, the usual case below a few hundred commands a second, runs without the savepoint: when it fails, the transaction rolls back, with the same outcome.
 
 On the VPS that serves this site, where an fsync takes about 7 ms, one producer with FULL gets 143 commands a second, each waiting for its own fsync. Two hundred producers get 14,480 a second, 108 to a transaction. With NORMAL, the default, the same two hundred get 80,530 a second. On a development machine with a faster disk (an Intel i5-13500) FULL gives 526 and 34,893. The writer needs no tuning for that: under load, more commands share each commit.
 

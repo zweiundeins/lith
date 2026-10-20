@@ -213,7 +213,7 @@ func (t *Tx) end() {
 	for _, r := range t.rows {
 		r.Close()
 	}
-	t.rows = nil
+	clear(t.rows)
 	t.w.closeRetired()
 }
 
