@@ -1,0 +1,80 @@
+# run 1 e9bebd0 load 98.81 79.25 65.21
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	     601	   2041547 ns/op	  864711 B/op	   13011 allocs/op
+BenchmarkTickDepends/moved-12        	     380	   3158485 ns/op	 1696749 B/op	   22012 allocs/op
+PASS
+# run 2 e9bebd0 load 70.85 74.29 63.95
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	    2065	    617523 ns/op	  864787 B/op	   13013 allocs/op
+BenchmarkTickDepends/moved-12        	     663	   1510868 ns/op	 1696786 B/op	   22013 allocs/op
+PASS
+# run 3 e9bebd0 load 48.12 68.67 62.36
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	    2085	    554611 ns/op	  864792 B/op	   13013 allocs/op
+BenchmarkTickDepends/moved-12        	     793	   1670682 ns/op	 1696790 B/op	   22013 allocs/op
+PASS
+# run 4 e9bebd0 load 39.10 64.81 61.25
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	     993	   1249963 ns/op	  864759 B/op	   13012 allocs/op
+BenchmarkTickDepends/moved-12        	     412	   2763637 ns/op	 1696763 B/op	   22012 allocs/op
+PASS
+# run 5 e9bebd0 load 30.95 60.84 60.03
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	    1158	   1168244 ns/op	  864764 B/op	   13012 allocs/op
+BenchmarkTickDepends/moved-12        	     318	   4201107 ns/op	 1696709 B/op	   22011 allocs/op
+PASS
+# run 6 e9bebd0 load 33.32 58.95 59.42
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	     943	   1639514 ns/op	  864752 B/op	   13011 allocs/op
+BenchmarkTickDepends/moved-12        	     278	   4300386 ns/op	 1696714 B/op	   22011 allocs/op
+PASS
+# run 7 e9bebd0 load 30.55 56.21 58.50
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	     657	   1671538 ns/op	  864759 B/op	   13012 allocs/op
+BenchmarkTickDepends/moved-12        	     391	   3447791 ns/op	 1696745 B/op	   22012 allocs/op
+PASS
+# run 8 e9bebd0 load 29.21 53.77 57.63
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	    1128	   1141836 ns/op	  864775 B/op	   13012 allocs/op
+BenchmarkTickDepends/moved-12        	     428	   2633867 ns/op	 1696764 B/op	   22012 allocs/op
+PASS
+# run 9 e9bebd0 load 28.58 51.64 56.82
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	     764	   1489871 ns/op	  864760 B/op	   13012 allocs/op
+BenchmarkTickDepends/moved-12        	     344	   3565876 ns/op	 1696739 B/op	   22012 allocs/op
+PASS
+# run 10 e9bebd0 load 26.64 49.35 55.92
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkTickDepends/same-12         	    1124	    944907 ns/op	  864779 B/op	   13013 allocs/op
+BenchmarkTickDepends/moved-12        	     466	   2664126 ns/op	 1696771 B/op	   22012 allocs/op
+PASS

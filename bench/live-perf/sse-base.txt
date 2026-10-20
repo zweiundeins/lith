@@ -1,0 +1,70 @@
+# run 1 base load 26.64 49.35 55.92
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   21332	     61286 ns/op	3842.71 MB/s	  237570 B/op	       1 allocs/op
+PASS
+# run 2 base load 26.46 48.58 55.60
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   14430	     98273 ns/op	2396.45 MB/s	  237571 B/op	       1 allocs/op
+PASS
+# run 3 base load 25.78 48.07 55.40
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   20517	     63501 ns/op	3708.72 MB/s	  237570 B/op	       1 allocs/op
+PASS
+# run 4 base load 26.24 47.44 55.12
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   19336	     65404 ns/op	3600.81 MB/s	  237570 B/op	       1 allocs/op
+PASS
+# run 5 base load 24.94 46.82 54.87
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   17233	     67937 ns/op	3466.52 MB/s	  237570 B/op	       1 allocs/op
+PASS
+# run 6 base load 23.82 46.22 54.64
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   12831	     88993 ns/op	2646.35 MB/s	  237571 B/op	       1 allocs/op
+PASS
+# run 7 base load 24.50 45.65 54.36
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   21963	     53442 ns/op	4406.77 MB/s	  237569 B/op	       1 allocs/op
+PASS
+# run 8 base load 23.74 45.14 54.15
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   18758	     70606 ns/op	3335.48 MB/s	  237570 B/op	       1 allocs/op
+PASS
+# run 9 base load 22.33 44.13 53.73
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   19852	     62101 ns/op	3792.33 MB/s	  237570 B/op	       1 allocs/op
+PASS
+# run 10 base load 21.50 43.60 53.50
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkPatchElementsLarge-12    	   17892	     66198 ns/op	3557.58 MB/s	  237570 B/op	       1 allocs/op
+PASS

@@ -338,6 +338,25 @@ The hub's own benchmarks in `live` ran right after, the same way: six runs of ea
 
 Medians; every run of a case was within 6% of its median but the moved `TickDepends`, 1.56 to 1.81 ms and 2.46 to 3.20 ms. A view that changes its topics now updates the hub's tree for each, about 2.1 µs a view for four in and four out against 1.2 µs before, with 4 more allocations; the rest moved by a few percent at most.
 
+## The hub's own costs after the review of v0.4.0
+
+Measured on 2026-10-20 between 12:55 and 13:07 UTC on the development machine above, an Intel i5-13500 (20 threads) under Linux 6.18 (Unraid), with Go 1.27.2, pinned to the performance cores. The base is v0.4.0's main at 7495607, the new binaries the review-live-perf branch at ddb8836. Each test binary was built once, and ten runs of each alternated, each with `-count 1` (`bench/live-perf/run.sh`); the output, with the load average at the start of every run, is in `bench/live-perf`. The machine was far from quiet: other agents ran test suites, and the 1-minute load average fell from 142 to 28 during the hub's runs and stayed between 18 and 30 for the others. Times vary by 25 to 50% between runs of one binary; allocations do not vary. Medians, by benchstat:
+
+| | v0.4.0 | now | allocations a view, v0.4.0 | now | bytes a view, v0.4.0 | now |
+|---|---|---|---|---|---|---|
+| `Tick`, 1,000 views | 1.02 ms | 0.48 ms | 13.0 | 3.0 | 864 | 49 |
+| `Tick`, 10,000 views | 9.11 ms | 6.53 ms | 13.0 | 3.0 | 864 | 48 |
+| `TickDepends`, the same topics | 1.06 ms | 0.64 ms | 13.0 | 3.0 | 865 | 49 |
+| `TickDepends`, four topics in and four out | 4.18 ms | 2.43 ms | 26.1 | 3.0 | 2,249 | 50 |
+
+e9bebd0, before the topic tree, ran its `TickDepends` in the same rounds: 2.96 ms and 22.0 allocations a view with the topics that move, 1.21 ms with the same ones. A view whose topics move now allocates nothing in the tree, so the moved case costs what the same topics cost besides the tree's map work, and less than before the tree. `Changed` and `ChangedBelow` allocate nothing, as before, and did not get slower (181 to 308 ns at depth 1 to 3 against 289 to 354 ns, 31 µs against 77 µs below `src:A`; noise in either direction at this load).
+
+The three allocations a view that remain are the benchmark's Render (its frame and the frame as an `any`) and the hub's record of the new frame. What went: a context with a timeout, its timer, an `AfterFunc` and two closures for every Render (each worker now ends its Renders' ctx with one timer it keeps), the sort of every offer in every tick (each stream now collects its own), and, for topics that move, a node, a map of views and a map of nodes below per topic, and the copy of the topics (the tree keeps up to four views of a topic in a slice and reuses the nodes and the maps that leave it, and a view's next topics fill a slice it keeps).
+
+A frame that a Render formats with `sse.Elements` or `sse.AppendPatchElements` into `live.FrameBuffer(ctx)` is one buffer of the frame's size, where the HTML and then `sse.PatchElements` made two. The board of `BenchmarkSharedBoard` does so now (`loadtest/board.go`): with FULL and zstd, the ten runs of 12 s allocated 404 MiB each against 426 MiB, its tick p50 was 1.19 ms against 1.26 ms, and every other number stayed within its noise (1.03 cores, 2.2 KiB a frame, 1.68 MiB a stream, no frame dropped). In `sse`'s benchmarks of the 230 KB page, `AppendPatchElements` into a buffer of the right size and `PatchElements` take the same time and one allocation; `Elements` written row by row, as a template writes, takes about twice the time of either (123 µs against 66 µs), the price of a call for each of 2,309 rows of 102 bytes; a template that writes through a buffer of 4 KiB makes 60 times fewer calls.
+
+A heartbeat on a hibernating zstd stream, with a budget (`BenchmarkHeartbeatAsleep`): woken for it and hibernated again, as live's streams sent it, 3.27 µs, 22 allocations and 2.9 KiB with the encoder in the pool; with `Stream.Ping` in raw blocks, 0.34 µs, 6 allocations and 175 bytes, and nothing changes in the budget. Once the garbage collector has emptied the pool, waking also builds an encoder of 0.6 to 1.7 MiB.
+
 ## Stream budget and hibernation
 
 Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1; the settings and the floor again on 2026-10-14 between 17:28 and 17:34 UTC, on lith's main at ff7e536 (v0.2.0, whose streams flush their brotli encoders within a frame), with the 1-minute load average between 1.5 and 4.9. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:
