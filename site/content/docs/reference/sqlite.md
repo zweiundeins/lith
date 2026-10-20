@@ -103,6 +103,14 @@ func (d *DB) Backup(ctx context.Context, dst string) error
 
 Backup writes a consistent copy of the database to dst (VACUUM INTO) on a read-only connection of its own, while the database stays in use. dst must not exist; on failure it is removed again.
 
+#### func (*DB) Checkpointer {#DB.Checkpointer}
+
+```go
+func (d *DB) Checkpointer() (*sql.DB, error)
+```
+
+Checkpointer opens a connection of its own for checkpoints of the WAL beside the write connection (writer.Options.CheckpointAside), with SQLite's automatic checkpoints off. The caller closes it.
+
 #### func (*DB) Close {#DB.Close}
 
 ```go

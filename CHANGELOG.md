@@ -2,6 +2,15 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `writer`: a command alone in its batch, the usual case below a few hundred commands a second, runs without `SAVEPOINT` and `RELEASE`: when it fails, the batch's transaction rolls back instead, with the same outcome, a refusal that `OnceResult` records included. The 186 MB update of `BenchmarkLargeWrite` as one command takes 0.33 s instead of 0.47 s, as long as in `Exclusive`, since SQLite no longer keeps a journal to roll back to the savepoint; with one producer at NORMAL, `BenchmarkWriter` commits 5% more commands a second. `Do` and `Send` reuse their requests and a `Tx` its slices: a `Do` that touches a topic allocates 8 times instead of 19.
+- `writer`: `Options.SlowCommand` (5 s by default): a command that runs longer is logged with its type, once, and again when it ends, and `Stats.Running` is how long the command under way has run. `lith/prom` exports it as `<ns>_writer_command_running_seconds`, and the dashboard has a panel for it. Every other command waits for a command that blocks, and this tells one from a slow disk.
+- `writer`: `Options.CheckpointAside` runs the passive checkpoints of `sqlite.CheckpointWriter` on a connection of their own (`sqlite.DB.Checkpointer`), beside the batches, and copies what the batches wrote meanwhile between two batches, so that SQLite can start the WAL over. After the 186 MB update in one command, the slowest other command waited 343 ms instead of 682 and the pages went 328 ms without a frame instead of 657; in chunks of 1,000 rows the update took 0.73 s instead of 1.08 s; 200 producers at NORMAL commit 16% more commands a second. It is off by default: it opens a second connection per database, and the WAL grows by what the batches write while a checkpoint runs, up to 15 MB instead of 6 MB in chunks of 1,000 rows.
+- `edge`: `Compress` and `Negotiate` prefer zstd to brotli when a request accepts both equally, as every browser but Safari does: zstd compresses a 156 KB page in 0.16 ms instead of brotli's 1.4 ms, into 12.8 KB instead of 11.0 KB. Safari sends no zstd and keeps brotli, and `Static` keeps its precompressed brotli.
+- `dbmetrics`: a test that the wrapper hands database/sql the driver's `ExecerContext` and `QueryerContext`, which it did.
+- `live`: `TestStalledRealClient` over HTTP/2 no longer fails when few frames reach its stalled client, whose window of 4 MB they did not fill under the race detector.
+
 ## v0.4.0 (2026-10-19)
 
 Views can declare what their Render read, topics form a tree by their `:` segments, and the hub numbers its commits, for caches of derived values. A read can skip the statement caches, and a stream the hub stops keeps its clean end over HTTP/2. No API was removed. What to check in an app:

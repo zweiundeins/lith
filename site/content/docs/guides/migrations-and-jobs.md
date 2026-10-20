@@ -129,10 +129,11 @@ for lo := int64(1); lo <= last; lo += chunk {
 }
 ```
 
-`BenchmarkLargeWrite` measured what each way costs, on 2026-10-19 on the development machine with NORMAL: a table of 45,000 comments of about 4 KB each, 185 MB, while 200 producers sent 800 commands a second and 200 streams watched a board that rendered in every tick ([the measurements](/docs/performance/writer#large-updates-and-deletes)).
+`BenchmarkLargeWrite` measured what each way costs, on 2026-10-19 and 2026-10-20 on the development machine with NORMAL: a table of 45,000 comments of about 4 KB each, 185 MB, while 200 producers sent 800 commands a second and 200 streams watched a board that rendered in every tick ([the measurements](/docs/performance/writer#large-updates-and-deletes)).
 
-- **One command** cleared every comment's HTML in 0.49 s, then the writer checkpointed the 186 MB it had written to the WAL, for another 0.38 s. Other commands waited up to 0.88 s, half of them more than 0.63 s. The hub kept ticking, but without commits it had nothing new to render, so the pages got no frame for up to 0.87 s. The WAL stayed at 186 MB: the writer truncates it only after a second without commands.
+- **One command** cleared every comment's HTML in 0.33 s, then the writer checkpointed the 186 MB it had written to the WAL, for another 0.36 s. Other commands waited up to 0.68 s, half of them more than 0.52 s. The hub kept ticking, but without commits it had nothing new to render, so the pages got no frame for up to 0.66 s. The WAL stayed at 186 MB: the writer truncates it only after a second without commands. Up to v0.4.0 the command ran in a savepoint, and the same update took 0.47 s.
 - **Commands of 1,000 rows** took 1.07 s in all, twice as long, and no other command waited longer than 45 ms. The board rendered in every tick, the longest gap between two frames 51 ms, and the WAL stayed at 8.3 MB. Commands of 5,000 rows took 0.89 s, held other commands up to 163 ms and the frames about 150 ms apart.
+- **With `writer.Options.CheckpointAside`** the checkpoints run on a connection of their own, beside the batches. After the update in one command, other commands waited up to 0.34 s, the update's own time, and the pages 0.33 s; in commands of 1,000 rows it took 0.73 s in all, and the WAL grew to 15 MB, by what the batches wrote while a checkpoint ran.
 - **`Exclusive`** with one transaction wrote the update in 0.34 s, and held commands and pages as long as one command does.
 
 Start with a chunk that writes for about one tick, 50 ms, and size it by bytes rather than by rows: a thousand rows of 4 KB take about 24 ms. With `synchronous=FULL` the same chunks cost each waiting command a few milliseconds more.
@@ -239,7 +240,7 @@ In WAL mode, SQLite appends commits to the `-wal` file and a checkpoint copies t
 | Mode | Who checkpoints | For |
 | --- | --- | --- |
 | `CheckpointAuto` (the default) | SQLite, inside the commit that brings the WAL past 1000 pages | tools and tests |
-| `CheckpointWriter` | the writer, between batches: a passive checkpoint every 1000 pages written, and one that truncates the WAL after a second without commands | apps without Litestream |
+| `CheckpointWriter` | the writer, between batches (or beside them, with `writer.Options.CheckpointAside`): a passive checkpoint every 1000 pages written, and one that truncates the WAL after a second without commands | apps without Litestream |
 | `CheckpointExternal` | another process, such as Litestream | apps that replicate ([Backups](/docs/guides/backups)) |
 
 With `CheckpointAuto`, the commit that runs the checkpoint takes longer: in lith's writer benchmark the slowest 1% of transactions took 7 to 26 ms, against 3.0 to 5.3 ms with `CheckpointWriter` ([Performance](/docs/performance/writer#checkpoints)). The template and this site use `CheckpointWriter`. Give checkpoints one owner: with Litestream attached, a checkpoint it did not make can remove WAL frames it has not copied yet.
