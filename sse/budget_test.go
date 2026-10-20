@@ -1090,6 +1090,49 @@ func TestBudgetRelease(t *testing.T) {
 	}
 }
 
+// Ping on a zstd stream that hibernates sends its events in raw blocks
+// and leaves it asleep, holding no encoder and no tier; on an awake stream
+// it writes as Write does. The body decodes to every event.
+func TestPingLeavesStreamAsleep(t *testing.T) {
+	b := NewBudget(BudgetOptions{Limit: 64 << 20})
+	s, w := openWith(t, Zstd, Options{Budget: b})
+	beat := Comment("")
+	want := slices.Concat(frame(1), beat)
+	if err := s.Write(frame(1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Ping(beat); err != nil || held(b)["zstd 2^19"] != 1 {
+		t.Fatalf("awake: %v, %v", err, held(b))
+	}
+	if err := s.Hibernate(); err != nil {
+		t.Fatal(err)
+	}
+	reserved := b.Stats().Reserved
+	for range 3 {
+		sent := len(w.bytes())
+		if err := s.Ping(beat); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, beat...)
+		raw := slices.Concat(rawFrame([][]byte{beat}, len(beat))...)
+		if got := w.bytes()[sent:]; !bytes.Equal(got, raw) {
+			t.Fatalf("a ping sent %x, want %x", got, raw)
+		}
+		if s.enc != nil || held(b)["zstd asleep"] != 1 || b.Stats().Reserved != reserved {
+			t.Fatalf("after a ping: encoder %v, %+v", s.enc != nil, b.Stats())
+		}
+	}
+	if err := s.Write(frame(2)); err != nil || held(b)["zstd 2^19"] != 1 {
+		t.Fatalf("the next write: %v, %v", err, held(b))
+	}
+	want = append(want, frame(2)...)
+	s.Close()
+	got, err := io.ReadAll(decoder(t, Zstd, w.bytes()))
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("the stream decodes to %d bytes of %d: %v", len(got), len(want), err)
+	}
+}
+
 // A zstd stream that hibernates ends its frame and holds no encoder; its
 // next write starts a new frame, and the body decodes to every event. With
 // a budget it gives its tier back, and takes one again when it wakes.
@@ -1320,5 +1363,38 @@ func TestStreamTier(t *testing.T) {
 			}
 		}
 		s.Close()
+	}
+}
+
+// BenchmarkHeartbeatAsleep is a heartbeat on a zstd stream that
+// hibernates, with a budget: woken for it and hibernated again (wake, as
+// live's streams sent it before Ping), or sent with Ping (ping).
+func BenchmarkHeartbeatAsleep(b *testing.B) {
+	for _, ping := range []bool{false, true} {
+		b.Run(map[bool]string{false: "wake", true: "ping"}[ping], func(b *testing.B) {
+			s, err := Open(newRecorder(), request(b.Context(), Zstd), Options{Budget: NewBudget(BudgetOptions{Limit: 64 << 20})})
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer s.Close()
+			if err := s.Write(frame(1)); err != nil {
+				b.Fatal(err)
+			}
+			if err := s.Hibernate(); err != nil {
+				b.Fatal(err)
+			}
+			beat := Comment("")
+			b.ReportAllocs()
+			for b.Loop() {
+				if ping {
+					err = s.Ping(beat)
+				} else if err = s.Write(beat); err == nil {
+					err = s.Hibernate()
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

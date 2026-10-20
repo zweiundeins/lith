@@ -73,8 +73,8 @@ func TestBudgetThroughOptions(t *testing.T) {
 }
 
 // A stream that sends no frame for Options.Hibernate hibernates and gives
-// its tier back; heartbeats leave it asleep, and its next frame wakes it.
-// The body decodes to everything it sent.
+// its tier back; heartbeats go out without waking it, and its next frame
+// wakes it. The body decodes to everything it sent.
 func TestHibernateInHub(t *testing.T) {
 	b := sse.NewBudget(sse.BudgetOptions{Limit: -1})
 	h := start(t, Options{Tick: 2 * time.Millisecond, Heartbeat: 15 * time.Millisecond, Hibernate: 40 * time.Millisecond, SSE: sse.Options{Budget: b}})
@@ -86,18 +86,21 @@ func TestHibernateInHub(t *testing.T) {
 	}
 	asleep := func() bool { return b.Stats().Streams["zstd asleep"] == 1 }
 	waitFor(t, "the first frame", has(`<p id="n">0</p>`))
-	magic := []byte{0x28, 0xb5, 0x2f, 0xfd}
+	// A heartbeat in a zstd frame of raw blocks: a single segment of 3
+	// bytes, in one last raw block of 3. An encoder would have compressed it
+	// in a frame with a window.
+	raw := []byte{0x28, 0xb5, 0x2f, 0xfd, 0x20, 3, 3<<3 | 1, 0, 0, ':', '\n', '\n'}
 	for i := 1; i <= 2; i++ {
 		waitFor(t, "hibernation", asleep)
 		body := c.bytes()
-		beats, frames := strings.Count(string(unzstd(t, body)), ":\n\n"), bytes.Count(body, magic)
+		beats, frames := strings.Count(string(unzstd(t, body)), ":\n\n"), bytes.Count(body, raw)
 		waitFor(t, "two heartbeats", func() bool { return strings.Count(string(unzstd(t, c.bytes())), ":\n\n") >= beats+2 })
-		// Each went out in a zstd frame of its own, after which the stream
-		// sleeps again: had a heartbeat woken it, it would stay awake.
-		if got := bytes.Count(c.bytes(), magic); got < frames+2 {
-			t.Fatalf("%d zstd frames after two heartbeats, from %d", got, frames)
+		if got := bytes.Count(c.bytes(), raw); got < frames+2 {
+			t.Fatalf("%d raw heartbeats after two heartbeats, from %d", got, frames)
 		}
-		waitFor(t, "sleep after the heartbeats", asleep)
+		if !asleep() {
+			t.Fatal("a heartbeat woke the stream")
+		}
 		n.Store(int64(i))
 		h.Changed([]string{"n"})
 		waitFor(t, "the next frame", has(`<p id="n">`+strconv.Itoa(i)+`</p>`))
