@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"flag"
+	"testing"
+)
 
 // TestMetricsListen: the metrics listen beside the site, port + 100 on
 // loopback, and never on an address the public reaches.
@@ -22,5 +25,16 @@ func TestMetricsListen(t *testing.T) {
 		if _, err := metricsListen(public, "127.0.0.1:8097"); err == nil {
 			t.Errorf("-metrics %s: accepted", public)
 		}
+	}
+}
+
+// TestParseEnvironment: a flag the command line leaves out comes from the
+// environment, a - in its name as _.
+func TestParseEnvironment(t *testing.T) {
+	t.Setenv("LITH_SITE_CLIENT_STREAMS", "4")
+	f := flag.NewFlagSet("serve", flag.ContinueOnError)
+	clientStreams := f.Int("client-streams", 16, "")
+	if err := parse(f, nil); err != nil || *clientStreams != 4 {
+		t.Fatalf("-client-streams %d, %v; want 4", *clientStreams, err)
 	}
 }

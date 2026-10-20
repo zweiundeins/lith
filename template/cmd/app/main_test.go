@@ -394,3 +394,20 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestParseEnvironment: a flag the command line leaves out comes from the
+// environment, a - in its name as _: -client-streams from
+// APP_CLIENT_STREAMS. The command line wins.
+func TestParseEnvironment(t *testing.T) {
+	t.Setenv("APP_CLIENT_STREAMS", "4")
+	t.Setenv("APP_STREAMS", "50")
+	f := flags("serve")
+	streams := f.Int("streams", 200, "")
+	clientStreams := f.Int("client-streams", 16, "")
+	if err := parse(f, []string{"-streams", "60"}); err != nil {
+		t.Fatal(err)
+	}
+	if *streams != 60 || *clientStreams != 4 {
+		t.Errorf("-streams %d, -client-streams %d; want 60 and 4", *streams, *clientStreams)
+	}
+}

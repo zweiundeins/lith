@@ -303,7 +303,8 @@ func flags(name string) *flag.FlagSet {
 }
 
 // parse reads the flags, then takes each one the command line left out from
-// the environment: -addr from APP_ADDR, -db from APP_DB.
+// the environment: -addr from APP_ADDR, -db from APP_DB, -client-streams
+// from APP_CLIENT_STREAMS.
 func parse(f *flag.FlagSet, args []string) error {
 	if err := f.Parse(args); err != nil {
 		return err
@@ -312,7 +313,7 @@ func parse(f *flag.FlagSet, args []string) error {
 	f.Visit(func(fl *flag.Flag) { given[fl.Name] = true })
 	var errs []error
 	f.VisitAll(func(fl *flag.Flag) {
-		key := "APP_" + strings.ToUpper(fl.Name)
+		key := "APP_" + strings.ToUpper(strings.ReplaceAll(fl.Name, "-", "_"))
 		if v, ok := os.LookupEnv(key); ok && !given[fl.Name] {
 			if err := fl.Value.Set(v); err != nil {
 				errs = append(errs, fmt.Errorf("%s=%q: %w", key, v, err))

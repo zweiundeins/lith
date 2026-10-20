@@ -213,7 +213,8 @@ func listen(addr string) (net.Listener, error) {
 }
 
 // parse reads the flags, then takes each one the command line left out
-// from the environment: -addr from LITH_SITE_ADDR.
+// from the environment: -addr from LITH_SITE_ADDR, -client-streams from
+// LITH_SITE_CLIENT_STREAMS.
 func parse(f *flag.FlagSet, args []string) error {
 	if err := f.Parse(args); err != nil {
 		return err
@@ -222,7 +223,7 @@ func parse(f *flag.FlagSet, args []string) error {
 	f.Visit(func(fl *flag.Flag) { given[fl.Name] = true })
 	var errs []error
 	f.VisitAll(func(fl *flag.Flag) {
-		key := "LITH_SITE_" + strings.ToUpper(fl.Name)
+		key := "LITH_SITE_" + strings.ToUpper(strings.ReplaceAll(fl.Name, "-", "_"))
 		if v, ok := os.LookupEnv(key); ok && !given[fl.Name] {
 			if err := fl.Value.Set(v); err != nil {
 				errs = append(errs, fmt.Errorf("%s=%q: %w", key, v, err))
