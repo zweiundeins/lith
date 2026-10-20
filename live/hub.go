@@ -323,6 +323,7 @@ type stream struct {
 	writeTick func(*sse.Stream, []Frame) error
 	cancel    context.CancelFunc
 	wake      chan struct{}
+	offers    []offer       // its new frames while publish hands them out; the hub's loop alone uses it
 	upgrade   time.Duration // when it listens for a better tier (sse.Stream.Upgrade); negative: never
 	every     time.Duration // the least time between two frames of a view (Spec.Slow), 0 for none
 	ack       func(token string, n int64) []byte

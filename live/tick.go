@@ -1,7 +1,6 @@
 package live
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"database/sql/driver"
@@ -144,7 +143,7 @@ type tick struct {
 	next   atomic.Int64 // the queue: index of the next view to render
 	wg     sync.WaitGroup
 
-	offers []offer
+	streams []*stream // the streams with offers (stream.offers), in the order of their first
 }
 
 // offer is a new frame for one stream's watch.
@@ -283,7 +282,10 @@ func (h *Hub) publish(t *tick) {
 		for _, w := range v.watches {
 			if !same || w.owed {
 				w.owed = false
-				t.offers = append(t.offers, offer{w, nf})
+				if len(w.s.offers) == 0 {
+					t.streams = append(t.streams, w.s)
+				}
+				w.s.offers = append(w.s.offers, offer{w, nf})
 			}
 		}
 		v.owed = false
@@ -296,12 +298,9 @@ func (h *Hub) publish(t *tick) {
 	h.mu.Unlock()
 	h.sse.Budget.Hold(booked)
 
-	slices.SortFunc(t.offers, func(a, b offer) int { return cmp.Compare(a.w.s.seq, b.w.s.seq) })
-	for i := 0; i < len(t.offers); {
-		s := t.offers[i].w.s
+	for _, s := range t.streams {
 		s.mu.Lock()
-		for ; i < len(t.offers) && t.offers[i].w.s == s; i++ {
-			o := t.offers[i]
+		for _, o := range s.offers {
 			if o.w.next != nil {
 				h.dropped.Add(1)
 			}
@@ -309,9 +308,11 @@ func (h *Hub) publish(t *tick) {
 		}
 		s.mu.Unlock()
 		s.poke()
+		clear(s.offers)
+		s.offers = s.offers[:0]
 	}
-	clear(t.offers)
-	t.offers = t.offers[:0]
+	clear(t.streams)
+	t.streams = t.streams[:0]
 
 	if t.ctx.Err() != nil {
 		return
