@@ -288,6 +288,113 @@ func TestTopicTreeDepends(t *testing.T) {
 	}
 }
 
+// The tree marks what a map from each view to its topics would, while
+// views come and go on topics that a few views share and on topics that
+// many share, and it ends empty, its spare nodes and maps clean.
+func TestTopicTreeModel(t *testing.T) {
+	h := New(Options{})
+	r := rand.New(rand.NewPCG(5, 6))
+	views := make([]*view, 12)
+	subs := make([]map[string]bool, len(views))
+	for i := range views {
+		views[i] = &view{key: strconv.Itoa(i)}
+		subs[i] = map[string]bool{}
+	}
+	name := func() string {
+		parts := make([]string, 1+r.IntN(3))
+		for i := range parts {
+			parts[i] = string(rune('a' + r.IntN(3)))
+		}
+		return strings.Join(parts, ":")
+	}
+	under := func(tp, c string) bool { return tp == c || strings.HasPrefix(tp, c+":") }
+	check := func() {
+		t.Helper()
+		for tp, n := range h.topics {
+			if n.name != tp || n.empty() || n.up != nil && n.up != h.topics[tp[:strings.LastIndexByte(tp, ':')]] {
+				t.Fatalf("node %q: name %q, empty %v", tp, n.name, n.empty())
+			}
+			if n.up != nil {
+				if _, ok := n.up.kids[n]; !ok {
+					t.Fatalf("node %q is not among its parent's", tp)
+				}
+			}
+			if n.many != nil && len(n.few) > 0 {
+				t.Fatalf("node %q has views in a slice and a map", tp)
+			}
+		}
+		for _, m := range h.spareKids {
+			if len(m) > 0 {
+				t.Fatal("a spare map holds nodes")
+			}
+		}
+	}
+	for step := range 20000 {
+		i := r.IntN(len(views))
+		tp := name()
+		h.mu.Lock()
+		if subs[i][tp] {
+			h.unsubscribe(views[i], tp)
+			delete(subs[i], tp)
+		} else {
+			h.subscribe(views[i], tp)
+			subs[i][tp] = true
+		}
+		h.mu.Unlock()
+		if step%7 != 0 {
+			continue
+		}
+		c := name()
+		star := r.IntN(4) == 0
+		commit := c
+		if star {
+			commit += ":*"
+		}
+		h.Changed([]string{commit})
+		var want []string
+		for k, ts := range subs {
+			for tp := range ts {
+				if under(c, tp) || star && under(tp, c) {
+					want = append(want, views[k].key)
+					break
+				}
+			}
+		}
+		slices.Sort(want)
+		if got := dirtyKeys(h); !slices.Equal(got, want) {
+			t.Fatalf("step %d, commit %s: marked %v, want %v", step, commit, got, want)
+		}
+		check()
+	}
+	h.mu.Lock()
+	for k, ts := range subs {
+		for tp := range ts {
+			h.unsubscribe(views[k], tp)
+		}
+	}
+	h.mu.Unlock()
+	check()
+	if len(h.topics) != 0 || len(h.spare) == 0 {
+		t.Fatalf("%d nodes left, %d spare", len(h.topics), len(h.spare))
+	}
+}
+
+// A view that listens to a topic twice listens to it once, as a map would
+// have it: one unsubscribe ends it.
+func TestTopicTreeOnce(t *testing.T) {
+	h := New(Options{})
+	v := &view{key: "v"}
+	h.mu.Lock()
+	h.subscribe(v, "a:b")
+	h.subscribe(v, "a:b")
+	h.unsubscribe(v, "a:b")
+	n := len(h.topics)
+	h.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d nodes after one unsubscribe", n)
+	}
+}
+
 // Once nobody watches, the tree is empty: the nodes above the topics go
 // with them.
 func TestTopicTreeEmpties(t *testing.T) {

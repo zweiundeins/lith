@@ -374,7 +374,7 @@ func (w *worker) render(t *tick) {
 		v := t.views[i]
 		t.frames[i], t.errs[i] = w.limit.render(v, tx)
 		// v.deps changes only in publish, after the workers are done.
-		t.deps[i] = st.take(v.deps, t.errs[i] != nil)
+		t.deps[i] = st.take(v, t.errs[i] != nil)
 		if b, ok := t.frames[i].([]byte); ok {
 			t.sums[i] = maphash.Bytes(w.h.seed, b)
 		}

@@ -72,13 +72,15 @@ type declared struct {
 	changed bool     // the topics differ from the view's
 }
 
-// take returns what the Render that just returned declared, against the
-// view's topics prev, and makes room for the next Render's.
-func (s *renderState) take(prev []string, failed bool) declared {
+// take returns what the Render of v that just returned declared, against
+// the view's topics, and makes room for the next Render's. Topics that
+// differ go into v's spare slice, which redepend swaps with v.deps, so
+// that a view whose topics move costs no new slice.
+func (s *renderState) take(v *view, failed bool) declared {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d := s.deps
-	if len(d) == 0 && len(prev) == 0 {
+	if len(d) == 0 && len(v.deps) == 0 {
 		return declared{}
 	}
 	s.deps = s.deps[:0]
@@ -87,8 +89,9 @@ func (s *renderState) take(prev []string, failed bool) declared {
 	}
 	slices.Sort(d)
 	d = slices.Compact(d)
-	if slices.Equal(d, prev) {
+	if slices.Equal(d, v.deps) {
 		return declared{}
 	}
-	return declared{topics: slices.Clone(d), seq: s.seq, changed: true}
+	v.spare = append(v.spare[:0], d...)
+	return declared{topics: v.spare, seq: s.seq, changed: true}
 }
