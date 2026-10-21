@@ -192,7 +192,9 @@ func (s *Static) minified(name, ctype string, b []byte) []byte {
 		strings.HasSuffix(strings.TrimSuffix(name, path.Ext(name)), ".min") {
 		return b
 	}
-	m, err := s.minify(mediatype, b)
+	// A copy: tdewolff's (*minify.M).Bytes renames JavaScript in the array
+	// it is given, and b goes out as written when the minified file does not.
+	m, err := s.minify(mediatype, bytes.Clone(b))
 	if err != nil || len(m) >= len(b) || len(b)-len(m) < len(b)/20 {
 		return b
 	}

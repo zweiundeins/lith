@@ -434,6 +434,11 @@ func (q *squeeze) minify(mediatype string, b []byte) ([]byte, error) {
 		return nil, errors.New("unexpected token")
 	case bytes.HasPrefix(b, []byte("// tight")):
 		return b[:len(b)-len(b)/25], nil // 4% smaller
+	case bytes.HasPrefix(b, []byte("// scribble")):
+		// tdewolff's M.Bytes renames JavaScript in its input's array.
+		out := bytes.Clone(b[:len(b)-len(b)/25])
+		clear(b[len(b)/2:])
+		return out, nil
 	}
 	return squeezed(b), nil
 }
@@ -457,6 +462,7 @@ func TestStaticMinify(t *testing.T) {
 		"vendor/lib.min.css": {Data: source("/* vendored css */")},
 		"js/broken.js":       {Data: source("// broken")},
 		"js/tight.js":        {Data: source("// tight")},
+		"js/scribble.js":     {Data: source("// scribble")},
 		"data.json":          {Data: source(`{"json": 1}`)},
 		"img/logo.png":       {Data: png},
 		"js/empty.js":        {Data: nil},
@@ -484,6 +490,7 @@ func TestStaticMinify(t *testing.T) {
 		"vendor/lib.min.css": source("/* vendored css */"),
 		"js/broken.js":       source("// broken"),
 		"js/tight.js":        source("// tight"),
+		"js/scribble.js":     source("// scribble"),
 		"js/minified.js":     []byte("x=1;"),
 		"js/empty.js":        nil,
 		"data.json":          source(`{"json": 1}`),
