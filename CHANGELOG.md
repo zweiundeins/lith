@@ -2,7 +2,7 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.4.2 (2026-10-21)
 
 - `events`: `Compact` no longer reads the events a stream keeps: on a stream that keeps 100,000, a call with `Limit: 1` takes 0.06 ms instead of 9 to 14 ms. `LoadUntil` and `StateAt` read a stream no further than their position.
 
