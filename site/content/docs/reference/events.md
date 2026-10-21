@@ -160,7 +160,7 @@ Compact is Prune that closes the books: each stream that loses events keeps one,
 
 Rewriting a stored event is the one deliberate exception to events never changing: the snapshot holds what the events it replaces held, at the place of the last of them. Positions stay in order, so StateAt, LoadUntil and a projection that keeps positions read as before from Bounds' first position on, the newest snapshot. Each stream keeps one snapshot at most, so the snapshots are bounded by the number of streams; a later call replaces the snapshot of a stream that loses events again, and leaves the others alone.
 
-Compact returns how many events it deleted. Like Prune, it keeps the state rows and the projections, and goes no further than a catch-up projector of the kind, or a rebuild under way, has passed. It refuses a stream whose first events Prune took, as it cannot fold its state. Its time grows with the events it takes, not with those the streams keep, so a sweep with a Limit stays short on a long stream.
+Compact returns how many events it deleted. Like Prune, it keeps the state rows and the projections, and goes no further than a catch-up projector of the kind, or a rebuild under way, has passed. It refuses a stream whose first events Prune took, as it cannot fold its state. Its time grows with the events it takes, not with those the streams keep; and while Since only moves on, a writer's later calls do not read again the events a Limit left: a sweep with a Limit stays short on a long stream and a long backlog.
 
 ### func Decode {#Decode}
 

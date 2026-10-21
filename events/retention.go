@@ -67,10 +67,11 @@ func Forget[K Key, E any](st *Store, tx *writer.Tx, id StreamID[K, E]) (int64, e
 // event that a catch-up projector of the kind, or a rebuild under way, has
 // not passed.
 func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], keep Retention) (int64, error) {
-	if _, _, err := st.prepare(tx, ""); err != nil {
+	l, _, err := st.prepare(tx, "")
+	if err != nil {
 		return 0, err
 	}
-	cut, err := st.cut(tx, s.kind, keep, 0)
+	cut, err := st.cut(tx, l, s.kind, keep, 0)
 	if err != nil || cut <= 1 {
 		return 0, err
 	}
@@ -110,14 +111,17 @@ func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], keep Retenti
 // state rows and the projections, and goes no further than a catch-up
 // projector of the kind, or a rebuild under way, has passed. It refuses a
 // stream whose first events Prune took, as it cannot fold its state. Its
-// time grows with the events it takes, not with those the streams keep,
-// so a sweep with a Limit stays short on a long stream.
+// time grows with the events it takes, not with those the streams keep;
+// and while Since only moves on, a writer's later calls do not read again
+// the events a Limit left: a sweep with a Limit stays short on a long
+// stream and a long backlog.
 func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E, T], keep Retention, d Decider[C, E, S], of func(S) T) (int64, error) {
 	s := snapshot.s
 	if err := checkDecider[S](st, s.kind, d.Version); err != nil {
 		return 0, err
 	}
-	if _, _, err := st.prepare(tx, ""); err != nil {
+	l, _, err := st.prepare(tx, "")
+	if err != nil {
 		return 0, err
 	}
 	if up := st.upcasts[s.kind][snapshot.name]; up != nil {
@@ -128,7 +132,7 @@ func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E
 	if err != nil {
 		return 0, err
 	}
-	cut, err := st.cut(tx, s.kind, keep, from)
+	cut, err := st.cut(tx, l, s.kind, keep, from)
 	if err != nil || cut <= from+1 {
 		return 0, err
 	}
@@ -206,18 +210,41 @@ func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E
 // cut returns the position before which keep lets the events of a kind
 // go, no further than a catch-up projector of the kind, or a rebuild under
 // way, has passed; 0 when none go. Since looks for the first event to keep
-// after position after only: Compact settled the events up to it.
-func (st *Store) cut(tx *writer.Tx, kind string, keep Retention, after int64) (int64, error) {
+// after position after only, as Compact settled the events up to it, and
+// from the mark of an earlier lookup on.
+func (st *Store) cut(tx *writer.Tx, l *local, kind string, keep Retention, after int64) (int64, error) {
 	if keep.Since.IsZero() && keep.Newest <= 0 {
 		return 0, errors.New("events: a Retention keeps the events Since a time, the Newest, or both")
 	}
 	cut := int64(math.MaxInt64)
 	if !keep.Since.IsZero() {
-		err := tx.QueryRow(`SELECT position FROM lith_events WHERE stream = ? AND position > ? AND at >= ? ORDER BY position LIMIT 1`,
-			kind, after, keep.Since.UnixMilli()).Scan(&cut)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		since := keep.Since.UnixMilli()
+		key := markKey{kind, after == 0}
+		start := after + 1
+		if m, ok := l.marks[key]; ok && !st.scanAll && since >= m.since && after >= m.after {
+			start = max(start, m.from)
+		}
+		err := tx.QueryRow(`SELECT position FROM lith_events WHERE stream = ? AND position >= ? AND at >= ? ORDER BY position LIMIT 1`,
+			kind, start, since).Scan(&cut)
+		from := cut
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			// The events stored since come after the kind's last.
+			var last int64
+			if err := tx.QueryRow(`SELECT coalesce(max(position), 0) FROM lith_events WHERE stream = ?`, kind).Scan(&last); err != nil {
+				return 0, err
+			}
+			from = max(start, last+1)
+		case err != nil:
 			return 0, err
 		}
+		m := mark{since, after, from}
+		tx.AfterCommit(func() {
+			if l.marks == nil {
+				l.marks = map[markKey]mark{}
+			}
+			l.marks[key] = m
+		})
 	}
 	if keep.Newest > 0 {
 		var pos int64
@@ -246,6 +273,20 @@ func (st *Store) cut(tx *writer.Tx, kind string, keep Retention, after int64) (i
 		}
 	}
 	return cut, nil
+}
+
+// A mark is what a Since lookup of cut found: every event of the kind
+// between positions after and from was stored before since. New events
+// take positions after from, so a later lookup with an after and a since
+// no smaller starts at from. Only a committed lookup leaves a mark: the
+// positions of events rolled back are handed out again.
+type mark struct{ since, after, from int64 }
+
+// markKey keeps Prune's marks, from the start of the kind, apart from
+// Compact's, from its compacted position.
+type markKey struct {
+	kind  string
+	start bool
 }
 
 // limit is keep's Limit as SQL's LIMIT takes it.

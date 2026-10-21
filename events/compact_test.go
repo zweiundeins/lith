@@ -653,3 +653,95 @@ func TestCompactSince(t *testing.T) {
 		t.Error("nothing compacted")
 	}
 }
+
+// TestCompactMarks runs random histories on two databases, one whose Since
+// lookups start at their last mark and one whose lookups scan from the
+// compacted position, and wants the same events, snapshots and compacted
+// position after every command. Times step back, Since mostly moves on and
+// sometimes back, Limit varies, Prune runs in between in every other
+// history (once it took a stream's first events, Compact refuses that
+// stream), and some commands fail after their lookup, so that their
+// positions are handed out again.
+func TestCompactMarks(t *testing.T) {
+	for seed := range uint64(40) {
+		marked, scanned := open(t, balances(1)), open(t, balances(1))
+		events.ScanAll(scanned.st)
+		rnd := rand.New(rand.NewPCG(seed, 11))
+		t0 := time.Now().Add(-time.Hour).UnixMilli()
+		var clock, since, base int64
+		var appended int
+		for _, f := range []*fixture{marked, scanned} {
+			if err := f.do(t, func(tx *writer.Tx) error {
+				return events.Append(f.st, tx, Accounts.ID(1), events.NoStream, events.Meta{At: time.UnixMilli(t0)}, AccountEvent(Deposited{Amount: 1}))
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for step := range 80 {
+			// Draw the step once, then run it on both databases.
+			var ats, ids []int64
+			for range rnd.IntN(4) * rnd.IntN(12) {
+				clock += rnd.Int64N(10)
+				if rnd.IntN(8) == 0 {
+					clock -= rnd.Int64N(300)
+				}
+				appended++
+				if appended%40 == 0 {
+					base += 3
+				}
+				ats, ids = append(ats, clock), append(ids, 1+base+rnd.Int64N(5))
+			}
+			prune := seed%2 == 1 && rnd.IntN(10) == 0
+			if rnd.IntN(6) == 0 {
+				since -= rnd.Int64N(200)
+			} else {
+				since += rnd.Int64N(40)
+			}
+			keep := events.Retention{Since: time.UnixMilli(t0 + since), Limit: []int{0, 1, 3, 10}[rnd.IntN(4)]}
+			if prune {
+				keep.Since = keep.Since.Add(-time.Duration(rnd.Int64N(100)) * time.Millisecond)
+			}
+			fail := rnd.IntN(5) == 0
+
+			type result struct {
+				n   int64
+				err string
+			}
+			run := func(f *fixture) result {
+				var n int64
+				err := f.do(t, func(tx *writer.Tx) (err error) {
+					for k, at := range ats {
+						if err := events.Append(f.st, tx, Accounts.ID(ids[k]), events.Any, events.Meta{At: time.UnixMilli(t0 + at)}, AccountEvent(Deposited{Amount: 1})); err != nil {
+							return err
+						}
+					}
+					if prune {
+						n, err = events.Prune(f.st, tx, Accounts, keep)
+					} else {
+						n, err = events.Compact(f.st, tx, AccountBalanced, keep, move, balancedOf)
+					}
+					if err == nil && fail {
+						err = errors.New("refused")
+					}
+					return err
+				})
+				r := result{n: n}
+				if err != nil {
+					r.err = err.Error()
+				}
+				return r
+			}
+			got, want := run(marked), run(scanned)
+			if got != want {
+				t.Fatalf("seed %d step %d: %+v, want %+v", seed, step, got, want)
+			}
+			if got, want := marked.storedEvents(t), scanned.storedEvents(t); !slices.Equal(got, want) {
+				t.Fatalf("seed %d step %d: events\n%v\nwant\n%v", seed, step, got, want)
+			}
+			const q = `SELECT coalesce(max(compacted), 0) FROM lith_event_kinds`
+			if got, want := marked.count(t, q), scanned.count(t, q); got != want {
+				t.Fatalf("seed %d step %d: compacted to %d, want %d", seed, step, got, want)
+			}
+		}
+	}
+}

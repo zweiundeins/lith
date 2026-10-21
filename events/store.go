@@ -81,6 +81,7 @@ type Store struct {
 	checkErr error
 	states   sync.Map // stream kind: stateType, the deciders' state seen first
 	counts   counts
+	scanAll  bool // tests: cut ignores its marks
 }
 
 // Part is what New takes: a *Projector or an Upcaster.
@@ -207,6 +208,8 @@ type local struct {
 	gen   int             // counts the changes of live
 	wake  map[string]func()
 	heads *heads // the runner's, nil without one
+
+	marks map[markKey]mark // cut's Since lookups, committed
 }
 
 func (st *Store) local(tx *writer.Tx) *local {
