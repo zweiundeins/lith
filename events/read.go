@@ -26,12 +26,15 @@ func Load[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id Str
 
 // LoadUntil is Load up to a position: the events of a stream after
 // version after that were stored at or before position upto, the stream
-// as it stood then.
+// as it stood then. It reads no further than upto.
 func LoadUntil[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id StreamID[K, E], after, upto int64) iter.Seq2[Record[K, E], error] {
 	return func(yield func(Record[K, E], error) bool) {
 		key := keyValue(id.key)
+		// A stream's positions grow with its versions, so its first event
+		// after upto ends it. A bound on position in the query would read
+		// the stream's index to its end.
 		rows, err := q.QueryContext(ctx, `SELECT position, version, type, data, at, actor, correlation, causation
-			FROM lith_events WHERE stream = ? AND stream_id = ? AND version > ? AND position <= ? ORDER BY version`, id.s.kind, key, after, upto)
+			FROM lith_events WHERE stream = ? AND stream_id = ? AND version > ? ORDER BY version`, id.s.kind, key, after)
 		if err != nil {
 			if !noTable(err) {
 				yield(Record[K, E]{}, err)
@@ -43,6 +46,9 @@ func LoadUntil[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, i
 			ev, err := scanRaw(rows, id.s.kind, key)
 			if err != nil {
 				yield(Record[K, E]{}, err)
+				return
+			}
+			if ev.Position > upto {
 				return
 			}
 			if !yield(record(st, id.s, ev)) {

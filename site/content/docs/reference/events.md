@@ -160,7 +160,7 @@ Compact is Prune that closes the books: each stream that loses events keeps one,
 
 Rewriting a stored event is the one deliberate exception to events never changing: the snapshot holds what the events it replaces held, at the place of the last of them. Positions stay in order, so StateAt, LoadUntil and a projection that keeps positions read as before from Bounds' first position on, the newest snapshot. Each stream keeps one snapshot at most, so the snapshots are bounded by the number of streams; a later call replaces the snapshot of a stream that loses events again, and leaves the others alone.
 
-Compact returns how many events it deleted. Like Prune, it keeps the state rows and the projections, and goes no further than a catch-up projector of the kind, or a rebuild under way, has passed. It refuses a stream whose first events Prune took, as it cannot fold its state.
+Compact returns how many events it deleted. Like Prune, it keeps the state rows and the projections, and goes no further than a catch-up projector of the kind, or a rebuild under way, has passed. It refuses a stream whose first events Prune took, as it cannot fold its state. Its time grows with the events it takes, not with those the streams keep, so a sweep with a Limit stays short on a long stream.
 
 ### func Decode {#Decode}
 
@@ -200,7 +200,7 @@ Load yields the events of a stream after version after (0 for all), in order, de
 func LoadUntil[K Key, E any](ctx context.Context, st *Store, q sqlite.Querier, id StreamID[K, E], after, upto int64) iter.Seq2[Record[K, E], error]
 ```
 
-LoadUntil is Load up to a position: the events of a stream after version after that were stored at or before position upto, the stream as it stood then.
+LoadUntil is Load up to a position: the events of a stream after version after that were stored at or before position upto, the stream as it stood then. It reads no further than upto.
 
 ### func One {#One}
 

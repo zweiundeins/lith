@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zweiundeins/lith/events"
 	"github.com/zweiundeins/lith/sqlite"
@@ -505,5 +506,150 @@ func TestCompactLimit(t *testing.T) {
 	}
 	if got := f.lines(t, `SELECT data FROM lith_events WHERE position <= 15`); !slices.Equal(got, []string{`{"balance":70,"moves":7}`, `{"balance":80,"moves":8}`}) {
 		t.Errorf("the snapshots' data: %v", got)
+	}
+}
+
+// storedEvent is a row of lith_events.
+type storedEvent struct {
+	Position, ID, Version, At int64
+	Type, Data                string
+}
+
+func (f *fixture) storedEvents(t testing.TB) []storedEvent {
+	t.Helper()
+	rows, err := f.db.R.Query(`SELECT position, stream_id, version, at, type, data FROM lith_events ORDER BY position`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var evs []storedEvent
+	for rows.Next() {
+		var e storedEvent
+		if err := rows.Scan(&e.Position, &e.ID, &e.Version, &e.At, &e.Type, &e.Data); err != nil {
+			t.Fatal(err)
+		}
+		evs = append(evs, e)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return evs
+}
+
+// Compact with Since and a Limit, between rounds of moves: each call
+// leaves the log as the rule says, from the oldest events after the last
+// call to the first event kept, the last of each stream among them its
+// snapshot, every older event of those streams gone. From the newest
+// snapshot on, StateAt and LoadUntil read what the log read before.
+func TestCompactSince(t *testing.T) {
+	const accounts = 5
+	f := open(t, balances(1), balanceHistory(1))
+	ctx := context.Background()
+	rnd := rand.New(rand.NewPCG(7, 8))
+	t0 := time.Now().Add(-time.Hour).UnixMilli()
+	var i, since, from int64
+	for round := range 8 {
+		if err := f.do(t, func(tx *writer.Tx) error {
+			for range 60 + rnd.IntN(60) {
+				i++
+				err := events.Execute(f.st, tx, move, Accounts.ID(1+rnd.Int64N(accounts)), events.Any, Move{Amount: rnd.Int64N(200) - 80},
+					events.Meta{At: time.UnixMilli(t0 + i)})
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		want := f.accountsByPosition(t)
+		before := f.storedEvents(t)
+		since += rnd.Int64N(100)
+		limit := []int{0, 1, 7, 40}[round%4]
+
+		// What the call takes: the events after from, before the first
+		// stored at or after since, Limit of them at most.
+		var taken []storedEvent
+		for _, e := range before {
+			if e.At >= t0+since {
+				break
+			}
+			if e.Position > from && (limit == 0 || len(taken) < limit) {
+				taken = append(taken, e)
+			}
+		}
+		ends := map[int64]int64{}
+		for _, e := range taken {
+			ends[e.ID] = e.Position
+		}
+		var kept []storedEvent
+		var deleted int64
+		for _, e := range before {
+			end, ok := ends[e.ID]
+			switch {
+			case ok && e.Position < end:
+				deleted++
+				continue
+			case ok && e.Position == end:
+				s := want[end][e.ID]
+				e.Type, e.Data = "account.balanced", fmt.Sprintf(`{"balance":%d,"moves":%d}`, s.Balance, s.Moves)
+			}
+			kept = append(kept, e)
+		}
+
+		n := f.compact(t, move, events.Retention{Since: time.UnixMilli(t0 + since), Limit: limit})
+		if got := f.storedEvents(t); n != deleted || !slices.Equal(got, kept) {
+			t.Fatalf("round %d: deleted %d events, want %d\n%v\nwant\n%v", round, n, deleted, got, kept)
+		}
+		if len(taken) > 0 {
+			from = taken[len(taken)-1].Position
+		}
+		if got := f.count(t, `SELECT coalesce(max(compacted), 0) FROM lith_event_kinds`); int64(got) != from {
+			t.Errorf("round %d: compacted to %d, want %d", round, got, from)
+		}
+		first, last := f.bounds(t, Accounts)
+		f.checkAccountsAt(t, want, first, last, accounts)
+
+		// LoadUntil from a version on: the events Load reads, up to upto.
+		err := f.db.View(ctx, func(tx *sql.Tx) error {
+			for id := range int64(accounts) {
+				id := Accounts.ID(id + 1)
+				var all []events.Record[int64, AccountEvent]
+				for r, err := range events.Load(ctx, f.st, tx, id, 0) {
+					if err != nil {
+						return err
+					}
+					all = append(all, r)
+				}
+				for upto := first; upto <= last; upto += 1 + rnd.Int64N(5) {
+					var after int64
+					if len(all) > 0 {
+						after = all[0].Version - 1 + rnd.Int64N(int64(len(all))+1)
+					}
+					var got, want []int64
+					for r, err := range events.LoadUntil(ctx, f.st, tx, id, after, upto) {
+						if err != nil {
+							return err
+						}
+						got = append(got, r.Position)
+					}
+					for _, r := range all {
+						if r.Version > after && r.Position <= upto {
+							want = append(want, r.Position)
+						}
+					}
+					if !slices.Equal(got, want) {
+						return fmt.Errorf("account %v after %d up to %d: %v, want %v", id, after, upto, got, want)
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
+	}
+	if from == 0 {
+		t.Error("nothing compacted")
 	}
 }

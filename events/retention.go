@@ -70,7 +70,7 @@ func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], keep Retenti
 	if _, _, err := st.prepare(tx, ""); err != nil {
 		return 0, err
 	}
-	cut, err := st.cut(tx, s.kind, keep)
+	cut, err := st.cut(tx, s.kind, keep, 0)
 	if err != nil || cut <= 1 {
 		return 0, err
 	}
@@ -109,7 +109,9 @@ func Prune[K Key, E any](st *Store, tx *writer.Tx, s *Stream[K, E], keep Retenti
 // Compact returns how many events it deleted. Like Prune, it keeps the
 // state rows and the projections, and goes no further than a catch-up
 // projector of the kind, or a rebuild under way, has passed. It refuses a
-// stream whose first events Prune took, as it cannot fold its state.
+// stream whose first events Prune took, as it cannot fold its state. Its
+// time grows with the events it takes, not with those the streams keep,
+// so a sweep with a Limit stays short on a long stream.
 func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E, T], keep Retention, d Decider[C, E, S], of func(S) T) (int64, error) {
 	s := snapshot.s
 	if err := checkDecider[S](st, s.kind, d.Version); err != nil {
@@ -121,13 +123,13 @@ func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E
 	if up := st.upcasts[s.kind][snapshot.name]; up != nil {
 		return 0, fmt.Errorf("events: %s is read as %s: compact into that", snapshot.name, up.to)
 	}
-	cut, err := st.cut(tx, s.kind, keep)
-	if err != nil || cut <= 1 {
-		return 0, err
-	}
 	ctx := tx.Context()
 	from, err := compacted(ctx, tx, s.kind)
 	if err != nil {
+		return 0, err
+	}
+	cut, err := st.cut(tx, s.kind, keep, from)
+	if err != nil || cut <= from+1 {
 		return 0, err
 	}
 	// The events since the last call that keep lets go, and the last of
@@ -169,7 +171,7 @@ func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E
 	slices.SortFunc(ends, func(a, b end) int { return cmp.Compare(a.position, b.position) })
 	var deleted int64
 	for _, c := range ends {
-		state, _, err := StateAt(ctx, st, tx, d, s.ID(c.key), c.position)
+		state, version, err := StateAt(ctx, st, tx, d, s.ID(c.key), c.position)
 		if err != nil {
 			return 0, err
 		}
@@ -177,7 +179,9 @@ func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E
 		if err != nil {
 			return 0, fmt.Errorf("events: encode %s: %w", snapshot.name, err)
 		}
-		res, err := tx.Exec(`DELETE FROM lith_events WHERE stream = ? AND stream_id = ? AND position < ?`, s.kind, keyValue(c.key), c.position)
+		// version is the event's at c.position: the events before it by
+		// version are those before it by position, and the index finds them.
+		res, err := tx.Exec(`DELETE FROM lith_events WHERE stream = ? AND stream_id = ? AND version < ?`, s.kind, keyValue(c.key), version)
 		if err != nil {
 			return 0, err
 		}
@@ -201,15 +205,16 @@ func Compact[K Key, E, T, C, S any](st *Store, tx *writer.Tx, snapshot Type[K, E
 
 // cut returns the position before which keep lets the events of a kind
 // go, no further than a catch-up projector of the kind, or a rebuild under
-// way, has passed; 0 when none go.
-func (st *Store) cut(tx *writer.Tx, kind string, keep Retention) (int64, error) {
+// way, has passed; 0 when none go. Since looks for the first event to keep
+// after position after only: Compact settled the events up to it.
+func (st *Store) cut(tx *writer.Tx, kind string, keep Retention, after int64) (int64, error) {
 	if keep.Since.IsZero() && keep.Newest <= 0 {
 		return 0, errors.New("events: a Retention keeps the events Since a time, the Newest, or both")
 	}
 	cut := int64(math.MaxInt64)
 	if !keep.Since.IsZero() {
-		err := tx.QueryRow(`SELECT position FROM lith_events WHERE stream = ? AND at >= ? ORDER BY position LIMIT 1`,
-			kind, keep.Since.UnixMilli()).Scan(&cut)
+		err := tx.QueryRow(`SELECT position FROM lith_events WHERE stream = ? AND position > ? AND at >= ? ORDER BY position LIMIT 1`,
+			kind, after, keep.Since.UnixMilli()).Scan(&cut)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return 0, err
 		}
