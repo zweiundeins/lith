@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/css"
 	"github.com/tdewolff/minify/v2/js"
 )
@@ -24,7 +25,16 @@ var (
 	// learns later.
 	scripts = &js.Minifier{Version: 2020}
 	styles  = &css.Minifier{}
+	// m is what the CSS minifier minifies a data: URI with: a data URI of
+	// a type it does not hold stays as it is.
+	m = minify.New()
 )
+
+func init() {
+	m.Add("text/css", styles)
+	m.Add("text/javascript", scripts)
+	m.Add("application/javascript", scripts)
+}
 
 // Bytes returns b minified: JavaScript, scripts and modules alike, for the
 // media type text/javascript, and CSS for text/css; another type is an
@@ -45,9 +55,9 @@ func Bytes(mediatype string, b []byte) ([]byte, error) {
 	var err error
 	switch strings.ToLower(strings.TrimSpace(mediatype)) {
 	case "text/javascript", "application/javascript":
-		err = scripts.Minify(nil, &out, bytes.NewReader(b), nil)
+		err = scripts.Minify(m, &out, bytes.NewReader(b), nil)
 	case "text/css":
-		err = styles.Minify(nil, &out, bytes.NewReader(b), nil)
+		err = styles.Minify(m, &out, bytes.NewReader(b), nil)
 	default:
 		return nil, fmt.Errorf("minify: no minifier for %q", mediatype)
 	}

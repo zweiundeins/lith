@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `minify`: `Bytes` no longer panics on CSS with a `data:` URI, which made `edge.NewStatic` with `edge.Minify(minify.Bytes)` crash at start. It handed tdewolff's CSS minifier no `minify.M`, which that minifier needs for a data URI; a data URI now comes out in its shorter encoding.
+
 ## v0.4.2 (2026-10-21)
 
 - `events`: `Compact` no longer reads the events a stream keeps, and while `Since` moves on, `Compact` and `Prune` no longer read again on each call the events a `Limit` left: on a stream that keeps 100,000, a call with `Limit: 1` takes 0.06 ms instead of 9 to 14 ms, and with 40,000 waiting, `Limit: 10` takes 0.1 ms instead of 3. `LoadUntil` and `StateAt` read a stream no further than their position. A `Compact` whose `Since` moved back now folds the events after the compacted position that it would have left before.

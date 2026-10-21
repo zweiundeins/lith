@@ -215,6 +215,27 @@ func TestStyles(t *testing.T) {
 	}
 }
 
+// tdewolff's CSS minifier minifies a data: URI through its minify.M, which
+// Bytes must hand it, and writes each in its shorter encoding.
+func TestDataURIs(t *testing.T) {
+	in := `.a { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"); }
+.b { background: url(data:text/css;base64,LmEgeyBjb2xvcjogcmVkIH0=); }
+.c { background: url("data:image/png;base64,iVBORw0KGgo="); }
+`
+	out, err := minify.Bytes("text/css", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(out, []byte("url(")); n != 3 {
+		t.Errorf("%d data URIs in\n%s", n, out)
+	}
+	for _, want := range []string{"data:text/css,.a%7Bcolor:red%7D", "data:image/png,%89PNG%0D%0A%1A%0A"} {
+		if !bytes.Contains(out, []byte(want)) {
+			t.Errorf("no %s in\n%s", want, out)
+		}
+	}
+}
+
 func TestMediaTypes(t *testing.T) {
 	for _, mt := range []string{"text/javascript; charset=utf-8", "application/javascript", "Text/JavaScript"} {
 		if out, err := minify.Bytes(mt, []byte("const a = 1 ;")); err != nil || string(out) != "const a=1" {
