@@ -396,21 +396,19 @@ var emptyBrotli = []byte{0x06}
 // stream then, with Reconnect: live's does for a stream with
 // Spec.Reconnect, but not twice within a minute for the same Spec.ID.
 // Without a budget, and for streams that move while open (zstd) or never
-// would (gzip), the channel stays open.
+// would (gzip), it returns nil, which a select never takes, and which
+// leaves a goroutine in a testing/synctest bubble durably blocked.
 func (s *Stream) Upgrade() <-chan struct{} {
 	if s.up != nil {
 		return s.up.ch
 	}
 	if s.opt.Budget == nil || s.accepts != Brotli || s.opt.NoCompression || s.stop == nil {
-		return never
+		return nil
 	}
 	s.up = &mover{ch: make(chan struct{}), opt: s.opt}
 	s.moved()
 	return s.up.ch
 }
-
-// never is a channel that nothing closes.
-var never = make(chan struct{})
 
 // brotliChunk is the most a brotli encoder of quality q takes between two
 // flushes: one input block below quality 4, else 32 KiB, which bounds its heap.

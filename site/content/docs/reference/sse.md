@@ -498,7 +498,7 @@ Tier names what the stream's encoder holds now, as BudgetStats.Streams counts it
 func (s *Stream) Upgrade() <-chan struct{}
 ```
 
-Upgrade returns a channel that the stream's budget closes when a stream opened now would get a tier whose window holds this stream's frames, and this one's does not: a brotli stream whose window is below its frames, or one that went out uncompressed for want of room. A brotli stream keeps its tier while it is open, so it gets the better one only by opening again. The budget closes the channel of at most one stream a second. A handler that can have the page open its stream again ends the stream then, with Reconnect: live's does for a stream with Spec.Reconnect, but not twice within a minute for the same Spec.ID. Without a budget, and for streams that move while open (zstd) or never would (gzip), the channel stays open.
+Upgrade returns a channel that the stream's budget closes when a stream opened now would get a tier whose window holds this stream's frames, and this one's does not: a brotli stream whose window is below its frames, or one that went out uncompressed for want of room. A brotli stream keeps its tier while it is open, so it gets the better one only by opening again. The budget closes the channel of at most one stream a second. A handler that can have the page open its stream again ends the stream then, with Reconnect: live's does for a stream with Spec.Reconnect, but not twice within a minute for the same Spec.ID. Without a budget, and for streams that move while open (zstd) or never would (gzip), it returns nil, which a select never takes, and which leaves a goroutine in a testing/synctest bubble durably blocked.
 
 #### func (*Stream) Write {#Stream.Write}
 
