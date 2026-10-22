@@ -297,7 +297,7 @@ func (l *Workload) apply(c WorkloadChange) {
 		}
 		l.open[c.From]--
 		l.open[c.To]++
-		delete(l.open, "") // From is "" for a card nobody had
+		delete(l.open, "") // "" is nobody: the From of a card nobody had, the To of one unassigned
 	}
 }
 ```
