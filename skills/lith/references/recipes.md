@@ -237,8 +237,9 @@ returns. The channel closes when ctx ends or the writer stops.
 
 It is best effort: each subscriber has a queue of n, and a full queue drops
 the value for that subscriber (`Stats.Dropped`,
-`<ns>_writer_events_dropped_total`); a crash between commit and delivery
-loses it; nothing is replayed.
+`<ns>_writer_publish_dropped_total`); a crash between commit and delivery
+loses it; nothing is replayed. `Stats.Subscribers` (`<ns>_writer_subscribers`)
+counts the subscriptions open: one that only grows has a ctx that never ends.
 
 Pages need none of it. Views render from the database and `tx.Touch`
 renders every view that shows the change. A passing effect (a pulse on a

@@ -73,6 +73,10 @@ rg -n 'writer\.Once(Result)?\(' --type go
 rg -n 'Once(Result)?\([a-z]+\.(Op|ID|Key)\b' --type go
 ```
 
+### A publish after Do returns
+
+An app that publishes to its own bus once `w.Do` returns publishes in the order the handlers wake up, not the order the commands committed, and also publishes for a command that failed. Publish inside the command with `tx.Publish`, which keeps commit order and drops the value of a failed command, or use `tx.AfterCommit` for a side effect of that command ([Commands](/docs/guides/commands#in-process-listeners)).
+
 ## Reads
 
 - **A render that opens its own transactions.** A render reads through the transaction it is given: `sqlite.QuerierFrom(ctx)`, or a store whose `db.View(ctx, fn)` joins the render's. One that opens transactions of its own, one for the list and one per open dialog, mixes snapshots and shows two moments at once.
