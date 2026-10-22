@@ -239,7 +239,7 @@ func sign(t *testing.T, base string) {
 			}
 		}
 	}
-	next(`"_ack":""`)
+	next(`"sign":{"ack":"","refused":false}`)
 
 	req, _ = http.NewRequest("POST", base+"/cmd/sign", strings.NewReader(`{"tab":"tab1","op":"op1","name":"Ada","message":"Hello"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -253,7 +253,7 @@ func sign(t *testing.T, base string) {
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("sign: %d", res.StatusCode)
 	}
-	next(`"_ack":"op1","_accepted":true`)
+	next(`"sign":{"ack":"op1","refused":false}`)
 }
 
 // TestStaticWithoutCookie: the static files are mounted outside the

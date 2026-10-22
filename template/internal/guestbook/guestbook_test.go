@@ -47,10 +47,20 @@ func TestSign(t *testing.T) {
 		t.Errorf("a refusal touched %v", got)
 	}
 
-	// A blank name never reaches the writer.
+	// A blank name is the person's input: refused, and the tab hears why.
 	sign.Op, sign.Name = "op3", "  "
+	if err := w.Do(ctx, sign); err != nil {
+		t.Fatal(err)
+	}
+	_, total, state = read(t, db, "s1", "t1")
+	if total != 1 || state.Op != "op3" || state.Refusal != "A name has 1 to 40 characters." {
+		t.Fatalf("a blank name: %d entries, tab %+v", total, state)
+	}
+
+	// A signature without its op never comes from a page of ours.
+	sign.Op = ""
 	if err := w.Do(ctx, sign); !errors.Is(err, writer.ErrInvalid) {
-		t.Errorf("a blank name: %v", err)
+		t.Errorf("no op: %v", err)
 	}
 }
 

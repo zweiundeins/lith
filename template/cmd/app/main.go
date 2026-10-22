@@ -107,7 +107,7 @@ func serve(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	hub := live.New(live.Options{Read: db.R, MaxStreams: *streams, MaxStreamsPerClient: *clientStreams, Log: log})
+	hub := live.New(live.Options{Read: db.R, MaxStreams: *streams, MaxStreamsPerClient: *clientStreams, Stopping: web.Stopping, Log: log})
 	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed, Log: log})
 	if err != nil {
 		return errors.Join(err, db.Close())

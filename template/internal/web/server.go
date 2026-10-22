@@ -6,6 +6,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"embed"
@@ -133,7 +134,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	sid := edge.SessionID(r.Context())
@@ -158,42 +159,63 @@ type signRequest struct {
 }
 
 // sign answers 204 once the signature is committed. Its outcome, an entry
-// or a refusal, reaches the page on the tab's stream, and a tab without an
-// open stream gets 409.
+// or a refusal, reaches the page on the tab's stream. A status code
+// carries nothing a person reads: what no command decided, a rate limit or
+// a failed write, reaches the tab as a notice with the op id.
 func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
-	if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
-		http.Error(w, "too many signatures, wait a moment", http.StatusTooManyRequests)
-		return
-	}
 	var req signRequest
 	if err := sse.ReadSignalsLimit(w, r, &req, 8<<10); err != nil || !validID(req.Tab) || !validID(req.Op) {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	sid := edge.SessionID(r.Context())
+	id := streamID(sid, req.Tab)
 	// A tab whose stream is not open would never see the outcome, and its
-	// row would come from a tab id the client made up.
-	if !s.hub.HasStream(streamID(sid, req.Tab)) {
-		http.Error(w, "this tab is not connected: reload the page", http.StatusConflict)
+	// row would come from a tab id the client made up. The page waits on a
+	// 409 as on a 5xx: its stream connects again, the tab's row lacks the
+	// op, and the page tells the person in its own words.
+	if !s.hub.HasStream(id) {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
+		s.notify(r.Context(), id, req.Op, "Too many signatures at once. Wait a moment, then try again.")
+		w.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
 	cmd := guestbook.Sign{Session: sid, Tab: req.Tab, Op: req.Op, Name: req.Name, Message: req.Message, At: time.Now()}
-	err := s.w.Do(r.Context(), writer.Once(sid+":"+req.Op, cmd))
-	switch {
+	switch err := s.w.Do(r.Context(), writer.Once(sid+":"+req.Op, cmd)); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, writer.ErrInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // Sign refuses what a person can type: this is a bug
 	case errors.Is(err, writer.ErrClosed):
-		http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
+		w.WriteHeader(http.StatusServiceUnavailable) // the hub stopped first: Stopping told the tab
+	case r.Context().Err() != nil:
+		// The client went away: nobody waits for an answer or a notice.
 	default:
-		s.fail(w, r, err)
+		s.log.Error("sign failed", "err", err)
+		s.notify(r.Context(), id, req.Op, "Your signature could not be saved. Try again in a moment.")
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
+// notify sends the tab's stream a notice in place of the outcome of its
+// action op. The tab's view puts the outcome back with its next frame,
+// and a stream that reconnects never gets it.
+func (s *Server) notify(ctx context.Context, streamID, op, msg string) {
+	ev, err := notice(ctx, op, msg)
+	if err != nil {
+		s.log.Error("notice", "err", err)
+		return
+	}
+	s.hub.Notify(streamID, "notice", ev)
+}
+
+// fail logs err and answers the document with 500, which the person reads.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
-	http.Error(w, "something went wrong", http.StatusInternalServerError)
+	http.Error(w, "Something went wrong. Reload the page in a moment.", http.StatusInternalServerError)
 }
 
 // newID returns a tab id: 128 random bits in base64url.

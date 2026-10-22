@@ -28,6 +28,11 @@ jobs:
             (cd "$m" && go vet ./... && go test -race ./...) || failed="$failed $m"
           done
           if [ -n "$failed" ]; then echo "failed:$failed"; exit 1; fi
+      - name: generated project
+        # lith-new writes the template into a project that points at this
+        # checkout, then tidies it (from the module proxy), vets it, tests
+        # it with -race and builds it. It needs no browser.
+        run: LITH_NEW_E2E=1 go test -run TestGenerated ./cmd/lith-new/
 
   site:
     runs-on: ubuntu-latest

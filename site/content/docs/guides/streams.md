@@ -135,11 +135,13 @@ const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(
 // openStream opens the tab's stream on the element with id "stream". On a
 // slow link, measured as the page starts, it sends Save-Data: on
 // (edge.SlowLink). The URL stays the same, so a stream opened again aborts
-// the old request. retry 'error'
-// retries through network errors, 502s and 503s and never gives up, but
-// leaves a stream the server ends closed: on a deploy the server ends it
-// with sse.Reconnect, which runs this again.
-const openStream = `@get('/stream?tab=' + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})`
+// the old request. retry 'error' retries network errors and every answer
+// from 400 to 599 and never gives up, which carries the page through a
+// restart; a 204 or a 3xx stops it, and a stream the server ends stays
+// closed: on a deploy the server ends it with sse.Reconnect, which runs
+// this again. It marks the page out of sync until the tab view's first
+// frame.
+const openStream = `($_synced = false, @get('/stream?tab=' + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))`
 ```
 
 The measurement is a Datastar expression, so it needs no script beyond the CSP's `'unsafe-eval'`, which Datastar needs anyway. It runs in `data-signals`, not in the stream's `data-init`, which runs again on every reconnect.
@@ -150,7 +152,7 @@ The measurement is a Datastar expression, so it needs no script beyond the CSP's
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	sid := edge.SessionID(r.Context())
@@ -282,7 +284,7 @@ The server cannot see that a page falls behind, but the page can tell it, and th
 func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	sid, now := edge.SessionID(r.Context()), time.Now()
@@ -375,7 +377,7 @@ Why the acknowledgement is an element in the stream's element:
 
 - Datastar runs `data-init` once the element is in the page, and the element comes after the write's frames, so the post means that the frames before it are applied. `requestAnimationFrame` and a `setTimeout` hold it until after the paint that shows them, which gave the lowest lag at 15 times (0.33 s at the median against 0.46 s once applied, `bench/drift`).
 - Every streaming page has the stream's element, and no view renders into it, so no frame morphs the acknowledgement away before it runs. Mode inner replaces the one before, so one acknowledgement sits there at a time, and a new id each time has Datastar run `data-init` again.
-- Datastar cancels a request in flight when the same element starts another. The acknowledgement posts from its own `<i>`, not from the stream's element, so it leaves the stream's `@get` alone, and `requestCancellation: 'disabled'` keeps a second acknowledgement from cancelling the first when the window is 2.
+- Datastar cancels a request in flight when another one goes out with the same method to the same URL, from any element of the page. The acknowledgement is a POST, so it leaves the stream's `@get` alone, and `requestCancellation: 'disabled'` keeps a second acknowledgement from cancelling the first when the window is 2.
 - It needs nothing in the page beyond Datastar, and the server decides per write whether to ask.
 
 ### Pacing only a page that is behind
@@ -432,7 +434,7 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
 	rtt, rttErr := strconv.Atoi(q.Get("rtt"))
 	if !validID(tab) || !validToken(token) || err != nil || n < 1 || q.Has("rtt") && rttErr != nil {
-		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	id, now := streamID(edge.SessionID(r.Context()), tab), time.Now()

@@ -43,7 +43,7 @@ const lastRoundTrip = `((x) => (performance.clearResourceTimings(), x ? Math.rou
 func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	sid, now := edge.SessionID(r.Context()), time.Now()
@@ -67,7 +67,7 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
 	rtt, rttErr := strconv.Atoi(q.Get("rtt"))
 	if !validID(tab) || !validToken(token) || err != nil || n < 1 || q.Has("rtt") && rttErr != nil {
-		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	id, now := streamID(edge.SessionID(r.Context()), tab), time.Now()

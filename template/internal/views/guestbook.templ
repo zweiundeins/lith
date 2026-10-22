@@ -33,9 +33,10 @@ templ Guestbook(p Page) {
 		</head>
 		<body data-newest-frame data-on:newest-frame-behind={ behind }>
 			<main data-signals={ signals(p.Tab) }>
-				<div id="stream" hidden data-init={ openStream }></div>
+				<div id="stream" hidden data-init={ openStream } data-on:datastar-fetch={ retrying } data-on:visibilitychange__window={ hidden }></div>
 				<h1>Guestbook</h1>
-				<form data-on:submit__prevent={ sign } data-on:datastar-fetch={ failed } data-effect={ settle }>
+				<div id={ OpsID } hidden data-on:datastar-fetch={ fetched } data-on-signal-patch={ patched } data-on-signal-patch-filter={ opsPatches }></div>
+				<form data-on:submit__prevent={ sign }>
 					<label>
 						<span>Name</span>
 						<input data-bind="_name" maxlength={ strconv.Itoa(guestbook.MaxName) } required autocomplete="name" data-attr:readonly={ pending }/>
@@ -69,6 +70,13 @@ templ Outcome(s guestbook.TabState) {
 			Thank you for signing.
 		}
 	</p>
+}
+
+// Notice takes the outcome's place for what no command decided: a failed
+// write, a rate limit, a server that stops. The tab's view puts the
+// outcome back with its next frame.
+templ Notice(msg string) {
+	<p id="outcome" role="status" class="refused">{ msg }</p>
 }
 
 // Entries is the shared region: the newest entries, the same for every tab.

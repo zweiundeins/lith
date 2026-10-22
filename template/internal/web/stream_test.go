@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,19 +50,65 @@ func TestSignOnTheStream(t *testing.T) {
 
 	events := listen(t, c, base+"/stream?tab=tab1", nil)
 	next(t, events, `<section id="entries"`)
-	next(t, events, `"_ack":""`)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
 
 	if code := post(t, c, base+"/cmd/sign", `{"tab":"tab1","op":"op1","name":"Ada","message":"Hello"}`); code != http.StatusNoContent {
 		t.Fatalf("sign: %d", code)
 	}
 	next(t, events, "<p>Hello</p>")
-	next(t, events, `"_ack":"op1","_accepted":true`)
+	next(t, events, `"sign":{"ack":"op1","refused":false}`)
 
 	if code := post(t, c, base+"/cmd/sign", `{"tab":"tab1","op":"op2","name":"Ada","message":"Hello"}`); code != http.StatusNoContent {
 		t.Fatalf("sign again: %d", code)
 	}
 	next(t, events, "That is the newest entry already.")
-	next(t, events, `"_ack":"op2","_accepted":false`)
+	next(t, events, `"sign":{"ack":"op2","refused":true}`)
+}
+
+// TestNotices reads on the tab's stream what no command decided: a
+// signature over the address's limit gets a bare 429, and the tab a notice
+// with its op id, which ends the page's pending state; a deploy ends the
+// stream with a notice, then the event that opens it again.
+func TestNotices(t *testing.T) {
+	base, _, stop := startStoppable(t)
+	c := client(t, base)
+	events := listen(t, c, base+"/stream?tab=tab1", nil)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
+	limited := ""
+	for i := range 20 {
+		op := "op" + strconv.Itoa(i)
+		req, err := http.NewRequest("POST", base+"/cmd/sign", strings.NewReader(`{"tab":"tab1","op":"`+op+`","name":"Ada","message":"Hello `+op+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Datastar-Request", "true")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode == http.StatusTooManyRequests {
+			if len(body) != 0 {
+				t.Errorf("a 429 with a body: %q", body)
+			}
+			limited = op
+			break
+		}
+		if res.StatusCode != http.StatusNoContent {
+			t.Fatalf("sign %s: %d", op, res.StatusCode)
+		}
+	}
+	if limited == "" {
+		t.Fatal("no signature reached the limit")
+	}
+	next(t, events, `<p id="outcome" role="status" class="refused">Too many signatures at once.`)
+	next(t, events, `"sign":{"ack":"`+limited+`","refused":true}`)
+
+	stop()
+	next(t, events, `The server is updating. Back in a moment.`)
+	next(t, events, `document.getElementById(&#34;stream&#34;)`)
 }
 
 // TestSignNeedsAStream refuses a signature from a tab whose stream is not
@@ -75,7 +122,7 @@ func TestSignNeedsAStream(t *testing.T) {
 		t.Fatalf("a tab without a stream: %d, want 409", code)
 	}
 	events := listen(t, ada, base+"/stream?tab=tab1", nil)
-	next(t, events, `"_ack":""`)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
 	if code := post(t, bob, base+"/cmd/sign", `{"tab":"tab1","op":"op1","name":"Bob","message":"Hello"}`); code != http.StatusConflict {
 		t.Fatalf("another session's tab: %d, want 409", code)
 	}
@@ -105,7 +152,7 @@ func TestSlowLink(t *testing.T) {
 	}
 	events := listen(t, http.DefaultClient, base+"/stream?tab=tab1", http.Header{"Save-Data": {"on"}})
 	next(t, events, `<section id="entries"`)
-	next(t, events, `"_ack":""`)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
 }
 
 // TestNewestFrame checks that the page loads lith's newest-frame.js after
@@ -152,7 +199,7 @@ func TestPacing(t *testing.T) {
 	base, hub := startHub(t)
 	c := client(t, base)
 	events := listen(t, c, base+"/stream?tab=tab1", nil)
-	next(t, events, `"_ack":""`)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
 	if code := post(t, c, base+"/pace?tab=tab1", ""); code != http.StatusNoContent {
 		t.Fatalf("pace: %d", code)
 	}
@@ -181,7 +228,7 @@ func TestPacingIsTheSessionsOwn(t *testing.T) {
 	base, hub := startHub(t)
 	ada, bob := client(t, base), client(t, base)
 	events := listen(t, ada, base+"/stream?tab=tab1", nil)
-	next(t, events, `"_ack":""`)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
 	if code := post(t, bob, base+"/pace?tab=tab1", ""); code != http.StatusNoContent {
 		t.Fatalf("pace from another session: %d", code)
 	}
@@ -213,7 +260,7 @@ func TestPacingLimits(t *testing.T) {
 	for i := range 7 {
 		tab := "tab" + strconv.Itoa(i)
 		events := listen(t, c, base+"/stream?tab="+tab, nil)
-		next(t, events, `"_ack":""`)
+		next(t, events, `"sign":{"ack":"","refused":false}`)
 		if code := post(t, c, base+"/pace?tab="+tab, ""); code != http.StatusNoContent {
 			t.Fatalf("pace %s: %d", tab, code)
 		}
@@ -224,7 +271,7 @@ func TestPacingLimits(t *testing.T) {
 
 	c = client(t, base)
 	events := listen(t, c, base+"/stream?tab=tab1", nil)
-	next(t, events, `"_ack":""`)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
 	post(t, c, base+"/pace?tab=tab1", "")
 	token := sign(t, c, events, base, "op1", "Hello")
 	for range 80 {
@@ -238,7 +285,7 @@ func TestPacingLimits(t *testing.T) {
 	}
 
 	other := listen(t, c, base+"/stream?tab=tab2", nil)
-	next(t, other, `"_ack":""`)
+	next(t, other, `"sign":{"ack":"","refused":false}`)
 	post(t, c, base+"/pace?tab=tab2", "")
 	if code := post(t, c, base+"/cmd/sign", `{"tab":"tab2","op":"op2","name":"Ada","message":"Hello again"}`); code != http.StatusNoContent {
 		t.Fatalf("sign: %d", code)
@@ -307,6 +354,14 @@ func start(t *testing.T) string {
 // startHub is start, and returns the hub as well.
 func startHub(t *testing.T) (string, *live.Hub) {
 	t.Helper()
+	base, hub, _ := startStoppable(t)
+	return base, hub
+}
+
+// startStoppable is startHub, and returns a func that stops the hub, as a
+// deploy does.
+func startStoppable(t *testing.T) (string, *live.Hub, func()) {
+	t.Helper()
 	db, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"), sqlite.Options{
 		Synchronous: "NORMAL",
 		Migrations:  migrations.FS,
@@ -314,7 +369,7 @@ func startHub(t *testing.T) (string, *live.Hub) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hub := live.New(live.Options{Read: db.R, Workers: 2})
+	hub := live.New(live.Options{Read: db.R, Workers: 2, Stopping: web.Stopping})
 	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
 	if err != nil {
 		t.Fatal(err)
@@ -338,14 +393,20 @@ func startHub(t *testing.T) (string, *live.Hub) {
 	mux.Handle("GET /static/", site.Static()) // outside the sessions, as cmd/app has it
 	mux.Handle("/", h)
 	srv := httptest.NewServer(mux)
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			stopHub()
+			<-hubDone
+		})
+	}
 	t.Cleanup(func() {
-		stopHub()
-		<-hubDone
+		stop()
 		srv.Close()
 		w.Close()
 		db.Close()
 	})
-	return srv.URL, hub
+	return srv.URL, hub, stop
 }
 
 // listen opens a stream, with header on its request, and sends each of its
