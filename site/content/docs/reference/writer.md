@@ -314,7 +314,7 @@ Local returns the value SetLocal stored under key on this writer, or nil. Packag
 func (t *Tx) Publish(v any)
 ```
 
-Publish hands v to the writer's subscribers (Writer.Subscribe) once the batch has committed, after its AfterCommit functions and OnCommit. Like an AfterCommit function, v is dropped if the command fails, or the savepoint it was published in. Delivery is best effort: see Subscribe. A nil v is ignored.
+Publish hands v to the writer's subscribers (Writer.Subscribe) once the batch has committed, after its AfterCommit functions and OnCommit. Like an AfterCommit function, v is dropped if the command fails, or the savepoint it was published in. Every subscriber gets v itself, so v must not change afterwards. Delivery is best effort: see Subscribe. A nil v is ignored.
 
 #### func (*Tx) Query {#Tx.Query}
 
@@ -466,7 +466,7 @@ func (w *Writer) Exclusive(ctx context.Context, fn func(ctx context.Context, con
 
 Exclusive runs fn on the writer's connection between two batches, outside any transaction, and returns fn's error. Commands queued meanwhile wait, and run after it in the order they arrived. It is for work a command's transaction cannot hold, or that must not race the writer: a PRAGMA foreign\_keys toggle, ATTACH and DETACH, VACUUM, a long import.
 
-fn must restore every pragma it changes, also when it fails, and end what it begins: a transaction it leaves open is rolled back, and Exclusive reports it. It must not close conn or keep it, nor wait for the writer (Do, Flush, Exclusive). fn may change the schema: the writer prepares its statements again after it. Its changes reach no OnCommit, so tell the views once Exclusive returns.
+fn must restore every pragma it changes, also when it fails, and end what it begins: a transaction it leaves open is rolled back, and Exclusive reports it. It must not close conn or keep it, nor wait for the writer (Do, Flush, Exclusive). fn may change the schema: the writer prepares its statements again after it. Its changes reach no OnCommit, so tell the views once Exclusive returns. It runs no command, so it publishes nothing (Tx.Publish): to tell the subscribers, follow it with a Do whose command only publishes.
 
 ```go
 err := w.Exclusive(ctx, func(ctx context.Context, conn *sql.Conn) error {
@@ -519,9 +519,13 @@ Stats reads the counters.
 func (w *Writer) Subscribe[T any](ctx context.Context, n int) <-chan T
 ```
 
-Subscribe returns a channel of the values that committed commands publish (Tx.Publish) and that are of type T: Subscribe\[any] gets all of them, an interface type the values that implement it. They arrive in commit order: batch by batch, the commands of a batch in their order, and a command's values in the order it published them. The writer hands them over on its goroutine once the batch's AfterCommit functions and OnCommit have run, before any Do of the batch returns, and never waits: the channel holds n values (at least 1), and a value that finds it full is dropped for this subscriber alone and counted in Stats.Dropped. The channel closes once ctx ends or the writer stops.
+Subscribe returns a channel of the values that committed commands publish (Tx.Publish) and whose dynamic type is T, or implements T when T is an interface: Subscribe\[any] gets all of them. A value published as \*Card reaches no Subscribe\[Card]; Stats.Published counts it all the same, and Stats.Dropped does not.
 
-Delivery is best effort and in process. A value is lost when its subscriber's queue is full, and when the process stops between the commit and the delivery; a subscriber gets nothing published before it subscribed, and nothing is replayed. A listener that must not miss anything reconciles from the data now and then, or reads the events package's streams instead.
+The values arrive in commit order: batch by batch, the commands of a batch in their order, and a command's values in the order it published them. The writer hands them over on its goroutine once the batch's AfterCommit functions and OnCommit have run, before any Do of the batch returns: by then each value is in its subscribers' channels, not yet handled. The writer never waits: the channel holds n values (at least 1), and a value that finds it full is dropped for this subscriber alone and counted in Stats.Dropped. The channel closes once ctx ends or the writer stops.
+
+Every subscriber gets the same value, so publish values that nobody changes afterwards: a pointer, a map or a slice is shared.
+
+Delivery is best effort and in process. A value is lost when its subscriber's queue is full, and when the process stops between the commit and the delivery. A subscription gets the values the writer delivers while it is open, including one whose Tx.Publish ran before Subscribe was called, and none delivered before; nothing is replayed. A listener that must not miss anything reconciles from the data now and then, or reads the events package's streams instead.
 
 ```go
 go func() {

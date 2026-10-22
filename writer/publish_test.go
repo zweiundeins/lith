@@ -2,9 +2,11 @@ package writer
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -290,4 +292,159 @@ func TestSubscribeWhilePublishing(t *testing.T) {
 	subscribers.Wait()
 	close(stop)
 	publisher.Wait()
+}
+
+// A panic in an AfterCommit function or in OnCommit is logged, and the
+// batch's values are delivered all the same: the batch has committed.
+func TestPublishAfterPanics(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{OnCommit: func([]string) { panic("on commit") }})
+	ch := f.w.Subscribe[int](t.Context(), 10)
+	err := f.w.Do(context.Background(), Func(func(tx *Tx) error {
+		tx.Publish(1)
+		tx.AfterCommit(func() { panic("after commit") })
+		tx.Publish(2)
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := receive(t, ch, 2); !slices.Equal(got, []int{1, 2}) {
+		t.Fatalf("got %v", got)
+	}
+	if log := f.log.String(); !strings.Contains(log, "after commit") || !strings.Contains(log, "on commit") {
+		t.Fatalf("the panics were not logged:\n%s", log)
+	}
+}
+
+// An Exclusive ends its batch: the values of the commands before it are
+// delivered before it runs, those after it once their batch commits.
+func TestPublishAroundExclusive(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ch := f.w.Subscribe[any](t.Context(), 10)
+	ctx := context.Background()
+	release := f.block(t)
+	var wg sync.WaitGroup
+	wg.Go(func() { f.w.Do(ctx, Func(func(tx *Tx) error { tx.Publish("before"); return nil })) })
+	f.queued(t, 1)
+	wg.Go(func() {
+		f.w.Exclusive(ctx, func(context.Context, *sql.Conn) error {
+			if len(ch) != 1 {
+				t.Errorf("%d values delivered when Exclusive ran", len(ch))
+			}
+			return nil
+		})
+	})
+	f.queued(t, 2)
+	wg.Go(func() { f.w.Do(ctx, Func(func(tx *Tx) error { tx.Publish("after"); return nil })) })
+	f.queued(t, 3)
+	release()
+	wg.Wait()
+	if got := receive(t, ch, 2); !slices.Equal(got, []any{"before", "after"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// A command from Send publishes like one from Do.
+func TestPublishFromSend(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ch := f.w.Subscribe[string](t.Context(), 10)
+	if err := f.w.Send(Func(func(tx *Tx) error { tx.Publish("sent"); return nil })); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.w.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := receive(t, ch, 1); got[0] != "sent" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// A subscription opened after a commit and before its delivery, here from
+// OnCommit, gets the batch's values.
+func TestSubscribeBeforeDelivery(t *testing.T) {
+	got := make(chan (<-chan int), 1)
+	var w *Writer
+	f := start(t, sqlite.Options{}, Options{OnCommit: func([]string) {
+		select {
+		case got <- w.Subscribe[int](context.Background(), 1):
+		default:
+		}
+	}})
+	w = f.w
+	if err := f.w.Do(context.Background(), Func(func(tx *Tx) error { tx.Publish(7); return nil })); err != nil {
+		t.Fatal(err)
+	}
+	if v := receive(t, <-got, 1); v[0] != 7 {
+		t.Fatalf("got %v", v)
+	}
+}
+
+type card struct{}
+
+// Delivery matches the value's dynamic type: a *card reaches no
+// Subscribe[card], and counts as published but not as dropped.
+func TestPublishMatchesTheDynamicType(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	values := f.w.Subscribe[card](t.Context(), 1)
+	pointers := f.w.Subscribe[*card](t.Context(), 1)
+	if err := f.w.Do(context.Background(), Func(func(tx *Tx) error { tx.Publish(&card{}); return nil })); err != nil {
+		t.Fatal(err)
+	}
+	receive(t, pointers, 1)
+	empty(t, values)
+	if st := f.w.Stats(); st.Published != 1 || st.Dropped != 0 {
+		t.Fatalf("published %d, dropped %d", st.Published, st.Dropped)
+	}
+}
+
+// afterFuncs counts the context.AfterFunc registrations on it that are
+// neither run nor stopped.
+type afterFuncs struct {
+	context.Context
+	open atomic.Int64
+}
+
+func (c *afterFuncs) AfterFunc(f func()) func() bool {
+	c.open.Add(1)
+	var once sync.Once
+	done := func() { once.Do(func() { c.open.Add(-1) }) }
+	stop := context.AfterFunc(c.Context, func() { done(); f() })
+	return func() bool {
+		stopped := stop()
+		if stopped {
+			done()
+		}
+		return stopped
+	}
+}
+
+// A Subscribe that races Close leaves no wait for its ctx behind: the
+// subscription is open and Close ends it, or it never opens.
+func TestSubscribeRacesClose(t *testing.T) {
+	for range 20 {
+		f := start(t, sqlite.Options{}, Options{})
+		ctx := &afterFuncs{Context: context.Background()}
+		var wg, running sync.WaitGroup
+		var closed atomic.Bool
+		for range 8 {
+			running.Add(1)
+			wg.Go(func() {
+				running.Done()
+				for !closed.Load() {
+					f.w.Subscribe[any](ctx, 1)
+				}
+			})
+		}
+		running.Wait()
+		time.Sleep(time.Millisecond)
+		f.w.Close()
+		closed.Store(true)
+		wg.Wait()
+		if n := ctx.open.Load(); n != 0 {
+			t.Fatalf("%d waits for ctx left after Close", n)
+		}
+		if n := f.w.Stats().Subscribers; n != 0 {
+			t.Fatalf("%d subscribers after Close", n)
+		}
+	}
 }

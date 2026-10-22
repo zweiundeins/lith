@@ -450,7 +450,9 @@ func (w *Writer) Flush(ctx context.Context) error {
 // Exclusive reports it. It must not close conn or keep it, nor wait for
 // the writer (Do, Flush, Exclusive). fn may change the schema: the writer
 // prepares its statements again after it. Its changes reach no OnCommit,
-// so tell the views once Exclusive returns.
+// so tell the views once Exclusive returns. It runs no command, so it
+// publishes nothing (Tx.Publish): to tell the subscribers, follow it with
+// a Do whose command only publishes.
 //
 //	err := w.Exclusive(ctx, func(ctx context.Context, conn *sql.Conn) error {
 //		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {

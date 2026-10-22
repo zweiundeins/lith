@@ -163,8 +163,9 @@ func (t *Tx) AfterCommit(fn func()) {
 // Publish hands v to the writer's subscribers (Writer.Subscribe) once the
 // batch has committed, after its AfterCommit functions and OnCommit. Like
 // an AfterCommit function, v is dropped if the command fails, or the
-// savepoint it was published in. Delivery is best effort: see Subscribe.
-// A nil v is ignored.
+// savepoint it was published in. Every subscriber gets v itself, so v
+// must not change afterwards. Delivery is best effort: see Subscribe. A
+// nil v is ignored.
 func (t *Tx) Publish(v any) {
 	t.live()
 	if v != nil {
