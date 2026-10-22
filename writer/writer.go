@@ -78,7 +78,8 @@ type Options struct {
 	// OnCommit is called on the writer's goroutine once per committed
 	// batch, with the topics its successful commands touched, sorted and
 	// without duplicates (nil if none). It runs after the batch's
-	// AfterCommit functions and before any Do returns. It must not block.
+	// AfterCommit functions, before the values its commands published
+	// reach the subscribers, and before any Do returns. It must not block.
 	OnCommit func(topics []string)
 	// OptimizeEvery is how often the writer runs PRAGMA optimize between
 	// batches (default 6h, negative: only on Close).
@@ -121,6 +122,8 @@ type Stats struct {
 	P99Commit  time.Duration // 99th percentile of the last 1024 batches
 	Busy       time.Duration // time spent in batches
 	Running    time.Duration // how long the command under way has run, 0 between commands
+	Published  int64         // values committed commands published (Tx.Publish)
+	Dropped    int64         // values a subscriber's full queue did not take, once per subscriber
 	// Sizes counts the batches by the commands they took, in powers of
 	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
 	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.
@@ -184,6 +187,7 @@ type Writer struct {
 	errs     []error
 	topics   map[string]struct{}
 	after    []func()
+	values   []any       // the batch's published values, in commit order
 	pages    int         // WAL pages written since the last checkpoint
 	dirty    bool        // WAL pages written since the last TRUNCATE checkpoint
 	opsReady bool        // lith_ops exists
@@ -191,7 +195,10 @@ type Writer struct {
 	locals   map[any]any // Tx.SetLocal's
 	txTopics []string    // the backing arrays of the next Tx
 	txAfter  []func()
+	txValues []any
 	txRows   []*sql.Rows
+
+	bus bus
 
 	aside     *sql.DB       // CheckpointAside's connection
 	ckpt      chan struct{} // asks the aside goroutine for a checkpoint
@@ -202,6 +209,7 @@ type Writer struct {
 	run running
 
 	batches, commands, failures, maxBatch, busyNanos atomic.Int64
+	published, dropped                               atomic.Int64
 	sizes                                            [SizeBuckets]atomic.Int64
 	times                                            durations
 }
@@ -532,6 +540,8 @@ func (w *Writer) Stats() Stats {
 		P99Commit:  p99,
 		Busy:       time.Duration(w.busyNanos.Load()),
 		Running:    w.run.since(),
+		Published:  w.published.Load(),
+		Dropped:    w.dropped.Load(),
 	}
 	for i := range s.Sizes {
 		s.Sizes[i] = w.sizes[i].Load()
@@ -563,6 +573,7 @@ func (w *Writer) loop(ctx context.Context) {
 		select {
 		case r, ok := <-w.queue:
 			if !ok {
+				w.bus.close()
 				w.err = w.finish()
 				return
 			}
@@ -704,10 +715,15 @@ func (w *Writer) apply(batch []*request) {
 			}
 			w.safely("OnCommit", func() { w.opts.OnCommit(topics) })
 		}
+		if len(w.values) > 0 {
+			w.deliver(w.values)
+		}
 	}
 	clear(w.topics)
 	clear(w.after)
 	w.after = w.after[:0]
+	clear(w.values)
+	w.values = w.values[:0]
 
 	for i, r := range batch {
 		err := errs[i]
@@ -766,7 +782,7 @@ func (w *Writer) only(r *request) (cmdErr error, keep bool) {
 
 // run1 applies r's command in a Tx of its own, and ends the Tx.
 func (w *Writer) run1(r *request) (tx *Tx, cmdErr error, keep bool) {
-	tx = &Tx{w: w, ctx: r.ctx, topics: w.txTopics[:0], after: w.txAfter[:0], rows: w.txRows[:0]}
+	tx = &Tx{w: w, ctx: r.ctx, topics: w.txTopics[:0], after: w.txAfter[:0], values: w.txValues[:0], rows: w.txRows[:0]}
 	w.run.begin(r.cmd)
 	cmdErr, keep = unkept(w.call(r.cmd, tx))
 	if logged, took := w.run.end(); logged {
@@ -776,20 +792,22 @@ func (w *Writer) run1(r *request) (tx *Tx, cmdErr error, keep bool) {
 	return tx, cmdErr, keep
 }
 
-// keep takes the topics and AfterCommit functions of a command whose
-// changes stay.
+// keep takes the topics, AfterCommit functions and published values of a
+// command whose changes stay.
 func (w *Writer) keep(tx *Tx) {
 	for _, t := range tx.topics {
 		w.topics[t] = struct{}{}
 	}
 	w.after = append(w.after, tx.after...)
+	w.values = append(w.values, tx.values...)
 }
 
 // drop gives the ended tx's slices back for the next command.
 func (w *Writer) drop(tx *Tx) {
 	clear(tx.topics)
 	clear(tx.after)
-	w.txTopics, w.txAfter, w.txRows = tx.topics[:0], tx.after[:0], tx.rows[:0]
+	clear(tx.values)
+	w.txTopics, w.txAfter, w.txValues, w.txRows = tx.topics[:0], tx.after[:0], tx.values[:0], tx.rows[:0]
 }
 
 // kept is the error of a command whose changes stay all the same:

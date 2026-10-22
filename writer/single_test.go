@@ -271,4 +271,14 @@ func TestDoAllocations(t *testing.T) {
 	if n := testing.AllocsPerRun(200, func() { f.w.Do(ctx, touch) }); n > 8 {
 		t.Errorf("%.1f allocations a command", n)
 	}
+	// Publishing and delivering allocate nothing beyond the value itself.
+	f.w.Subscribe[any](t.Context(), 1)
+	var v any = 1
+	publish := Func(func(tx *Tx) error { tx.Touch("t"); tx.Publish(v); return nil })
+	for range 10 {
+		f.w.Do(ctx, publish)
+	}
+	if n := testing.AllocsPerRun(200, func() { f.w.Do(ctx, publish) }); n > 8 {
+		t.Errorf("%.1f allocations a command that publishes", n)
+	}
 }

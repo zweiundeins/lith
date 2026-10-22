@@ -21,6 +21,7 @@ type Tx struct {
 	ctx    context.Context
 	topics []string
 	after  []func()
+	values []any       // Publish's
 	rows   []*sql.Rows // closed when the command returns
 	done   bool
 }
@@ -137,10 +138,11 @@ func (t *Tx) Touch(topics ...string) {
 	t.topics = append(t.topics, topics...)
 }
 
-// Untouched runs fn and drops the topics it touched, while its changes
-// and its AfterCommit functions stay: for writes that no view reads yet,
-// such as a table being filled to replace another. It returns fn's error
-// and undoes nothing; run fn in a Savepoint for that.
+// Untouched runs fn and drops the topics it touched, while its changes,
+// its AfterCommit functions and its published values stay: for writes
+// that no view reads yet, such as a table being filled to replace
+// another. It returns fn's error and undoes nothing; run fn in a
+// Savepoint for that.
 func (t *Tx) Untouched(fn func(*Tx) error) error {
 	t.live()
 	n := len(t.topics)
@@ -158,19 +160,32 @@ func (t *Tx) AfterCommit(fn func()) {
 	t.after = append(t.after, fn)
 }
 
+// Publish hands v to the writer's subscribers (Writer.Subscribe) once the
+// batch has committed, after its AfterCommit functions and OnCommit. Like
+// an AfterCommit function, v is dropped if the command fails, or the
+// savepoint it was published in. Delivery is best effort: see Subscribe.
+// A nil v is ignored.
+func (t *Tx) Publish(v any) {
+	t.live()
+	if v != nil {
+		t.values = append(t.values, v)
+	}
+}
+
 // Savepoint runs fn in a nested savepoint. If fn returns an error or
-// panics, its changes are rolled back, the topics it touched and the
-// functions it registered are dropped, and its error is returned: the
-// command can go on.
+// panics, its changes are rolled back, the topics it touched, the
+// functions it registered and the values it published are dropped, and
+// its error is returned: the command can go on.
 func (t *Tx) Savepoint(fn func(*Tx) error) error {
 	t.live()
 	if err := t.w.exec("SAVEPOINT nested"); err != nil {
 		return err
 	}
-	topics, after := len(t.topics), len(t.after)
+	topics, after, values := len(t.topics), len(t.after), len(t.values)
 	err, keep := unkept(t.w.call(Func(fn), t))
 	if !keep {
-		t.topics, t.after = t.topics[:topics], t.after[:after]
+		clear(t.values[values:])
+		t.topics, t.after, t.values = t.topics[:topics], t.after[:after], t.values[:values]
 		if e := t.w.exec("ROLLBACK TO nested"); e != nil {
 			return errors.Join(err, e)
 		}
