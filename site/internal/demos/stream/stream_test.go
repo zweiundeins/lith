@@ -165,14 +165,14 @@ func TestViews(t *testing.T) {
 	if p, ok := render(0).(demo.Probe); !ok || p.(probe).embed {
 		t.Fatalf("the report's frame: %T", p)
 	}
-	if b := string(render(1).([]byte)); !strings.Contains(b, `"_stream":{"size":"large","churn":"calm","ack":""}`) {
+	if b := string(render(1).([]byte)); !strings.Contains(b, `"_stream":{"size":"large","churn":"calm","ack":"","synced":true}`) {
 		t.Errorf("a new tab's choices:\n%s", b)
 	}
 	if b := render(2).([]byte); strings.Count(string(b), "<tr>") != 257 {
 		t.Errorf("a new tab's table has %d rows", strings.Count(string(b), "<tr>")-1)
 	}
 	e.Do(t, SetPayload{Viewer: me, Op: "op1", Size: Small, Churn: Still, At: time.Now()})
-	if b := string(render(1).([]byte)); !strings.Contains(b, `{"size":"small","churn":"still","ack":"op1"}`) {
+	if b := string(render(1).([]byte)); !strings.Contains(b, `{"size":"small","churn":"still","ack":"op1","synced":true}`) {
 		t.Errorf("the choices after a change:\n%s", b)
 	}
 	b, ok := render(2).([]byte)

@@ -23,14 +23,12 @@ type Sign struct {
 	At            time.Time
 }
 
+// Validate checks what the handler sets: no page of ours sends a signature
+// without them. What the person typed, Apply checks, so that the refusal
+// reaches the tab.
 func (c Sign) Validate() error {
-	switch {
-	case c.Viewer.Tab == "" || c.Op == "":
+	if c.Viewer.Tab == "" || c.Op == "" {
 		return errors.New("a signature needs a tab and an op")
-	case !fits(c.Name, MaxName):
-		return fmt.Errorf("a name has 1 to %d characters", MaxName)
-	case !fits(c.Message, MaxMessage):
-		return fmt.Errorf("a message has 1 to %d characters", MaxMessage)
 	}
 	return nil
 }
@@ -52,6 +50,10 @@ func (c Sign) Apply(tx *writer.Tx) error {
 	switch {
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return err
+	case !fits(name, MaxName):
+		state.Refusal = fmt.Sprintf("A name has 1 to %d characters.", MaxName)
+	case !fits(message, MaxMessage):
+		state.Refusal = fmt.Sprintf("A message has 1 to %d characters.", MaxMessage)
 	case links.MatchString(name + " " + message):
 		state.Refusal = "Links stay out of this guestbook."
 	case err == nil && lastName == name && lastMessage == message:

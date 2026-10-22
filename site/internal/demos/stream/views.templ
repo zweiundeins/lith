@@ -88,7 +88,7 @@ templ Stage(st TabState, p Payload) {
 		<section class="sx-panel sx-payload" aria-labelledby="stream-payload-title">
 			<header class="sx-head">
 				<h3 id="stream-payload-title" class="sx-eyebrow">The payload</h3>
-				<div class="sx-controls" data-on:datastar-fetch={ failed } data-effect={ settle }>
+				<div class="sx-controls" data-on:datastar-fetch={ fetched } data-effect={ settle } data-on-signal-patch={ op.LostExpr() } data-on-signal-patch-filter={ op.LostFilter() }>
 					@choiceGroup("size", "Size", string(st.size()), sizeOptions)
 					@choiceGroup("churn", "Churn", string(st.churn()), churnOptions)
 				</div>

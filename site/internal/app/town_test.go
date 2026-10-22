@@ -38,7 +38,7 @@ func TestTownStream(t *testing.T) {
 	if code := post(t, c, base+"/cmd/town/seek", `{"tab":"tab1","at":9,"seq":1}`); code != http.StatusNoContent {
 		t.Fatalf("seek: %d", code)
 	}
-	past := townNext(t, events, `data-at="9"`, `{"_town":{"at":9,"seq":1,"ack":"","ok":false}}`, `id="town-later"`)
+	past := townNext(t, events, `data-at="9"`, `{"_town":{"at":9,"seq":1,"ack":"","ok":false,"synced":true}}`, `id="town-later"`)
 	if !strings.Contains(past, `data-t="44" data-k="water" aria-disabled="true"`) || strings.Contains(past, `data-k="house"`) {
 		t.Errorf("the town at 9:\n%s", past)
 	}

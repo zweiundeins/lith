@@ -3,6 +3,8 @@ package checkboxes
 import (
 	"strconv"
 	"strings"
+
+	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
 // The Datastar expressions of the demo. Its signals live under
@@ -22,9 +24,37 @@ const (
 
 // signals are the demo's own, declared on the stage: the grid's geometry,
 // the jump field, the box it asked for, a count of tiles and windows that
-// arrived, the last problem to report, and hello, which a stream's first
-// frame sets to ask for the window (greet).
-var signals = `{_checkboxes: {cols: ` + strconv.Itoa(defaultCols) + `, pitch: ` + strconv.Itoa(defaultPitch) + `, item: ` + strconv.Itoa(defaultItem) + `, jump: '', target: 0, moved: 0, problem: '', hello: false}}`
+// arrived, the last problem to report, hello, which a stream's first
+// frame sets to ask for the window (greet), the newest click and the
+// newest the server took (op, ack), and what demo.Pending keeps.
+var signals = `{_checkboxes: {cols: ` + strconv.Itoa(defaultCols) + `, pitch: ` + strconv.Itoa(defaultPitch) + `, item: ` + strconv.Itoa(defaultItem) + `, jump: '', target: 0, moved: 0, problem: '', hello: false, op: '', ack: '', synced: false, inflight: 0, recheck: false}}`
+
+// clicks are the boxes that wait: the newest click until the tab's clicks
+// view acks it (op ids grow with time, so a newer one acks the older ones
+// too). They end on that, a request that never got through, or a stream
+// that connects again without the ack, never on a clock.
+var clicks = func() demo.Pending {
+	p := demo.NewPending("_checkboxes")
+	p.Waiting = "$_checkboxes.op !== '' && !($_checkboxes.ack >= $_checkboxes.op)"
+	p.End = "el.querySelectorAll('.cb-boxes > input:indeterminate').forEach((b) => (b.indeterminate = false)), $_checkboxes.op = ''"
+	p.Down = "That click did not reach the server. Try again once the connection is back."
+	p.Lost = "That click did not go through. Try again."
+	return p
+}()
+
+// acked ends the pending state of the boxes whose clicks the server took,
+// when the ack changes: a frame that changes nothing (someone set the box
+// back in the same tick) ends it too. With lost, it is the stage's
+// data-on-signal-patch.
+const acked = `patch._checkboxes?.ack !== undefined && (
+	el.querySelectorAll('.cb-boxes > input:indeterminate').forEach((b) => b.cbOp <= $_checkboxes.ack && (b.indeterminate = false)),
+	$_checkboxes.op !== '' && $_checkboxes.ack >= $_checkboxes.op && ($_checkboxes.op = ''))`
+
+// onPatch is the stage's data-on-signal-patch, kept to the changes of
+// the ack and of synced by patchFilter.
+var onPatch = acked + ";\n" + clicks.LostExpr()
+
+const patchFilter = `{include: /^_checkboxes\.(ack|synced)$/}`
 
 // measure fits the grid to the width it has, on load and on resize: two
 // tiles to a row from 600px, boxes 16 to 24px apart. The tiles take the
@@ -37,8 +67,8 @@ $_checkboxes.cols = cols;
 $_checkboxes.item = 16 * $_checkboxes.pitch + chrome`
 
 // flip sends a click on a box as the state the box should take, the
-// opposite of what it shows, and marks the box pending until the frame
-// that flips it (settle).
+// opposite of what it shows, with an op id, and marks the box pending
+// until the frame that flips it (settle) or the ack of its op (acked).
 var flip = expr(`const b = evt.target;
 if (!b.matches('.cb-boxes > input')) return;
 const n = +b.closest('[data-chunk]').dataset.chunk * CHUNK + Array.prototype.indexOf.call(b.parentNode.children, b);
@@ -48,22 +78,18 @@ evt.preventDefault();
 const want = b.checked, sent = (b.cbSent || 0) + 1;
 b.cbSent = sent;
 $_checkboxes.problem = '';
-// Pending: indeterminate, unless the frame came first. Five seconds
-// without one (someone set it back in the same tick) end it too.
+$_checkboxes.op = b.cbOp = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+// Pending: indeterminate, unless the frame came first.
 setTimeout(() => b.checked !== want && b.cbSent === sent && (b.indeterminate = true));
-setTimeout(() => b.cbSent === sent && (b.indeterminate = false), 5000);
-@post('/cmd/checkboxes/set', {payload: {box: n, checked: want}, requestCancellation: 'disabled'})`)
+@post('/cmd/checkboxes/set', {payload: {tab: $_tab, op: $_checkboxes.op, box: n, checked: want}, requestCancellation: 'disabled'})`)
 
 // settle ends a box's pending state when a frame changes it: Datastar
 // fires datastar-prop-change on an input whose checked state its morph
 // set.
 const settle = `evt.target.indeterminate = false`
 
-// failed ends the pending states when a click did not reach the writer
-// (a rate limit, the network), and says so beside the grid.
-const failed = `if (evt.detail.el !== el || !['error', 'retries-failed'].includes(evt.detail.type)) return;
-el.querySelectorAll('.cb-boxes > input:indeterminate').forEach((b) => (b.indeterminate = false));
-$_checkboxes.problem = evt.detail.argsRaw?.status === '429' ? 'Too many clicks at once. Wait a moment.' : 'That click did not go through. Try again.'`
+// fetched follows the clicks' requests (demo.Pending.Fetched).
+var fetched = clicks.Fetched()
 
 // setWindow tells the server which tiles the list wants. The server
 // stores the window and moves the tab's stream to its chunks; the tab's

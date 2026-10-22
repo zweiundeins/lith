@@ -56,7 +56,7 @@ templ Document(s Shell, body templ.Component) {
 		>
 			<a class="skip-link" href="#main">Skip to the content</a>
 			if s.Stream != "" {
-				<div id={ StreamID } hidden data-indicator:_live data-init={ openStream(s.Stream) }></div>
+				<div id={ StreamID } hidden data-indicator:_live data-init={ openStream(s.Stream) } data-on:datastar-fetch={ retrying } data-on:visibilitychange__window={ hidden }></div>
 			}
 			<div class="site">
 				@Header(s)

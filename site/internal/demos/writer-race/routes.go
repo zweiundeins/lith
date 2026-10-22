@@ -25,7 +25,7 @@ func mount(k *demo.Kit) {
 	if err := k.W.Send(recovered(time.Now(), r.wake)); err != nil {
 		k.Log.Warn("writer race: recover", "err", err)
 	}
-	k.Command("start", demo.Rate{Every: startEvery, Burst: startBurst}, func(w http.ResponseWriter, req *http.Request) {
+	k.Action("start", demo.Rate{Every: startEvery, Burst: startBurst}, func(w http.ResponseWriter, req *http.Request) {
 		var body struct {
 			Tab, Op   string
 			Producers int
@@ -36,12 +36,12 @@ func mount(k *demo.Kit) {
 		}
 		v, ok := demo.Who(req, body.Tab)
 		if !ok || !demo.ValidID(body.Op) {
-			http.Error(w, "bad request", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 			return
 		}
 		cmd := Start{Viewer: v, Op: body.Op, Settings: Settings{body.Producers, body.Sync}, At: time.Now(), Joined: r.wake}
 		// A retried request (a flaky network) starts one race.
-		k.Do(w, req, writer.Once(Slug+":"+v.Session+":"+body.Op, cmd))
+		k.Act(w, req, v, demo.Ack{"ack": body.Op}, writer.Once(Slug+":"+v.Session+":"+body.Op, cmd))
 	})
 }
 

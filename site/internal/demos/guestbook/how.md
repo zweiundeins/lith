@@ -11,6 +11,10 @@ func (c Sign) Apply(tx *writer.Tx) error {
 	switch {
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return err
+	case !fits(name, MaxName):
+		state.Refusal = fmt.Sprintf("A name has 1 to %d characters.", MaxName)
+	case !fits(message, MaxMessage):
+		state.Refusal = fmt.Sprintf("A message has 1 to %d characters.", MaxMessage)
 	case links.MatchString(name + " " + message):
 		state.Refusal = "Links stay out of this guestbook."
 	case err == nil && lastName == name && lastMessage == message:
@@ -26,15 +30,15 @@ func (c Sign) Apply(tx *writer.Tx) error {
 }
 ```
 
-A refusal is not an error: the command still commits, with the reason in the tab's row and no entry. `demo.SaveTab` writes that row of `site_tabs` and touches the tab's topic, so only this tab's view renders the refusal.
+A refusal is not an error: the command still commits, with the reason in the tab's row and no entry. A name or a message of the wrong length is a refusal too, since the person typed it. `demo.SaveTab` writes that row of `site_tabs` and touches the tab's topic, so only this tab's view renders the refusal.
 
 ## The action
 
-The site mounts the action at `/cmd/guestbook/sign` behind its rate limits. The handler waits for the commit and answers 204; `writer.Once` makes a request that the network sends twice sign once.
+The site mounts the action at `/cmd/guestbook/sign` behind its rate limits. The handler waits for the commit and answers 204; `writer.Once` makes a request that the network sends twice sign once. Its status carries nothing a person reads: over the limits, or when the write fails, `Act` answers with the status alone and sends the tab a notice with the op id, which ends the pending state.
 
 ```go title=routes.go
 func mount(k *demo.Kit) {
-	k.Command("sign", demo.Rate{Every: signEvery, Burst: signBurst}, func(w http.ResponseWriter, r *http.Request) {
+	k.Action("sign", demo.Rate{Every: signEvery, Burst: signBurst}, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab, Op       string
 			Name, Message string
@@ -44,12 +48,12 @@ func mount(k *demo.Kit) {
 		}
 		v, ok := demo.Who(r, req.Tab)
 		if !ok || !demo.ValidID(req.Op) {
-			http.Error(w, "bad request", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 			return
 		}
 		cmd := Sign{Viewer: v, Op: req.Op, Name: req.Name, Message: req.Message, At: time.Now()}
 		// A retried request (a flaky network) signs once.
-		k.Do(w, r, writer.Once(Slug+":"+v.Session+":"+req.Op, cmd))
+		k.Act(w, r, v, demo.Ack{"ack": req.Op, "accepted": false}, writer.Once(Slug+":"+v.Session+":"+req.Op, cmd))
 	})
 }
 ```
@@ -84,7 +88,7 @@ The page keeps its state in signals under `$_guestbook`, which stay in the brows
 const sign = `$_guestbook.op === '' && $_guestbook.name.trim() && $_guestbook.message.trim() && (
 	$_guestbook.problem = '',
 	$_guestbook.op = Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-	@post('/cmd/guestbook/sign', {payload: {tab: $_tab, op: $_guestbook.op, name: $_guestbook.name, message: $_guestbook.message}})
+	@post('/cmd/guestbook/sign', {payload: {tab: $_tab, op: $_guestbook.op, name: $_guestbook.name, message: $_guestbook.message}, requestCancellation: 'disabled'})
 )`
 ```
 

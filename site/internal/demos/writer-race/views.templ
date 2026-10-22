@@ -11,7 +11,7 @@ import (
 // track, the line and the last races.
 templ Stage(t track, waiting []Race, list []Race, now time.Time) {
 	<div class="wr" data-signals={ signals }>
-		<form class="wr-controls" data-on:submit__prevent={ start } data-on:datastar-fetch={ failed } data-effect={ settle }>
+		<form class="wr-controls" data-on:submit__prevent={ start } data-on:datastar-fetch={ fetched } data-effect={ settle } data-on-signal-patch={ op.LostExpr() } data-on-signal-patch-filter={ op.LostFilter() }>
 			<fieldset class="wr-choice wr-choice--producers">
 				<legend>Producers</legend>
 				<div class="wr-choice__options">
@@ -288,8 +288,10 @@ templ Embed(t track) {
 				class="btn btn--primary btn--sm"
 				type="button"
 				data-on:click={ start }
-				data-on:datastar-fetch={ failed }
+				data-on:datastar-fetch={ fetched }
 				data-effect={ settle }
+				data-on-signal-patch={ op.LostExpr() }
+				data-on-signal-patch-filter={ op.LostFilter() }
 				data-attr:aria-busy={ busy }
 				data-attr:disabled="$_writerRace.active"
 			>

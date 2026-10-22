@@ -45,11 +45,13 @@ func entriesView() live.View {
 	}
 }
 
-// ack tells the page which op the tab's outcome belongs to.
+// ack tells the page which op the tab's outcome belongs to, and that the
+// stream it opened has brought the tab's row (demo.Pending).
 type ack struct {
 	Guestbook struct {
 		Ack      string `json:"ack"`
 		Accepted bool   `json:"accepted"`
+		Synced   bool   `json:"synced"`
 	} `json:"_guestbook"`
 }
 
@@ -70,7 +72,7 @@ func tabView(v demo.Viewer) live.View {
 				return nil, err
 			}
 			var a ack
-			a.Guestbook.Ack, a.Guestbook.Accepted = state.Op, state.Accepted()
+			a.Guestbook.Ack, a.Guestbook.Accepted, a.Guestbook.Synced = state.Op, state.Accepted(), true
 			signals, err := demo.Signals(a)
 			if err != nil {
 				return nil, err

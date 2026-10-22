@@ -24,6 +24,7 @@ templ Stage(p Page) {
 			<div class="cv__frame">
 				@Board(p.Cells)
 			</div>
+			@Outcome(TabState{})
 			<p class="outcome is-problem cv__problem" role="alert" data-text="$_canvas.problem"></p>
 		</div>
 		<div class="cv__side">
@@ -36,6 +37,11 @@ templ Stage(p Page) {
 			<p>Drag to paint, 20 pixels a second each. On the keyboard, the arrow keys move over the canvas and Space paints.</p>
 		</div>
 	</div>
+}
+
+// Outcome is the tab's own region: why its last batch did not land.
+templ Outcome(s TabState) {
+	<p id="canvas-outcome" class="outcome is-problem cv__outcome" role="status">{ s.Refusal }</p>
 }
 
 // Board is the canvas, the same for every painter: the shared view

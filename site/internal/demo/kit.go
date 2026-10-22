@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -75,36 +74,6 @@ type Rate struct {
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
-// Command mounts the action POST /cmd/<slug>/<name>. Before h runs, the
-// request has passed the edge's CSRF check, which wants Datastar's
-// Datastar-Request header on /cmd/, and the rate limits: the site's limit
-// for all actions of a client address (unless rate.Separate), then rate per
-// address and per session. A request over a limit gets 429, which the page
-// reports like any failed action.
-func (k *Kit) Command(name string, rate Rate, h http.HandlerFunc) {
-	if !namePattern.MatchString(name) {
-		panic(fmt.Sprintf("demo %s: command name %q: lowercase letters, digits and -", k.slug, name))
-	}
-	if rate.Every <= 0 || rate.Burst < 1 {
-		panic(fmt.Sprintf("demo %s: command %s needs a Rate", k.slug, name))
-	}
-	perSecond := float64(time.Second) / float64(rate.Every)
-	byAddr := edge.NewLimiter(4*perSecond, 4*rate.Burst)
-	bySession := edge.NewLimiter(perSecond, rate.Burst)
-	k.mux.HandleFunc("POST /cmd/"+k.slug+"/"+name, func(w http.ResponseWriter, r *http.Request) {
-		now := time.Now()
-		addr := edge.ClientKey(r)
-		if (!rate.Separate && !k.Commands.Allow(addr, 1, now)) || !byAddr.Allow(addr, 1, now) || !bySession.Allow(edge.SessionID(r.Context()), 1, now) {
-			http.Error(w, "Too many requests at once. Wait a moment.", http.StatusTooManyRequests)
-			return
-		}
-		if k.Open != nil {
-			r = r.WithContext(context.WithValue(r.Context(), openKey{}, k.Open))
-		}
-		h(w, r)
-	})
-}
-
 // openKey carries Deps.Open to Who in an action.
 type openKey struct{}
 
@@ -114,36 +83,18 @@ func (k *Kit) Get(path string, h http.HandlerFunc) {
 	k.mux.HandleFunc("GET /demos/"+k.slug+"/"+strings.TrimPrefix(path, "/"), h)
 }
 
-// Do runs cmd on the writer and answers the action: 204 once it has
-// committed, 400 with its message when it fails Validate, 503 while the
-// server shuts down, and 500 for anything else, which it logs. The page
-// learns the outcome from its stream, never from this answer.
-func (k *Kit) Do(w http.ResponseWriter, r *http.Request, cmd writer.Command) {
-	err := k.W.Do(r.Context(), cmd)
-	switch {
-	case err == nil:
-		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, writer.ErrInvalid):
-		http.Error(w, strings.TrimPrefix(err.Error(), writer.ErrInvalid.Error()+": "), http.StatusBadRequest)
-	case errors.Is(err, writer.ErrClosed), errors.Is(err, writer.ErrQueueFull):
-		http.Error(w, "The server is restarting. Try again in a moment.", http.StatusServiceUnavailable)
-	default:
-		k.Fail(w, r, err)
-	}
-}
-
-// Fail logs err and answers 500.
+// Fail logs err and answers the action 500.
 func (k *Kit) Fail(w http.ResponseWriter, r *http.Request, err error) {
 	k.Log.Error("request failed", "demo", k.slug, "method", r.Method, "path", r.URL.Path, "err", err)
-	http.Error(w, "Something went wrong.", http.StatusInternalServerError)
+	w.WriteHeader(http.StatusInternalServerError)
 }
 
 // Decode reads an action's payload, a JSON body of at most 8 KiB, into v.
-// When it cannot, or the body is empty, it answers 400 itself and returns
-// false.
+// When it cannot, or the body is empty, it answers a bare 400 itself and
+// returns false: no page of ours sends such a body.
 func Decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if r.ContentLength == 0 || sse.ReadSignalsLimit(w, r, v, 8<<10) != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
 		return false
 	}
 	return true

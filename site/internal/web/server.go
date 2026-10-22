@@ -263,7 +263,7 @@ func (s *Server) embeds(v demo.Viewer) []live.View {
 func (s *Server) homeStream(w http.ResponseWriter, r *http.Request) {
 	viewer, ok := demo.Who(r, r.URL.Query().Get("tab"))
 	if !ok {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	vs := s.embeds(viewer)
@@ -334,12 +334,12 @@ func (s *Server) demoPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 	d := s.demo(r.PathValue("slug"))
 	if d == nil {
-		http.Error(w, "no such demo", http.StatusNotFound)
+		w.WriteHeader(http.StatusNotFound) // no page of ours opens it
 		return
 	}
 	viewer, ok := demo.Who(r, r.URL.Query().Get("tab"))
 	if !ok {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	s.stream(w, r, viewer, d.Page.Views(viewer))

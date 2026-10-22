@@ -50,7 +50,7 @@ func TestLifeStream(t *testing.T) {
 	if code := post(t, c, base+"/cmd/life/colour", `{"tab":"tab1","colour":`+colour+`}`); code != http.StatusNoContent {
 		t.Fatalf("colour: %d", code)
 	}
-	next(t, events, `"colour":`+colour+`}`)
+	next(t, events, `"colour":`+colour+`,`)
 	if code := post(t, c, base+"/cmd/life/drop", `{"tab":"tab1","op":"op2","pattern":"glider","cell":1000,"turn":0}`); code != http.StatusNoContent {
 		t.Fatalf("drop: %d", code)
 	}

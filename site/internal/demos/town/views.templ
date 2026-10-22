@@ -31,13 +31,15 @@ templ Stage(b Bounds, m moment, me string) {
 					class="town-board"
 					data-on:click={ place }
 					data-on:keydown={ keys }
-					data-on:datastar-fetch={ placeFailed }
+					data-on:datastar-fetch={ placeFetched }
+					data-on-signal-patch={ placing.LostExpr() }
+					data-on-signal-patch-filter={ placing.LostFilter() }
 					data-class:is-past="$_town.at !== 0"
 					data-attr:aria-busy={ pending }
 				>
 					@Board(m)
 				</div>
-				<div class="town-time" data-on:datastar-fetch={ seekFailed }>
+				<div class="town-time" data-on:datastar-fetch={ seekFetched } data-on-signal-patch={ seeking.LostExpr() } data-on-signal-patch-filter={ seeking.LostFilter() }>
 					<input
 						type="range"
 						class="town-slider"

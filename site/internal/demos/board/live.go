@@ -113,9 +113,10 @@ func hereView() live.View {
 // ack tells the page which move the tab's outcome belongs to.
 type ack struct {
 	Board struct {
-		Ack  string `json:"ack"`
-		AckV int64  `json:"ackv"`
-		OK   bool   `json:"ok"`
+		Ack    string `json:"ack"`
+		AckV   int64  `json:"ackv"`
+		OK     bool   `json:"ok"`
+		Synced bool   `json:"synced"` // the stream the page opened brought the tab's row (demo.Pending)
 	} `json:"_board"`
 }
 
@@ -137,7 +138,7 @@ func tabView(v demo.Viewer) live.View {
 				return nil, err
 			}
 			var a ack
-			a.Board.Ack, a.Board.AckV, a.Board.OK = state.Op, state.Version, state.Refusal == ""
+			a.Board.Ack, a.Board.AckV, a.Board.OK, a.Board.Synced = state.Op, state.Version, state.Refusal == "", true
 			signals, err := demo.Signals(a)
 			if err != nil {
 				return nil, err

@@ -14,7 +14,9 @@ templ Stage(w Window, tiles []shown, s Stats) {
 		data-on:click={ flip }
 		data-on:keydown={ arrows }
 		data-on:datastar-prop-change={ settle }
-		data-on:datastar-fetch={ failed }
+		data-on:datastar-fetch={ fetched }
+		data-on-signal-patch={ onPatch }
+		data-on-signal-patch-filter={ patchFilter }
 		data-effect={ focusTarget }
 		data-style:--cb-pitch="$_checkboxes.pitch + 'px'"
 	>

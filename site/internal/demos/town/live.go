@@ -71,7 +71,7 @@ func tabView(v demo.Viewer) live.View {
 				return nil, err
 			}
 			var a ack
-			a.Town.At, a.Town.Seq, a.Town.Ack, a.Town.OK = s.At, s.Seq, s.Op, s.Op != "" && s.Refusal == ""
+			a.Town.At, a.Town.Seq, a.Town.Ack, a.Town.OK, a.Town.Synced = s.At, s.Seq, s.Op, s.Op != "" && s.Refusal == "", true
 			signals, err := demo.Signals(a)
 			if err != nil {
 				return nil, err
@@ -85,10 +85,11 @@ func tabView(v demo.Viewer) live.View {
 // ack is the tab's state as the page's signals take it.
 type ack struct {
 	Town struct {
-		At  int64  `json:"at"`
-		Seq int64  `json:"seq"`
-		Ack string `json:"ack"`
-		OK  bool   `json:"ok"`
+		At     int64  `json:"at"`
+		Seq    int64  `json:"seq"`
+		Ack    string `json:"ack"`
+		OK     bool   `json:"ok"`
+		Synced bool   `json:"synced"` // the stream the page opened brought the tab's row (demo.Pending)
 	} `json:"_town"`
 }
 

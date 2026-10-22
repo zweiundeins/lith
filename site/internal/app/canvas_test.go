@@ -311,14 +311,17 @@ func TestCanvas(t *testing.T) {
 		cells[i] = fmt.Sprint(100 + i)
 	}
 	// A new session has a full bucket: 60 pixels at once, then 20 a second.
+	// The canvas's rule refuses the second burst in the tab's row: 204, and
+	// the tab's view says why.
 	c2 := client(t)
 	get(t, c2, base+"/demos/canvas")
-	listen(t, c2, base+"/demos/canvas/stream?tab=tab2")
+	mine := listen(t, c2, base+"/demos/canvas/stream?tab=tab2")
 	sixty := `{"tab":"tab2","color":3,"cells":[` + strings.Join(cells, ",") + `]}`
 	first, second := post(t, c2, base+"/cmd/canvas/paint", sixty), post(t, c2, base+"/cmd/canvas/paint", sixty)
-	if first != http.StatusNoContent || second != http.StatusTooManyRequests {
+	if first != http.StatusNoContent || second != http.StatusNoContent {
 		t.Errorf("two bursts of 60 pixels: %d, %d", first, second)
 	}
+	next(t, mine, `id="canvas-outcome" class="outcome is-problem cv__outcome" role="status">Painting too fast`)
 }
 
 // TestCanvasWire measures what painting costs on the wire: a painter's
@@ -455,7 +458,7 @@ func TestCanvasBrowser(t *testing.T) {
 	}
 
 	// A long stroke at once is more than the burst of 60 pixels: the
-	// server refuses the rest, and the page says why.
+	// server refuses the rest in the tab's row, and its view says why.
 	pn.down(0, 40)
 	for x := 1; x < 64; x++ {
 		pn.to(x, 40)
@@ -464,10 +467,11 @@ func TestCanvasBrowser(t *testing.T) {
 		pn.to(x, 41)
 	}
 	pn.up(0, 41)
-	ada.Wait(t, `document.querySelector('.cv__problem').textContent.includes('20 a second')`, 5*time.Second)
-	pn.down(5, 5) // a new stroke clears it
+	ada.Wait(t, `document.querySelector('#canvas-outcome').textContent.includes('20 pixels a second')`, 5*time.Second)
+	time.Sleep(500 * time.Millisecond) // the bucket fills again
+	pn.down(5, 5)                      // a batch that lands clears it
 	pn.up(5, 5)
-	ada.Wait(t, `document.querySelector('.cv__problem').textContent === ''`, 2*time.Second)
+	ada.Wait(t, `document.querySelector('#canvas-outcome').textContent === ''`, 5*time.Second)
 
 	// Bob paints from the keyboard: Space paints the cursor's cell, which
 	// starts in the middle, in his brush.
@@ -489,10 +493,6 @@ func TestCanvasBrowser(t *testing.T) {
 
 	for name, p := range map[string]*browser.Page{"Ada's canvas": ada, "Bob's canvas": bob} {
 		for _, e := range p.Errors() {
-			// The refused paints of the long stroke, which Chromium logs.
-			if strings.Contains(e, "status of 429") && strings.Contains(e, "/cmd/canvas/paint") {
-				continue
-			}
 			t.Errorf("%s: %s", name, e)
 		}
 	}

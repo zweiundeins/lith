@@ -50,9 +50,10 @@ func reportView(embed bool) live.View {
 // choices are the tab's payload, and the op id of its last change.
 type choices struct {
 	S struct {
-		Size  Size   `json:"size"`
-		Churn Churn  `json:"churn"`
-		Ack   string `json:"ack"`
+		Size   Size   `json:"size"`
+		Churn  Churn  `json:"churn"`
+		Ack    string `json:"ack"`
+		Synced bool   `json:"synced"` // the stream the page opened brought the tab's row (demo.Pending)
 	} `json:"_stream"`
 }
 
@@ -69,7 +70,7 @@ func tabView(v demo.Viewer) live.View {
 				return nil, err
 			}
 			var c choices
-			c.S.Size, c.S.Churn, c.S.Ack = st.size(), st.churn(), st.Op
+			c.S.Size, c.S.Churn, c.S.Ack, c.S.Synced = st.size(), st.churn(), st.Op, true
 			return demo.Signals(c)
 		},
 	}

@@ -228,7 +228,7 @@ func TestActions(t *testing.T) {
 	if code := post(t, c, base+"/cmd/guestbook/sign", `{"tab":"bad id!","op":"o1","name":"A","message":"B"}`); code != http.StatusBadRequest {
 		t.Errorf("a bad tab id: %d", code)
 	}
-	listen(t, c, base+"/demos/guestbook/stream?tab=t1")
+	events := listen(t, c, base+"/demos/guestbook/stream?tab=t1")
 	codes := []int{}
 	for i := range 4 {
 		codes = append(codes, post(t, c, base+"/cmd/guestbook/sign", `{"tab":"t1","op":"op`+string(rune('a'+i))+`","name":"A","message":"Message `+string(rune('a'+i))+`"}`))
@@ -237,6 +237,9 @@ func TestActions(t *testing.T) {
 	if codes[0] != 204 || codes[1] != 204 || codes[3] != http.StatusTooManyRequests {
 		t.Errorf("a burst of signatures: %v", codes)
 	}
+	// The 429 carries no text: the tab hears of it on its stream, with
+	// the op id that ends its pending state.
+	next(t, events, `"_guestbook":{"accepted":false,"ack":"opd","problem":"Too many requests at once. Wait a moment, then try again."}`)
 }
 
 // TestActionNeedsAStream refuses an action for a tab whose stream the

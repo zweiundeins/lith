@@ -23,8 +23,10 @@ templ Stage(b Board, n Numbers, people []Person, me string, now time.Time) {
 		data-on:lostpointercapture={ lost }
 		data-on:keydown={ keys }
 		data-on:focusout={ leave }
-		data-on:datastar-fetch={ failed }
+		data-on:datastar-fetch={ fetched }
 		data-effect={ settle }
+		data-on-signal-patch={ moving.LostExpr() }
+		data-on-signal-patch-filter={ moving.LostFilter() }
 	>
 		@meStyle(me)
 		<style data-text={ looks }></style>

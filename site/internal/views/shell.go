@@ -10,6 +10,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/zweiundeins/lith/site/internal/demo"
 	"github.com/zweiundeins/lith/site/internal/pixelart"
 )
 
@@ -97,12 +98,24 @@ const StreamID = "stream"
 
 // openStream opens the tab's stream. On a slow link, measured as the page
 // starts, it sends Save-Data: on (edge.SlowLink). The URL stays the same,
-// so a stream opened again aborts the old request. retry 'error' keeps trying through a
-// restart's 502s and 503s and never gives up; a stream the server ends
-// stays closed, except through sse.Reconnect.
+// so a stream opened again aborts the old request. retry 'error' retries
+// network errors and every answer from 400 to 599 and never gives up,
+// which carries it through a restart; a 204 or a 3xx stops it, and a
+// stream the server ends stays closed, except through sse.Reconnect. It
+// marks every demo's tab view out of sync until its first frame
+// (demo.Resync).
 func openStream(url string) string {
-	return "@get(" + jsString(url+"?tab=") + " + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000})"
+	return "(" + demo.Resync + ", @get(" + jsString(url+"?tab=") + " + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
 }
+
+// retrying marks the demos out of sync while Datastar opens the stream
+// again after its connection broke.
+const retrying = `evt.detail.el === el && evt.detail.type === 'retrying' && ` + demo.Resync
+
+// hidden marks the demos out of sync when the tab hides: Datastar closes
+// the stream then and opens it again when the tab shows, without data-init
+// and without retrying.
+const hidden = `document.hidden && ` + demo.Resync
 
 // slowLink is true on a slow link, measured once as the page starts. Where
 // the browser has navigator.connection (Chromium): data saving, or a link

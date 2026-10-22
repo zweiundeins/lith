@@ -9,7 +9,7 @@ import (
 // pointer's outline over it, the colours' shares, the tools, the colours,
 // and the reset.
 templ Stage(b Board, here, colour int, now time.Time) {
-	<div class="life" data-signals={ signals(colour) } data-attr:style={ me } data-effect={ settle } data-on:datastar-fetch={ failed }>
+	<div class="life" data-signals={ signals(colour) } data-attr:style={ me } data-effect={ settle } data-on:datastar-fetch={ fetched } data-on-signal-patch={ pending.LostExpr() } data-on-signal-patch-filter={ pending.LostFilter() }>
 		@Stats(b, here)
 		<div
 			class="life__field"

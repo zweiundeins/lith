@@ -12,7 +12,10 @@ import (
 )
 
 func mount(k *demo.Kit) {
-	k.Command("move", demo.Rate{Every: moveEvery, Burst: moveBurst, Separate: true}, func(w http.ResponseWriter, r *http.Request) {
+	// A move tells the person nothing: their own pointer is on their page,
+	// and the next move replaces this one. What fails it answers a bare
+	// status, and no notice.
+	k.Action("move", demo.Rate{Every: moveEvery, Burst: moveBurst, Separate: true}, func(w http.ResponseWriter, r *http.Request) {
 		edge.Quiet(r) // 15 a second from every pointer: a log line each at Debug only
 		var req struct {
 			Tab  string
@@ -23,10 +26,14 @@ func mount(k *demo.Kit) {
 		if !demo.Decode(w, r, &req) {
 			return
 		}
+		if demo.Limited(r) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
 		v, _ := demo.Who(r, req.Tab)
 		cmd := Move{Viewer: v, A: req.A, X: req.X, Y: req.Y, Seq: req.Seq, At: time.Now()}
 		if err := cmd.Validate(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // the page sends only moves that pass
 			return
 		}
 		// Nobody waits for a move: the page has its own pointer, and the
@@ -36,7 +43,7 @@ func mount(k *demo.Kit) {
 				k.Fail(w, r, err)
 				return
 			}
-			http.Error(w, "The server is busy. Try again in a moment.", http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusServiceUnavailable) // the next move replaces this one
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

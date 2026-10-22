@@ -55,7 +55,25 @@ type shown struct {
 // The chunks come when the page answers the list's first frame with its
 // window (boardView).
 func pageViews(v demo.Viewer) []live.View {
-	return []live.View{boardView(v), statsView()}
+	return []live.View{boardView(v), statsView(), clicksView(v)}
+}
+
+// clicksView acks the tab's clicks: the newest op the server took, which
+// ends the pending state of that box and the older ones, and that the
+// stream the page opened has brought it (demo.Pending).
+func clicksView(v demo.Viewer) live.View {
+	key := demo.TabTopic(ClicksKey, v.Tab)
+	return live.View{
+		Key:    key,
+		Topics: []string{key},
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			var k Clicks
+			if err := demo.LoadTab(ctx, demo.Querier(ctx, tx), ClicksKey, v, &k); err != nil {
+				return nil, err
+			}
+			return demo.Signals(map[string]any{"_checkboxes": map[string]any{"ack": k.Op, "synced": true}})
+		},
+	}
 }
 
 // boardView is the tab's own view: the list at the tab's window, its slots

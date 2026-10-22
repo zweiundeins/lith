@@ -81,7 +81,7 @@ func TestWriterRaceStream(t *testing.T) {
 	get(t, bob, base+"/demos/writer-race")
 	events := listen(t, ada, base+"/demos/writer-race/stream?tab=tab1")
 	next(t, events, `id="writer-race-track"`)
-	next(t, events, `"_writerRace":{"ack":"","mine":0,"active":false}`)
+	next(t, events, `"_writerRace":{"ack":"","mine":0,"active":false,"synced":true}`)
 
 	if code := post(t, ada, base+"/cmd/writer-race/start", `{"tab":"tab1","op":"op1","producers":50,"sync":"NORMAL"}`); code != http.StatusNoContent {
 		t.Fatalf("start: %d", code)

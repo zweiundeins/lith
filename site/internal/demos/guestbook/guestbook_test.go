@@ -48,10 +48,17 @@ func TestSign(t *testing.T) {
 		t.Fatalf("a link: %d entries, tab %+v", total, state)
 	}
 
-	// A blank name never reaches the writer.
+	// A blank name is the person's input: refused, and the tab hears why.
 	sign.Op, sign.Name = "op4", "  "
+	e.Do(t, sign)
+	if _, total, state = read(t, e); total != 1 || state.Op != "op4" || !strings.Contains(state.Refusal, "A name has") {
+		t.Fatalf("a blank name: %d entries, tab %+v", total, state)
+	}
+
+	// A signature without its op never comes from a page of ours.
+	sign.Op = ""
 	if err := e.W.Do(context.Background(), sign); !errors.Is(err, writer.ErrInvalid) {
-		t.Errorf("a blank name: %v", err)
+		t.Errorf("no op: %v", err)
 	}
 }
 
@@ -105,7 +112,7 @@ func TestViews(t *testing.T) {
 			return err
 		}
 		b := string(out.([]byte))
-		if !strings.Contains(b, "Thank you for signing.") || !strings.Contains(b, `"_guestbook":{"ack":"op1","accepted":true}`) {
+		if !strings.Contains(b, "Thank you for signing.") || !strings.Contains(b, `"_guestbook":{"ack":"op1","accepted":true,"synced":true}`) {
 			t.Errorf("the tab's view:\n%s", b)
 		}
 		page, err := renderPage(ctx, tx, me)

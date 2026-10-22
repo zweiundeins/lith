@@ -86,6 +86,35 @@ func TestPaint(t *testing.T) {
 	})
 }
 
+// A batch over the pixel rate paints nothing and records why in the tab's
+// row, which the next batch that lands clears.
+func TestPaintOver(t *testing.T) {
+	e := demotest.Open(t, Demo)
+	state := func() (s TabState, cells string) {
+		t.Helper()
+		e.View(t, func(ctx context.Context, tx *sql.Tx) error {
+			if err := demo.LoadTab(ctx, tx, Slug, ada, &s); err != nil {
+				return err
+			}
+			c, _, err := cellsOf(ctx, tx)
+			cells = c
+			return err
+		})
+		return s, cells
+	}
+	e.Do(t, Paint{Viewer: ada, Color: 3, Cells: []int{0}, Over: true, At: t0})
+	if s, cells := state(); s.Refusal != TooFast || cells[0] != '0' {
+		t.Fatalf("over the rate: tab %+v, cell 0 %q", s, cells[0])
+	}
+	if got := e.Touched(); !slices.Equal(got, []string{demo.TabTopic(Slug, ada.Tab)}) {
+		t.Errorf("a refused batch touched %v", got)
+	}
+	e.Do(t, Paint{Viewer: ada, Color: 3, Cells: []int{0}, At: t0})
+	if s, cells := state(); s.Refusal != "" || cells[0] != '3' {
+		t.Fatalf("a batch that lands: tab %+v, cell 0 %q", s, cells[0])
+	}
+}
+
 func TestPaintValidate(t *testing.T) {
 	e := demotest.Open(t, Demo)
 	many := make([]int, MaxPaint+1)
@@ -226,11 +255,11 @@ func TestViews(t *testing.T) {
 	e.Do(t, Paint{Viewer: ada, Color: 14, Cells: []int{0, 1}, At: now})
 	e.View(t, func(ctx context.Context, tx *sql.Tx) error {
 		vs := pageViews(ada)
-		if len(vs) != 3 || vs[0].Key != "canvas:board" || vs[1].Key != "canvas:here" || vs[2].Key != "canvas:pulse" || !vs[1].Presence {
+		if len(vs) != 4 || vs[0].Key != "canvas:board" || vs[1].Key != "canvas:here" || vs[2].Key != "canvas:pulse" || !vs[1].Presence || vs[3].Key != demo.TabTopic(Slug, ada.Tab) {
 			t.Fatalf("views %+v", vs)
 		}
 		frames := make([]string, 3)
-		for i, v := range vs {
+		for i, v := range vs[:3] {
 			out, err := v.Render(ctx, tx)
 			if err != nil {
 				return err

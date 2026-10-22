@@ -76,7 +76,7 @@ func TestCanvasLoad(t *testing.T) {
 
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
-	var painted, refused, failed, streamed atomic.Int64
+	var answered, failed, streamed atomic.Int64
 	var wg sync.WaitGroup
 	for i := range painters {
 		wg.Go(func() {
@@ -124,12 +124,12 @@ func TestCanvasLoad(t *testing.T) {
 				}
 				io.Copy(io.Discard, res.Body)
 				res.Body.Close()
-				switch res.StatusCode {
-				case http.StatusNoContent:
-					painted.Add(1)
-				case http.StatusTooManyRequests:
-					refused.Add(1)
-				default:
+				// A batch over the pixel rate is refused in the tab's row and
+				// answered 204 too; a 429 would mean the command rate, which
+				// these painters stay under.
+				if res.StatusCode == http.StatusNoContent {
+					answered.Add(1)
+				} else {
 					failed.Add(1)
 				}
 			}
@@ -178,7 +178,7 @@ func TestCanvasLoad(t *testing.T) {
 	batches := during["lith_site_writer_batches_total"] - before["lith_site_writer_batches_total"]
 	busy := during["lith_site_writer_busy_seconds_total"] - before["lith_site_writer_busy_seconds_total"]
 	frames := during["lith_site_live_frames_sent_total"] - before["lith_site_live_frames_sent_total"]
-	t.Logf("%d painters for %v: %d actions answered 204, %d 429, %d failed", painters, duration, painted.Load(), refused.Load(), failed.Load())
+	t.Logf("%d painters for %v: %d actions answered 204, %d failed", painters, duration, answered.Load(), failed.Load())
 	t.Logf("streams open: %.0f, tiers: %s", during["lith_site_live_streams"], canvasTiers(during))
 	t.Logf("resident at most %.1f MiB, heap in use at most %.1f MiB, encoders' budget reserved at most %.1f MiB of %.1f MiB",
 		rss/(1<<20), heap/(1<<20), reserved/(1<<20), during["lith_site_sse_budget_limit_bytes"]/(1<<20))

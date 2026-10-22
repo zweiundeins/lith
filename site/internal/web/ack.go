@@ -77,7 +77,7 @@ func (s *Server) owns(v demo.Viewer) bool {
 func (s *Server) pace(w http.ResponseWriter, r *http.Request) {
 	v, ok := demo.Who(r, r.URL.Query().Get("tab"))
 	if !ok {
-		http.Error(w, "bad tab id", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	now := time.Now()
@@ -100,7 +100,7 @@ func (s *Server) ack(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(q.Get("n"), 10, 64)
 	rtt, rttErr := strconv.Atoi(q.Get("rtt"))
 	if !ok || !validToken(token) || err != nil || n < 1 || q.Has("rtt") && rttErr != nil {
-		http.Error(w, "bad acknowledgement", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	now := time.Now()

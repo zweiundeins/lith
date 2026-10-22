@@ -183,11 +183,13 @@ func (d *Demo) TablePrefix() string { return strings.ReplaceAll(d.Slug, "-", "_"
 // own signals: $_ and the slug in camelCase ("cursor-party":
 // "_cursorParty"). The leading _ keeps them in the browser: Datastar sends
 // no signal that starts with one.
-func (d *Demo) SignalName() string {
+func (d *Demo) SignalName() string { return signalName(d.Slug) }
+
+func signalName(slug string) string {
 	var b strings.Builder
 	b.WriteByte('_')
 	up := false
-	for _, c := range d.Slug {
+	for _, c := range slug {
 		if c == '-' {
 			up = true
 			continue

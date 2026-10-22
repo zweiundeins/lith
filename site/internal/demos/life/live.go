@@ -59,6 +59,7 @@ type tab struct {
 	Life struct {
 		Ack    string `json:"ack"`
 		Colour int    `json:"colour"`
+		Synced bool   `json:"synced"` // the stream the page opened brought the tab's row (demo.Pending)
 	} `json:"_life"`
 }
 
@@ -80,7 +81,7 @@ func tabView(v demo.Viewer) live.View {
 			if t.Life.Colour, err = colourOf(ctx, q, v.Session); err != nil {
 				return nil, err
 			}
-			t.Life.Ack = state.Op
+			t.Life.Ack, t.Life.Synced = state.Op, true
 			html, err := demo.Patch(ctx, Outcome(state))
 			if err != nil {
 				return nil, err

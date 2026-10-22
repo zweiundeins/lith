@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+
+	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
 // The Datastar expressions of the demo. Its signals live under $_town,
@@ -17,12 +19,36 @@ import (
 // at and seq the position the server has the tab at and the number of the
 // seek that put it there (the tab's view); first and head the slider's ends
 // (the head view); op the change waiting for its outcome on tile ptile, ack
-// and ok the tab's last outcome; hello a new stream's first frame.
+// and ok the tab's last outcome; hello a new stream's first frame; and
+// what the two demo.Pending keep, the change's and the seeks'.
 func signals(b Bounds) string {
 	h := strconv.FormatInt(b.Head, 10)
 	return `{_town: {tool: 'house', want: ` + h + `, mine: 0, seq: 0, at: 0, first: ` + strconv.FormatInt(b.First, 10) + `, head: ` + h +
-		`, op: '', ptile: -1, ack: '', ok: false, problem: '', hello: false}}`
+		`, op: '', ptile: -1, ack: '', ok: false, problem: '', hello: false, synced: false, inflight: 0, recheck: false, seeks: 0, seekRecheck: false}}`
 }
+
+// placing is the pending change of a tile: it ends on its ack (settle), a
+// request that never got through, or a stream that connects again without
+// its ack, never on a clock.
+var placing = func() demo.Pending {
+	p := demo.NewPending("_town")
+	p.End = "$_town.op = '', $_town.ptile = -1"
+	p.Down = "That change did not reach the server. Try again in a moment."
+	return p
+}()
+
+// seeking is the slider's pending seek, by its number: the tab's view ends
+// it with the seq of the newest seek it took, and so does a notice.
+var seeking = func() demo.Pending {
+	p := demo.NewPending("_town")
+	p.Match = "el.contains(evt.detail.el)"
+	p.Waiting = "$_town.mine !== $_town.seq"
+	p.End = "$_town.mine = $_town.seq"
+	p.Inflight, p.Recheck = "$_town.seeks", "$_town.seekRecheck"
+	p.Down = "That position did not reach the server. Drag again."
+	p.Lost = "That position did not reach the server. Drag again."
+	return p
+}()
 
 // seek sends the slider's position: at the right end, now (0). Each seek
 // has a number, so that the server drops one the network delayed past a
@@ -57,11 +83,8 @@ const edges = `el.min = $_town.first;
 el.max = $_town.head;
 if ($_town.at === 0 && $_town.mine === $_town.seq) $_town.want = $_town.head`
 
-// seekFailed ends a seek that never reached the server (the rate limit,
-// the network gone): no frame will answer it.
-const seekFailed = `if (!['error', 'retries-failed'].includes(evt.detail.type) || !evt.detail.el.closest('.town-time')) return;
-$_town.mine = $_town.seq;
-$_town.problem = evt.detail.argsRaw?.status === '429' ? 'The slider moved too fast for the server. Drag again.' : 'That position did not reach the server. Drag again.'`
+// seekFetched follows the slider's seeks (demo.Pending.Fetched).
+var seekFetched = seeking.Fetched()
 
 // place sends a change of the tile clicked, with the tool and the tile's
 // version on the page, unless the tab shows the past or a change is
@@ -86,11 +109,8 @@ el.querySelector('[data-t="' + to + '"]').focus()`)
 // settle ends the pending change once its outcome has come.
 const settle = `$_town.op && $_town.ack === $_town.op && ($_town.op = '', $_town.ptile = -1)`
 
-// placeFailed ends a change whose request failed for good.
-const placeFailed = `if (evt.detail.el !== el || !$_town.op || !['error', 'retries-failed'].includes(evt.detail.type)) return;
-$_town.problem = evt.detail.argsRaw?.status === '429' ? 'Too many changes at once. Wait a moment and try again.' : 'That change did not reach the server. Try again in a moment.';
-$_town.op = '';
-$_town.ptile = -1`
+// placeFetched follows the map's changes (demo.Pending.Fetched).
+var placeFetched = placing.Fetched()
 
 // greet answers a stream's first frame: the server then watches the town
 // at the tab's position on the new stream. A refusal is tried again.

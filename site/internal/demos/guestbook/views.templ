@@ -10,7 +10,7 @@ import (
 // Stage is the demo on its page: the form, the tab's outcome, the entries.
 templ Stage(list []Entry, total int, now time.Time) {
 	<div class="gb" data-signals={ signals }>
-		<form class="gb__form" data-on:submit__prevent={ sign } data-on:datastar-fetch={ failed } data-effect={ settle }>
+		<form class="gb__form" data-on:submit__prevent={ sign } data-on:datastar-fetch={ fetched } data-effect={ settle } data-on-signal-patch={ op.LostExpr() } data-on-signal-patch-filter={ op.LostFilter() }>
 			<label class="field">
 				<span>Name</span>
 				<input class="input" data-bind="_guestbook.name" maxlength={ maxLen(MaxName) } required autocomplete="name" placeholder="Ada" data-attr:readonly={ pending }/>

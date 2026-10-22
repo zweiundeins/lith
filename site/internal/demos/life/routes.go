@@ -24,7 +24,7 @@ func mount(k *demo.Kit) {
 		c := &clock{w: k.W, hub: k.Hub, log: k.Log}
 		go c.run()
 	}
-	k.Command("draw", drawRate, func(w http.ResponseWriter, r *http.Request) {
+	k.Action("draw", drawRate, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab, Op string
 			Cells   []int
@@ -35,9 +35,9 @@ func mount(k *demo.Kit) {
 			return
 		}
 		// A stroke sent twice draws the same cells: no Once needed.
-		k.Do(w, r, Draw{Viewer: v, Op: req.Op, Cells: req.Cells, Alive: req.Alive, At: time.Now()})
+		k.Act(w, r, v, demo.Ack{"ack": req.Op}, Draw{Viewer: v, Op: req.Op, Cells: req.Cells, Alive: req.Alive, At: time.Now()})
 	})
-	k.Command("drop", dropRate, func(w http.ResponseWriter, r *http.Request) {
+	k.Action("drop", dropRate, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab, Op, Pattern string
 			Cell, Turn       int
@@ -47,17 +47,17 @@ func mount(k *demo.Kit) {
 			return
 		}
 		cmd := Drop{Viewer: v, Op: req.Op, Pattern: req.Pattern, Cell: req.Cell, Turn: req.Turn, At: time.Now()}
-		k.Do(w, r, writer.Once(Slug+":"+v.Session+":"+req.Op, cmd))
+		k.Act(w, r, v, demo.Ack{"ack": req.Op}, writer.Once(Slug+":"+v.Session+":"+req.Op, cmd))
 	})
-	k.Command("reset", resetRate, func(w http.ResponseWriter, r *http.Request) {
+	k.Action("reset", resetRate, func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ Tab, Op string }
 		v, ok := who(w, r, &req, &req.Tab, &req.Op)
 		if !ok {
 			return
 		}
-		k.Do(w, r, writer.Once(Slug+":"+v.Session+":"+req.Op, Reset{Viewer: v, Op: req.Op, At: time.Now()}))
+		k.Act(w, r, v, demo.Ack{"ack": req.Op}, writer.Once(Slug+":"+v.Session+":"+req.Op, Reset{Viewer: v, Op: req.Op, At: time.Now()}))
 	})
-	k.Command("colour", colourRate, func(w http.ResponseWriter, r *http.Request) {
+	k.Action("colour", colourRate, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab    string
 			Colour int
@@ -67,23 +67,29 @@ func mount(k *demo.Kit) {
 		}
 		v, ok := demo.Who(r, req.Tab)
 		if !ok {
-			http.Error(w, "bad request", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 			return
 		}
-		k.Do(w, r, Pick{Viewer: v, Colour: req.Colour, At: time.Now()})
+		// A notice sets the swatch back to the colour the session has.
+		was, err := colourOf(r.Context(), k.DB.R, v.Session)
+		if err != nil {
+			k.Fail(w, r, err)
+			return
+		}
+		k.Act(w, r, v, demo.Ack{"pick": was}, Pick{Viewer: v, Colour: req.Colour, At: time.Now()})
 	})
 }
 
 // who decodes an action's payload into req and returns its viewer, from
 // the tab and the op the payload carries. When either is not an id a page
-// makes, it answers 400 and reports false.
+// makes, it answers a bare 400 and reports false.
 func who(w http.ResponseWriter, r *http.Request, req any, tab, op *string) (demo.Viewer, bool) {
 	if !demo.Decode(w, r, req) {
 		return demo.Viewer{}, false
 	}
 	v, ok := demo.Who(r, *tab)
 	if !ok || !demo.ValidID(*op) {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
 		return demo.Viewer{}, false
 	}
 	return v, true

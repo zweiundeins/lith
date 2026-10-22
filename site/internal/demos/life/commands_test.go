@@ -290,7 +290,7 @@ func TestViews(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if tab := string(out.([]byte)); !strings.Contains(tab, `id="life-outcome"`) || !strings.Contains(tab, `"_life":{"ack":"op1","colour":5}`) {
+		if tab := string(out.([]byte)); !strings.Contains(tab, `id="life-outcome"`) || !strings.Contains(tab, `"_life":{"ack":"op1","colour":5,"synced":true}`) {
 			t.Errorf("the tab's view:\n%s", tab)
 		}
 		page, err := renderPage(ctx, tx, ada)

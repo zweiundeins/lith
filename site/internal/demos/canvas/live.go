@@ -60,9 +60,27 @@ func renderPage(ctx context.Context, tx *sql.Tx, v demo.Viewer) (templ.Component
 }
 
 // pageViews are what a painter's stream watches: the board, the painters
-// here and the pulse, the same for every painter.
-func pageViews(demo.Viewer) []live.View {
-	return []live.View{boardView(), hereView(), pulseView()}
+// here and the pulse, the same for every painter, and the tab's own
+// outcome.
+func pageViews(v demo.Viewer) []live.View {
+	return []live.View{boardView(), hereView(), pulseView(), tabView(v)}
+}
+
+// tabView is the tab's own outcome, from its row in site_tabs: why its
+// last batch did not land, while it did not.
+func tabView(v demo.Viewer) live.View {
+	key := demo.TabTopic(Slug, v.Tab)
+	return live.View{
+		Key:    key,
+		Topics: []string{key},
+		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
+			var s TabState
+			if err := demo.LoadTab(ctx, demo.Querier(ctx, tx), Slug, v, &s); err != nil {
+				return nil, err
+			}
+			return demo.Patch(ctx, Outcome(s))
+		},
+	}
 }
 
 // boardView is the canvas: rendered once per tick in which a cell changed,

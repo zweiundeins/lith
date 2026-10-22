@@ -2,10 +2,21 @@
 
 A box is a bit. The bits sit in 3,907 rows of 256, each a 32-byte BLOB under an integer key, the chunk's number: a click reads one short row by its key and writes it back. A row per box would be a million rows, and a million keys to look up when a tile renders.
 
-`SetBox` carries the state the box should take, not a toggle. Two people who tick the same clear box at once get one checked box, and a request the network sends twice changes nothing the second time, so the command needs no op id.
+`SetBox` carries the state the box should take, not a toggle. Two people who tick the same clear box at once get one checked box, and a request the network sends twice changes nothing the second time, so the command needs no `writer.Once`. It carries an op id all the same, which it records as the tab's newest click: the tab's clicks view acks it, and that ends the box's wait even when the click changed nothing.
 
 ```go title=commands.go
 func (c SetBox) Apply(tx *writer.Tx) error {
+	if c.Op != "" {
+		var k Clicks
+		if err := demo.LoadTab(tx.Context(), tx, ClicksKey, c.Viewer, &k); err != nil {
+			return err
+		}
+		if c.Op > k.Op {
+			if err := demo.SaveTab(tx, ClicksKey, c.Viewer, Clicks{Op: c.Op}, c.At); err != nil {
+				return err
+			}
+		}
+	}
 	n, i := c.Box/ChunkSize, c.Box%ChunkSize
 	var bits []byte
 	if err := tx.QueryRow(`SELECT bits FROM checkboxes_chunks WHERE id = ?`, n).Scan(&bits); err != nil {
@@ -94,14 +105,13 @@ evt.preventDefault();
 const want = b.checked, sent = (b.cbSent || 0) + 1;
 b.cbSent = sent;
 $_checkboxes.problem = '';
-// Pending: indeterminate, unless the frame came first. Five seconds
-// without one (someone set it back in the same tick) end it too.
+$_checkboxes.op = b.cbOp = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+// Pending: indeterminate, unless the frame came first.
 setTimeout(() => b.checked !== want && b.cbSent === sent && (b.indeterminate = true));
-setTimeout(() => b.cbSent === sent && (b.indeterminate = false), 5000);
-@post('/cmd/checkboxes/set', {payload: {box: n, checked: want}, requestCancellation: 'disabled'})
+@post('/cmd/checkboxes/set', {payload: {tab: $_tab, op: $_checkboxes.op, box: n, checked: want}, requestCancellation: 'disabled'})
 ```
 
-`:indeterminate` blinks the box's edge. When the tile's frame flips the box, Datastar's morph sets its `checked` and fires `datastar-prop-change` on it, and the page ends the wait there. The morph never touches `indeterminate`, so a frame that changes another box in the tile leaves the wait alone.
+`:indeterminate` blinks the box's edge. When the tile's frame flips the box, Datastar's morph sets its `checked` and fires `datastar-prop-change` on it, and the page ends the wait there. The morph never touches `indeterminate`, so a frame that changes another box in the tile leaves the wait alone. When someone set the box back in the same tick, no frame changes it, and the ack of the click's op ends the wait instead: no timer does.
 
 ## The numbers
 

@@ -36,9 +36,15 @@ func TestAnimatedNeedsAScope(t *testing.T) {
 func TestSeparateCommand(t *testing.T) {
 	mux := http.NewServeMux()
 	k := NewKit("party", mux, Deps{Commands: edge.NewLimiter(1, 1)})
-	ok := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }
-	k.Command("move", Rate{Every: time.Millisecond, Burst: 100, Separate: true}, ok)
-	k.Command("sign", Rate{Every: time.Second, Burst: 5}, ok)
+	ok := func(w http.ResponseWriter, r *http.Request) {
+		if Limited(r) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	k.Action("move", Rate{Every: time.Millisecond, Burst: 100, Separate: true}, ok)
+	k.Action("sign", Rate{Every: time.Second, Burst: 5}, ok)
 	post := func(name string) int {
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, httptest.NewRequest("POST", "/cmd/party/"+name, nil))

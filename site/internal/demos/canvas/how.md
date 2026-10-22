@@ -65,12 +65,12 @@ func paintCells(tx *writer.Tx, list []int, color int, at time.Time) (bool, error
 
 ## The action
 
-The kit limits the requests of every action; `Separate` keeps a painter's strokes out of the site's limit for all actions, which a stroke would use up for the other demos. Painting needs a limit on pixels too, since one request carries 1 to 60 of them: a token bucket per session, and one per address with four times as much, checked before the command reaches the writer.
+The kit limits the requests of every action; `Separate` keeps a painter's strokes out of the site's limit for all actions, which a stroke would use up for the other demos. Painting needs a limit on pixels too, since one request carries 1 to 60 of them: a token bucket per session, and one per address with four times as much. A quick scribble reaches it, so it is a rule of the canvas, not a rate limit a person never meets: a batch over it goes to the writer as a refusal, which the tab's row records and the tab's view shows beside the canvas, until a batch lands again.
 
 ```go title=routes.go
 	bySession := edge.NewLimiter(pixelRate, pixelBurst)
 	byAddr := edge.NewLimiter(4*pixelRate, 4*pixelBurst)
-	k.Command("paint", demo.Rate{Every: paintEvery, Burst: paintBurst, Separate: true}, func(w http.ResponseWriter, r *http.Request) {
+	k.Action("paint", demo.Rate{Every: paintEvery, Burst: paintBurst, Separate: true}, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab   string
 			Color int
@@ -81,21 +81,21 @@ The kit limits the requests of every action; `Separate` keeps a painter's stroke
 		}
 		v, ok := demo.Who(r, req.Tab)
 		if !ok {
-			http.Error(w, "bad request", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 			return
 		}
 		slices.Sort(req.Cells)
 		now := time.Now()
 		cmd := Paint{Viewer: v, Color: req.Color, Cells: slices.Compact(req.Cells), At: now}
 		if err := cmd.Validate(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // the page sends only strokes that pass
 			return
 		}
-		if n := len(cmd.Cells); !byAddr.Allow(edge.ClientKey(r), n, now) || !bySession.Allow(v.Session, n, now) {
-			http.Error(w, "Painting too fast: 20 pixels a second each.", http.StatusTooManyRequests)
-			return
-		}
-		k.Do(w, r, cmd)
+		// The pixel rate is the canvas's rule, and painting reaches it: a
+		// batch over it is refused in the tab's row, which says why.
+		n := len(cmd.Cells)
+		cmd.Over = !byAddr.Allow(edge.ClientKey(r), n, now) || !bySession.Allow(v.Session, n, now)
+		k.Act(w, r, v, nil, cmd)
 	})
 ```
 

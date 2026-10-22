@@ -358,7 +358,7 @@ func TestViews(t *testing.T) {
 			return err
 		}
 		b := string(out.([]byte))
-		if !strings.Contains(b, "You moved “Tune the tick” to Doing.") || !strings.Contains(b, `"_board":{"ack":"op1","ackv":1,"ok":true}`) {
+		if !strings.Contains(b, "You moved “Tune the tick” to Doing.") || !strings.Contains(b, `"_board":{"ack":"op1","ackv":1,"ok":true,"synced":true}`) {
 			t.Errorf("the tab's view:\n%s", b)
 		}
 

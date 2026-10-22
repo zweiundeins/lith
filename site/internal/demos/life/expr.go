@@ -3,6 +3,8 @@ package life
 import (
 	"fmt"
 	"strings"
+
+	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
 // The Datastar expressions of the demo. Its signals live under $_life, in
@@ -19,9 +21,23 @@ import (
 //	colour, pick   the colour the server says is ours, and the one we asked for
 //	resetting      a reset is on its way
 //	problem        why the last action did not go through
+//	synced, inflight, recheck  what demo.Pending keeps
 func signals(colour int) string {
-	return fmt.Sprintf(`{_life: {tool: 'glider', turn: 0, x: -1, y: -1, drawing: false, alive: true, stroke: '', last: -1, sent: 0, draft: '', pend: '', px: -1, py: -1, ptool: '', pturn: 0, op: '', ack: '', colour: %d, pick: %d, resetting: false, problem: ''}}`, colour, colour)
+	return fmt.Sprintf(`{_life: {tool: 'glider', turn: 0, x: -1, y: -1, drawing: false, alive: true, stroke: '', last: -1, sent: 0, draft: '', pend: '', px: -1, py: -1, ptool: '', pturn: 0, op: '', ack: '', colour: %d, pick: %d, resetting: false, problem: '', synced: false, inflight: 0, recheck: false}}`, colour, colour)
 }
+
+// pending is what waits on the page: the newest op until the tab's view
+// confirms it (op ids grow with time, so a newer one confirms the older
+// ones too), and a colour asked for until the session has it. It ends on
+// those, a request that never got through, or a stream that connects
+// again without them, never on a clock.
+var pending = func() demo.Pending {
+	p := demo.NewPending("_life")
+	p.Match = "el.contains(evt.detail.el)"
+	p.Waiting = "($_life.op !== '' && !($_life.ack >= $_life.op)) || $_life.pick !== $_life.colour"
+	p.End = "$_life.op = '', $_life.pend = '', $_life.draft = '', $_life.ptool = '', $_life.resetting = false, $_life.pick = $_life.colour"
+	return p
+}()
 
 // expr joins the parts of an expression, which Datastar runs as one.
 func expr(parts ...string) string { return strings.Join(parts, ", ") }
@@ -144,7 +160,7 @@ const reset = `!$_life.resetting && (
 	$_life.problem = '',
 	` + newOp + `,
 	$_life.resetting = true,
-	@post('/cmd/life/reset', {payload: {tab: $_tab, op: $_life.op}})
+	@post('/cmd/life/reset', {payload: {tab: $_tab, op: $_life.op}, requestCancellation: 'disabled'})
 )`
 
 // resetting is the reset button's aria-busy: data-attr writes true as an
@@ -155,13 +171,8 @@ const resetting = `$_life.resetting ? 'true' : false`
 // (op ids grow with time, so a newer one confirms the older ones too).
 const settle = `$_life.op !== '' && $_life.ack >= $_life.op && ($_life.op = '', $_life.pend = '', $_life.ptool = '', $_life.resetting = false)`
 
-// failed ends what is pending when an action itself fails (a rate limit,
-// the network gone), since no confirmation will come for it.
-const failed = `el.contains(evt.detail.el) && ['error', 'retries-failed'].includes(evt.detail.type) && (
-	$_life.op = '', $_life.pend = '', $_life.draft = '', $_life.ptool = '', $_life.resetting = false,
-	$_life.pick = $_life.colour,
-	$_life.problem = 'That did not go through. Wait a moment and try again.'
-)`
+// fetched follows the stage's requests (demo.Pending.Fetched).
+var fetched = pending.Fetched()
 
 // cursor places the pattern's outline under the pointer or the cursor.
 const cursor = `'--x:' + $_life.x + ';--y:' + $_life.y + ';--turn:' + $_life.turn`

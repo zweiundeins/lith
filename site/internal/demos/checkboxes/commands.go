@@ -22,12 +22,26 @@ var _ Hub = (*live.Hub)(nil)
 
 // SetBox checks or clears one box. A box that is so already stays as it
 // is; otherwise its bit flips, the totals follow, and the flip counts in
-// its second.
+// its second. With an Op, it records the op as the newest click of the
+// tab that sent it (Clicks), which ends the box's pending state on the
+// page even when its frame changes nothing.
 type SetBox struct {
+	Viewer  demo.Viewer
+	Op      string
 	Box     int // from 0
 	Checked bool
 	At      time.Time
 }
+
+// Clicks is a tab's newest click the server took, in site_tabs under the
+// demo key ClicksKey: op ids grow with time, so it acks the older ones too.
+type Clicks struct {
+	Op string `json:"op,omitempty"`
+}
+
+// ClicksKey is the demo key of a tab's Clicks in site_tabs: a row of its
+// own, so that a click does not render the tab's board.
+const ClicksKey = Slug + ":clicks"
 
 func (c SetBox) Validate() error {
 	if c.Box < 0 || c.Box >= Boxes {
@@ -37,6 +51,17 @@ func (c SetBox) Validate() error {
 }
 
 func (c SetBox) Apply(tx *writer.Tx) error {
+	if c.Op != "" {
+		var k Clicks
+		if err := demo.LoadTab(tx.Context(), tx, ClicksKey, c.Viewer, &k); err != nil {
+			return err
+		}
+		if c.Op > k.Op {
+			if err := demo.SaveTab(tx, ClicksKey, c.Viewer, Clicks{Op: c.Op}, c.At); err != nil {
+				return err
+			}
+		}
+	}
 	n, i := c.Box/ChunkSize, c.Box%ChunkSize
 	var bits []byte
 	if err := tx.QueryRow(`SELECT bits FROM checkboxes_chunks WHERE id = ?`, n).Scan(&bits); err != nil {

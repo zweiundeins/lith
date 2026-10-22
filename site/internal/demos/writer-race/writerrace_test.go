@@ -337,7 +337,7 @@ func TestViews(t *testing.T) {
 		t.Errorf("the results:\n%s", results)
 	}
 	tabFrame := render(vs[3])
-	if !strings.Contains(tabFrame, "Race 1 is yours: on the track now.") || !strings.Contains(tabFrame, `"_writerRace":{"ack":"op1","mine":1,"active":true}`) {
+	if !strings.Contains(tabFrame, "Race 1 is yours: on the track now.") || !strings.Contains(tabFrame, `"_writerRace":{"ack":"op1","mine":1,"active":true,"synced":true}`) {
 		t.Errorf("the tab's view:\n%s", tabFrame)
 	}
 

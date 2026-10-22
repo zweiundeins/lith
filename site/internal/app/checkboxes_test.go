@@ -41,9 +41,10 @@ func TestCheckboxes(t *testing.T) {
 		t.Errorf("chunk 12, outside the window, has %d watchers", n)
 	}
 
-	if code := post(t, c, base+"/cmd/checkboxes/set", `{"box":5,"checked":true}`); code != http.StatusNoContent {
+	if code := post(t, c, base+"/cmd/checkboxes/set", `{"tab":"tab1","op":"op1","box":5,"checked":true}`); code != http.StatusNoContent {
 		t.Fatalf("set: %d", code)
 	}
+	next(t, events, `"_checkboxes":{"ack":"op1","synced":true}`) // the click's ack, which ends the box's wait
 	tile := next(t, events, "title=6 checked")
 	if strings.Count(tile, "<input") != 256 || strings.Count(tile, " checked>") != 1 || strings.Contains(tile, "checkboxes-stats") {
 		t.Errorf("a flip's frame carries more than its tile:\n%.400s", tile)
@@ -59,8 +60,8 @@ func TestCheckboxes(t *testing.T) {
 	waitFor(t, "the stream on the new window", func() bool {
 		return a.Hub().Count("checkboxes:chunk:0") == 0 && a.Hub().Count("checkboxes:chunk:2009") == 1
 	})
-	post(t, c, base+"/cmd/checkboxes/set", `{"box":6,"checked":true}`)
-	post(t, c, base+"/cmd/checkboxes/set", `{"box":512000,"checked":true}`)
+	post(t, c, base+"/cmd/checkboxes/set", `{"tab":"tab1","op":"op2","box":6,"checked":true}`)
+	post(t, c, base+"/cmd/checkboxes/set", `{"tab":"tab1","op":"op3","box":512000,"checked":true}`)
 	for _, e := range cbSeen(t, events, "title=512,001 checked") {
 		if strings.Contains(e, `id="checkboxes-tile-0"`) {
 			t.Error("a chunk the tab scrolled away from still reaches it")
@@ -80,9 +81,10 @@ func TestCheckboxes(t *testing.T) {
 
 	// What a page cannot send.
 	for body, want := range map[string]int{
-		`{"box":1000000,"checked":true}`: http.StatusBadRequest,
-		`{"box":-1,"checked":true}`:      http.StatusBadRequest,
-		`not json`:                       http.StatusBadRequest,
+		`{"tab":"tab1","op":"op4","box":1000000,"checked":true}`: http.StatusBadRequest,
+		`{"tab":"tab1","op":"op5","box":-1,"checked":true}`:      http.StatusBadRequest,
+		`{"box":5,"checked":true}`:                               http.StatusBadRequest,
+		`not json`:                                               http.StatusBadRequest,
 	} {
 		if code := post(t, c, base+"/cmd/checkboxes/set", body); code != want {
 			t.Errorf("set %s: %d", body, code)
@@ -97,7 +99,7 @@ func TestCheckboxes(t *testing.T) {
 	// A burst of clicks runs into the session's rate.
 	codes := map[int]int{}
 	for i := range 60 {
-		codes[post(t, c, base+"/cmd/checkboxes/set", fmt.Sprintf(`{"box":%d,"checked":true}`, 1000+i))]++
+		codes[post(t, c, base+"/cmd/checkboxes/set", fmt.Sprintf(`{"tab":"tab1","op":"b%02d","box":%d,"checked":true}`, i, 1000+i))]++
 	}
 	if codes[http.StatusTooManyRequests] == 0 {
 		t.Errorf("60 clicks at once: %v", codes)
@@ -205,6 +207,44 @@ func TestCheckboxesBrowser(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestCheckboxesSetBack has someone set Ada's box back in the same batch
+// as her click: no frame changes the box, and the ack of her click ends
+// its wait, with no timer.
+func TestCheckboxesSetBack(t *testing.T) {
+	a, base := apptest.Start(t)
+	ada := browser.Start(t).NewPage(t, 1280, 900)
+	ada.Navigate(t, base+"/demos/checkboxes")
+	ada.Wait(t, `document.querySelector('.live-badge.is-live') && customElements.get('sb-virtual-scroll')`, 10*time.Second)
+	waitFor(t, "Ada on chunk 0", func() bool { return a.Hub().Count("checkboxes:chunk:0") == 1 })
+	bob := client(t)
+	get(t, bob, base+"/demos/checkboxes")
+	listen(t, bob, base+"/demos/checkboxes/stream?tab=bob1")
+	waitFor(t, "Bob's stream", func() bool { return a.Hub().HasStream("bob1") })
+
+	const box = `document.querySelector('#checkboxes-tile-0 .cb-boxes').children[3]`
+	held := make(chan struct{})
+	release := make(chan struct{})
+	go a.Writer().Exclusive(context.Background(), func(context.Context, *sql.Conn) error {
+		close(held)
+		<-release
+		return nil
+	})
+	<-held
+	ada.Eval(t, box+`.click()`, nil)
+	ada.Wait(t, box+`.indeterminate`, 3*time.Second)
+	time.Sleep(200 * time.Millisecond) // Ada's click waits for the writer first
+	done := make(chan int, 1)
+	go func() {
+		done <- post(t, bob, base+"/cmd/checkboxes/set", `{"tab":"bob1","op":"zzzz1","box":3,"checked":false}`)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	close(release)
+	if code := <-done; code != http.StatusNoContent {
+		t.Fatalf("Bob's click: %d", code)
+	}
+	ada.Wait(t, `!`+box+`.indeterminate && !`+box+`.checked`, 5*time.Second)
 }
 
 // cbSeen reads events until each of wants has been in one, in any order, and

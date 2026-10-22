@@ -10,7 +10,7 @@ import (
 )
 
 func mount(k *demo.Kit) {
-	k.Command("sign", demo.Rate{Every: signEvery, Burst: signBurst}, func(w http.ResponseWriter, r *http.Request) {
+	k.Action("sign", demo.Rate{Every: signEvery, Burst: signBurst}, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab, Op       string
 			Name, Message string
@@ -20,11 +20,11 @@ func mount(k *demo.Kit) {
 		}
 		v, ok := demo.Who(r, req.Tab)
 		if !ok || !demo.ValidID(req.Op) {
-			http.Error(w, "bad request", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 			return
 		}
 		cmd := Sign{Viewer: v, Op: req.Op, Name: req.Name, Message: req.Message, At: time.Now()}
 		// A retried request (a flaky network) signs once.
-		k.Do(w, r, writer.Once(Slug+":"+v.Session+":"+req.Op, cmd))
+		k.Act(w, r, v, demo.Ack{"ack": req.Op, "accepted": false}, writer.Once(Slug+":"+v.Session+":"+req.Op, cmd))
 	})
 }

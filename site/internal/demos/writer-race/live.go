@@ -97,6 +97,7 @@ type ack struct {
 		Ack    string `json:"ack"`
 		Mine   int64  `json:"mine"`
 		Active bool   `json:"active"`
+		Synced bool   `json:"synced"` // the stream the page opened brought the tab's row (demo.Pending)
 	} `json:"_writerRace"`
 }
 
@@ -123,7 +124,7 @@ func ownView(v demo.Viewer, c func(outcome) templ.Component) live.View {
 			}
 			var a ack
 			a.WriterRace.Ack, a.WriterRace.Mine = o.State.Op, o.Race.ID
-			a.WriterRace.Active = o.Race.ID != 0 && !o.Race.Over()
+			a.WriterRace.Active, a.WriterRace.Synced = o.Race.ID != 0 && !o.Race.Over(), true
 			signals, err := demo.Signals(a)
 			if err != nil {
 				return nil, err

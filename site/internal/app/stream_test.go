@@ -28,7 +28,7 @@ func TestStreamReports(t *testing.T) {
 	get(t, c, base+"/demos/stream")
 
 	events := listen(t, c, base+"/demos/stream/stream?tab=tab1")
-	next(t, events, `"_stream":{"size":"large","churn":"calm","ack":""}`)
+	next(t, events, `"_stream":{"size":"large","churn":"calm","ack":"","synced":true}`)
 	next(t, events, `id="stream-payload"`)
 	first := next(t, events, `"_stream":{"n":`)
 	for _, want := range []string{`"coding":"none"`, `"tier":"uncompressed"`, `"heap":"none"`, `"streams":1`} {

@@ -211,7 +211,7 @@ func TestViews(t *testing.T) {
 		}
 		frame := f.(demo.Frame)
 		if !strings.Contains(string(frame.First), `"hello":true`) || strings.Contains(string(frame.Next), "hello") ||
-			!strings.Contains(string(frame.Next), `{"_town":{"at":3,"seq":1,"ack":"","ok":false}}`) {
+			!strings.Contains(string(frame.Next), `{"_town":{"at":3,"seq":1,"ack":"","ok":false,"synced":true}}`) {
 			t.Errorf("the tab's view:\n%s", frame.First)
 		}
 		last := len(start) + 1 // the starting town and Ada's house

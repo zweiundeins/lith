@@ -40,10 +40,13 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', read);
 // to the same URL: the pixels of a slow request would be lost.
 const paint = `@post('/cmd/canvas/paint', {payload: {tab: $_tab, color: evt.detail.color, cells: evt.detail.cells}, requestCancellation: 'disabled'})`
 
-// refused says why pixels stay faded when their batch failed: over the
-// rate limit, or the connection gone. sb-pixel-board takes them back
-// after three seconds, since no frame confirms them.
-const refused = `evt.detail.el === el && ['error', 'retries-failed'].includes(evt.detail.type) && ($_canvas.problem = 'Some pixels did not reach the canvas: each painter gets 20 a second, and the connection has to hold. They fade back; paint them again in a moment.')`
+// refused says why pixels stay faded when their batch never reached the
+// server: only the browser knows, so the page says so in its own words.
+// A batch over the pixel rate is a refusal the tab's view shows, and a
+// failed write a notice. sb-pixel-board takes the pixels back after three
+// seconds, since no frame confirms them: the component's own fade, with
+// no op of the page's waiting.
+const refused = `evt.detail.el === el && evt.detail.type === 'retries-failed' && ($_canvas.problem = 'Some pixels did not reach the canvas: the connection is down. They fade back; paint them again once it is back.')`
 
 // choose makes the swatch the brush, at once.
 const choose = `$_canvas.color = +evt.target.value; $_canvas.problem = ''`
@@ -53,5 +56,6 @@ const choose = `$_canvas.color = +evt.target.value; $_canvas.problem = ''`
 const pick = `@post('/cmd/canvas/pick', {payload: {tab: $_tab, color: $_canvas.color}})`
 
 // pickFailed: the brush changed on this page, but the list of painters
-// still shows the old colour until the next paint.
-const pickFailed = `evt.detail.el === el && ['error', 'retries-failed'].includes(evt.detail.type) && ($_canvas.problem = 'Your new colour did not reach the server; the painters see it with your next stroke.')`
+// still shows the old colour until the next paint. It says so when the
+// pick never reached the server; a failed write comes as a notice.
+const pickFailed = `evt.detail.el === el && evt.detail.type === 'retries-failed' && ($_canvas.problem = 'Your new colour did not reach the server; the painters see it with your next stroke.')`

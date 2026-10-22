@@ -2,6 +2,8 @@ package board
 
 import (
 	"strconv"
+
+	"github.com/zweiundeins/lith/site/internal/demo"
 )
 
 // The Datastar expressions of the demo. Its signals live under $_board,
@@ -19,10 +21,22 @@ import (
 // index are where it would go (lane -1: nowhere), n how many other cards
 // that lane has; op is the move waiting for its outcome, pcard its card;
 // ack, ackv and ok are the tab's last outcome; nudge is a refused card for
-// a moment; say is the live region's text.
+// a moment; say is the live region's text; synced, inflight and recheck
+// are what demo.Pending keeps.
 func signals(version int64) string {
-	return `{_board: {v: ` + strconv.FormatInt(version, 10) + `, drag: 0, mode: '', seen: 0, from: -1, at: 0, lane: -1, index: 0, n: 0, op: '', pcard: 0, ack: '', ackv: 0, ok: false, nudge: 0, say: '', problem: ''}}`
+	return `{_board: {v: ` + strconv.FormatInt(version, 10) + `, drag: 0, mode: '', seen: 0, from: -1, at: 0, lane: -1, index: 0, n: 0, op: '', pcard: 0, ack: '', ackv: 0, ok: false, nudge: 0, say: '', problem: '', synced: false, inflight: 0, recheck: false}}`
 }
+
+// moving is the pending move: it ends on its outcome (settle), a request
+// that never got through, or a stream that connects again without its
+// ack, never on a clock.
+var moving = func() demo.Pending {
+	p := demo.NewPending("_board")
+	p.End = "$_board.op = '', $_board.pcard = 0, $_board.drag || el.bd.aim(-1, 0)"
+	p.Down = "That move did not reach the server. Try again in a moment."
+	p.Lost = "That move did not go through. Try again."
+	return p
+}()
 
 // controller holds the drag and the keyboard's helpers, on the stage
 // element (el.bd), for the handlers below. They read the page: the lanes
@@ -232,17 +246,10 @@ $_board.pcard = 0
 $_board.problem = ''
 if (!$_board.drag) el.bd.aim(-1, 0)`
 
-// failed says so while the move's request is retried (the op id makes a
-// retry safe), and ends the pending move when the request fails for good
-// (a rate limit, the network gone): no outcome will come for it.
-const failed = `if (evt.detail.el !== el || !$_board.op) return
-const type = evt.detail.type
-if (type === 'retrying') { $_board.problem = 'The server does not answer. Trying again.'; return }
-if (type !== 'error' && type !== 'retries-failed') return
-$_board.problem = evt.detail.argsRaw?.status === '429' ? 'Too many moves at once. Wait a moment and try again.' : 'That move did not reach the server. Try again in a moment.'
-$_board.op = ''
-$_board.pcard = 0
-if (!$_board.drag) el.bd.aim(-1, 0)`
+// fetched says so while the move's request is retried (the op id makes a
+// retry safe), and follows the stage's requests (demo.Pending.Fetched).
+var fetched = `evt.detail.el === el && $_board.op && evt.detail.type === 'retrying' && ($_board.problem = 'The server does not answer. Trying again.');
+` + moving.Fetched()
 
 // looks is the style of the card in hand (--bd-lift under the pointer,
 // which leaves a hole behind its ghost; --bd-pick from the keyboard,

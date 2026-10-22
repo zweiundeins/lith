@@ -14,13 +14,26 @@ import (
 // Paint paints cells of the canvas in one colour for a tab: the batch of a
 // stroke that sb-pixel-board sends every 80 ms. It renews the day of every
 // cell it paints, counts the pixels for the tab and the last minute, and
-// makes the colour the tab's.
+// makes the colour the tab's. A batch over the painter's pixel rate
+// (Over) paints nothing: the limit is the canvas's rule, which normal
+// painting reaches, so the tab's row records why (TabState), and the
+// tab's view shows it until a batch lands again.
 type Paint struct {
 	Viewer demo.Viewer
 	Color  int
 	Cells  []int // distinct
+	Over   bool
 	At     time.Time
 }
+
+// TabState is a tab's state in site_tabs: why its last batch did not
+// land, while it did not.
+type TabState struct {
+	Refusal string `json:"refusal,omitempty"`
+}
+
+// TooFast is the refusal of a batch over the pixel rate.
+var TooFast = fmt.Sprintf("Painting too fast: each painter gets %d pixels a second. The pixels that did not land fade back; paint them again a little slower.", pixelRate)
 
 func (c Paint) Validate() error {
 	switch {
@@ -40,6 +53,21 @@ func (c Paint) Validate() error {
 }
 
 func (c Paint) Apply(tx *writer.Tx) error {
+	var s TabState
+	if err := demo.LoadTab(tx.Context(), tx, Slug, c.Viewer, &s); err != nil {
+		return err
+	}
+	if c.Over {
+		if s.Refusal == TooFast {
+			return nil // said already
+		}
+		return demo.SaveTab(tx, Slug, c.Viewer, TabState{Refusal: TooFast}, c.At)
+	}
+	if s.Refusal != "" {
+		if err := demo.SaveTab(tx, Slug, c.Viewer, TabState{}, c.At); err != nil {
+			return err
+		}
+	}
 	changed, err := paintCells(tx, c.Cells, c.Color, c.At)
 	if err != nil {
 		return err
