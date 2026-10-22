@@ -465,13 +465,32 @@ func (c *afterFuncs) AfterFunc(f func()) func() bool {
 // Subscribe and Close run the context's AfterFunc and its stop outside the
 // bus's lock, so a context whose code reads the writer does not deadlock.
 func TestSubscribeCallsTheContextOutsideTheLock(t *testing.T) {
-	f := start(t, sqlite.Options{}, Options{})
+	db := openDB(t, sqlite.Options{})
+	w, err := New(db, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go w.Run(context.Background())
+	// A deadlocked bus holds Close: give up on it rather than wait for go
+	// test's timeout.
+	t.Cleanup(func() {
+		closed := make(chan struct{})
+		go func() {
+			w.Close()
+			db.Close()
+			close(closed)
+		}()
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+		}
+	})
 	ctx := newAfterFuncs()
-	ctx.hook = func() { f.w.Stats() }
+	ctx.hook = func() { w.Stats() }
 	done := make(chan struct{})
 	go func() {
-		f.w.Subscribe[any](ctx, 1)
-		f.w.Close()
+		w.Subscribe[any](ctx, 1)
+		w.Close()
 		close(done)
 	}()
 	select {
@@ -481,6 +500,24 @@ func TestSubscribeCallsTheContextOutsideTheLock(t *testing.T) {
 	}
 	if ctx.calls.Load() != 1 || ctx.open.Load() != 0 {
 		t.Fatalf("%d AfterFunc calls, %d left", ctx.calls.Load(), ctx.open.Load())
+	}
+}
+
+// A subscription whose ctx ends, and whose AfterFunc ran and found nothing
+// to remove, before Subscribe added it ends all the same. context.AfterFunc
+// runs f in a goroutine of its own, which leaves that order to chance, so
+// the bus gets an AfterFunc that runs f at once.
+func TestSubscribeWhoseContextEndsBeforeItJoins(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx, cancel := context.WithCancel(context.Background())
+	f.w.bus.afterFunc = func(_ context.Context, fn func()) func() bool {
+		cancel()
+		fn()
+		return func() bool { return false }
+	}
+	closed(t, f.w.Subscribe[any](ctx, 1))
+	if n := f.w.Stats().Subscribers; n != 0 {
+		t.Fatalf("%d subscribers", n)
 	}
 }
 

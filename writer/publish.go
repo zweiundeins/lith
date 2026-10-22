@@ -79,6 +79,8 @@ type bus struct {
 	mu     sync.Mutex
 	subs   []entry
 	closed bool // the writer stopped
+
+	afterFunc func(context.Context, func()) func() bool // context.AfterFunc, or a test's
 }
 
 type entry struct {
@@ -96,7 +98,11 @@ func (b *bus) add(ctx context.Context, s subscriber) bool {
 	if ctx.Err() != nil {
 		return false
 	}
-	stop := context.AfterFunc(ctx, func() { b.remove(s) })
+	afterFunc := context.AfterFunc
+	if b.afterFunc != nil {
+		afterFunc = b.afterFunc
+	}
+	stop := afterFunc(ctx, func() { b.remove(s) })
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -105,7 +111,8 @@ func (b *bus) add(ctx context.Context, s subscriber) bool {
 	}
 	b.subs = append(b.subs, entry{s: s, stop: stop})
 	b.mu.Unlock()
-	// An AfterFunc that ran before the append found nothing to remove.
+	// context.AfterFunc runs f in a goroutine, which may find nothing to
+	// remove when it runs before the append.
 	if ctx.Err() != nil {
 		b.remove(s)
 	}
