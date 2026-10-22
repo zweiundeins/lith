@@ -108,6 +108,17 @@ type Options struct {
 	// negative: Watch keeps none). Views wait for at most MaxStreams IDs
 	// at once.
 	PendingWatch time.Duration
+	// Stopping, if set, makes the events a stream sends when the hub stops,
+	// before its last event (sse.Reconnect, for a stream with
+	// Spec.Reconnect): a notice such as "Updating, back in a moment" for
+	// the stream of spec, or nil for none. They go out as they are, past
+	// Spec.Write and Spec.WriteTick, after the []byte notices of Notify
+	// the stream has not sent yet. Render the notice into a region that
+	// one of the stream's views fills: the new stream's first frame of
+	// that view replaces it once the page is back. Every stream calls it
+	// from its own goroutine as the hub stops, so it runs concurrently and
+	// must not block. A panic in it is logged, and that stream sends none.
+	Stopping func(spec Spec) [][]byte
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
@@ -247,6 +258,7 @@ type Hub struct {
 	maxStreams    int
 	maxPerClient  int // 0: no cap
 	pendingFor    time.Duration
+	stopping      func(Spec) [][]byte
 	heartbeat     time.Duration
 	hibernate     time.Duration
 	ping          []byte       // the heartbeat signal's patch up to its number, nil for none
@@ -283,6 +295,11 @@ type Hub struct {
 	sweepAt time.Time                // when pending is next swept
 	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
 	next    chan struct{}            // closed once the next tick that renders views has published its frames
+	// The ticks that rendered views, numbered as they start and as they
+	// have published, and the streams with notices that wait for one.
+	started, finished uint64
+	handing           uint64 // the tick whose frames publish hands out, until it releases its notices
+	holding           map[*stream]struct{}
 	// Nodes that left the topic tree, and the empty maps of those that had
 	// nodes below them, for topics to come.
 	spare     []*node
@@ -319,6 +336,7 @@ type view struct {
 	dirty     bool
 	dead      bool      // no longer watched
 	rendering bool      // in the tick under way
+	lagging   bool      // its last render failed, or no worker took it: its frame is still to come
 	joined    bool      // a stream started watching it during that tick, without a frame
 	owed      bool      // a watch lacks the newest frame (watch.owed)
 	due       time.Time // when Every renders it again
@@ -334,6 +352,7 @@ type watch struct {
 	v    *view
 	i    int       // index in v.watches, guarded by Hub.mu
 	owed bool      // joined while the hub kept no frame, until a render brings one; guarded by Hub.mu
+	skip uint64    // a fresh watch takes no frame of this tick, which was rendering when it joined; guarded by Hub.mu
 	next *frame    // the newest frame not sent yet, guarded by s.mu
 	gone bool      // unwatched, guarded by s.mu
 	sent time.Time // when the stream last took a frame of the view, with Spec.Slow; guarded by s.mu
@@ -348,6 +367,7 @@ type stream struct {
 	cancel    context.CancelFunc
 	wake      chan struct{}
 	offers    []offer       // its new frames while publish hands them out; the hub's loop alone uses it
+	lagging   bool          // publish found a view of it lagging; the hub's loop alone uses it
 	upgrade   time.Duration // when it listens for a better tier (sse.Stream.Upgrade); negative: never
 	every     time.Duration // the least time between two frames of a view (Spec.Slow), 0 for none
 	ack       func(token string, n int64) []byte
@@ -358,6 +378,11 @@ type stream struct {
 	// The views the stream watches, in the order it started watching
 	// them. Changed with both Hub.mu and mu held, read with either.
 	watches []*watch
+	// The notices of Notify the stream has not sent yet, one per key: notes
+	// go with its next write, held ones once the tick they wait for has
+	// published.
+	notes []note
+	held  []heldNote
 	// With Spec.Ack: the writes that may wait for the page's
 	// acknowledgement (Spec.Window, Hub.Pace), 0 for no pacing; the
 	// paced writes of frames, the newest acknowledged, when the stream
@@ -433,6 +458,7 @@ func New(o Options) *Hub {
 		maxStreams:    o.MaxStreams,
 		maxPerClient:  max(0, o.MaxStreamsPerClient),
 		pendingFor:    o.PendingWatch,
+		stopping:      o.Stopping,
 		heartbeat:     o.Heartbeat,
 		hibernate:     max(0, o.Hibernate),
 		ping:          ping,
@@ -454,6 +480,7 @@ func New(o Options) *Hub {
 		clients:       map[string]int{},
 		pending:       map[string][]pendingView{},
 		asked:         map[string]time.Time{},
+		holding:       map[*stream]struct{}{},
 		next:          make(chan struct{}),
 	}
 	// From the clock, so a page that reconnects to a new process still
@@ -778,7 +805,7 @@ func (h *Hub) watch(s *stream, def View) bool {
 	if slices.ContainsFunc(s.watches, func(w *watch) bool { return w.v.key == def.Key }) {
 		return false
 	}
-	marked := false
+	marked, fresh := false, false
 	v := h.views[def.Key]
 	if v == nil {
 		v = &view{key: def.Key, topics: slices.Clone(def.Topics), render: def.Render, every: def.Every, presence: def.Presence, size: -1}
@@ -792,6 +819,11 @@ func (h *Hub) watch(s *stream, def View) bool {
 		marked = h.mark(v)
 	} else if v.presence {
 		marked = h.mark(v)
+	} else if s.id != "" && !slices.ContainsFunc(v.watches, func(w *watch) bool { return w.s.id != s.id }) {
+		// A stream that replaces one with its ID renders the views only that
+		// ID watches afresh: a commit this hub never heard of shows in them.
+		fresh = true
+		marked = h.mark(v)
 	} else if v.frame == nil {
 		// A render under way publishes to every watch, this one too.
 		if v.rendering {
@@ -803,6 +835,14 @@ func (h *Hub) watch(s *stream, def View) bool {
 	w := &watch{s: s, v: v, i: len(v.watches)}
 	v.watches = append(v.watches, w)
 	f := v.frame
+	if fresh {
+		f = nil
+		if v.rendering {
+			// That render's snapshot can predate a commit the page already
+			// heard of: this watch waits for the next one.
+			w.skip = h.started
+		}
+	}
 	if f == nil {
 		w.owed, v.owed = true, true
 	}

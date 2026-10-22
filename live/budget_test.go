@@ -473,7 +473,7 @@ func TestRefuseNeedsTheFrameWindow(t *testing.T) {
 			if err := cl.returned(t); !errors.Is(err, sse.ErrNoRoom) {
 				t.Fatalf("%s: a refused tab: %v", c.name, err)
 			}
-			if e := cl.header.Get("Content-Encoding"); e != "" || !strings.HasPrefix(string(cl.bytes()), "too many streams") {
+			if e := cl.header.Get("Content-Encoding"); e != "" || len(cl.bytes()) != 0 {
 				t.Fatalf("%s: a refused tab got Content-Encoding %q and %q", c.name, e, cl.bytes())
 			}
 			return nil

@@ -144,6 +144,7 @@ type tick struct {
 	wg     sync.WaitGroup
 
 	streams []*stream // the streams with offers (stream.offers), in the order of their first
+	seq     uint64    // the tick's number among those that render (Hub.started)
 }
 
 // offer is a new frame for one stream's watch.
@@ -178,6 +179,8 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	var published chan struct{}
 	if len(t.views) > 0 {
 		published, h.next = h.next, make(chan struct{})
+		h.started++
+		t.seq = h.started
 	}
 	h.mu.Unlock()
 	if len(t.views) == 0 {
@@ -261,6 +264,7 @@ func (h *Hub) publish(t *tick) {
 		}
 		joined := v.joined
 		v.rendering, v.joined = false, false
+		v.lagging = t.errs[i] != nil
 		f := t.frames[i]
 		if t.errs[i] != nil || f == nil {
 			if joined {
@@ -279,7 +283,12 @@ func (h *Hub) publish(t *tick) {
 				v.size = len(b)
 			}
 		}
+		owed := false
 		for _, w := range v.watches {
+			if w.skip == t.seq {
+				owed = true // fresh: the next render's frame is its first
+				continue
+			}
 			if !same || w.owed {
 				w.owed = false
 				if len(w.s.offers) == 0 {
@@ -288,12 +297,18 @@ func (h *Hub) publish(t *tick) {
 				w.s.offers = append(w.s.offers, offer{w, nf})
 			}
 		}
-		v.owed = false
+		v.owed = owed
 		booked += h.keep(v, nf)
 	}
 	for _, v := range t.views[taken:] {
 		v.rendering, v.joined = false, false
+		v.lagging = true
 		h.mark(v)
+	}
+	// A Notify from now until release waits for these frames too.
+	h.handing = t.seq
+	for _, s := range t.streams {
+		s.lagging = h.lagging(s)
 	}
 	h.mu.Unlock()
 	h.sse.Budget.Hold(booked)
@@ -306,6 +321,11 @@ func (h *Hub) publish(t *tick) {
 			}
 			o.w.next = o.f
 		}
+		// The notices that waited for this tick, in the same write as its
+		// frames.
+		if !s.lagging {
+			s.takeHeld(t.seq)
+		}
 		s.mu.Unlock()
 		s.poke()
 		clear(s.offers)
@@ -313,6 +333,9 @@ func (h *Hub) publish(t *tick) {
 	}
 	clear(t.streams)
 	t.streams = t.streams[:0]
+	h.mu.Lock()
+	h.release(t.seq)
+	h.mu.Unlock()
 
 	if t.ctx.Err() != nil {
 		return

@@ -49,6 +49,12 @@ const DefaultReleaseSlack = 100 * time.Millisecond
 DefaultReleaseSlack is Spec.ReleaseSlack when it is 0: a page that applies a frame within 100 ms of its round trip keeps up with ten frames a second.
 
 ```go
+const MaxNotices = 64
+```
+
+MaxNotices is how many notices a stream keeps waiting, queued and held: a Notify with a new key beyond it drops the oldest. Keys may come from a client (one per op key), and the cap keeps what one stream holds small.
+
+```go
 const NewestFrame = "newest-frame.js"
 ```
 
@@ -291,6 +297,20 @@ func (h *Hub) MarkAll()
 
 MarkAll marks every view dirty, as after a change nothing tracks (a migration, new templates). It counts as a commit that touched every topic: Version then reports it for each. It is Changed with \*.
 
+#### func (*Hub) Notify {#Hub.Notify}
+
+```go
+func (h *Hub) Notify(streamID, key string, frame any) bool
+```
+
+Notify sends a notice to the open stream with this ID: frame goes out once and the hub forgets it. It is written as a view's frame is, under key: through Spec.WriteTick or Spec.Write, or as \[]byte events. A notice tells the person what no command decided and no view can render from the database: the writer failed, a rate limit turned an action away. Put the op id of the action it answers in it, as the tab's view does for an outcome, so that the page's pending state ends.
+
+A notice waits for the renders pending for the stream's views when Notify is called, such as those of the commit just before it, and goes out after their frames, so a frame of that commit never overwrites it: in the same write as the frames of the tick it waited for, or in a later write when that tick brought the stream none. A render that no worker took holds it one tick more, once. A render that fails holds it no longer: the notice goes out without that view's frame, since the view renders again only when a commit touches its topics, which a database that fails may not see for a while. It can still come first when the stream lags so far that the view defers that render (Stats.RendersDeferred). With none pending, it goes with the stream's next write. Like a frame, it waits while the stream holds its frames back: up to 250 ms with Spec.Slow, and while a paced stream's window is full, up to AckTimeout.
+
+A stream keeps one notice per key, so give a kind of notice a fixed key, never the op id: a Notify with the key of a notice that has not gone out yet replaces it, in its place, and the last one wins. A stream keeps MaxNotices waiting at most: one with a new key beyond them drops the oldest, queued before held. Notify reports whether such a stream is open; when none is, it does nothing and keeps nothing, so an ID a client made up costs nothing.
+
+A notice is best effort: a stream that is not open, or ends before the notice goes out, never sends it, and a page that reconnects or reloads never sees it. A \[]byte notice still waiting when the hub stops goes out before the events of Options.Stopping. Render a notice into a region that one of the stream's views fills, such as the tab's outcome: that view's next frame replaces it.
+
 #### func (*Hub) Pace {#Hub.Pace}
 
 ```go
@@ -333,7 +353,7 @@ A cache that a GET fills reads Seq before its read transaction begins: every com
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error
 ```
 
-Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's newest frame when the hub keeps it (View.Render), else a frame rendered in the next tick, then every new frame. It opens the stream once those first frames are there, or the tick that renders them has ended, and passes their length to the streams' budget (sse.Options.Frame), so the response's headers go out with the first frames: a budget with sse.BudgetOptions.Refuse lets the stream in only with room for a window that holds them. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a failed write ends the stream with its error.
+Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's newest frame when the hub keeps it (View.Render), else a frame rendered in the next tick, then every new frame. It opens the stream once those first frames are there, or the tick that renders them has ended, and passes their length to the streams' budget (sse.Options.Frame), so the response's headers go out with the first frames: a budget with sse.BudgetOptions.Refuse lets the stream in only with room for a window that holds them. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503, or 429 to a client over Options.MaxStreamsPerClient, with no body, and returns ErrFull, ErrStopped, sse.ErrNoRoom or ErrClientFull: the status is for the page's retry, and the page tells the person in its own words. A failed write ends the stream with its error. When the hub stops, the stream sends the events of Options.Stopping, then sse.Reconnect with Spec.Reconnect.
 
 #### func (*Hub) Stats {#Hub.Stats}
 
@@ -412,6 +432,17 @@ type Options struct {
 	// negative: Watch keeps none). Views wait for at most MaxStreams IDs
 	// at once.
 	PendingWatch time.Duration
+	// Stopping, if set, makes the events a stream sends when the hub stops,
+	// before its last event (sse.Reconnect, for a stream with
+	// Spec.Reconnect): a notice such as "Updating, back in a moment" for
+	// the stream of spec, or nil for none. They go out as they are, past
+	// Spec.Write and Spec.WriteTick, after the []byte notices of Notify
+	// the stream has not sent yet. Render the notice into a region that
+	// one of the stream's views fills: the new stream's first frame of
+	// that view replaces it once the page is back. Every stream calls it
+	// from its own goroutine as the hub stops, so it runs concurrently and
+	// must not block. A panic in it is logged, and that stream sends none.
+	Stopping func(spec Spec) [][]byte
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
@@ -494,22 +525,30 @@ type Spec struct {
 	Client string
 	// ID names the stream for Watch and Unwatch, usually the tab id. A
 	// stream with the ID of one still open replaces it if its request
-	// came later, and else ends at once. Empty: none.
+	// came later, and else ends at once. It renders the views that only
+	// its ID watches afresh, so a commit this hub never heard of, another
+	// process's, shows in its first frame. A view other streams watch too
+	// comes from the frame the hub keeps, and shows such a commit only
+	// once a later commit touches its topics: when two processes overlap
+	// in a deploy, call Hub.MarkAll on the new one once the old one has
+	// stopped. Empty: none.
 	ID string
 	// Views are the views the stream watches from the start. Views that
 	// change in the same tick are sent in this order.
 	Views []View
 	// Write sends a view's frame to the stream, and may tailor it (send
-	// only what this stream has not seen). Nil: frames are []byte events,
-	// written as they are. An error ends the stream.
+	// only what this stream has not seen), and a notice of Hub.Notify
+	// under its key. Nil: frames and notices are []byte events, written
+	// as they are. An error ends the stream.
 	Write func(s *sse.Stream, key string, frame any) error
 	// WriteTick, if set, takes Write's place: it gets the new frames of
 	// the stream's views at once, so that one s.Write compresses and
 	// flushes them together, where each call of Write is a write of its
 	// own. Each call has the newest frame of every view that changed
 	// since the last one, in the order the stream watches them: one
-	// tick's, or several ticks' when the stream fell behind. frames is
-	// valid during the call only. An error ends the stream.
+	// tick's, or several ticks' when the stream fell behind, and after
+	// them the notices of Hub.Notify, under their keys. frames is valid
+	// during the call only. An error ends the stream.
 	WriteTick func(s *sse.Stream, frames []Frame) error
 	// Reconnect is the id of the page's element whose data-init opens this
 	// stream with retry 'error'. When the hub stops (a deploy), the stream

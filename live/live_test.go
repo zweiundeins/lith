@@ -1617,6 +1617,80 @@ func TestSameIDKeepsLaterStream(t *testing.T) {
 	}
 }
 
+// A stream that replaces one with its ID while its view renders takes no
+// frame of that render, whose snapshot predates a commit the hub never
+// heard of: its first frame is the next render's.
+func TestSameIDSkipsTheRenderUnderWay(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	var mu sync.Mutex
+	n := 0
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	block := false
+	own := text("own", []string{"own"}, func(context.Context, *sql.Tx) (string, error) {
+		mu.Lock()
+		v, wait := strconv.Itoa(n), block
+		block = false
+		mu.Unlock()
+		if wait {
+			entered <- struct{}{}
+			<-release
+		}
+		return v, nil
+	})
+	old := serve(h, Spec{ID: "tab", Views: []View{own}}, "")
+	waitFor(t, "the old stream", func() bool { return old.has(`<p id="own">0</p>`) })
+	mu.Lock()
+	n, block = 1, true
+	mu.Unlock()
+	h.Changed([]string{"own"})
+	<-entered // renders 1
+	mu.Lock()
+	n = 2 // a commit without Changed
+	mu.Unlock()
+	cur := serve(h, Spec{ID: "tab", Views: []View{own}}, "")
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	waitFor(t, "the new stream", func() bool { return cur.has(`<p id="own">2</p>`) })
+	if got := cur.patches(); got[0] != `<p id="own">2</p>` {
+		t.Fatalf("the new stream got the render under way first: %q", got)
+	}
+}
+
+// A stream that replaces one with its ID renders the views that only the
+// ID watches afresh, so that a commit the hub never heard of (another
+// process's) shows, even in a view whose frames the hub keeps for any
+// number of streams (a value, not bytes); a view other streams watch
+// comes from the hub's frame.
+func TestSameIDRendersItsViewsAfresh(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	var mu sync.Mutex
+	n := 0
+	count := func(key string) View {
+		return View{Key: key, Render: func(context.Context, *sql.Tx) (any, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return strconv.Itoa(n), nil
+		}}
+	}
+	write := func(s *sse.Stream, frames []Frame) error {
+		for _, f := range frames {
+			if err := s.Write(sse.PatchElements([]byte(`<p id="` + f.Key + `">` + f.Value.(string) + `</p>`))); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	own, shared := count("own"), count("shared")
+	old := serve(h, Spec{ID: "tab", Views: []View{own, shared}, WriteTick: write}, "")
+	serve(h, Spec{ID: "other", Views: []View{shared}, WriteTick: write}, "")
+	waitFor(t, "the old stream", func() bool { return old.has(`<p id="own">0</p>`) && old.has(`<p id="shared">0</p>`) })
+	mu.Lock()
+	n = 1 // a commit without Changed
+	mu.Unlock()
+	cur := serve(h, Spec{ID: "tab", Views: []View{own, shared}, WriteTick: write}, "")
+	waitFor(t, "the new stream", func() bool { return cur.has(`<p id="own">1</p>`) && cur.has(`<p id="shared">0</p>`) })
+}
+
 // After a tick runs over, the hub samples tick durations for a while and
 // then logs their distribution.
 func TestOverrunReport(t *testing.T) {

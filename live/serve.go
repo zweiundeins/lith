@@ -23,22 +23,30 @@ type Spec struct {
 	Client string
 	// ID names the stream for Watch and Unwatch, usually the tab id. A
 	// stream with the ID of one still open replaces it if its request
-	// came later, and else ends at once. Empty: none.
+	// came later, and else ends at once. It renders the views that only
+	// its ID watches afresh, so a commit this hub never heard of, another
+	// process's, shows in its first frame. A view other streams watch too
+	// comes from the frame the hub keeps, and shows such a commit only
+	// once a later commit touches its topics: when two processes overlap
+	// in a deploy, call Hub.MarkAll on the new one once the old one has
+	// stopped. Empty: none.
 	ID string
 	// Views are the views the stream watches from the start. Views that
 	// change in the same tick are sent in this order.
 	Views []View
 	// Write sends a view's frame to the stream, and may tailor it (send
-	// only what this stream has not seen). Nil: frames are []byte events,
-	// written as they are. An error ends the stream.
+	// only what this stream has not seen), and a notice of Hub.Notify
+	// under its key. Nil: frames and notices are []byte events, written
+	// as they are. An error ends the stream.
 	Write func(s *sse.Stream, key string, frame any) error
 	// WriteTick, if set, takes Write's place: it gets the new frames of
 	// the stream's views at once, so that one s.Write compresses and
 	// flushes them together, where each call of Write is a write of its
 	// own. Each call has the newest frame of every view that changed
 	// since the last one, in the order the stream watches them: one
-	// tick's, or several ticks' when the stream fell behind. frames is
-	// valid during the call only. An error ends the stream.
+	// tick's, or several ticks' when the stream fell behind, and after
+	// them the notices of Hub.Notify, under their keys. frames is valid
+	// during the call only. An error ends the stream.
 	WriteTick func(s *sse.Stream, frames []Frame) error
 	// Reconnect is the id of the page's element whose data-init opens this
 	// stream with retry 'error'. When the hub stops (a deploy), the stream
@@ -173,8 +181,12 @@ const slowEvery = 250 * time.Millisecond
 // out with the first frames: a budget with sse.BudgetOptions.Refuse lets
 // the stream in only with room for a window that holds them. When the hub
 // is full or stopped, or the streams' budget refuses the stream, it
-// answers 503 and returns ErrFull, ErrStopped or sse.ErrNoRoom; a failed
-// write ends the stream with its error.
+// answers 503, or 429 to a client over Options.MaxStreamsPerClient, with
+// no body, and returns ErrFull, ErrStopped, sse.ErrNoRoom or
+// ErrClientFull: the status is for the page's retry, and the page tells
+// the person in its own words. A failed write ends the stream with its
+// error. When the hub stops, the stream sends the events of
+// Options.Stopping, then sse.Reconnect with Spec.Reconnect.
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	for _, v := range spec.Views {
 		check(v)
@@ -184,15 +196,15 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	switch {
 	case h.done.Err() != nil:
 		h.mu.Unlock()
-		http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
+		bare(w, http.StatusServiceUnavailable)
 		return ErrStopped
 	case spec.Client != "" && h.maxPerClient > 0 && h.clients[spec.Client] >= h.maxPerClient:
 		h.mu.Unlock()
-		http.Error(w, "too many streams from this address", http.StatusTooManyRequests)
+		bare(w, http.StatusTooManyRequests)
 		return ErrClientFull
 	case h.streams >= h.maxStreams:
 		h.mu.Unlock()
-		http.Error(w, "too many streams", http.StatusServiceUnavailable)
+		bare(w, http.StatusServiceUnavailable)
 		return ErrFull
 	}
 	h.streams++
@@ -234,14 +246,13 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		case r.Context().Err() != nil:
 			return nil
 		case h.done.Err() != nil:
-			w.Header().Del("Content-Encoding")
-			http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
+			bare(w, http.StatusServiceUnavailable)
 			return ErrStopped
 		case ctx.Err() != nil:
 			// A stream with the ID that came later replaced this one.
 			return nil
 		case errors.Is(err, sse.ErrNoRoom):
-			http.Error(w, "too many streams", http.StatusServiceUnavailable)
+			bare(w, http.StatusServiceUnavailable)
 		}
 		return err
 	}
@@ -249,13 +260,26 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	defer func() { st.CloseWith(last...) }()
 	defer h.detach(s, false, nil)
 	err = h.pump(ctx, s, st)
-	if (h.done.Err() != nil || errors.Is(err, errReopen)) && spec.Reconnect != "" && r.Context().Err() == nil {
+	stopped, here := h.done.Err() != nil, r.Context().Err() == nil
+	if stopped && here {
+		last = append(last, h.unsent(s)...)
+		if h.stopping != nil {
+			last = append(last, h.stopEvents(spec)...)
+		}
+	}
+	if (stopped || errors.Is(err, errReopen)) && spec.Reconnect != "" && here {
 		last = append(last, sse.Reconnect(spec.Reconnect))
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, errReopen) || h.done.Err() != nil {
 		return nil
 	}
 	return err
+}
+
+// bare answers a stream that does not open with the status alone.
+func bare(w http.ResponseWriter, code int) {
+	w.Header().Del("Content-Encoding")
+	w.WriteHeader(code)
 }
 
 // upgradeAfter is how long a stream with the ID waits before its budget
@@ -327,7 +351,8 @@ func (h *Hub) attach(s *stream, views []View) <-chan struct{} {
 
 // detach takes s off the hub. When the budget refused s, the views that
 // Watch gave it besides those of its spec go to the stream open with its
-// ID, or wait for the next one, as they would have if s had never opened.
+// ID, or wait for the next one, as they would have if s had never opened;
+// its notices go to the stream open with its ID, if there is one.
 func (h *Hub) detach(s *stream, refused bool, spec []View) {
 	h.mu.Lock()
 	if s.id != "" && h.byID[s.id] == s {
@@ -349,7 +374,18 @@ func (h *Hub) detach(s *stream, refused bool, spec []View) {
 	}
 	s.mu.Lock()
 	s.watches = nil
+	notes := s.notes
+	for _, o := range s.held {
+		notes = append(notes, o.note)
+	}
+	s.notes, s.held = nil, nil
 	s.mu.Unlock()
+	delete(h.holding, s)
+	if o := h.byID[s.id]; refused && s.id != "" && o != nil {
+		for _, n := range notes {
+			o.note(n)
+		}
+	}
 	h.streams--
 	if s.client != "" {
 		if h.clients[s.client]--; h.clients[s.client] <= 0 {
@@ -477,6 +513,15 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		defer stallTimer.Stop()
 	}
 	token := strconv.FormatUint(s.seq, 36)
+	var notes []note
+	defer func() {
+		// Notices a failed write took go back, for the stream's last write.
+		if len(notes) > 0 {
+			s.mu.Lock()
+			s.notes = append(notes, s.notes...)
+			s.mu.Unlock()
+		}
+	}()
 	var batch, stale []offer
 	var parts [][]byte
 	var frames []Frame
@@ -507,6 +552,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 				batch = append(batch, offer{w, w.next})
 				w.next, w.sent = nil, now
 			}
+			notes, s.notes = s.notes, nil
 		}
 		var heard time.Time
 		if full {
@@ -558,6 +604,28 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 		}
 		clear(batch)
 		batch = batch[:0]
+		extra := 0 // the notices among frames or parts, which FramesSent does not count
+		for _, n := range notes {
+			if s.writeTick != nil {
+				frames = append(frames, Frame{Key: n.key, Value: n.value})
+				extra++
+				continue
+			}
+			if s.write != nil {
+				if err := s.write(st, n.key, n.value); err != nil {
+					return err
+				}
+				wrote = true
+				continue
+			}
+			b, ok := n.value.([]byte)
+			if !ok {
+				h.log.Error("live: a notice is not []byte and the stream has no Write", "key", n.key, "type", fmt.Sprintf("%T", n.value))
+				continue
+			}
+			parts = append(parts, b)
+			extra++
+		}
 		if window > 0 && (len(frames) > 0 || len(parts) > 0 || wrote) {
 			s.mu.Lock()
 			s.written++
@@ -580,7 +648,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			}
 		}
 		if len(frames) > 0 {
-			n := len(frames)
+			n := len(frames) - extra
 			if window > 0 {
 				n--
 			}
@@ -593,7 +661,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			h.sent.Add(int64(n))
 		}
 		if len(parts) > 0 {
-			n := len(parts)
+			n := len(parts) - extra
 			if window > 0 {
 				n--
 			}
@@ -605,6 +673,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			}
 			h.sent.Add(int64(n))
 		}
+		notes = nil
 		if _, now := st.Sent(); now != wire {
 			if h.ping == nil {
 				idle.Reset(h.heartbeat)

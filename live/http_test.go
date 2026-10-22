@@ -254,7 +254,13 @@ func TestReplacedStreamGetsNoReconnect(t *testing.T) {
 // to the clean end of the response.
 func shutdownTail(t *testing.T, h2 bool, enc string, spec Spec) string {
 	t.Helper()
-	h := New(Options{Tick: 5 * time.Millisecond, Log: slog.New(slog.DiscardHandler)})
+	return shutdownTailStopping(t, h2, enc, spec, nil)
+}
+
+// shutdownTailStopping is shutdownTail with Options.Stopping.
+func shutdownTailStopping(t *testing.T, h2 bool, enc string, spec Spec, stopping func(Spec) [][]byte) string {
+	t.Helper()
+	h := New(Options{Tick: 5 * time.Millisecond, Log: slog.New(slog.DiscardHandler), Stopping: stopping})
 	hctx, stop := context.WithCancel(context.Background())
 	defer stop()
 	ran := make(chan error, 1)
