@@ -126,7 +126,7 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Cause.** Datastar retries a request by its `retry` option. `'auto'`, the default, retries network errors only: it gives up at the proxy's 502 while no process listens, and never reopens a stream the server ended cleanly.
 
-**Fix.** Open streams with `retry: 'error', retryMaxCount: Infinity`. `'error'` also retries 4xx and 5xx answers, so it carries the request through a restart. `'always'` reopens a stream even when the server ended it on purpose, and keeps a full server's 503s coming. An answer of 204 stops every mode, which is how a server refuses a stream for good.
+**Fix.** Open streams with `retry: 'error', retryMaxCount: Infinity`. `'error'` also retries every answer from 400 to 599, so it carries the request through a restart, and asks again without end after a 400, a 401 or a 429, with `retrying` and `error` events each time. `'always'` reopens a stream even when the server ended it on purpose, and keeps a full server's 503s coming. An answer of 204, or a 3xx, stops every mode, which is how a server refuses a stream for good. A stream whose page must tell the person something, such as a session that ended, opens and renders it from a view. A tab that hides closes its `@get` stream, and opens it again when it shows, without `data-init` and without `retrying`: a page that must know when its stream connects again listens for `visibilitychange` as well ([Pages](/docs/guides/pages#op-ids-and-the-pending-state)).
 
 ### The server tells the page when to reconnect
 
@@ -154,11 +154,19 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 ### A new request cancels the one in flight
 
-**Symptom.** Of a quick series of actions, a drag that paints pixels or several moves, some never reach the server.
+**Symptom.** Of a quick series of actions, a drag that paints pixels or two cards moved at once, some never reach the server, and their ops stay pending.
 
-**Cause.** By default, Datastar cancels the request an element has in flight to a URL when the element sends another one to the same URL.
+**Cause.** By default (`requestCancellation: 'auto'`), Datastar 1.0.4 cancels the request in flight with the same method to the same URL when another one starts, from any element of the page: the move of one card aborts the move of another.
 
-**Fix.** Actions that must all arrive set `requestCancellation: 'disabled'`. Give each an op id, so a retried one runs once ([Commands](/docs/guides/commands#op-ids-and-retries)).
+**Fix.** Actions that must all arrive set `requestCancellation: 'disabled'`, every action that carries an op among them. Give each an op id, so a retried one runs once ([Commands](/docs/guides/commands#op-ids-and-retries)).
+
+### A form request that never finishes
+
+**Symptom.** An op posted from a form stays pending for ever: its request sent `started` and never `finished`.
+
+**Cause.** With `contentType: 'form'`, Datastar 1.0.4 runs the form's `checkValidity` after it has dispatched `started`, and when the check fails it gives up without `finished` or `error`.
+
+**Fix.** Give a form that posts an op `novalidate`, and check its fields in the expression before the action, or send a JSON payload, which the browser's own checks guard before the submit event ([Pages and Datastar](/docs/guides/pages#a-form-that-posts-an-op)).
 
 ### Signals arrive in the address or in the body, by verb
 
@@ -190,7 +198,15 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Cause.** The next frame renders the same region from the database, and the frame wins.
 
-**Fix.** An action answers 204, and the outcome arrives on the stream with the next frame, rendered from the state it changed. Signals in an answer are fine for what concerns that tab alone, such as a validation message or a navigation.
+**Fix.** An action answers 204, and the outcome arrives on the stream with the next frame, rendered from the state it changed. A validation message is an outcome too, in the tab's row. Signals in an answer are only for a navigation, such as the `_goto` after creating a board, which has no region to render into.
+
+### An error's response body never reaches the person
+
+**Symptom.** A rate limit, a refusal or a failed write answers 4xx or 5xx with a message, and the page shows nothing, or a generic error, or the message in a toast that looks different from every other outcome.
+
+**Cause.** Datastar's `datastar-fetch` event of type `error` carries the status (`argsRaw.status`), never the body. The status is for the page's retry, not for the person.
+
+**Fix.** Tell the person on the stream: an outcome the command records in the tab's row, or a notice with `live.Hub.Notify` for what no command decided, each with the op id that ends the pending state. The page uses its own words only for what the browser alone knows, a request without an answer (`retries-failed`) or a stream that does not connect ([Commands](/docs/guides/commands#outcomes-notices-and-the-pages-own-words)).
 
 ## Security headers
 

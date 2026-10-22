@@ -52,7 +52,17 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 5. **The outcome travels on the stream.** An action's response carries
    nothing the view needs. No optimistic updates: the page shows the user's
    own input at once and marks it pending; outcomes appear when the frame
-   brings them; a refusal says why, next to where the user acted.
+   brings them; a refusal says why, next to where the user acted. A status
+   code carries nothing a person reads: what the person caused (a
+   validation error, a refusal, a quota, a card that is gone) is an outcome
+   in the tab's row, answered 204; what no command decided (the writer
+   failed, an abuse-sized rate limit, the server stopping) is a notice
+   (`hub.Notify`, `Options.Stopping`); both carry the op id that ends the
+   pending state. The page uses its own words only for what the browser
+   alone knows: `retries-failed`, and a stream that connects again with a
+   tab row that does not ack the op, once no request of it is in flight.
+   Never a clock: a command that runs long records its acceptance first,
+   which acks the op at once. Stream IDs name the session and the tab.
 6. **State that must survive a deploy lives in SQLite**, written by
    commands: tab state per tab id, preferences per session. Ephemeral client
    state lives in `_`-prefixed signals. No maps of tabs in memory.
@@ -98,7 +108,7 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 | `sqlite` | `Open`: one write connection and a read pool opened read-only and `query_only` (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Uncached` for SQL built at runtime, `Backup` (VACUUM INTO), a wrapping `Driver` |
 | `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `Publish` and `Subscribe` for in-process listeners, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
 | `events` | event sourcing on the writer: typed streams, deciders that decide from a state row (`Execute`, expected versions), `Append`, inline projectors in the same savepoint, catch-up projectors after the commit, a `Runner` that rebuilds changed projectors into copies and swaps them in, upcasters, retention, `eventstest` |
-| `live` | views and topics, a topic hierarchy (`board:42` is also `board`, `src:A:*` everything below `src:A`, `Topic` and `Below`), topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream caps, overall and per client (`Spec.Client`, `HasStream`), presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
+| `live` | views and topics, a topic hierarchy (`board:42` is also `board`, `src:A:*` everything below `src:A`, `Topic` and `Below`), topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, notices sent once to one stream (`Notify`) and when the hub stops (`Options.Stopping`), `WriteTick`, stream caps, overall and per client (`Spec.Client`, `HasStream`), presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget (a quarter of the machine's memory without a memory limit), write deadlines, `ReadSignals` for any method, with a deadline on the body |
 | `edge` | sessions cookie, CSRF, client IP (`TrustedProxies` for the log line at start), slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression (`Cache-Control: no-transform` opts a page out: one with a user's secret beside reflected input, against BREACH), precompressed static files (minified with `Minify`, `Warmed` for readiness), rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |

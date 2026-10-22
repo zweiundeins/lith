@@ -81,6 +81,29 @@ pattern matches.
 
 - GET handlers never write: no session rows, no events, no counters per hit.
   Crawlers multiply them.
+- `rg -n 'http\.Error\(' --type go -g '!*_test.go'` in actions: a 4xx or
+  5xx body with text for the person (a validation message, "too many
+  requests", "restarting", `err.Error()`) never reaches them, since
+  `datastar-fetch` carries the status alone. What the person caused is an
+  outcome in the tab's row (204); what no command decided is a notice
+  (`hub.Notify`); both with the op id. Bare statuses for machines (a body
+  that does not parse, an id no page holds). A document's own error page is
+  fine. `rg -n "\['error'|argsRaw\??\.status" -g '*.go' -g '*.templ' -g '*.js'`:
+  a page that reads an error status. Right only in the op tracking: a 4xx
+  other than 409 and 429 comes without a notice, so the page ends the
+  waiting op in its own words. An op that ends on a 409, a 429 or a 5xx
+  (its notice, or the reconnect that decides, is on the way), or a message
+  worded from a status, is where the stream should have told it. Otherwise only `retries-failed` and a reconnected stream without
+  the op's ack end it on the page, never a timer.
+- `rg -n '\b(alert|confirm)\(|showModal\(|<dialog|\b(show|open)(Alert|Modal|Dialog)\w*\(|(^|[^.\w])notify\(' -g '*.go' -g '*.templ' -g '*.js'`:
+  a dialog that reports ("Saved", "Something went wrong"): `alert()`, a
+  `confirm()` that only reports, a `<dialog>` with `showModal()`, and the
+  app's wrappers (a `notify()` or `showAlert()` helper). A dialog only
+  asks; a refusal goes inline, a notice or what happened elsewhere in a
+  toast (recipes.md, Which feedback to give).
+- `rg -n -i 'toast.{0,60}(saved|added|updated|created|deleted|moved)' -g '*.go' -g '*.templ' -g '*.js'`:
+  a toast that repeats what the re-render shows where the person acted.
+  A heuristic: look for a change the page shows already.
 - `rg -n 'r\.Header\.Get\("X-(Real-IP|Forwarded-For)"\)' --type go`: client
   IPs come from `edge`, which trusts those headers only from the local proxy
   and takes the last X-Forwarded-For address before X-Real-IP. The proxy must

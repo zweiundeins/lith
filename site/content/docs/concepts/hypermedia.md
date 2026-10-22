@@ -31,7 +31,7 @@ A page opens its stream from an element with an id, with `retry: 'error'`:
 <div id="stream" hidden data-init="@get('/stream?tab=' + $_tab, {retry: 'error', retryMaxCount: Infinity})"></div>
 ```
 
-When the hub stops, each stream's last event is `sse.Reconnect` for that element (`live.Spec.Reconnect`): it replaces the element with a copy, the copy's `data-init` opens the stream again, and `'error'` keeps it trying through the restart's 502s and 503s. A stream that the server ends for another reason stays closed. Datastar's default, `'auto'`, retries network errors only and would leave the page stale after a deploy.
+When the hub stops, each stream's last event is `sse.Reconnect` for that element (`live.Spec.Reconnect`): it replaces the element with a copy, the copy's `data-init` opens the stream again, and `'error'` keeps it trying through the restart's 502s and 503s, as it does for every answer from 400 to 599, until a 204. A stream that the server ends for another reason stays closed. Datastar's default, `'auto'`, retries network errors only and would leave the page stale after a deploy.
 
 ## The rest of the edge
 

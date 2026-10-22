@@ -21,7 +21,7 @@ type CreateBoard struct{ Name string }
 
 func (c CreateBoard) Validate() error {
 	if n := utf8.RuneCountInString(strings.TrimSpace(c.Name)); n == 0 || n > MaxTitle {
-		return fmt.Errorf("a name has 1 to %d characters", MaxTitle)
+		return fmt.Errorf("A name has 1 to %d characters.", MaxTitle)
 	}
 	return nil
 }
@@ -70,14 +70,16 @@ type AddCard struct {
 	Title string
 }
 
-// Validate runs before the command is queued: Send and Do return its
-// error wrapped in writer.ErrInvalid, and the writer never sees it.
+// Validate runs before the command is queued when it is handed to Send or
+// Do itself: they return its error wrapped in writer.ErrInvalid. Inside
+// an Act it runs in the writer instead, and the tab reads its message as
+// a refusal.
 func (c AddCard) Validate() error {
 	if c.Lane <= 0 {
-		return errors.New("a card needs a lane")
+		return errors.New("A card needs a lane.")
 	}
 	if n := utf8.RuneCountInString(strings.TrimSpace(c.Title)); n == 0 || n > MaxTitle {
-		return fmt.Errorf("a title has 1 to %d characters", MaxTitle)
+		return fmt.Errorf("A title has 1 to %d characters.", MaxTitle)
 	}
 	return nil
 }
@@ -87,13 +89,14 @@ func (c AddCard) Apply(tx *writer.Tx) error {
 	return err
 }
 
-// Insert adds the card and returns its id. A full lane refuses it.
+// Insert adds the card and returns its id. A full lane refuses it, and so
+// does one deleted since the page showed it.
 func (c AddCard) Insert(tx *writer.Tx) (int64, error) {
 	var board int64
 	var limit int
 	err := tx.QueryRow(`SELECT board_id, max_cards FROM lanes WHERE id = ?`, c.Lane).Scan(&board, &limit)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
+		return 0, &writer.Refusal{Msg: "This lane is gone."}
 	}
 	if err != nil {
 		return 0, err
@@ -124,12 +127,12 @@ func (c AddCard) ApplyResult(tx *writer.Tx) ([]byte, error) {
 
 // MoveCard moves a card to another lane of its board. Seen is the card's
 // version that the page showed: a card that moved meanwhile stays where
-// it is, and the page says why.
+// it is, and the page says why. So does a card or a lane that is gone.
 type MoveCard struct{ Card, Lane, Seen int64 }
 
 func (c MoveCard) Validate() error {
 	if c.Card <= 0 || c.Lane <= 0 {
-		return errors.New("a move needs a card and a lane")
+		return errors.New("A move needs a card and a lane.")
 	}
 	return nil
 }
@@ -139,7 +142,7 @@ func (c MoveCard) Apply(tx *writer.Tx) error {
 	err := tx.QueryRow(`SELECT l.board_id, c.version FROM cards c JOIN lanes l ON l.id = c.lane_id
 		WHERE c.id = ? AND c.archived IS NULL`, c.Card).Scan(&board, &version)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+		return &writer.Refusal{Msg: "This card is gone."}
 	}
 	if err != nil {
 		return err
@@ -152,8 +155,12 @@ func (c MoveCard) Apply(tx *writer.Tx) error {
 	if err != nil {
 		return err
 	}
-	if n, err := res.RowsAffected(); err != nil || n == 0 {
-		return cmp.Or(err, ErrNotFound) // no such lane on the card's board
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return &writer.Refusal{Msg: "This lane is gone."} // no such lane on the card's board
 	}
 	tx.Touch(Topic(board), CardTopic(c.Card))
 	return nil
@@ -192,22 +199,22 @@ func (c ArchiveCards) Apply(tx *writer.Tx) error {
 }
 
 // Act runs a page's action and records its outcome in the tab's row: the
-// op id, and the message of a refusal. Cmd runs in a savepoint of its
-// own, so a refusal undoes its changes and drops its topics, while the
-// tab's row is written all the same: the tab's view brings the op id back
-// whatever became of it.
+// op id under the action's key (the add form, a card), and the message of
+// a refusal. A command that fails its own Validate is refused with the
+// message. Cmd runs in a savepoint of its own, so a refusal undoes its
+// changes and drops its topics, while the tab's row is written all the
+// same: the tab's view brings the op id back whatever became of it.
 type Act struct {
-	Session, Tab, Op string
-	Cmd              writer.Command
-	At               time.Time
+	Session, Tab, Key, Op string
+	Cmd                   writer.Command
+	At                    time.Time
 }
 
+// Validate checks the action alone: no page of ours sends one without
+// these, so Do's ErrInvalid for it is a bug or a forged request.
 func (a Act) Validate() error {
-	if a.Session == "" || a.Tab == "" || a.Op == "" || a.Cmd == nil {
-		return errors.New("an action needs a session, a tab, an op and a command")
-	}
-	if v, ok := a.Cmd.(writer.Validator); ok {
-		return v.Validate()
+	if a.Session == "" || a.Tab == "" || a.Key == "" || a.Op == "" || a.Cmd == nil {
+		return errors.New("an action needs a session, a tab, a key, an op and a command")
 	}
 	return nil
 }
@@ -217,15 +224,27 @@ func (a Act) Apply(tx *writer.Tx) error {
 	if err != nil {
 		return err
 	}
-	state.Op, state.Refusal = a.Op, ""
+	state.Refusal = ""
 	var refusal *writer.Refusal
-	switch err := tx.Savepoint(a.Cmd.Apply); {
+	switch err := tx.Savepoint(a.run); {
 	case errors.As(err, &refusal):
 		state.Refusal = refusal.Msg
 	case err != nil:
 		return err
 	}
+	state.record(a.Key, a.Op, refusal != nil)
 	return saveTab(tx, a.Session, a.Tab, state, a.At)
+}
+
+// run applies the command, once its Validate passed: what the person
+// typed can fail it, so its message is a refusal the tab shows.
+func (a Act) run(tx *writer.Tx) error {
+	if v, ok := a.Cmd.(writer.Validator); ok {
+		if err := v.Validate(); err != nil {
+			return &writer.Refusal{Msg: err.Error()}
+		}
+	}
+	return a.Cmd.Apply(tx)
 }
 
 // Assign gives a card to someone, and writes the mail that tells them

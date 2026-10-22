@@ -154,13 +154,21 @@ In a database that people share, two people on the same route may see different 
 // PagesView is the list of a space's pages for one person, filtered as
 // the page asked. Its key holds everything Render filters by: the space
 // (the route), the person and the filter. The person reaches Render
-// through the closure, and the key keeps two people's lists apart.
+// through the closure, and the key keeps two people's lists apart. A
+// space that does not exist says so in the list's place.
 func PagesView(person, space int64, filter string) live.View {
 	return live.View{
 		Key:    fmt.Sprintf("pages:%d:person:%d:q=%q", space, person, filter),
 		Topics: []string{SpaceTopic(space), GrantsTopic(person)},
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
 			q, _ := sqlite.QuerierFrom(ctx)
+			var exists bool
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM spaces WHERE id = ?)`, space).Scan(&exists); err != nil {
+				return nil, err
+			}
+			if !exists {
+				return NoSpace.Render(ctx, tx)
+			}
 			pages, err := Readable(ctx, q, person, space, filter)
 			if err != nil {
 				return nil, err
@@ -178,20 +186,41 @@ Views with the same key are one view. While it is watched, the hub uses the defi
 ```go source=site/internal/docs/example/access/access.go
 // Stream is the stream of the route /spaces/{space}. The person comes
 // from the session, never from the URL: whoever could put another
-// person's id in the URL would watch that person's list.
+// person's id in the URL would watch that person's list. A request
+// without a person, or with a space id that is no number, gets a stream
+// all the same, whose view says so in the list's place: the page shows
+// no answer of 401 or 404, and retry 'error' would ask again for ever.
 func (s *Server) Stream(w http.ResponseWriter, r *http.Request) {
-	person, ok := s.Person(r)
-	if !ok {
-		http.Error(w, "sign in first", http.StatusUnauthorized)
-		return
+	view := SignedOut
+	if person, ok := s.Person(r); ok {
+		view = NoSpace
+		if space, err := strconv.ParseInt(r.PathValue("space"), 10, 64); err == nil {
+			view = PagesView(person, space, r.URL.Query().Get("q"))
+		}
 	}
-	space, err := strconv.ParseInt(r.PathValue("space"), 10, 64)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	filter := r.URL.Query().Get("q")
-	s.Hub.Serve(w, r, live.Spec{Views: []live.View{PagesView(person, space, filter)}})
+	s.Hub.Serve(w, r, live.Spec{Views: []live.View{view}})
+}
+```
+
+A request from someone signed out, or for a space that does not exist, still gets a stream: a 401 or a 404 would show the page nothing, and `retry: 'error'` would ask again every 10 seconds for ever ([Pages and Datastar](/docs/guides/pages#reconnecting-after-a-deploy)). Its view says so in the list's place:
+
+```go source=site/internal/docs/example/access/access.go
+// SignedOut is the list's place for a request without a person: a link
+// to sign in. Nothing in it depends on the viewer, so one view serves
+// everyone signed out.
+var SignedOut = live.View{
+	Key: "pages:signed-out",
+	Render: func(context.Context, *sql.Tx) (any, error) {
+		return sse.PatchElements([]byte(`<p id="pages"><a href="/signin">Sign in</a> to read this space's pages.</p>`)), nil
+	},
+}
+
+// NoSpace is the list's place for a space that does not exist.
+var NoSpace = live.View{
+	Key: "pages:no-space",
+	Render: func(context.Context, *sql.Tx) (any, error) {
+		return sse.PatchElements([]byte(`<p id="pages">No such space.</p>`)), nil
+	},
 }
 ```
 
@@ -276,7 +305,7 @@ views := []live.View{boardView(id), presenceView(s.hub, id), tabView(sid, tab), 
 if state.Panel != 0 {
 	views = append(views, cardView(state.Panel))
 }
-err = s.hub.Serve(w, r, live.Spec{ID: tab, Views: views, WriteTick: tailor(), Reconnect: StreamID})
+err = s.hub.Serve(w, r, live.Spec{ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID})
 ```
 
 `Serve` sends each view's newest frame at once when the hub keeps it, else a frame rendered in the next tick, then every new frame. The hub keeps the newest frame of a view that two or more streams watch, such as the board, and of any view whose frame is not `[]byte`. Of a view that one stream watches, such as the tab's, it keeps only the frame's length and hash once the stream has the frame: a render that repeats it still goes to no stream, and a tab's frame costs no memory between its writes ([the measurements](/docs/performance/budget#joining-a-view)). A stream keeps only the newest frame of each view, so a slow client skips frames and holds up no one else. Views that change in the same tick reach the stream together, in the order of `Spec.Views`.
@@ -285,7 +314,7 @@ err = s.hub.Serve(w, r, live.Spec{ID: tab, Views: views, WriteTick: tailor(), Re
 
 | Field | What it does |
 | --- | --- |
-| `ID` | names the stream for `Watch` and `Unwatch`, usually the tab id. A new stream with the ID of an open one replaces it; an older request that arrives late ends at once |
+| `ID` | names the stream for `Watch`, `Unwatch` and `Notify`: the session and the tab id, so that an action reaches only its own session's streams. A new stream with the ID of an open one replaces it, and renders the views only that ID watches afresh, so a commit the hub never heard of (another process's, during a deploy) shows; a view other streams watch comes from the hub's kept frame and shows such a commit only with the next one that touches its topics, so a new process that overlapped an old one calls `hub.MarkAll()` once the old one has stopped; an older request that arrives late ends at once |
 | `Views` | the views the stream watches from the start |
 | `Write`, `WriteTick` | tailor frames per stream ([below](#tailoring-frames-per-stream)) |
 | `Reconnect` | the id of the element whose `data-init` opened the stream: when the hub stops, the stream's last event makes the page open it again ([Pages and Datastar](/docs/guides/pages#reconnecting-after-a-deploy)) |
@@ -325,26 +354,32 @@ func statsView(w *writer.Writer, hub *live.Hub) live.View {
 
 ## Adding a view to an open stream
 
-A tab opens a card's panel, and its stream should start rendering that card. `hub.Watch(tab, view)` adds a view to the open stream with that ID, and `hub.Unwatch(tab, key)` takes one away. The panel's handler records the open panel in the tab's row first, so a stream that reconnects after a deploy watches the card from its start:
+A tab opens a card's panel, and its stream should start rendering that card. `hub.Watch(id, view)` adds a view to the open stream with that ID, and `hub.Unwatch(id, key)` takes one away. The panel's handler records the open panel in the tab's row first, so a stream that reconnects after a deploy watches the card from its start:
 
 ```go source=site/internal/docs/example/web/server.go
 old, err := s.db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, sid, a.Tab) })
-if err == nil {
-	err = s.w.Do(ctx, board.OpenPanel{Session: sid, Tab: a.Tab, Card: a.Card, At: time.Now()})
-}
 if err != nil {
-	s.fail(w, r, err)
+	s.failed(w, r, a, err)
+	return
+}
+if !s.do(w, r, a, board.OpenPanel{Session: sid, Tab: a.Tab, Card: a.Card, At: time.Now()}) {
 	return
 }
 if old.Panel != 0 && old.Panel != a.Card {
-	s.hub.Unwatch(a.Tab, board.CardTopic(old.Panel))
+	s.hub.Unwatch(streamID(sid, a.Tab), board.CardTopic(old.Panel))
 }
 if a.Card != 0 {
-	s.hub.Watch(a.Tab, cardView(a.Card))
+	s.hub.Watch(streamID(sid, a.Tab), cardView(a.Card))
 }
 ```
 
 A command can arrive before its stream: a page that opens a panel while it loads. `Watch` then keeps the view for `Options.PendingWatch`, 10 s by default, and the stream that opens with that ID within that time watches it from its start, after the views of its `Spec`. `Watch` reports whether the stream was open, so there is no retry loop to write.
+
+## Sending one stream a notice
+
+`hub.Notify(streamID, key, frame)` sends a frame to one open stream once, after the frames of the renders pending for the stream's views when it is called ([Commands](/docs/guides/commands#the-boards-handlers) has the details), and keeps nothing: no view renders it again, and a stream that reconnects starts without it. It is for what a person must know that no command decided, so no view can render it from the database: the writer failed, a rate limit turned an action away ([Commands](/docs/guides/commands#outcomes-notices-and-the-pages-own-words)). The frame goes through the stream's `WriteTick` or `Write` under the key, like a view's frame, or out as it is when it is `[]byte` events. The stream keeps one notice per key, so give a kind of notice a fixed key, never the op id: a later notice with the same key replaces one that has not gone out yet, in its place. A stream keeps `live.MaxNotices`, 64, waiting at most: a notice with a new key beyond them drops the oldest, so keys a client names (an op key) cannot pile up. A pending render that fails holds a notice no longer than its tick: the notice goes out without that view's frame, since nothing renders the view again until a commit touches its topics, which a failing database may not bring for a while. A notice for a stream that is not open does nothing, and `Notify` reports whether the stream was open: unlike `Watch`, it keeps nothing for a stream to come, so a tab id a client made up costs nothing. A page whose stream was down learns of it when the stream connects again and the tab's row lacks the op ([Pages and Datastar](/docs/guides/pages#op-ids-and-the-pending-state)). Render a notice where one of the stream's views renders, such as the tab's outcome: the view's next frame replaces it.
+
+`Options.Stopping(spec)` returns the events each stream sends when the hub stops, before its last event, `sse.Reconnect` for a stream with `Spec.Reconnect`: a notice such as "The server is updating. Back in a moment.", or nil for a stream that should send none. They go out as they are, after the `[]byte` notices the stream had not sent yet. Every stream calls it from its own goroutine as the hub stops, so it runs concurrently; a panic in it is logged, and that stream sends none. The new process's first frame of the view whose region the notice took replaces it once the page is back.
 
 ## Tailoring frames per stream
 
@@ -433,6 +468,7 @@ func watchdog(b int64) string {
 | `Workers` | GOMAXPROCS | render workers |
 | `MaxStreams` | 2000 | open streams at most |
 | `PendingWatch` | 10 s | how long `Watch` keeps a view for a stream not open yet |
+| `Stopping` | none | the events each stream sends when the hub stops, before its last ([above](#sending-one-stream-a-notice)) |
 | `Heartbeat`, `HeartbeatSignal` | 20 s, none | the silence before a heartbeat, and the signal it patches |
 | `Hibernate` | never | how long a stream may stay idle before its encoder goes back ([Streams](/docs/guides/streams#hibernation)) |
 | `RenderTimeout` | 2 s | how long a render may take before its context ends |
@@ -446,6 +482,7 @@ The board's settings:
 return live.Options{
 	Read:            db.R,
 	MaxStreams:      500,
+	Stopping:        stopping,
 	HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
 	Hibernate:       time.Minute, // an idle tab gives its zstd encoder back
 	Log:             log,

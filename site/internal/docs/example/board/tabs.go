@@ -11,14 +11,47 @@ import (
 	"github.com/zweiundeins/lith/writer"
 )
 
-// TabState is a tab's own state, its row in tab_state: the op id of its
-// last action, why that changed nothing if it did not, and the card whose
+// TabState is a tab's own state, its row in tab_state: the newest op of
+// each of its op keys (the add form, a card) and whether it was refused,
+// why its last action changed nothing if it did not, and the card whose
 // panel is open. It is a row, not a map in memory, so it survives a
 // deploy: the page reconnects to the next process and finds it there.
 type TabState struct {
-	Op      string `json:"op,omitempty"`
-	Refusal string `json:"refusal,omitempty"`
-	Panel   int64  `json:"panel,omitempty"`
+	Ops     map[string]Ack `json:"ops,omitempty"`
+	Refusal string         `json:"refusal,omitempty"`
+	Panel   int64          `json:"panel,omitempty"`
+}
+
+// Ack is the newest op of one op key, and whether it was refused.
+type Ack struct {
+	Op      string `json:"ack"`
+	Refused bool   `json:"refused"`
+}
+
+// MaxKeys is how many op keys a tab's row keeps: those of its newest ops.
+// A key it forgets loses its ack, so a page whose stream lags (Slow, or
+// paced) and that acts on more keys than this before the frame arrives
+// would wait for an ack that never comes, until a reconnect ends the op.
+// More keys cost a longer row, rendered and sent with every frame of the
+// tab's view.
+const MaxKeys = 64
+
+// record makes op the newest of key, and forgets the key with the oldest
+// op beyond MaxKeys (op ids grow with time).
+func (s *TabState) record(key, op string, refused bool) {
+	if s.Ops == nil {
+		s.Ops = map[string]Ack{}
+	}
+	s.Ops[key] = Ack{Op: op, Refused: refused}
+	for len(s.Ops) > MaxKeys {
+		oldest := key
+		for k, a := range s.Ops {
+			if a.Op < s.Ops[oldest].Op {
+				oldest = k
+			}
+		}
+		delete(s.Ops, oldest)
+	}
 }
 
 // Tab reads a tab's state. A tab that never acted has no row yet, and

@@ -144,8 +144,10 @@ func presenceView(hub *live.Hub, id int64) live.View {
 }
 
 // tabView is the tab's own region: why its last action changed nothing,
-// the panel's place while none is open, and the op id that ends the
-// page's pending state, as signals.
+// the panel's place while none is open, and as signals the newest op of
+// each op key, which ends its pending state ($_ops.<key>.ack), with
+// $_synced, which tells the page that the stream it opened has brought
+// the tab's row.
 func tabView(sid, tab string) live.View {
 	key := board.TabTopic(tab)
 	return live.View{
@@ -169,13 +171,48 @@ func tabView(sid, tab string) live.View {
 				}
 				events = append(events, html)
 			}
-			ack, err := json.Marshal(map[string]any{"_ack": s.Op, "_refused": s.Refusal != ""})
+			ops := s.Ops
+			if ops == nil {
+				ops = map[string]board.Ack{} // null would delete the page's $_ops
+			}
+			ack, err := json.Marshal(map[string]any{"_ops": ops, "_synced": true})
 			if err != nil {
 				return nil, err
 			}
 			return slices.Concat(append(events, sse.PatchSignals(ack, false))...), nil
 		},
 	}
+}
+
+// notice is a notice for the tab's action op under its op key
+// (live.Hub.Notify): the message in the outcome's place, and the op id,
+// refused, which ends the page's pending state and keeps what the person
+// typed (settled). An action without an op leaves the signals alone.
+func notice(ctx context.Context, key, op, msg string) ([]byte, error) {
+	html, err := patch(ctx, Notice(msg))
+	if err != nil || op == "" {
+		return html, err
+	}
+	ack, err := json.Marshal(map[string]any{"_ops": map[string]board.Ack{key: {Op: op, Refused: true}}})
+	if err != nil {
+		return nil, err
+	}
+	return slices.Concat(html, sse.PatchSignals(ack, false)), nil
+}
+
+// stopping is the hub's Options.Stopping: a tab's stream ends with a
+// notice in the outcome's place, which the next process's first frame of
+// the tab's view replaces. The status page's stream has no ID and no
+// outcome to put it in.
+func stopping(spec live.Spec) [][]byte {
+	if spec.ID == "" {
+		return nil
+	}
+	ev, err := notice(context.Background(), "", "", "The server is updating. Back in a moment.")
+	if err != nil {
+		return nil
+	}
+	return [][]byte{ev}
 }
 
 // prefsView patches the session's preferences into every tab of the

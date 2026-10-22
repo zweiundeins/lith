@@ -8,8 +8,12 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,33 +44,33 @@ func TestBoardOnTheStream(t *testing.T) {
 	events := listen(t, c, base+"/boards/1/stream?tab=tab1")
 	next(t, events, `id="board"`)
 	next(t, events, `1 tab on this board`)
-	next(t, events, `"_ack":""`)
+	next(t, events, `"_ops":{}`)
 
-	if code := post(t, c, base+"/cmd/add", `{"tab":"tab1","op":"op1","lane":1,"title":"Write the docs"}`); code != http.StatusNoContent {
+	if code := post(t, c, base+"/cmd/add", `{"tab":"tab1","key":"add","op":"op1","lane":1,"title":"Write the docs"}`); code != http.StatusNoContent {
 		t.Fatalf("add: %d", code)
 	}
 	ev := next(t, events, `Write the docs`)
 	if strings.Contains(ev, `id="lane-2"`) || strings.Contains(ev, `id="board"`) {
 		t.Errorf("the stream got more than the lane that changed:\n%s", ev)
 	}
-	next(t, events, `"_ack":"op1","_refused":false`)
+	next(t, events, `"_ops":{"add":{"ack":"op1","refused":false}}`)
 
 	// The same op again (a retry): Once runs nothing, and nothing changes.
-	if code := post(t, c, base+"/cmd/add", `{"tab":"tab1","op":"op1","lane":1,"title":"Write the docs"}`); code != http.StatusNoContent {
+	if code := post(t, c, base+"/cmd/add", `{"tab":"tab1","key":"add","op":"op1","lane":1,"title":"Write the docs"}`); code != http.StatusNoContent {
 		t.Fatalf("retry: %d", code)
 	}
 	// A move with a version the card no longer has is refused, in this tab.
-	if code := post(t, c, base+"/cmd/move", `{"tab":"tab1","op":"op2","card":1,"lane":2,"seen":7}`); code != http.StatusNoContent {
+	if code := post(t, c, base+"/cmd/move", `{"tab":"tab1","key":"card-1","op":"op2","card":1,"lane":2,"seen":7}`); code != http.StatusNoContent {
 		t.Fatalf("move: %d", code)
 	}
 	next(t, events, `Someone moved this card meanwhile.`)
-	next(t, events, `"_ack":"op2","_refused":true`)
+	next(t, events, `"card-1":{"ack":"op2","refused":true}`)
 
 	if code := post(t, c, base+"/cmd/panel", `{"tab":"tab1","card":1}`); code != http.StatusNoContent {
 		t.Fatalf("panel: %d", code)
 	}
 	next(t, events, `<aside id="panel"><h2>Write the docs</h2>`)
-	if code := post(t, c, base+"/cmd/compact", `{"compact":true}`); code != http.StatusNoContent {
+	if code := post(t, c, base+"/cmd/compact", `{"tab":"tab1","compact":true}`); code != http.StatusNoContent {
 		t.Fatalf("compact: %d", code)
 	}
 	next(t, events, `"_compact":true`)
@@ -75,21 +79,55 @@ func TestBoardOnTheStream(t *testing.T) {
 	next(t, status, `<dl id="stats">`)
 	next(t, status, `<dl id="stats">`) // a second later, without a change
 
-	// A deploy: the hub stops, and the stream's last event re-creates the
-	// element that opened it.
+	// A deploy: the hub stops, the tab's stream says so in the outcome's
+	// place, and its last event re-creates the element that opened it.
 	stop()
+	next(t, events, `<p id="outcome" role="status" class="notice">The server is updating. Back in a moment.</p>`)
 	next(t, events, `document.getElementById(&#34;stream&#34;)`)
 }
 
+// TestNoticeOverTheLimit sends actions until the address's limit turns
+// one away: it gets a bare 429, and the tab a notice with its op id,
+// which ends the page's pending state.
+func TestNoticeOverTheLimit(t *testing.T) {
+	base, _ := start(t)
+	c := client(t)
+	get(t, c, base+"/boards/1")
+	events := listen(t, c, base+"/boards/1/stream?tab=tab1")
+	next(t, events, `"_ops":{}`)
+	for i := range 40 {
+		op := "op" + strconv.Itoa(i)
+		code := post(t, c, base+"/cmd/move", `{"tab":"tab1","key":"card-7","op":"`+op+`","card":7,"lane":2,"seen":1}`)
+		if code == http.StatusNoContent {
+			continue
+		}
+		if code != http.StatusTooManyRequests {
+			t.Fatalf("move %d: %d", i, code)
+		}
+		next(t, events, `<p id="outcome" role="status" class="notice">Too many actions at once.`)
+		next(t, events, `"_ops":{"card-7":{"ack":"`+op+`","refused":true}}`)
+		return
+	}
+	t.Fatal("no action reached the limit")
+}
+
 // TestCreateBoardOnce retries an action whose answer is an address: the
-// retry gets the first board's, and no second board is made.
+// retry gets the first board's, and no second board is made. A name the
+// command refuses gets 204, and the tab's stream says why.
 func TestCreateBoardOnce(t *testing.T) {
 	base, _ := start(t)
 	c := client(t)
 	get(t, c, base+"/boards/1") // a session
+	events := listen(t, c, base+"/boards/1/stream?tab=tab1")
+	next(t, events, `"_ops":{}`)
+	if code := post(t, c, base+"/cmd/boards", `{"tab":"tab1","key":"board","op":"new0","name":" "}`); code != http.StatusNoContent {
+		t.Fatalf("a blank name: %d", code)
+	}
+	next(t, events, `A name has 1 to 200 characters.`)
+	next(t, events, `"board":{"ack":"new0","refused":true}`)
 	var answers []string
 	for range 2 {
-		req, _ := http.NewRequest("POST", base+"/cmd/boards", strings.NewReader(`{"op":"new1","name":"Second"}`))
+		req, _ := http.NewRequest("POST", base+"/cmd/boards", strings.NewReader(`{"tab":"tab1","key":"board","op":"new1","name":"Second"}`))
 		req.Header.Set("Datastar-Request", "true")
 		req.Header.Set("Sec-Fetch-Site", "same-origin")
 		res, err := c.Do(req)
@@ -109,6 +147,32 @@ func TestCreateBoardOnce(t *testing.T) {
 // session, and the CSRF check. stop ends the hub, as a deploy does.
 func start(t *testing.T) (base string, stop func()) {
 	t.Helper()
+	s := startWith(t, nil)
+	return s.base, s.stop
+}
+
+// server is a running board: its address, its writer and its hub, the
+// test server, a switch that answers the tab's streams with 503, one that
+// keeps the writer's commits from the hub (as another process's commits
+// in a blue/green deploy), handlers that take a path's requests in place
+// of the board's, and the count of requests whose client went away
+// before the answer.
+type server struct {
+	base    string
+	stop    func()
+	w       *writer.Writer
+	hub     *live.Hub
+	srv     *httptest.Server
+	block   *atomic.Bool
+	mute    *atomic.Bool
+	hooks   *sync.Map // path to http.HandlerFunc
+	aborted *atomic.Int32
+}
+
+// startWith is start with limit as the actions' limiter, unless it is
+// nil. It also serves Datastar at /static/datastar.js, for a browser.
+func startWith(t *testing.T, limit *edge.Limiter) server {
+	t.Helper()
 	db, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"), sqlite.Options{Migrations: migrations.FS})
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +180,12 @@ func start(t *testing.T) (base string, stop func()) {
 	opts := web.HubOptions(db, slog.Default())
 	opts.Workers, opts.Tick = 2, 10*time.Millisecond
 	hub := live.New(opts)
-	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
+	mute := new(atomic.Bool)
+	w, err := writer.New(db, writer.Options{OnCommit: func(topics []string) {
+		if !mute.Load() {
+			hub.Changed(topics)
+		}
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,13 +200,46 @@ func start(t *testing.T) (base string, stop func()) {
 		t.Fatal(err)
 	}
 
-	h := http.Handler(web.New(db, w, hub, slog.Default(), "/static/datastar.js").Routes())
+	site := web.New(db, w, hub, slog.Default(), "/static/datastar.js")
+	if limit != nil {
+		site = web.WithLimit(site, limit)
+	}
+	h := http.Handler(site.Routes())
 	h = edge.Sessions{}.Handler(h)
 	h = edge.CSRF{Datastar: []string{"POST /cmd/"}}.Handler(h)
-	srv := httptest.NewServer(h)
-	stop = func() {
-		stopHub()
-		<-hubDone
+	datastar, err := os.ReadFile("../../../web/static/vendor/datastar-rocket.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /static/datastar.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Write(datastar)
+	})
+	block := new(atomic.Bool)
+	hooks := new(sync.Map)
+	aborted := new(atomic.Int32)
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if block.Load() && strings.HasSuffix(r.URL.Path, "/stream") {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if hook, ok := hooks.Load(r.URL.Path); ok {
+			hook.(http.HandlerFunc)(w, r)
+			return
+		}
+		h.ServeHTTP(w, r)
+		if r.Method == "POST" && r.Context().Err() != nil {
+			aborted.Add(1)
+		}
+	}))
+	srv := httptest.NewServer(mux)
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			stopHub()
+			<-hubDone
+		})
 	}
 	t.Cleanup(func() {
 		stop()
@@ -145,7 +247,7 @@ func start(t *testing.T) (base string, stop func()) {
 		w.Close()
 		db.Close()
 	})
-	return srv.URL, stop
+	return server{base: srv.URL, stop: stop, w: w, hub: hub, srv: srv, block: block, mute: mute, hooks: hooks, aborted: aborted}
 }
 
 func client(t *testing.T) *http.Client {

@@ -134,10 +134,13 @@ limit: edge.NewLimiter(5, 20), // per client address: 20 actions at once, then 5
 
 ```go source=site/internal/docs/example/web/server.go
 if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
-	http.Error(w, "too many actions, wait a moment", http.StatusTooManyRequests)
+	s.notify(r.Context(), a, "Too many actions at once. Wait a moment, then try again.")
+	w.WriteHeader(http.StatusTooManyRequests)
 	return a, false
 }
 ```
+
+The 429 is for the page's retry; the person reads the notice on the tab's stream ([Commands](/docs/guides/commands#rate-limits-and-quotas)).
 
 Pass `time.Now()` to `Allow`: its monotonic reading keeps a step of the wall clock from refilling a bucket or resetting a window. A key a client chooses, such as its session id, costs it nothing to change, so check the per-address limiter first, and only requests it lets through make buckets in a per-session one. A limiter sweeps buckets that filled up again as it goes, so its memory holds the keys limited lately.
 

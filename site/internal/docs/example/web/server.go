@@ -4,6 +4,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -103,21 +104,22 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	tab := r.URL.Query().Get("tab")
 	if err != nil || !validID(tab) {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()
 	sid := edge.SessionID(ctx)
 	state, err := s.db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, sid, tab) })
 	if err != nil {
-		s.fail(w, r, err)
+		s.log.Error("stream failed", "tab", tab, "err", err)
+		w.WriteHeader(http.StatusInternalServerError) // the page's retry asks again
 		return
 	}
 	views := []live.View{boardView(id), presenceView(s.hub, id), tabView(sid, tab), prefsView(sid)}
 	if state.Panel != 0 {
 		views = append(views, cardView(state.Panel))
 	}
-	err = s.hub.Serve(w, r, live.Spec{ID: tab, Views: views, WriteTick: tailor(), Reconnect: StreamID})
+	err = s.hub.Serve(w, r, live.Spec{ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID})
 	if err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)
 	}
@@ -125,25 +127,36 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 
 // action is what the page's actions send.
 type action struct {
-	Tab   string `json:"tab"`
-	Op    string `json:"op"`
-	Lane  int64  `json:"lane"`
-	Card  int64  `json:"card"`
-	Seen  int64  `json:"seen"`
-	Title string `json:"title"`
+	Tab     string `json:"tab"`
+	Key     string `json:"key"` // the op key: the add form, a card
+	Op      string `json:"op"`
+	Lane    int64  `json:"lane"`
+	Card    int64  `json:"card"`
+	Seen    int64  `json:"seen"`
+	Title   string `json:"title"`
+	Name    string `json:"name"`
+	Compact bool   `json:"compact"`
 }
 
-// decode reads an action, after the address's rate limit. op says
-// whether the action needs an op id.
+// decode reads an action and checks the address's rate limit. op says
+// whether the action needs an op key and id. A body that does not parse,
+// or ids that no page of ours makes, get a bare 400: that is a bug or a
+// forged request, and the page ends its op in its own words. The limit is
+// sized so that nobody clicking reaches it: an action over it gets 429 for
+// the page's retry, and its tab a notice.
 func (s *Server) decode(w http.ResponseWriter, r *http.Request, op bool) (action, bool) {
 	var a action
-	if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
-		http.Error(w, "too many actions, wait a moment", http.StatusTooManyRequests)
+	err := sse.ReadSignalsLimit(w, r, &a, 8<<10)
+	if err != nil || !validID(a.Tab) || op && (!validID(a.Key) || !validID(a.Op)) {
+		w.WriteHeader(http.StatusBadRequest)
 		return a, false
 	}
-	err := sse.ReadSignalsLimit(w, r, &a, 8<<10)
-	if err != nil || !validID(a.Tab) || op && !validID(a.Op) {
-		http.Error(w, "bad request", http.StatusBadRequest)
+	if !op {
+		a.Key, a.Op = "", "" // unchecked: they name no notice
+	}
+	if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
+		s.notify(r.Context(), a, "Too many actions at once. Wait a moment, then try again.")
+		w.WriteHeader(http.StatusTooManyRequests)
 		return a, false
 	}
 	return a, true
@@ -168,19 +181,27 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request) {
 // still holds the first outcome.
 func (s *Server) act(w http.ResponseWriter, r *http.Request, a action, cmd writer.Command) {
 	sid := edge.SessionID(r.Context())
-	act := board.Act{Session: sid, Tab: a.Tab, Op: a.Op, Cmd: cmd, At: time.Now()}
-	switch err := s.w.Do(r.Context(), writer.Once(sid+":"+a.Op, act)); {
-	case err == nil:
+	act := board.Act{Session: sid, Tab: a.Tab, Key: a.Key, Op: a.Op, Cmd: cmd, At: time.Now()}
+	if s.do(w, r, a, writer.Once(sid+":"+a.Op, act)) {
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, writer.ErrInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	case errors.Is(err, board.ErrNotFound):
-		http.Error(w, "no such card or lane", http.StatusNotFound)
-	case errors.Is(err, writer.ErrClosed):
-		http.Error(w, "the server is restarting", http.StatusServiceUnavailable)
-	default:
-		s.fail(w, r, err)
 	}
+}
+
+// do hands cmd to the writer and reports whether it committed. When it
+// did not, it answers with the status alone: the person reads why on the
+// tab's stream.
+func (s *Server) do(w http.ResponseWriter, r *http.Request, a action, cmd writer.Command) bool {
+	switch err := s.w.Do(r.Context(), cmd); {
+	case err == nil:
+		return true
+	case errors.Is(err, writer.ErrInvalid):
+		w.WriteHeader(http.StatusBadRequest) // Act refuses what a person can get wrong: this is a bug
+	case errors.Is(err, writer.ErrClosed):
+		w.WriteHeader(http.StatusServiceUnavailable) // the hub stopped first: Options.Stopping told the tab
+	default:
+		s.failed(w, r, a, err)
+	}
+	return false
 }
 
 // panel opens a card's panel in the tab, or closes it with card 0. The
@@ -195,18 +216,18 @@ func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sid := edge.SessionID(ctx)
 	old, err := s.db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, sid, a.Tab) })
-	if err == nil {
-		err = s.w.Do(ctx, board.OpenPanel{Session: sid, Tab: a.Tab, Card: a.Card, At: time.Now()})
-	}
 	if err != nil {
-		s.fail(w, r, err)
+		s.failed(w, r, a, err)
+		return
+	}
+	if !s.do(w, r, a, board.OpenPanel{Session: sid, Tab: a.Tab, Card: a.Card, At: time.Now()}) {
 		return
 	}
 	if old.Panel != 0 && old.Panel != a.Card {
-		s.hub.Unwatch(a.Tab, board.CardTopic(old.Panel))
+		s.hub.Unwatch(streamID(sid, a.Tab), board.CardTopic(old.Panel))
 	}
 	if a.Card != 0 {
-		s.hub.Watch(a.Tab, cardView(a.Card))
+		s.hub.Watch(streamID(sid, a.Tab), cardView(a.Card))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -214,42 +235,34 @@ func (s *Server) panel(w http.ResponseWriter, r *http.Request) {
 // compact sets the session's preference: every tab of the session gets
 // it from prefsView, and the next document renders it.
 func (s *Server) compact(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Compact bool `json:"compact"`
-	}
-	if err := sse.ReadSignalsLimit(w, r, &req, 1<<10); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+	a, ok := s.decode(w, r, false)
+	if !ok {
 		return
 	}
-	cmd := board.SetCompact{Session: edge.SessionID(r.Context()), Compact: req.Compact, At: time.Now()}
-	if err := s.w.Do(r.Context(), cmd); err != nil {
-		s.fail(w, r, err)
-		return
+	if s.do(w, r, a, board.SetCompact{Session: edge.SessionID(r.Context()), Compact: a.Compact, At: time.Now()}) {
+		w.WriteHeader(http.StatusNoContent)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // createBoard creates a board and sends the page to it. The answer is the
 // new board's address, so a retry must get the same one: OnceResult
 // records the first run's result under the op id, and a retry gets that
-// back instead of making a second board. A navigation is the page's own
-// business, so it travels in the answer, as a signal.
+// back instead of making a second board. Act records a refusal, a name
+// that is too long say, in the tab's row, as it does for every action. A
+// navigation is the page's own business, so it travels in the answer, as
+// a signal.
 func (s *Server) createBoard(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Op   string `json:"op"`
-		Name string `json:"name"`
-	}
-	if err := sse.ReadSignalsLimit(w, r, &req, 1<<10); err != nil || !validID(req.Op) {
-		http.Error(w, "bad request", http.StatusBadRequest)
+	a, ok := s.decode(w, r, true)
+	if !ok {
 		return
 	}
-	op := writer.OnceResult(edge.SessionID(r.Context())+":"+req.Op, board.CreateBoard{Name: req.Name})
-	switch err := s.w.Do(r.Context(), op); {
-	case errors.Is(err, writer.ErrInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	sid := edge.SessionID(r.Context())
+	op := writer.OnceResult(sid+":"+a.Op, board.CreateBoard{Name: a.Name})
+	if !s.do(w, r, a, board.Act{Session: sid, Tab: a.Tab, Key: a.Key, Op: a.Op, Cmd: op, At: time.Now()}) {
 		return
-	case err != nil:
-		s.fail(w, r, err)
+	}
+	if op.Result() == nil {
+		w.WriteHeader(http.StatusNoContent) // refused: the tab's view says why
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -273,9 +286,44 @@ func (s *Server) statusStream(w http.ResponseWriter, r *http.Request) {
 	s.hub.Serve(w, r, live.Spec{Views: []live.View{statsView(s.w, s.hub)}, Reconnect: "status-stream"})
 }
 
+// fail logs err and answers a document with 500, which the person reads.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.log.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
-	http.Error(w, "something went wrong", http.StatusInternalServerError)
+	http.Error(w, "Something went wrong.", http.StatusInternalServerError)
+}
+
+// failed logs err and answers the action a with 500. No command decided
+// it, so no view can render it: the tab hears of it from a notice.
+func (s *Server) failed(w http.ResponseWriter, r *http.Request, a action, err error) {
+	s.log.Error("action failed", "path", r.URL.Path, "err", err)
+	s.notify(r.Context(), a, "That could not be saved. Try again in a moment.")
+	w.WriteHeader(http.StatusInternalServerError)
+}
+
+// notify sends the tab of action a a notice in place of its outcome, with
+// the op id that ends its pending state. The tab's view puts the outcome
+// back with its next frame, and a stream that reconnects never gets it.
+// Each op key has a notice key of its own, so a notice for one key never
+// replaces another's that has not gone out; an action without an op has
+// one key for all.
+func (s *Server) notify(ctx context.Context, a action, msg string) {
+	ev, err := notice(ctx, a.Key, a.Op, msg)
+	if err != nil {
+		s.log.Error("notice", "err", err)
+		return
+	}
+	key := "notice"
+	if a.Op != "" {
+		key += ":" + a.Key
+	}
+	s.hub.Notify(streamID(edge.SessionID(ctx), a.Tab), key, ev)
+}
+
+// streamID names a tab's stream after its session too, so that an action
+// reaches only the streams of its own session: whoever learns a tab id
+// can neither watch views for it nor send it a notice.
+func streamID(sid, tab string) string {
+	return sid + "." + tab
 }
 
 // newID returns a tab id: 128 random bits in base64url.

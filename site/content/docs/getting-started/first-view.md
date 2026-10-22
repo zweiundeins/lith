@@ -57,14 +57,14 @@ mux.HandleFunc("POST /cmd/add", func(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, writer.ErrInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // the handler sets N: a bug
 	default:
-		s.fail(w, r, err)
+		s.fail(w, r, err) // logs, and answers 500
 	}
 })
 ```
 
-`Do` waits for the commit and returns the command's own error. The answer carries nothing for the page: the new count reaches every tab, this one included, on its stream. A route under `/cmd/` passes the CSRF check only with the `Datastar-Request` header that Datastar sends, which a form on another site cannot.
+`Do` waits for the commit and returns the command's own error. The answer carries nothing for the page: the new count reaches every tab, this one included, on its stream. Its status carries nothing a person reads either: what the person must hear of reaches the tab on its stream too ([Commands](/docs/guides/commands#outcomes-notices-and-the-pages-own-words)). A route under `/cmd/` passes the CSRF check only with the `Datastar-Request` header that Datastar sends, which a form on another site cannot.
 
 ## The query
 
@@ -123,10 +123,10 @@ The page's GET renders the counter from one read transaction (`db.View`), the sa
 The stream's handler adds the view to the tab's stream:
 
 ```go
-s.hub.Serve(w, r, live.Spec{ID: tab, Client: edge.ClientKey(r), Views: []live.View{counterView(), tabView(sid, tab)}, Reconnect: "stream"})
+s.hub.Serve(w, r, live.Spec{ID: sid + "." + tab, Client: edge.ClientKey(r), Views: []live.View{counterView(), tabView(sid, tab)}, Reconnect: "stream"})
 ```
 
-`Client` counts the stream under the client's address, so that one address cannot hold every stream (`live.Options.MaxStreamsPerClient`). `Reconnect` names the element that opened the stream. When the server stops for a deploy, the stream's last event replaces that element with a copy, the copy's `data-init` runs again, and `retry: 'error'` keeps the request trying through the restart until the next process answers.
+`ID` names the stream after the session and the tab, so that an action reaches only its own session's streams. `Client` counts the stream under the client's address, so that one address cannot hold every stream (`live.Options.MaxStreamsPerClient`). `Reconnect` names the element that opened the stream. When the server stops for a deploy, the stream's last event replaces that element with a copy, the copy's `data-init` runs again, and `retry: 'error'` keeps the request trying through the restart until the next process answers.
 
 ## Pending and refused
 

@@ -72,13 +72,21 @@ func Readable(ctx context.Context, q sqlite.Querier, person, space int64, filter
 // PagesView is the list of a space's pages for one person, filtered as
 // the page asked. Its key holds everything Render filters by: the space
 // (the route), the person and the filter. The person reaches Render
-// through the closure, and the key keeps two people's lists apart.
+// through the closure, and the key keeps two people's lists apart. A
+// space that does not exist says so in the list's place.
 func PagesView(person, space int64, filter string) live.View {
 	return live.View{
 		Key:    fmt.Sprintf("pages:%d:person:%d:q=%q", space, person, filter),
 		Topics: []string{SpaceTopic(space), GrantsTopic(person)},
 		Render: func(ctx context.Context, tx *sql.Tx) (any, error) {
 			q, _ := sqlite.QuerierFrom(ctx)
+			var exists bool
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM spaces WHERE id = ?)`, space).Scan(&exists); err != nil {
+				return nil, err
+			}
+			if !exists {
+				return NoSpace.Render(ctx, tx)
+			}
 			pages, err := Readable(ctx, q, person, space, filter)
 			if err != nil {
 				return nil, err
@@ -86,6 +94,24 @@ func PagesView(person, space int64, filter string) live.View {
 			return renderPages(pages), nil
 		},
 	}
+}
+
+// SignedOut is the list's place for a request without a person: a link
+// to sign in. Nothing in it depends on the viewer, so one view serves
+// everyone signed out.
+var SignedOut = live.View{
+	Key: "pages:signed-out",
+	Render: func(context.Context, *sql.Tx) (any, error) {
+		return sse.PatchElements([]byte(`<p id="pages"><a href="/signin">Sign in</a> to read this space's pages.</p>`)), nil
+	},
+}
+
+// NoSpace is the list's place for a space that does not exist.
+var NoSpace = live.View{
+	Key: "pages:no-space",
+	Render: func(context.Context, *sql.Tx) (any, error) {
+		return sse.PatchElements([]byte(`<p id="pages">No such space.</p>`)), nil
+	},
 }
 
 // Server streams a space's pages. Person names who sent a request, from
@@ -97,20 +123,19 @@ type Server struct {
 
 // Stream is the stream of the route /spaces/{space}. The person comes
 // from the session, never from the URL: whoever could put another
-// person's id in the URL would watch that person's list.
+// person's id in the URL would watch that person's list. A request
+// without a person, or with a space id that is no number, gets a stream
+// all the same, whose view says so in the list's place: the page shows
+// no answer of 401 or 404, and retry 'error' would ask again for ever.
 func (s *Server) Stream(w http.ResponseWriter, r *http.Request) {
-	person, ok := s.Person(r)
-	if !ok {
-		http.Error(w, "sign in first", http.StatusUnauthorized)
-		return
+	view := SignedOut
+	if person, ok := s.Person(r); ok {
+		view = NoSpace
+		if space, err := strconv.ParseInt(r.PathValue("space"), 10, 64); err == nil {
+			view = PagesView(person, space, r.URL.Query().Get("q"))
+		}
 	}
-	space, err := strconv.ParseInt(r.PathValue("space"), 10, 64)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	filter := r.URL.Query().Get("q")
-	s.Hub.Serve(w, r, live.Spec{Views: []live.View{PagesView(person, space, filter)}})
+	s.Hub.Serve(w, r, live.Spec{Views: []live.View{view}})
 }
 
 func renderPages(pages []Page) []byte {

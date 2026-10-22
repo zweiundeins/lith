@@ -41,10 +41,15 @@ look there before changing the behaviour.
 - Datastar 1.0.4 retries a request by its `retry` option. `'auto'` (the
   default) retries network errors only: it gives up at a proxy's 502 and
   never reopens a stream the server ended cleanly, so a deploy leaves pages
-  silently stale. `'error'` also retries 4xx and 5xx answers. `'always'` also
-  reopens a stream that ended cleanly, one the server ended on purpose
-  included, and keeps a full server's 503s coming. A 204 stops every mode.
-  [kanban]
+  silently stale. `'error'` also retries every answer from 400 to 599:
+  a stream that gets 400, 401 or 429 asks again without end, firing
+  `retrying` and `error` each time. `'always'` also reopens a stream that
+  ended cleanly, one the server ended on purpose included, and keeps a full
+  server's 503s coming. A 204 or a 3xx stops every mode. A stream whose page
+  must tell the person something (a session that ended) opens and renders
+  it from a view instead of answering 401. A tab that hides closes its
+  `@get` stream and opens it again when it shows, without data-init and
+  without `retrying`: listen for `visibilitychange` too. [kanban, lith]
 - Open a stream with `data-init` on an element with an id and
   `retry: 'error', retryMaxCount: Infinity`, and pass the id as
   `live.Spec.Reconnect`. The server decides when the page reconnects: on a
@@ -59,9 +64,13 @@ look there before changing the behaviour.
 - A watchdog on the page needs the server's ping. An SSE comment never reaches
   the page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
   watchdog can read. [kanban]
-- Datastar cancels an in-flight request to the same URL when a new one starts.
-  Actions that must all arrive (painting, moves) use
+- Datastar 1.0.4 cancels an in-flight request with the same method to the
+  same URL when a new one starts, from any element of the page. Actions that
+  must all arrive (painting, moves, every op) use
   `requestCancellation: 'disabled'`. [starbase, kanban]
+- With `contentType: 'form'`, a failed `checkValidity` ends the request
+  after `started` without `finished`: an op's in-flight count never drops.
+  Such a form gets `novalidate` and checks its fields in the expression.
 - Keyed elements that contain Rocket components crash Datastar 1.0.4's morph
   (`Maximum call stack`, upstream #1209). Use Starbase's patched build until a
   release has the fix. [starbase, kanban]
@@ -111,8 +120,14 @@ look there before changing the behaviour.
   task and the freeze grows to 14.6 s: keep `no-store`. [lith]
 - An action's response carries nothing the view needs: the outcome arrives on
   the tab's stream. Patching elements from an action fights the next frame,
-  which overwrites them. Signals from an action are fine (validation
-  messages). [hyperlith README, kanban]
+  which overwrites them. A validation message is an outcome in the tab's
+  row too. Signals in an action's answer only for a navigation (the `_goto`
+  after creating a board). [hyperlith README, kanban]
+- `datastar-fetch`'s `error` event carries the status (`argsRaw.status`),
+  never the body: a message in a 4xx or 5xx body never reaches the person.
+  Tell them on the stream (an outcome, or `live.Hub.Notify`), with the op
+  id; the page's own words only for `retries-failed` and a stream that does
+  not connect. [lith]
 
 ## Security headers
 

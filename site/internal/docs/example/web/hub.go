@@ -16,11 +16,13 @@ import (
 // the window its largest frame needs: a full board of 150 cards with long
 // titles is about 51 KB, which 2^16 holds. A stream that cannot have even
 // the smallest tier gets a 503, and the page's retry 'error' asks again,
-// instead of a stream that sends every frame uncompressed.
+// instead of a stream that sends every frame uncompressed. When the hub
+// stops, a tab's stream ends with a notice in the outcome's place.
 func HubOptions(db *sqlite.DB, log *slog.Logger) live.Options {
 	return live.Options{
 		Read:            db.R,
 		MaxStreams:      500,
+		Stopping:        stopping,
 		HeartbeatSignal: "_ping",     // the page's watchdog reads it (expr.go)
 		Hibernate:       time.Minute, // an idle tab gives its zstd encoder back
 		Log:             log,

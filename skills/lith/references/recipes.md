@@ -124,7 +124,7 @@ type MoveCard struct{ Card, Lane, Seen int64 }
 
 func (c MoveCard) Validate() error {
 	if c.Card <= 0 || c.Lane <= 0 {
-		return errors.New("card and lane are required")
+		return errors.New("A move needs a card and a lane.")
 	}
 	return nil
 }
@@ -132,11 +132,14 @@ func (c MoveCard) Validate() error {
 func (c MoveCard) Apply(tx *writer.Tx) error {
 	var board, version int64
 	err := tx.QueryRow(`SELECT board_id, version FROM cards WHERE id = ?`, c.Card).Scan(&board, &version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &writer.Refusal{Msg: "This card is gone."} // the page showed it: archived meanwhile
+	}
 	if err != nil {
 		return err
 	}
 	if version != c.Seen {
-		return ErrMovedMeanwhile // the page shows why; nothing changed
+		return &writer.Refusal{Msg: "Someone moved this card meanwhile."}
 	}
 	if _, err := tx.Exec(`UPDATE cards SET lane_id = ?, version = version + 1 WHERE id = ?`, c.Lane, c.Card); err != nil {
 		return err
@@ -146,40 +149,184 @@ func (c MoveCard) Apply(tx *writer.Tx) error {
 }
 ```
 
-The handler validates, hands the command over with `Do` and answers 204. The
-outcome reaches the page on its stream.
+The handler hands the command over with `Do`, inside an `Act` that records
+the op id under its key and any refusal in the tab's row (the board example's `Act`, which
+also runs the command's `Validate` and records its message as a refusal),
+and answers 204. The outcome reaches the page on its stream. A status code
+carries nothing a person reads:
 
 ```go
 func (s *Server) moveCard(w http.ResponseWriter, r *http.Request) {
-	cmd, err := readMove(r)
+	a, err := readMove(r) // the tab, the op key and id, and the move, from the signals
 	if err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it: a bug or a forged request
 		return
 	}
-	if err := s.w.Do(r.Context(), cmd); err != nil && !errors.Is(err, ErrMovedMeanwhile) {
-		s.fail(w, r, err)
-		return
+	act := Act{Session: a.Session, Tab: a.Tab, Key: a.Key, Op: a.Op, Cmd: a.Move, At: time.Now()}
+	switch err := s.w.Do(r.Context(), writer.Once(a.Session+":"+a.Op, act)); {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, writer.ErrClosed):
+		w.WriteHeader(http.StatusServiceUnavailable) // the hub stopped first: Options.Stopping told the tab
+	default:
+		s.log.Error("move", "err", err)
+		s.hub.Notify(streamID(a.Session, a.Tab), "notice:"+a.Key, notice(a.Key, a.Op, "That could not be saved. Try again in a moment."))
+		w.WriteHeader(http.StatusInternalServerError)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 ```
+
+`notice` renders the message where the tab's outcome goes and patches the
+ack signals as the tab's view does (`{"_ops": {key: {"ack": op,
+"refused": true}}}`), so the pending state ends and the input stays. The stream ID names the
+session and the tab (`streamID(sid, tab)`, `sid + "." + tab`), in the
+stream's Spec, Watch, Unwatch and Notify alike: a bare tab id would let
+any session that learns it push a notice with an ack it picks.
 
 - `Do` waits for the commit and returns this command's error; `Send` returns
   at once (`ErrQueueFull` when the queue is full). A failed Send goes to
   `writer.Options.OnSendError(cmd, err)` on the writer's goroutine, or to the
   log without one.
 - `Do` for what a person asked for: its 204 means stored, and a failed batch
-  or a stopping server answers an error, so a pending button never waits
-  forever for its op id. It costs about half a millisecond with NORMAL, and
-  waiting handlers hold the load back. `Send` only for updates the next one
-  replaces and nobody waits for (a pointer's position, a heartbeat): the
-  site's cursor party.
-- Every outcome a command reaches, a refusal included, goes into the tab's
-  state and over the stream. The status code says only that the request
-  reached no outcome (never arrived, turned away by a limit or check, the
-  writer failed, the server stops): the page shows "did not go through" from
-  `datastar-fetch`'s error. Never write those failures to the stream: it may
-  be down too, and storing them needs the writer that failed.
+  is known before the answer, so the handler can send the tab a notice and
+  a pending button never waits for nothing. It costs about half a
+  millisecond with NORMAL, and waiting handlers hold the load back. `Send`
+  only for updates the next one replaces and nobody waits for (a pointer's
+  position, a heartbeat): the site's cursor party.
+- A status code carries nothing a person reads ("The 4xx and 5xx series are
+  for machines and should never be seen by humans", Datastar's essay "I'm a
+  Teapot"). Three cases:
+  1. Outcome, the person caused it: a validation error, a refusal, a quota
+     used up, a card that is gone or access lost meanwhile (an id from a
+     page we rendered), a payment wall, a conflict with the tab's own
+     earlier action, an upload's checks (too large, wrong type; uploads
+     count though they go over plain fetch). The command records it in the
+     tab's row (`Act` with a `*writer.Refusal`), the tab's view renders it
+     with the op id, and the action answers 204.
+  2. Notice, no command decided it: the writer failed, an abuse-sized rate
+     limit, the server stopping. `hub.Notify(streamID, key, frame)` sends
+     the frame once on the tab's open stream, after its views' frames,
+     through `WriteTick`/`Write` like a view's frame; a later Notify with
+     the key replaces one not sent yet; for a stream that is not open it
+     does nothing and returns false (unlike `Watch`, nothing waits, so a
+     made-up tab id costs nothing). Render it where the tab's outcome goes
+     (the view's next frame puts the outcome back) and patch the op id into
+     the ack like an outcome. Answer 500 or 429 with no body.
+     `live.Options.Stopping(spec)` returns the events every stream sends
+     when the hub stops, before `sse.Reconnect`: "Updating, back in a
+     moment", which the next process's first frame of that view replaces.
+     Best effort: a reconnect or a reload loses a notice.
+  3. Only the browser knows: no answer (Datastar's `retries-failed`), the
+     stream down. The page says so in its own words, never from a body.
+  The pending state ends on a signal, never on a clock: the op's ack (an
+  outcome or a notice), `retries-failed`, a 4xx other than 409 and 429 (no notice
+  comes with it), or the stream connecting again with a tab row that does
+  not ack the op (a notice a reconnect lost, or one that found no stream).
+  The page tracks ops in one pattern (the board example's `expr.go`):
+  - Op keys: what the person acted on, `add` for a form, `card-17` for a
+    card's button. `$_ops[key]` = `{op, ack, refused, inflight, recheck}`.
+    The tab's row keeps each key's newest op and whether it was refused
+    (`TabState.Ops`, pruned to 16 keys); the tab view patches
+    `{"_ops": {...}, "_synced": true}` (an empty map, never null, which
+    would delete the signal); a notice patches its key's ack, with the
+    notice key `notice:<key>`.
+  - One stable element, `<div id="ops" hidden>`, outside every region a
+    frame morphs, holds the listeners. `act(key, path, payload)` makes the
+    op id and appends `<i data-op-key=key data-init="@post(path, {payload,
+    requestCancellation: 'disabled'})">` to it, so the request outlives
+    the form, dialog or card it came from (a form in a closed modal never
+    leaks the count or misses its end). `requestCancellation: 'disabled'`:
+    Datastar 1.0.4 cancels page-wide by method and URL, so two cards' moves
+    to `/cmd/move` would abort each other.
+  - `fetched`, `data-on:datastar-fetch` on `#ops`, matches
+    `evt.detail.el.dataset.opKey`: `started` raises the key's `inflight`,
+    `finished` lowers it (clamped at 0), removes the element, and with
+    `inflight` 0 and `recheck` set reopens the stream if the op still
+    waits; `retries-failed` ends a waiting op ("The connection is down");
+    `error` with a status that is not 409 or 429 and below 500 ends a
+    waiting op ("That did not work"): handlers send a notice with every 429
+    and 5xx, a 409 (no stream for the tab) waits for the reconnect,
+    so only those wait for the stream.
+  - `patched`, `data-on-signal-patch` on `#ops` with
+    `data-on-signal-patch-filter="{include: /^(_ops\.[^.]+\.ack|_synced)$/}"`
+    (an effect would fire on the click), wrapped in one `(() => {...})()`
+    since Datastar splits that attribute at semicolons: a changed ack
+    equal to the op settles it (and empties the input unless refused);
+    `patch._synced` checks every waiting key: with a request in flight it
+    sets that key's `recheck`, else it ends the op ("That did not go
+    through") and keeps the input.
+  - In-flight and recheck are per key: a hung request holds only its own
+    key, and a lost op elsewhere still ends on the next reconnect.
+  - Opening the stream sets `$_synced = false`, and so do `retrying` on the
+    stream element and a tab that hides
+    (`data-on:visibilitychange__window="document.hidden && ($_synced = false)"`:
+    Datastar closes a hidden tab's `@get` and opens it again on show,
+    without data-init or `retrying`). Never end an op while its request is
+    open: its command may still wait in the writer, and "did not go
+    through" then the commit means a retry with a new op id and a
+    duplicate. The reopen after the last request decides: a 204 means
+    committed, so the fresh frame holds the ack (a replacing stream renders
+    the views only its ID watches afresh, which covers a blue/green deploy
+    whose draining old process commits where the new hub never hears of
+    it); a failure status means a notice went out, perhaps to a stream
+    that was gone, and the fresh frame ends the op.
+  - The toast or message for an op's end lives in `patched` on `#ops` too:
+    the place the person acted may be gone (feedback rule 4).
+  - A form posted with `contentType: 'form'` needs `novalidate` and its
+    own checks in the expression: Datastar runs `checkValidity` after
+    `started` and never sends `finished` when it fails.
+  - Every check a person can fail is a refusal in `Apply` (or a `Validate`
+    run inside `Act`); a bare 400 leaves the person only "That did not
+    work".
+  A command that runs long (an import) first records its acceptance in the
+  tab's row ("Import started"), which acks the op at once, and reports
+  progress from state; pending means "taken", not "done".
+  Bare statuses for machines: a body that does not parse or an id no page
+  holds gets 400 (a bug or an attack), a 503 when the writer is closed (the
+  hub stopped first, `Stopping` told the tab).
+- `Notify` details: a notice waits for the renders pending for the
+  stream's views when it is called (the commit just before it), and goes
+  after their frames in the same write; it waits behind a Slow stream's
+  250 ms and a paced stream's full window (up to `live.AckTimeout`, 10 s).
+  One slot per key: use a fixed key per kind of notice (per form), never
+  the op id; the same key is last-wins and keeps the first one's place.
+  At most `live.MaxNotices` (64) wait per stream; a new key beyond them
+  drops the oldest. Keys from the client (op keys) are checked by the
+  handler, and an action without an op uses one fixed notice key. A
+  pending render that fails holds a notice no longer than its tick: on a
+  failing database no further commit may come to render it again.
+  `[]byte` notices still waiting when the hub stops go out before
+  `Stopping`'s events. `Stopping` runs on every stream's goroutine at
+  once; a panic in it is logged and costs that stream its events.
+- A check the handler makes before any command (the account's plan, a
+  payment wall) still records its refusal through an `Act`-style command,
+  so the tab's view shows it.
+- Size a rate limit so that a person using the page never reaches it (429
+  plus a notice). A limit intended use can reach is a product rule: a
+  command that counts and refuses, a quota ("You have used this month's 20
+  scans").
+
+### Uploads
+
+A file goes over plain `fetch`, and the rules hold:
+
+- The tab and the op travel in the query string or in headers: a body over
+  `http.MaxBytesReader`'s limit cannot be parsed for them.
+- The handler checks the file (too large, wrong type) and records the
+  outcome with a command, as `Act` records a refusal, before it answers;
+  the tab's view brings the ack and the reason.
+- A plain `fetch` sends no `datastar-fetch` events: the page's expression
+  sets the key's entry as `act` does and raises its `inflight` before the
+  request, ends the op itself on a 4xx other than 409 and 429, sets `recheck` when
+  the `fetch` rejects, and in `finally` lowers `inflight` and, at 0 with
+  `recheck` set, reopens the stream if the op still waits (pages.md,
+  Uploads).
+- Check the size in the page first. A handler that answers "too large"
+  before reading the body makes Go close the connection after about 256 KB
+  unread, and Chrome often rejects the `fetch` with
+  `ERR_CONNECTION_RESET` though the outcome was recorded: treat a rejection
+  as a lost answer (the stream or the reopen decides), not as "the
+  connection is down" while the stream is fine.
 - `w.DoValue(ctx, fn)` is `Do` for a function that returns a value, such as
   a new row's id: `id, err := w.DoValue(ctx, func(tx *writer.Tx) (int64,
   error) {…})`. It returns the value once the batch has committed, and the
@@ -384,7 +531,7 @@ func boardView(id int64) live.View {
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := readTabID(r)
-	s.hub.Serve(w, r, live.Spec{ID: tab, Client: edge.ClientKey(r), Views: []live.View{boardView(id), s.tabView(sid, tab)}, Reconnect: "stream"})
+	s.hub.Serve(w, r, live.Spec{ID: streamID(sid, tab), Client: edge.ClientKey(r), Views: []live.View{boardView(id), s.tabView(sid, tab)}, Reconnect: "stream"})
 }
 ```
 
@@ -398,15 +545,16 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 - `Every: time.Second` re-renders a view without commits (clocks, live stats).
   `Presence: true` re-renders it when streams join or leave; `hub.Count(key)`
   is how many watch, `hub.Watchers(key)` the IDs of their streams, in the
-  order they opened. A stream's ID is its tab's: render a hash of it, never
-  the ID, since whoever knows it can open a stream that ends the tab's own.
+  order they opened. A stream's ID is its session's and tab's: render a
+  hash of it, never the ID, since whoever knows it can open a stream that
+  ends the tab's own.
 - `Spec.Write` tailors a shared frame per stream (kanban sends only the lanes
   a stream has not seen). Keep it free of formatting: format once in Render.
   `Spec.WriteTick(s, frames)` gets all of a stream's new frames at once, in
   the order it watches the views: one `s.Write(events...)` of them is one
   compressed write and flush per tick instead of one per view.
 - A page's command to watch a view (a panel that scrolls into view) can
-  arrive before its stream. `hub.Watch(tab, v)` then keeps v for
+  arrive before its stream. `hub.Watch(streamID(sid, tab), v)` then keeps v for
   `Options.PendingWatch` (10 s), and the stream that opens with that ID
   watches it from the start; Unwatch drops it again. Watch reports whether
   the stream is open now, so a retry loop is not needed.
@@ -484,15 +632,25 @@ func pagesView(person, space int64, filter string) live.View {
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
-	person, ok := s.person(r) // from the session, never from the URL or a signal
-	if !ok {
-		http.Error(w, "sign in first", http.StatusUnauthorized)
-		return
+	v := signedOut // a sign-in link in the list's place
+	if person, ok := s.person(r); ok { // from the session, never from the URL or a signal
+		v = noSpace // "No such space." in the list's place
+		if space, ok := spaceID(r); ok {
+			v = pagesView(person, space, r.URL.Query().Get("q")) // renders noSpace for an id with no row
+		}
 	}
-	v := pagesView(person, spaceID(r), r.URL.Query().Get("q"))
-	s.hub.Serve(w, r, live.Spec{ID: readTabID(r), Views: []live.View{v}})
+	sid := edge.SessionID(r.Context())
+	s.hub.Serve(w, r, live.Spec{ID: streamID(sid, readTabID(r)), Views: []live.View{v}})
 }
 ```
+
+- Signed out, or a space that does not exist: the stream opens all the
+  same and a view says so. A 401 or 404 shows the page nothing, and
+  `retry: 'error'` asks again every 10 s for ever; a bare 204 ends the
+  retries but leaves the region empty.
+- The stream's ID names the session too (`streamID(sid, tab)`), as every
+  stream's does: a bare tab id lets whoever learns it send that tab
+  notices and views.
 
 - Views with equal keys are one view: while it is watched, the definition
   it was first given renders it, once a tick, for every stream on the key.
@@ -540,6 +698,45 @@ A command upserts it and touches `tab:<id>`; the tab's view renders from it.
 Preferences that outlive a page (a sort order, a theme preview) go in a table
 keyed by the session and touch `sid:<id>`. A background command deletes tab
 rows not seen for a few days.
+
+## Which feedback to give
+
+Mechanisms: the re-render; an inline error (the form's error slot, or the
+field); standing state (a banner, badge or status rendered from data while
+the condition lasts); a toast (does not block, goes away by itself, one
+action at most); progress (work outside a request); a dialog (confirm,
+prompt, choose). The first rule that fits decides:
+
+1. The change shows where the person acted: nothing more. No toast that
+   repeats the re-render.
+2. The person must fix something (a refusal, an input check): inline,
+   where they acted. Never a toast, never a dialog.
+3. Something holds until they act (a limit reached, a backup unhealthy):
+   standing state from data. Never a toast.
+4. It happened where they cannot see it (the place they acted is gone,
+   another page, the item left the list, a long command accepted with
+   progress from state): a toast.
+5. An offer or a celebration: a toast with its one action; missing it does
+   no harm.
+6. A notice, not caused by them (writer failure, rate limit, restart): a
+   toast at warning or error level, in the page's words, never a body.
+7. Only the browser knows (no connection, "That did not go through"): a
+   toast in the page's own words.
+8. A dialog only to ask, never to report.
+
+Delivery: outcomes (2, 4, 5) are written to the tab's row by the command
+and rendered by the tab's view; notices (6) go on the open stream with
+`hub.Notify`, best effort; rule 7 the page says itself; a status code
+never carries text for a person. A toast for an outcome shows once per op:
+the tab's view renders the outcome's text with the ack, and the page shows
+the toast in `patched` on the stable `#ops`, when it first sees that op's
+ack while the op is pending; the place the person acted may be gone by
+then (rule 4). A reconnect renders the row again, but the op is settled; after a
+reload no op is pending, and the outcome renders as state. The board:
+card added is rule 1, the refusal in `#outcome` rule 2, "The connection is
+down" rule 7, a rate limit's or failed write's notice rule 6. Without
+toasts, an inline line stands in for one: `$_problem` under the form, with
+`role="alert"`.
 
 ## A per-tab view that navigates
 

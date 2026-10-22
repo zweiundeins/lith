@@ -42,7 +42,7 @@ A view does not render for streams that have not sent its last frame: while ever
 
 - `Every: time.Second` renders a view again after that long without changes, for a clock or live numbers.
 - `Presence: true` marks the view dirty when a stream starts or stops watching it, and `hub.Count(key)` says how many do.
-- `hub.Watch(tab, view)` adds a view to an open stream, such as a panel that scrolls into sight. A command that arrives before its stream does is kept for `Options.PendingWatch`, 10 s.
+- `hub.Watch(id, view)` adds a view to the open stream with that ID, such as a panel that scrolls into sight. A command that arrives before its stream does is kept for `Options.PendingWatch`, 10 s.
 - `Spec.WriteTick` gets all of a stream's new frames of a tick at once, for one compressed write and one flush.
 
 ## Measuring

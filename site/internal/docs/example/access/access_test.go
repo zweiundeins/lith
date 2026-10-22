@@ -81,17 +81,36 @@ func start(t *testing.T, view func(person, space int64) live.View) (url string, 
 	return srv.URL + "/spaces/1/stream", w
 }
 
+// watchAs opens a stream with the X-Person header as given, none when
+// person is empty.
+func watchAs(t *testing.T, url, person string) <-chan string {
+	t.Helper()
+	return watchReq(t, url, func(req *http.Request) {
+		if person != "" {
+			req.Header.Set("X-Person", person)
+		}
+	})
+}
+
 // watch opens person's stream and returns its frames, one string each.
 func watch(t *testing.T, url string, person int64) <-chan string {
+	t.Helper()
+	return watchAs(t, url, strconv.FormatInt(person, 10))
+}
+
+func watchReq(t *testing.T, url string, set func(*http.Request)) <-chan string {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("X-Person", strconv.FormatInt(person, 10))
+	set(req)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("stream: %d", res.StatusCode)
 	}
 	frames := make(chan string, 16)
 	go func() {
@@ -104,7 +123,7 @@ func watch(t *testing.T, url string, person int64) <-chan string {
 				event.WriteString(lines.Text() + "\n")
 				continue
 			}
-			if strings.Contains(event.String(), "<ul") {
+			if strings.Contains(event.String(), `id="pages"`) {
 				frames <- event.String()
 			}
 			event.Reset()
@@ -167,5 +186,20 @@ func TestRouteKeyLeaks(t *testing.T) {
 	next(t, a)
 	if fb := next(t, watch(t, url, bob)); !strings.Contains(fb, secret) {
 		t.Fatalf("bob's stream did not get alice's frame; the leak this test shows is gone:\n%s", fb)
+	}
+}
+
+// TestSignedOutAndNoSpace opens the stream signed out, and for spaces that
+// do not exist: each gets a stream whose frame says so in the list's
+// place, not a status the page would never show.
+func TestSignedOutAndNoSpace(t *testing.T) {
+	url, _ := start(t, nil)
+	if f := next(t, watchAs(t, url, "")); !strings.Contains(f, `<a href="/signin">Sign in</a>`) {
+		t.Errorf("signed out:\n%s", f)
+	}
+	for _, u := range []string{strings.Replace(url, "/spaces/1/", "/spaces/9/", 1), strings.Replace(url, "/spaces/1/", "/spaces/x/", 1)} {
+		if f := next(t, watchAs(t, u, "1")); !strings.Contains(f, "No such space.") {
+			t.Errorf("%s:\n%s", u, f)
+		}
 	}
 }

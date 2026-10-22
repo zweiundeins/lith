@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -137,24 +138,51 @@ func TestAct(t *testing.T) {
 	ctx := context.Background()
 	add := board.AddCard{Lane: 2, Title: "Card"}
 	for i, op := range []string{"op1", "op2", "op3"} {
-		act := writer.Once("s1:"+op, board.Act{Session: "s1", Tab: "t1", Op: op, Cmd: add, At: now})
+		act := writer.Once("s1:"+op, board.Act{Session: "s1", Tab: "t1", Key: "add", Op: op, Cmd: add, At: now})
 		if err := w.Do(ctx, act); err != nil {
 			t.Fatalf("%d: %v", i, err)
 		}
 	}
 	state, err := db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, "s1", "t1") })
-	if err != nil || state.Op != "op3" || state.Refusal != "This lane is full." {
+	if err != nil || state.Ops["add"] != (board.Ack{Op: "op3", Refused: true}) || state.Refusal != "This lane is full." {
 		t.Fatalf("tab %+v %v", state, err)
 	}
 	if got := touched(); !slices.Equal(got, []string{"board:1", "tab:t1"}) {
 		t.Errorf("touched %v", got)
 	}
 	// A retry of op3 runs nothing: Once recorded it with its outcome.
-	if err := w.Do(ctx, writer.Once("s1:op3", board.Act{Session: "s1", Tab: "t1", Op: "op3", Cmd: add, At: now})); err != nil {
+	if err := w.Do(ctx, writer.Once("s1:op3", board.Act{Session: "s1", Tab: "t1", Key: "add", Op: "op3", Cmd: add, At: now})); err != nil {
 		t.Fatal(err)
 	}
 	if got := touched(); len(got) != 0 {
 		t.Errorf("a retry touched %v", got)
+	}
+
+	// What the person typed fails the command's Validate: a refusal in the
+	// tab, not an error of Do.
+	act := board.Act{Session: "s1", Tab: "t1", Key: "add", Op: "op4", Cmd: board.AddCard{Lane: 1, Title: " "}, At: now}
+	if err := w.Do(ctx, writer.Once("s1:op4", act)); err != nil {
+		t.Fatal(err)
+	}
+	state, err = db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, "s1", "t1") })
+	if err != nil || state.Ops["add"] != (board.Ack{Op: "op4", Refused: true}) || state.Refusal != "A title has 1 to 200 characters." {
+		t.Fatalf("tab %+v %v", state, err)
+	}
+	if got := touched(); !slices.Equal(got, []string{"tab:t1"}) {
+		t.Errorf("a refusal touched %v", got)
+	}
+
+	// Each key keeps its newest op; the row keeps the newest MaxKeys keys.
+	for i := range board.MaxKeys + 2 {
+		key := fmt.Sprintf("card-%d", i)
+		cmd := writer.Func(func(*writer.Tx) error { return nil })
+		if err := w.Do(ctx, board.Act{Session: "s1", Tab: "t1", Key: key, Op: fmt.Sprintf("op9%02d", i), Cmd: cmd, At: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err = db.ViewValue(ctx, func(tx *sql.Tx) (board.TabState, error) { return board.Tab(ctx, tx, "s1", "t1") })
+	if err != nil || len(state.Ops) != board.MaxKeys || state.Ops["card-17"].Op != "op917" || state.Ops["add"].Op != "" {
+		t.Fatalf("tab after many keys: %+v %v", state, err)
 	}
 }
 
@@ -175,8 +203,11 @@ func TestMoveCard(t *testing.T) {
 	if err := w.Do(ctx, board.MoveCard{Card: 1, Lane: 1, Seen: 1}); !errors.As(err, &refusal) {
 		t.Errorf("a stale move: %v", err)
 	}
-	if err := w.Do(ctx, board.MoveCard{Card: 1, Lane: 9, Seen: 2}); !errors.Is(err, board.ErrNotFound) {
+	if err := w.Do(ctx, board.MoveCard{Card: 1, Lane: 9, Seen: 2}); !errors.As(err, &refusal) || refusal.Msg != "This lane is gone." {
 		t.Errorf("a move to a lane of no board: %v", err)
+	}
+	if err := w.Do(ctx, board.MoveCard{Card: 7, Lane: 1, Seen: 1}); !errors.As(err, &refusal) || refusal.Msg != "This card is gone." {
+		t.Errorf("a move of a card that is gone: %v", err)
 	}
 	if b := load(t, db); len(b.Lanes[1].Cards) != 1 || b.Lanes[1].Cards[0].Version != 2 {
 		t.Errorf("board %+v", b)

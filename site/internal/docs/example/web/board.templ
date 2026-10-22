@@ -26,18 +26,20 @@ templ Page(p PageData) {
 		</head>
 		<body>
 			<main data-signals={ signals(p.Tab, p.Prefs) } data-class:compact="$_compact">
-				<div id={ StreamID } hidden data-init={ "$_beat = Date.now(); " + openStream(p.Board.ID) } data-effect={ beat } data-on-interval__duration.10s={ watchdog(p.Board.ID) }></div>
+				<div id={ StreamID } hidden data-init={ "$_beat = Date.now(); " + openStream(p.Board.ID) } data-on:datastar-fetch={ retrying } data-on:visibilitychange__window={ hidden } data-effect={ beat } data-on-interval__duration.10s={ watchdog(p.Board.ID) }></div>
 				<h1>{ p.Board.Name }</h1>
 				@Presence(0)
 				<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
-				<form data-on:submit__prevent={ add(firstLane(p.Board)) } data-on:datastar-fetch={ failed } data-effect={ settle }>
-					<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending }/>
-					<button type="submit" data-attr:aria-busy={ busy }>Add</button>
+				<div id={ OpsID } hidden data-on:datastar-fetch={ fetched } data-on-signal-patch={ patched } data-on-signal-patch-filter={ opsPatches }></div>
+				<form data-on:submit__prevent={ add(firstLane(p.Board)) }>
+					<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending("add") }/>
+					<button type="submit" data-attr:aria-busy={ busy("add") }>Add</button>
 				</form>
 				<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
 				@Outcome(board.TabState{})
 				@Board(p.Lanes)
 				@NoPanel()
+				<style data-text={ waitingCards }></style>
 			</main>
 		</body>
 	</html>
@@ -47,7 +49,7 @@ templ Page(p PageData) {
 // rendered one by one. A click on a card's button is handled here, on the
 // board, so a frame carries no expression per card.
 templ Board(lanes [][]byte) {
-	<div id="board" data-on:click={ onBoard } data-on:datastar-fetch={ failed }>
+	<div id="board" data-on:click={ onBoard }>
 		for _, l := range lanes {
 			@templ.Raw(string(l))
 		}
@@ -75,6 +77,13 @@ templ Lane(l board.Lane, next int64) {
 // Outcome is the tab's own region: why its last action changed nothing.
 templ Outcome(s board.TabState) {
 	<p id="outcome" role="status">{ s.Refusal }</p>
+}
+
+// Notice takes the outcome's place for what no command decided: a writer
+// that failed, a rate limit, a server that stops. The tab's view puts the
+// outcome back with its next frame.
+templ Notice(msg string) {
+	<p id="outcome" role="status" class="notice">{ msg }</p>
 }
 
 // Presence says how many tabs show the board.

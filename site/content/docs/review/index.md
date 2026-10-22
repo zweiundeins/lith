@@ -131,6 +131,33 @@ A rebuild runs a projector's handlers over every event into copies of the tables
 
 A GET handler writes nothing: no session row, no event, no counter per hit. Crawlers multiply every write a GET makes. Sessions start as a cookie, and a row appears with the first command that needs one.
 
+### A message in a status's body
+
+An action that answers 4xx or 5xx with text for the person, a validation message, "too many requests", "the server is restarting", or `err.Error()`, tells nobody: Datastar's `datastar-fetch` event carries the status alone, so the page shows nothing, or a generic message of its own in place of the server's reason. What the person caused is an outcome in the tab's row, answered 204; what no command decided is a notice with `hub.Notify`; both carry the op id that ends the pending state. A bare status stays for machines: a body that does not parse, an id no page holds ([Commands](/docs/guides/commands#outcomes-notices-and-the-pages-own-words)). The first command lists every `http.Error` outside the tests: look at those in actions that carry text. The second finds pages that read an error status. One use is right: the op tracking ends a waiting op on a 4xx other than 409 and 429, which comes without a notice, in the page's own words ([Pages and Datastar](/docs/guides/pages#op-ids-and-the-pending-state)). Anything else, an op that ends on a 409, a 429 or a 5xx, whose notice or deciding reconnect is on its way, or a message worded from the status, is where the stream should have told the page:
+
+```sh
+rg -n 'http\.Error\(' --type go -g '!*_test.go'
+rg -n "\['error'|argsRaw\??\.status" -g '*.go' -g '*.templ' -g '*.js'
+```
+
+A document's own error page (a 404 for a board that does not exist) is fine: the person reads that page itself.
+
+### A dialog that reports
+
+A dialog asks; it never reports. An `alert()`, a `confirm()` that only says what happened, or a `<dialog>` opened with `showModal()` to say "Saved" or "Something went wrong" blocks the page for news the person cannot act on: a refusal goes inline where they acted, a notice in a toast, what happened elsewhere in a toast ([Pages: which feedback to give](/docs/guides/pages#which-feedback-to-give)). The search lists every dialog and the app's own wrappers, a `notify()` or `showAlert()` helper (a Go method of that name matches too): look at each for one that reports rather than asks.
+
+```sh
+rg -n '\b(alert|confirm)\(|showModal\(|<dialog|\b(show|open)(Alert|Modal|Dialog)\w*\(|(^|[^.\w])notify\(' -g '*.go' -g '*.templ' -g '*.js'
+```
+
+### A toast that repeats the re-render
+
+A toast that says "Card added" while the card appears where the person dropped it says it twice. The re-render is the confirmation; a toast is for what happened where the person cannot see it. The pattern is a heuristic: look at each match for a change the page already shows.
+
+```sh
+rg -n -i 'toast.{0,60}(saved|added|updated|created|deleted|moved)' -g '*.go' -g '*.templ' -g '*.js'
+```
+
 ### Client addresses read from headers
 
 Client addresses come from `edge.ClientIP`, which trusts the proxy headers only from the local proxy, and takes the last `X-Forwarded-For` address before `X-Real-IP`. A handler that reads the headers itself lets any client choose its address, to dodge a rate limit or spend someone else's.
