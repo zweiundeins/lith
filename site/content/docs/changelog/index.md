@@ -8,6 +8,16 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `live`: `Hub.Notify(streamID, key, frame)` sends one stream a notice once, after the frames of the renders pending for its views, and keeps none; one per key, last wins, and `MaxNotices` (64) waiting per stream, beyond which a new key drops the oldest; for a stream that is not open it does nothing.
+- `live`: `Options.Stopping(spec)` makes the events each stream sends when the hub stops, after its unsent notices and before `sse.Reconnect`; a panic in it is logged.
+- `live`: `Serve` answers a stream it does not open (hub full or stopped, client over its cap, no room in the budget) with the status alone, no text in the body.
+- `live`: a stream that replaces one with its ID renders the views only that ID watches afresh, so a commit the hub never heard of, another process's during a deploy, shows in its first frame; it takes no frame of a render already under way. A view other streams watch too shows such a commit only with the next one: a new process that overlapped an old one calls `MarkAll` once the old one has stopped.
+- Template: refusals in the tab's row, notices for a rate limit and a failed write, `Stopping` wired, bare statuses for machines. The page keeps its ops by key in `$_ops` and sends each op's request from an element of its own in a hidden `#ops` that no frame removes, with `requestCancellation: 'disabled'`; it ends an op itself only without an answer, on a 400, which comes without a notice, or when its stream connects again (also after the tab was hidden) and the tab's row lacks the op while no request of its key is in flight. No timer. A sign whose client went away gets no notice.
+- Docs and skill: a status code carries nothing a person reads; outcomes, notices and the page's own words, which feedback to give, and review checks. The board example tracks its ops the template's way, per key with their own requests in flight, so a card's hung move holds back nothing else; the access example renders a signed-out stream and a missing space from views.
+- Site: every demo follows the rule. The kit's `Action` and `Act` answer with bare statuses and send notices with the op id, pages end their pending ops on the ack, `retries-failed`, a 4xx other than 409 and 429 or a reconnect without the ack, the canvas's pixel rate is a refusal, and a checkbox's wait ends on its click's ack instead of a timer.
+
 ## v0.4.3 (2026-10-22)
 
 - `minify`: `Bytes` no longer panics on CSS with a `data:` URI, which made `edge.NewStatic` with `edge.Minify(minify.Bytes)` crash at start. It handed tdewolff's CSS minifier no `minify.M`, which that minifier needs for a data URI; a data URI now comes out in its shorter encoding.
