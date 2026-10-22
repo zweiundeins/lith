@@ -36,7 +36,7 @@ var statuses = []string{"live", "rebuilding", "parked"}
 type collector struct {
 	s Sources
 
-	batches, commands, failures, busy, queue, batchMax, commitP99, running *prometheus.Desc
+	batches, commands, failures, busy, queue, batchMax, commitP99, running, published, undelivered *prometheus.Desc
 
 	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views, behind, behindStreams, acks, paces, releases *prometheus.Desc
 
@@ -66,6 +66,8 @@ func New(namespace string, s Sources) prometheus.Collector {
 		batchMax:      d("writer", "batch_max", "The most commands one batch took."),
 		commitP99:     d("writer", "commit_p99_seconds", "99th percentile of the last 1024 batches, from BEGIN to the end of COMMIT."),
 		running:       d("writer", "command_running_seconds", "How long the command under way has run, 0 between commands: every other command waits for it."),
+		published:     d("writer", "events_published_total", "Values committed commands published to the writer's subscribers (Tx.Publish)."),
+		undelivered:   d("writer", "events_dropped_total", "Published values a subscriber's full queue did not take, once per subscriber."),
 		ticks:         d("live", "ticks_total", "Ticks that rendered views."),
 		renders:       d("live", "renders_total", "Views rendered."),
 		sent:          d("live", "frames_sent_total", "Frames of views written to streams."),
@@ -98,7 +100,7 @@ func New(namespace string, s Sources) prometheus.Collector {
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99, c.running,
+	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99, c.running, c.published, c.undelivered,
 		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views, c.behind, c.behindStreams, c.acks, c.paces, c.releases,
 		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened,
 		c.appended, c.conflicts, c.refolds, c.head, c.position, c.lag, c.status, c.attempts} {
@@ -123,6 +125,8 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		gauge(c.batchMax, float64(st.MaxBatch))
 		gauge(c.commitP99, st.P99Commit.Seconds())
 		gauge(c.running, st.Running.Seconds())
+		counter(c.published, float64(st.Published))
+		counter(c.undelivered, float64(st.Dropped))
 	}
 	if h := c.s.Hub; h != nil {
 		st := h.Stats()
