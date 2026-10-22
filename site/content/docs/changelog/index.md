@@ -12,8 +12,8 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 - `minify`: `Bytes` no longer panics on CSS with a `data:` URI, which made `edge.NewStatic` with `edge.Minify(minify.Bytes)` crash at start. It handed tdewolff's CSS minifier no `minify.M`, which that minifier needs for a data URI; a data URI now comes out in its shorter encoding.
 - `edge`: `Static` hands Minify's function a copy of each file. tdewolff's `(*minify.M).Bytes` renames JavaScript in the array it is given, so a script it saved less than a twentieth of went out as written but scrambled, and did not parse.
-- `writer`: `tx.Publish(v)` hands a value to in-process listeners once the command commits, and `w.Subscribe[T](ctx, n)` returns a channel of the values of type `T`, in commit order. It is best effort: a full queue drops the value for its subscriber alone (`Stats.Dropped`), a crash between commit and delivery loses it, and nothing is replayed, so a listener that must not miss a value reconciles from the data.
-- `prom`: `writer_events_published_total` and `writer_events_dropped_total`, and a Published values panel in the dashboard's writer row.
+- `writer`: `tx.Publish(v)` hands a value to in-process listeners once the command commits, and `w.Subscribe[T](ctx, n)` returns a channel of the values of type `T`, in commit order. It is best effort: a full queue drops the value for its subscriber alone (`Stats.Dropped`), a crash between commit and delivery loses it, and nothing is replayed, so a listener that must not miss a value reconciles from the data. `Stats.Subscribers` counts the subscriptions open.
+- `prom`: `writer_published_total`, `writer_publish_dropped_total` and `writer_subscribers`, and a Published values panel in the dashboard's writer row.
 
 ## v0.4.2 (2026-10-21)
 
