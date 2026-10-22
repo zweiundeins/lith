@@ -117,6 +117,12 @@ func (b *bus) close() {
 	b.subs = nil
 }
 
+func (b *bus) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs)
+}
+
 // deliver hands the values of a committed batch to the subscribers.
 func (w *Writer) deliver(values []any) {
 	w.published.Add(int64(len(values)))

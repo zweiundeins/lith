@@ -113,17 +113,18 @@ type Options struct {
 
 // Stats are the writer's counters since New.
 type Stats struct {
-	Batches    int64         // transactions, committed or not
-	Commands   int64         // commands run, failed ones included
-	Failures   int64         // commands that returned an error or panicked, or whose batch failed
-	MaxBatch   int           // the most commands one batch took
-	Queue      int           // commands waiting now
-	LastCommit time.Duration // the last batch, from BEGIN to the end of COMMIT
-	P99Commit  time.Duration // 99th percentile of the last 1024 batches
-	Busy       time.Duration // time spent in batches
-	Running    time.Duration // how long the command under way has run, 0 between commands
-	Published  int64         // values committed commands published (Tx.Publish)
-	Dropped    int64         // values a subscriber's full queue did not take, once per subscriber
+	Batches     int64         // transactions, committed or not
+	Commands    int64         // commands run, failed ones included
+	Failures    int64         // commands that returned an error or panicked, or whose batch failed
+	MaxBatch    int           // the most commands one batch took
+	Queue       int           // commands waiting now
+	LastCommit  time.Duration // the last batch, from BEGIN to the end of COMMIT
+	P99Commit   time.Duration // 99th percentile of the last 1024 batches
+	Busy        time.Duration // time spent in batches
+	Running     time.Duration // how long the command under way has run, 0 between commands
+	Published   int64         // values committed commands published (Tx.Publish)
+	Dropped     int64         // values a subscriber's full queue did not take, once per subscriber
+	Subscribers int           // subscriptions open now (Writer.Subscribe)
 	// Sizes counts the batches by the commands they took, in powers of
 	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
 	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.
@@ -531,17 +532,18 @@ func (w *Writer) enqueue(ctx context.Context, r *request) error {
 func (w *Writer) Stats() Stats {
 	last, p99 := w.times.get()
 	s := Stats{
-		Batches:    w.batches.Load(),
-		Commands:   w.commands.Load(),
-		Failures:   w.failures.Load(),
-		MaxBatch:   int(w.maxBatch.Load()),
-		Queue:      len(w.queue),
-		LastCommit: last,
-		P99Commit:  p99,
-		Busy:       time.Duration(w.busyNanos.Load()),
-		Running:    w.run.since(),
-		Published:  w.published.Load(),
-		Dropped:    w.dropped.Load(),
+		Batches:     w.batches.Load(),
+		Commands:    w.commands.Load(),
+		Failures:    w.failures.Load(),
+		MaxBatch:    int(w.maxBatch.Load()),
+		Queue:       len(w.queue),
+		LastCommit:  last,
+		P99Commit:   p99,
+		Busy:        time.Duration(w.busyNanos.Load()),
+		Running:     w.run.since(),
+		Published:   w.published.Load(),
+		Dropped:     w.dropped.Load(),
+		Subscribers: w.bus.count(),
 	}
 	for i := range s.Sizes {
 		s.Sizes[i] = w.sizes[i].Load()

@@ -211,12 +211,21 @@ func TestPublishTypesAndDrops(t *testing.T) {
 	}
 }
 
-// A subscription ends with its ctx, and every one with the writer.
+// A subscription ends with its ctx, and every one with the writer;
+// Stats.Subscribers counts those open.
 func TestSubscriptionEnds(t *testing.T) {
 	f := start(t, sqlite.Options{}, Options{})
+	subscribers := func(want int) {
+		t.Helper()
+		if n := f.w.Stats().Subscribers; n != want {
+			t.Fatalf("%d subscribers, want %d", n, want)
+		}
+	}
+	subscribers(0)
 	ctx, cancel := context.WithCancel(context.Background())
 	ended := f.w.Subscribe[any](ctx, 1)
 	kept := f.w.Subscribe[any](context.Background(), 1)
+	subscribers(2)
 	publish := func() {
 		t.Helper()
 		if err := f.w.Do(context.Background(), Func(func(tx *Tx) error { tx.Publish(1); tx.Publish(2); return nil })); err != nil {
@@ -226,6 +235,7 @@ func TestSubscriptionEnds(t *testing.T) {
 	publish()
 	cancel()
 	closed(t, ended)
+	subscribers(1)
 	publish()
 	// Each dropped the second of the first two; then kept dropped both,
 	// and ended, gone, none.
@@ -235,10 +245,12 @@ func TestSubscriptionEnds(t *testing.T) {
 	done, stop := context.WithCancel(context.Background())
 	stop()
 	closed(t, f.w.Subscribe[any](done, 1))
+	subscribers(1)
 
 	f.w.Close()
 	closed(t, kept)
 	closed(t, f.w.Subscribe[any](context.Background(), 1))
+	subscribers(0)
 }
 
 // Subscriptions come and go from other goroutines while the writer

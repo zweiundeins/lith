@@ -1014,7 +1014,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_events_published_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_published_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} published",
           "datasource": {
             "type": "prometheus",
@@ -1023,7 +1023,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_events_dropped_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
+          "expr": "sum by (app) (rate({__name__=\"${ns}_writer_publish_dropped_total\", app=~\"$app\", slot=~\"$slot\"}[$__rate_interval]))",
           "legendFormat": "{{app}} dropped",
           "datasource": {
             "type": "prometheus",

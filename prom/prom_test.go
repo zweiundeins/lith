@@ -53,12 +53,15 @@ func TestCollector(t *testing.T) {
 # HELP app_writer_commands_total Commands the writer ran, failed ones included.
 # TYPE app_writer_commands_total counter
 app_writer_commands_total 3
-# HELP app_writer_events_published_total Values committed commands published to the writer's subscribers (Tx.Publish).
-# TYPE app_writer_events_published_total counter
-app_writer_events_published_total 3
-# HELP app_writer_events_dropped_total Published values a subscriber's full queue did not take, once per subscriber.
-# TYPE app_writer_events_dropped_total counter
-app_writer_events_dropped_total 2
+# HELP app_writer_published_total Values committed commands published to the writer's subscribers (Tx.Publish).
+# TYPE app_writer_published_total counter
+app_writer_published_total 3
+# HELP app_writer_publish_dropped_total Published values a subscriber's full queue did not take, once per subscriber.
+# TYPE app_writer_publish_dropped_total counter
+app_writer_publish_dropped_total 2
+# HELP app_writer_subscribers Subscriptions to the writer's published values open now (Writer.Subscribe).
+# TYPE app_writer_subscribers gauge
+app_writer_subscribers 1
 # HELP app_live_streams Streams open now.
 # TYPE app_live_streams gauge
 app_live_streams 0
@@ -72,7 +75,7 @@ app_live_paces_total 0
 # TYPE app_sse_budget_limit_bytes gauge
 app_sse_budget_limit_bytes 6.7108864e+07
 `
-	if err := testutil.GatherAndCompare(reg, strings.NewReader(want), "app_writer_commands_total", "app_writer_events_published_total", "app_writer_events_dropped_total", "app_live_streams", "app_live_newest_frame_behind_total", "app_live_paces_total", "app_sse_budget_limit_bytes"); err != nil {
+	if err := testutil.GatherAndCompare(reg, strings.NewReader(want), "app_writer_commands_total", "app_writer_published_total", "app_writer_publish_dropped_total", "app_writer_subscribers", "app_live_streams", "app_live_newest_frame_behind_total", "app_live_paces_total", "app_sse_budget_limit_bytes"); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := testutil.GatherAndCount(reg); err != nil || n < 17 {
