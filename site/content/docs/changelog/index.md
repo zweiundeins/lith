@@ -8,7 +8,7 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.4.3 (2026-10-22)
 
 - `minify`: `Bytes` no longer panics on CSS with a `data:` URI, which made `edge.NewStatic` with `edge.Minify(minify.Bytes)` crash at start. It handed tdewolff's CSS minifier no `minify.M`, which that minifier needs for a data URI; a data URI now comes out in its shorter encoding.
 - `edge`: `Static` hands Minify's function a copy of each file. tdewolff's `(*minify.M).Bytes` renames JavaScript in the array it is given, so a script it saved less than a twentieth of went out as written but scrambled, and did not parse.
