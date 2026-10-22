@@ -71,8 +71,10 @@ func (s *subscription[T]) offer(v any) (wanted, taken bool) {
 
 func (s *subscription[T]) close() { close(s.ch) }
 
-// bus holds the subscriptions. The writer delivers under mu, so a channel
-// never closes while the writer sends on it.
+// bus holds the subscriptions. The writer delivers under mu, and a channel
+// closes only once its entry left subs, so never while the writer sends on
+// it. ctx's AfterFunc and its stop run outside mu: they are the context's
+// code, which may wait for the bus.
 type bus struct {
 	mu     sync.Mutex
 	subs   []entry
@@ -91,38 +93,48 @@ func (e entry) end() {
 
 // add opens s until ctx ends, unless ctx has ended or the writer stopped.
 func (b *bus) add(ctx context.Context, s subscriber) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.closed || ctx.Err() != nil {
+	if ctx.Err() != nil {
 		return false
 	}
 	stop := context.AfterFunc(ctx, func() { b.remove(s) })
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		stop()
+		return false
+	}
 	b.subs = append(b.subs, entry{s: s, stop: stop})
+	b.mu.Unlock()
+	// An AfterFunc that ran before the append found nothing to remove.
+	if ctx.Err() != nil {
+		b.remove(s)
+	}
 	return true
 }
 
 func (b *bus) remove(s subscriber) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	for i, e := range b.subs {
-		if e.s == s {
-			b.subs = slices.Delete(b.subs, i, i+1)
-			e.end()
-			return
-		}
+	i := slices.IndexFunc(b.subs, func(e entry) bool { return e.s == s })
+	if i < 0 {
+		b.mu.Unlock()
+		return
 	}
+	e := b.subs[i]
+	b.subs = slices.Delete(b.subs, i, i+1)
+	b.mu.Unlock()
+	e.end()
 }
 
 // close ends every subscription once the writer has stopped.
 func (b *bus) close() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.closed = true
-	for _, e := range b.subs {
+	subs := b.subs
+	b.subs = nil
+	b.mu.Unlock()
+	for _, e := range subs {
 		e.end()
 	}
-	clear(b.subs)
-	b.subs = nil
 }
 
 func (b *bus) count() int {

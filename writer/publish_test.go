@@ -397,24 +397,119 @@ func TestPublishMatchesTheDynamicType(t *testing.T) {
 	}
 }
 
-// afterFuncs counts the context.AfterFunc registrations on it that are
-// neither run nor stopped.
+// afterFuncs is a context with an AfterFunc method, which context.AfterFunc
+// calls: it counts the registrations, and those neither run nor stopped,
+// and calls hook, if set, on each registration and stop. Its Done is its
+// own and its Value nil, so context.AfterFunc does not take it for a
+// cancelCtx.
 type afterFuncs struct {
-	context.Context
-	open atomic.Int64
+	done        chan struct{}
+	end         sync.Once
+	calls, open atomic.Int64
+	hook        func()
+	ending      bool // the context ends while AfterFunc registers
+}
+
+func newAfterFuncs() *afterFuncs { return &afterFuncs{done: make(chan struct{})} }
+
+func (c *afterFuncs) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *afterFuncs) Done() <-chan struct{}       { return c.done }
+func (c *afterFuncs) Value(any) any               { return nil }
+func (c *afterFuncs) cancel()                     { c.end.Do(func() { close(c.done) }) }
+
+func (c *afterFuncs) Err() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+		return nil
+	}
 }
 
 func (c *afterFuncs) AfterFunc(f func()) func() bool {
+	c.calls.Add(1)
 	c.open.Add(1)
+	if c.hook != nil {
+		c.hook()
+	}
 	var once sync.Once
-	done := func() { once.Do(func() { c.open.Add(-1) }) }
-	stop := context.AfterFunc(c.Context, func() { done(); f() })
-	return func() bool {
-		stopped := stop()
-		if stopped {
-			done()
+	settle := func() (first bool) {
+		once.Do(func() { first = true; c.open.Add(-1) })
+		return first
+	}
+	stopped := make(chan struct{})
+	go func() {
+		select {
+		case <-c.done:
+			if settle() {
+				f()
+			}
+		case <-stopped:
 		}
-		return stopped
+	}()
+	if c.ending {
+		c.cancel()
+	}
+	return func() bool {
+		if c.hook != nil {
+			c.hook()
+		}
+		if !settle() {
+			return false
+		}
+		close(stopped)
+		return true
+	}
+}
+
+// Subscribe and Close run the context's AfterFunc and its stop outside the
+// bus's lock, so a context whose code reads the writer does not deadlock.
+func TestSubscribeCallsTheContextOutsideTheLock(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := newAfterFuncs()
+	ctx.hook = func() { f.w.Stats() }
+	done := make(chan struct{})
+	go func() {
+		f.w.Subscribe[any](ctx, 1)
+		f.w.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Subscribe or Close deadlocked in the context's AfterFunc")
+	}
+	if ctx.calls.Load() != 1 || ctx.open.Load() != 0 {
+		t.Fatalf("%d AfterFunc calls, %d left", ctx.calls.Load(), ctx.open.Load())
+	}
+}
+
+// A subscription whose ctx ends while Subscribe registers its wait ends
+// all the same.
+func TestSubscribeWhoseContextEndsAsItOpens(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := newAfterFuncs()
+	ctx.ending = true
+	closed(t, f.w.Subscribe[any](ctx, 1))
+	if n := f.w.Stats().Subscribers; n != 0 || ctx.calls.Load() != 1 {
+		t.Fatalf("%d subscribers, %d AfterFunc calls", n, ctx.calls.Load())
+	}
+}
+
+// Subscriptions whose ctx ends while they open end all the same.
+func TestSubscribeRacesItsContext(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	for range 200 {
+		ctx := newAfterFuncs()
+		var wg sync.WaitGroup
+		for range 4 {
+			wg.Go(func() { f.w.Subscribe[any](ctx, 1) })
+		}
+		ctx.cancel()
+		wg.Wait()
+		waitFor(t, "the subscriptions to end with their ctx", func() bool {
+			return f.w.Stats().Subscribers == 0 && ctx.open.Load() == 0
+		})
 	}
 }
 
@@ -423,7 +518,7 @@ func (c *afterFuncs) AfterFunc(f func()) func() bool {
 func TestSubscribeRacesClose(t *testing.T) {
 	for range 20 {
 		f := start(t, sqlite.Options{}, Options{})
-		ctx := &afterFuncs{Context: context.Background()}
+		ctx := newAfterFuncs()
 		var wg, running sync.WaitGroup
 		var closed atomic.Bool
 		for range 8 {
@@ -440,6 +535,9 @@ func TestSubscribeRacesClose(t *testing.T) {
 		f.w.Close()
 		closed.Store(true)
 		wg.Wait()
+		if ctx.calls.Load() == 0 {
+			t.Fatal("context.AfterFunc never called the context's AfterFunc")
+		}
 		if n := ctx.open.Load(); n != 0 {
 			t.Fatalf("%d waits for ctx left after Close", n)
 		}
