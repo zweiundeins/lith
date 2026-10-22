@@ -251,11 +251,11 @@ The sender itself is a background job: [Migrations, jobs and imports](/docs/guid
 
 ## In-process listeners
 
-`tx.Publish(v)` hands a value to the writer's subscribers once the batch has committed. Like an `AfterCommit` function, the value is dropped if the command fails, or the savepoint it was published in. `w.Subscribe[T](ctx, n)` returns a channel of the published values of type `T`: `Subscribe[any]` gets all of them, an interface type the values that implement it. The channel closes when `ctx` ends or the writer stops.
+`tx.Publish(v)` hands a value to the writer's subscribers once the batch has committed. Like an `AfterCommit` function, the value is dropped if the command fails, or the savepoint it was published in. `w.Subscribe[T](ctx, n)` returns a channel of the published values whose dynamic type is `T`, or implements `T` when `T` is an interface: `Subscribe[any]` gets all of them. A value published as `*Card` reaches no `Subscribe[Card]`. The channel closes when `ctx` ends or the writer stops. Every subscriber gets the same value, so publish values that nobody changes afterwards: a pointer, a map or a slice is shared.
 
-The values arrive in commit order: batch by batch, the commands of a batch in their order, a command's values in the order it published them. The writer hands them over on its goroutine after the batch's `AfterCommit` functions and `OnCommit`, before any `Do` of the batch returns, and it never waits: each subscriber has a queue of `n`, and a value that finds it full is dropped for that subscriber alone. `w.Stats().Dropped` counts the drops and `Subscribers` the subscriptions open, and Prometheus gets them as `<ns>_writer_publish_dropped_total` and `<ns>_writer_subscribers`.
+The values arrive in commit order: batch by batch, the commands of a batch in their order, a command's values in the order it published them. The writer hands them over on its goroutine after the batch's `AfterCommit` functions and `OnCommit`, also when one of those panicked, and before any `Do` of the batch returns: by then the values are in the subscribers' channels, not yet handled. The writer never waits: each subscriber has a queue of `n`, and a value that finds it full is dropped for that subscriber alone. `w.Stats().Dropped` counts the drops and `Subscribers` the subscriptions open, and Prometheus gets them as `<ns>_writer_publish_dropped_total` and `<ns>_writer_subscribers`.
 
-Publishing is best effort. A value is lost for a subscriber whose queue is full, and for all of them when the process stops between the commit and the delivery. A subscriber gets nothing from before it subscribed, and nothing is replayed. A listener that must not miss anything corrects itself from the data now and then, or reads [`lith/events`](/docs/guides/events) instead.
+Publishing is best effort. A value is lost for a subscriber whose queue is full, and for all of them when the process stops between the commit and the delivery. A subscription gets the values the writer delivers while it is open, also one whose `tx.Publish` ran before `Subscribe` was called, and none delivered before; nothing is replayed. A listener that must not miss anything corrects itself from the data now and then, or reads [`lith/events`](/docs/guides/events) instead. `w.Exclusive` runs no command, so it publishes nothing: to tell the listeners, follow it with a `Do` whose command only publishes.
 
 Pages need none of this. Views render from the database, and `tx.Touch` already renders every view that shows what changed. A passing effect, such as a pulse on a card someone just edited, comes from the data too: the row keeps when and by whom it was edited, and the view adds a class while the edit is recent. An outcome a tab must show, such as a saved form, a validation error or a refused move, is the tab's state, written by the command and rendered by the tab's view, so it survives a stream that reconnects and a reload.
 
@@ -274,36 +274,40 @@ The board publishes an `Assigned` value when a card gets someone:
 tx.Publish(Assigned{Card: c.Card, From: from, To: c.Email}) // for in-process listeners, such as Workload
 ```
 
-`Workload` keeps each person's open cards in memory for a metric. The values keep it current, and a count from the cards table corrects it every interval: after a dropped value, and after changes that publish nothing, such as an archive. It subscribes before its first count, so no commit falls between the two:
+`Workload` keeps each person's open cards in memory for a metric. It counts them from the cards table now and then, and the count must not race the values: a count read beside the writer could already hold an assignment whose value is still on its way, and the listener would apply it twice. So the count is a command too. It reads in the writer's transaction and publishes what it read, and the count reaches the listener in commit order with the `Assigned` values: it holds every assignment before it and none after.
 
 ```go source=site/internal/docs/example/board/workload.go
-// Run follows the writer's Assigned values, and counts from the database
-// every interval, until ctx ends or the writer stops.
-func (l *Workload) Run(ctx context.Context, db *sqlite.DB, w *writer.Writer, every time.Duration, log *slog.Logger) {
-	assigned := w.Subscribe[Assigned](ctx, 256) // before the count, so that no commit falls between
-	t := time.NewTicker(every)
-	defer t.Stop()
-	l.count(ctx, db, log)
-	for {
-		select {
-		case a, ok := <-assigned:
-			if !ok {
-				return
-			}
-			l.mu.Lock()
-			if l.open == nil { // no count went through yet
-				l.open = map[string]int{}
-			}
-			l.open[a.From]--
-			l.open[a.To]++
-			delete(l.open, "")
-			l.mu.Unlock()
-		case <-t.C:
-			l.count(ctx, db, log)
+func (CountOpen) Apply(tx *writer.Tx) error {
+	open, err := OpenCards(tx.Context(), tx)
+	if err != nil {
+		return err
+	}
+	tx.Publish(OpenCount(open))
+	return nil
+}
+```
+
+The listener subscribes to an interface that both values implement, asks for a count at once and every interval, replaces its state with a count and adds the values that follow it:
+
+```go source=site/internal/docs/example/board/workload.go
+func (l *Workload) apply(c WorkloadChange) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch c := c.(type) {
+	case OpenCount:
+		l.open = maps.Clone(c) // the count is shared, and this copy changes
+	case Assigned:
+		if l.open == nil {
+			return // the first count, still to come, holds it
 		}
+		l.open[c.From]--
+		l.open[c.To]++
+		delete(l.open, "")
 	}
 }
 ```
+
+Between two counts `Workload` is exact unless its queue dropped a value, or a change published none, such as an archive; the next count puts both right.
 
 A command that publishes nothing costs the writer nothing more, and each subscriber costs it a type check per published value.
 

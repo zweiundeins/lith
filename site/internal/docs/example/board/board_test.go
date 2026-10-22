@@ -345,32 +345,33 @@ func TestOutbox(t *testing.T) {
 	}
 }
 
-// The Assigned values move cards between people at once; an archive
-// publishes none, and the next count takes the card off.
+// A count holds the assignments before it and none after, also in one
+// batch with them; an archive publishes nothing, and the next count takes
+// the card off.
 func TestWorkload(t *testing.T) {
-	db, w, _ := open(t)
+	_, w, _ := open(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	for _, title := range []string{"a", "b", "c"} {
+		if err := w.Do(ctx, board.AddCard{Lane: 1, Title: title}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assign := func(card int64, who string) board.Assign {
+		return board.Assign{Card: card, Email: who + "@example.com", At: now}
+	}
+	if err := w.Do(ctx, assign(1, "ada")); err != nil { // before the first count
+		t.Fatal(err)
+	}
 	var l board.Workload
 	done := make(chan struct{})
 	go func() {
-		l.Run(ctx, db, w, 20*time.Millisecond, slog.Default())
+		l.Run(ctx, w, time.Hour, slog.Default()) // no count but the first and the test's
 		close(done)
 	}()
 	defer func() {
 		cancel()
 		<-done
 	}()
-	for _, title := range []string{"a", "b"} {
-		if err := w.Do(ctx, board.AddCard{Lane: 1, Title: title}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, a := range []board.Assign{{Card: 1, Email: "ada"}, {Card: 2, Email: "ada"}, {Card: 2, Email: "bob"}} {
-		a.Email += "@example.com"
-		if err := w.Do(ctx, a); err != nil {
-			t.Fatal(err)
-		}
-	}
 	wait := func(ada, bob int) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
@@ -381,11 +382,30 @@ func TestWorkload(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-	wait(1, 1)
+	wait(1, 0)
+
+	// One batch: an assignment, a count, an assignment.
+	started, gate := make(chan struct{}), make(chan struct{})
+	go w.Do(ctx, writer.Func(func(*writer.Tx) error { close(started); <-gate; return nil }))
+	<-started
+	for _, cmd := range []writer.Command{assign(2, "ada"), board.CountOpen{}, assign(3, "bob")} {
+		if err := w.Send(cmd); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(gate)
+	if err := w.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wait(2, 1)
+
 	if err := w.Do(ctx, board.ArchiveCards{Board: 1, Cards: []int64{1}, At: now}); err != nil {
 		t.Fatal(err)
 	}
-	wait(0, 1)
+	if err := w.Do(ctx, board.CountOpen{}); err != nil {
+		t.Fatal(err)
+	}
+	wait(1, 1)
 }
 
 func TestImport(t *testing.T) {

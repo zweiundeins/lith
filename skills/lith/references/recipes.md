@@ -231,15 +231,20 @@ After `Do`, `op.Result()` holds the first run's result (the card's id) and
 `tx.Publish(v)` hands a value to the writer's subscribers once the batch
 commits; a failed command, or a rolled-back savepoint, drops it like an
 `AfterCommit` function. `w.Subscribe[T](ctx, n)` returns a channel of the
-values of type `T` (`any` for all, an interface for its implementers), in
-commit order, handed over after `AfterCommit` and `OnCommit` and before `Do`
-returns. The channel closes when ctx ends or the writer stops.
+values whose dynamic type is `T` (`any` for all, an interface for its
+implementers; a `*Card` reaches no `Subscribe[Card]`), in commit order,
+queued after `AfterCommit` and `OnCommit` (even when they panic) and before
+`Do` returns; queued, not handled. The channel closes when ctx ends or the
+writer stops. Subscribers share each value: publish values nobody changes.
 
 It is best effort: each subscriber has a queue of n, and a full queue drops
 the value for that subscriber (`Stats.Dropped`,
 `<ns>_writer_publish_dropped_total`); a crash between commit and delivery
-loses it; nothing is replayed. `Stats.Subscribers` (`<ns>_writer_subscribers`)
-counts the subscriptions open: one that only grows has a ctx that never ends.
+loses it; a subscription gets what is delivered while it is open; nothing
+is replayed. `Stats.Subscribers` (`<ns>_writer_subscribers`) counts the
+subscriptions open: one that only grows has a ctx that never ends.
+`w.Exclusive` runs no command and publishes nothing: follow it with a `Do`
+that only publishes.
 
 Pages need none of it. Views render from the database and `tx.Touch`
 renders every view that shows the change. A passing effect (a pulse on a
@@ -259,28 +264,43 @@ Pick by who must hear of the change and what may miss it:
 - `lith/events`: a durable log with projectors that catch up after a
   restart.
 
-A listener with a reconcile: subscribe first, count from the data, then
-apply values and count again every interval.
+A listener with a reconcile counts through the writer, never beside it: a
+count read on `db.R` can already hold a change whose value is still on its
+way, which the listener then applies twice. The count is a command that
+reads in the writer's transaction and publishes a snapshot, so it arrives
+in commit order with the deltas. The listener subscribes first, sends the
+count, replaces its state on a snapshot and adds the deltas after it:
 
 ```go
-func (l *Workload) Run(ctx context.Context, db *sqlite.DB, w *writer.Writer, every time.Duration) {
-	assigned := w.Subscribe[Assigned](ctx, 256) // before the count: no commit falls between
-	t := time.NewTicker(every)
-	defer t.Stop()
-	l.count(ctx, db)
-	for {
-		select {
-		case a, ok := <-assigned:
-			if !ok {
-				return // ctx ended or the writer stopped
-			}
-			l.move(a.From, a.To)
-		case <-t.C:
-			l.count(ctx, db) // corrects drops and changes that publish nothing
+type CountOpen struct{}
+
+func (CountOpen) Apply(tx *writer.Tx) error {
+	open, err := OpenCards(tx.Context(), tx)
+	if err != nil {
+		return err
+	}
+	tx.Publish(OpenCount(open)) // a snapshot: every assignment before it, none after
+	return nil
+}
+
+// changes := w.Subscribe[WorkloadChange](ctx, 256), then w.Send(CountOpen{})
+// at once and every interval, and for each change:
+func (l *Workload) apply(c WorkloadChange) {
+	switch c := c.(type) {
+	case OpenCount:
+		l.open = maps.Clone(c) // shared with every subscriber
+	case Assigned:
+		if l.open == nil {
+			return // the first count, still to come, holds it
 		}
+		l.open[c.From]--
+		l.open[c.To]++
 	}
 }
 ```
+
+Between counts it is exact unless its queue dropped a value or a change
+published none; the next count puts both right.
 
 ## Query code for reads and commands
 

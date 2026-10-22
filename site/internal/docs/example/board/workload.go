@@ -2,8 +2,8 @@ package board
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -17,14 +17,39 @@ type Assigned struct {
 	From, To string // From is empty for a card nobody had
 }
 
-// Workload keeps each person's open cards in memory, for a metric. The
-// Assigned values keep it current, and a count from the cards table
-// corrects it now and then: a value its full queue dropped, and changes
-// that publish none, such as an archive, are right again after the next
-// count.
+// OpenCount is what CountOpen publishes: each person's open cards. Every
+// subscriber gets the same map, so nobody changes it.
+type OpenCount map[string]int
+
+// A WorkloadChange is a value Workload follows: Assigned or OpenCount.
+type WorkloadChange interface{ workloadChange() }
+
+func (Assigned) workloadChange()  {}
+func (OpenCount) workloadChange() {}
+
+// CountOpen counts each person's open cards in the writer's transaction and
+// publishes the count, so that it reaches the subscribers in commit order
+// with the Assigned values: the count holds every assignment before it,
+// and none after.
+type CountOpen struct{}
+
+func (CountOpen) Apply(tx *writer.Tx) error {
+	open, err := OpenCards(tx.Context(), tx)
+	if err != nil {
+		return err
+	}
+	tx.Publish(OpenCount(open))
+	return nil
+}
+
+// Workload keeps each person's open cards in memory, for a metric. A count
+// replaces what it holds, and the Assigned values after the count move
+// cards from one person to another. Between counts it is exact unless its
+// queue dropped a value, or a change published none, such as an archive;
+// the next count puts both right.
 type Workload struct {
 	mu   sync.Mutex
-	open map[string]int
+	open map[string]int // nil until the first count arrives
 }
 
 // Open returns how many open cards who has.
@@ -34,42 +59,45 @@ func (l *Workload) Open(who string) int {
 	return l.open[who]
 }
 
-// Run follows the writer's Assigned values, and counts from the database
-// every interval, until ctx ends or the writer stops.
-func (l *Workload) Run(ctx context.Context, db *sqlite.DB, w *writer.Writer, every time.Duration, log *slog.Logger) {
-	assigned := w.Subscribe[Assigned](ctx, 256) // before the count, so that no commit falls between
+// Run asks the writer for a count at once and every interval, and follows
+// the counts and the Assigned values until ctx ends or the writer stops.
+func (l *Workload) Run(ctx context.Context, w *writer.Writer, every time.Duration, log *slog.Logger) {
+	changes := w.Subscribe[WorkloadChange](ctx, 256) // before the first count, so that it arrives
+	count := func() {
+		if err := w.Send(CountOpen{}); err != nil {
+			log.Warn("workload: count", "err", err)
+		}
+	}
+	count()
 	t := time.NewTicker(every)
 	defer t.Stop()
-	l.count(ctx, db, log)
 	for {
 		select {
-		case a, ok := <-assigned:
+		case c, ok := <-changes:
 			if !ok {
 				return
 			}
-			l.mu.Lock()
-			if l.open == nil { // no count went through yet
-				l.open = map[string]int{}
-			}
-			l.open[a.From]--
-			l.open[a.To]++
-			delete(l.open, "")
-			l.mu.Unlock()
+			l.apply(c)
 		case <-t.C:
-			l.count(ctx, db, log)
+			count()
 		}
 	}
 }
 
-func (l *Workload) count(ctx context.Context, db *sqlite.DB, log *slog.Logger) {
-	open, err := db.ViewValue(ctx, func(tx *sql.Tx) (map[string]int, error) { return OpenCards(ctx, tx) })
-	if err != nil {
-		log.Warn("workload: count", "err", err)
-		return
-	}
+func (l *Workload) apply(c WorkloadChange) {
 	l.mu.Lock()
-	l.open = open
-	l.mu.Unlock()
+	defer l.mu.Unlock()
+	switch c := c.(type) {
+	case OpenCount:
+		l.open = maps.Clone(c) // the count is shared, and this copy changes
+	case Assigned:
+		if l.open == nil {
+			return // the first count, still to come, holds it
+		}
+		l.open[c.From]--
+		l.open[c.To]++
+		delete(l.open, "")
+	}
 }
 
 // OpenCards counts each person's cards on the boards.

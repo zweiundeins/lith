@@ -250,7 +250,7 @@ func (c Assign) Apply(tx *writer.Tx) error {
 	var board int64
 	var title, from string
 	err := tx.QueryRow(`SELECT l.board_id, c.title, coalesce(c.assignee, '') FROM cards c JOIN lanes l ON l.id = c.lane_id
-		WHERE c.id = ?`, c.Card).Scan(&board, &title, &from)
+		WHERE c.id = ? AND c.archived IS NULL`, c.Card).Scan(&board, &title, &from)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}

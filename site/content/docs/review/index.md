@@ -75,7 +75,11 @@ rg -n 'Once(Result)?\([a-z]+\.(Op|ID|Key)\b' --type go
 
 ### A publish after Do returns
 
-An app that publishes to its own bus once `w.Do` returns publishes in the order the handlers wake up, not the order the commands committed, and also publishes for a command that failed. Publish inside the command with `tx.Publish`, which keeps commit order and drops the value of a failed command, or use `tx.AfterCommit` for a side effect of that command ([Commands](/docs/guides/commands#in-process-listeners)).
+An app that publishes a command's change to its own bus once `w.Do` returns publishes in the order the handlers wake up, not the order the commands committed, and publishes for a command that failed when the caller ignores `Do`'s error or publishes beside it. Publish inside the command with `tx.Publish`, which keeps commit order and drops the value of a failed command, or use `tx.AfterCommit` for a side effect of that command ([Commands](/docs/guides/commands#in-process-listeners)). A publish tied to no commit, such as a signal for one tab, a tick or a notice after an `Exclusive`, is fine on the app's own bus. Look at the lines after each `Do`:
+
+```sh
+rg -n -A4 '\.Do\(' --type go -g '!*_test.go' | rg -i 'publish|broadcast|emit\('
+```
 
 ## Reads
 

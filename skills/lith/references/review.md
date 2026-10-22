@@ -36,9 +36,13 @@ pattern matches.
   another user's op id turn that user's command into a no-op, or read its
   recorded result. `rg -n 'Once(Result)?\([a-z]+\.(Op|ID|Key)\b' --type go`
   finds the plainest case.
-- A publish to the app's own bus after `w.Do` returns loses commit order and
-  publishes for failed commands: publish in the command with `tx.Publish`,
-  or `tx.AfterCommit` for a side effect of that command.
+- ``rg -n -A4 '\.Do\(' --type go -g '!*_test.go' | rg -i 'publish|broadcast|emit\('``:
+  a publish to the app's own bus after `w.Do` returns, for a change a
+  command made, loses commit order, and publishes for a failed command when
+  the caller ignores or races `Do`'s error. Publish in the command with
+  `tx.Publish`, or use `tx.AfterCommit` for a side effect of that command.
+  A publish tied to no commit (a signal for one tab, a tick, a notice after
+  an `Exclusive`) is fine on the app's own bus.
 
 ## Reads
 
