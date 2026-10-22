@@ -42,7 +42,10 @@ pattern matches.
   the caller ignores or races `Do`'s error. Publish in the command with
   `tx.Publish`, or use `tx.AfterCommit` for a side effect of that command.
   A publish tied to no commit (a signal for one tab, a tick, a notice after
-  an `Exclusive`) is fine on the app's own bus.
+  an `Exclusive`) is fine on the app's own bus. The pattern is a heuristic:
+  it also matches the path of a file and a correct `tx.Publish` in a
+  `writer.Func` passed to `Do`, and misses a publish more than four lines
+  after `Do(`.
 
 ## Reads
 

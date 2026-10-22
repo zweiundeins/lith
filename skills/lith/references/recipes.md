@@ -286,6 +286,8 @@ func (CountOpen) Apply(tx *writer.Tx) error {
 // changes := w.Subscribe[WorkloadChange](ctx, 256), then w.Send(CountOpen{})
 // at once and every interval, and for each change:
 func (l *Workload) apply(c WorkloadChange) {
+	l.mu.Lock() // Open reads l.open from other goroutines
+	defer l.mu.Unlock()
 	switch c := c.(type) {
 	case OpenCount:
 		l.open = maps.Clone(c) // shared with every subscriber
@@ -295,12 +297,15 @@ func (l *Workload) apply(c WorkloadChange) {
 		}
 		l.open[c.From]--
 		l.open[c.To]++
+		delete(l.open, "") // From is "" for a card nobody had
 	}
 }
 ```
 
 Between counts it is exact unless its queue dropped a value or a change
-published none; the next count puts both right.
+published none; the next count puts both right. The count runs inside a
+writer batch, so every other write waits for it: keep it cheap (an index
+covers it) or infrequent.
 
 ## Query code for reads and commands
 

@@ -81,6 +81,8 @@ An app that publishes a command's change to its own bus once `w.Do` returns publ
 rg -n -A4 '\.Do\(' --type go -g '!*_test.go' | rg -i 'publish|broadcast|emit\('
 ```
 
+The pattern is a heuristic: it also matches the path of a file and a correct `tx.Publish` in a `writer.Func` passed to `Do`, and misses a publish more than four lines after `Do(`.
+
 ## Reads
 
 - **A render that opens its own transactions.** A render reads through the transaction it is given: `sqlite.QuerierFrom(ctx)`, or a store whose `db.View(ctx, fn)` joins the render's. One that opens transactions of its own, one for the list and one per open dialog, mixes snapshots and shows two moments at once.

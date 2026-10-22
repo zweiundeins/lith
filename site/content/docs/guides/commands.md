@@ -274,7 +274,7 @@ The board publishes an `Assigned` value when a card gets someone:
 tx.Publish(Assigned{Card: c.Card, From: from, To: c.Email}) // for in-process listeners, such as Workload
 ```
 
-`Workload` keeps each person's open cards in memory for a metric. It counts them from the cards table now and then, and the count must not race the values: a count read beside the writer could already hold an assignment whose value is still on its way, and the listener would apply it twice. So the count is a command too. It reads in the writer's transaction and publishes what it read, and the count reaches the listener in commit order with the `Assigned` values: it holds every assignment before it and none after.
+`Workload` keeps each person's open cards in memory for a metric. It counts them from the cards table now and then, and the count must not race the values: a count read beside the writer could already hold an assignment whose value is still on its way, and the listener would apply it twice. So the count is a command too. It reads in the writer's transaction and publishes what it read, and the count reaches the listener in commit order with the `Assigned` values: it holds every assignment before it and none after. The count runs inside a writer batch, so every other write waits while it reads: keep such a count cheap, with an index that covers it, or infrequent.
 
 ```go source=site/internal/docs/example/board/workload.go
 func (CountOpen) Apply(tx *writer.Tx) error {
