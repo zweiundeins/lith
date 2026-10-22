@@ -226,6 +226,61 @@ err := s.w.Do(r.Context(), op) // the same *writer.Refusal on every retry
 After `Do`, `op.Result()` holds the first run's result (the card's id) and
 `op.Replayed()` tells a retry. `writer.PruneOnce` forgets old keys of both.
 
+## In-process listeners
+
+`tx.Publish(v)` hands a value to the writer's subscribers once the batch
+commits; a failed command, or a rolled-back savepoint, drops it like an
+`AfterCommit` function. `w.Subscribe[T](ctx, n)` returns a channel of the
+values of type `T` (`any` for all, an interface for its implementers), in
+commit order, handed over after `AfterCommit` and `OnCommit` and before `Do`
+returns. The channel closes when ctx ends or the writer stops.
+
+It is best effort: each subscriber has a queue of n, and a full queue drops
+the value for that subscriber (`Stats.Dropped`,
+`<ns>_writer_events_dropped_total`); a crash between commit and delivery
+loses it; nothing is replayed.
+
+Pages need none of it. Views render from the database and `tx.Touch`
+renders every view that shows the change. A passing effect (a pulse on a
+card just edited) comes from data too: the row's edited-at and edited-by,
+and the view adds a class while the edit is recent. A tab's outcome (saved,
+a validation error, a refused move) is tab state, written by the command,
+so it survives a reconnect and a reload.
+
+Pick by who must hear of the change and what may miss it:
+
+- `tx.Touch`: views. Nothing misses it; views read the database.
+- `tx.AfterCommit`: a side effect of this one command (wake the outbox's
+  sender). Keep the work in a table, so a crash before `fn` loses nothing.
+- `tx.Publish`: in-process listeners outside the views (notifications and
+  mail, achievements, an admin firehose, metrics, caches, webhooks). Each
+  may miss a value, so one that must be right reconciles from the data.
+- `lith/events`: a durable log with projectors that catch up after a
+  restart.
+
+A listener with a reconcile: subscribe first, count from the data, then
+apply values and count again every interval.
+
+```go
+func (l *Workload) Run(ctx context.Context, db *sqlite.DB, w *writer.Writer, every time.Duration) {
+	assigned := w.Subscribe[Assigned](ctx, 256) // before the count: no commit falls between
+	t := time.NewTicker(every)
+	defer t.Stop()
+	l.count(ctx, db)
+	for {
+		select {
+		case a, ok := <-assigned:
+			if !ok {
+				return // ctx ended or the writer stopped
+			}
+			l.move(a.From, a.To)
+		case <-t.C:
+			l.count(ctx, db) // corrects drops and changes that publish nothing
+		}
+	}
+}
+```
+
 ## Query code for reads and commands
 
 A query written once against `sqlite.Querier` serves a GET, a view and a

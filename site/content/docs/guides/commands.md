@@ -69,7 +69,7 @@ Three parts of it carry the rules:
 - The check that reads before it writes, whether the lane has room, is inside `Apply`. The command sees every command queued before it, and nothing changes between its read and its write, so there is no retry loop.
 - `tx.Touch(Topic(board))` names what changed. After the batch commits, the writer hands the touched topics to `Options.OnCommit`, which is `hub.Changed`, and every view that lists one of them renders again in the next tick. A command that touches nothing leaves every page as it was.
 
-An error from `Apply`, or a panic, rolls back the command's savepoint: its changes, its topics and its `AfterCommit` functions go, and the other commands of the batch commit without it. A panic comes back as an error that wraps `writer.ErrPanic`, and the log gets its stack.
+An error from `Apply`, or a panic, rolls back the command's savepoint: its changes, its topics, its `AfterCommit` functions and its published values go, and the other commands of the batch commit without it. A panic comes back as an error that wraps `writer.ErrPanic`, and the log gets its stack.
 
 For a one-off change, `writer.Func` makes a command of a function:
 
@@ -249,6 +249,64 @@ func (o *Outbox) Wake() {
 
 The sender itself is a background job: [Migrations, jobs and imports](/docs/guides/migrations-and-jobs#background-jobs) has it.
 
+## In-process listeners
+
+`tx.Publish(v)` hands a value to the writer's subscribers once the batch has committed. Like an `AfterCommit` function, the value is dropped if the command fails, or the savepoint it was published in. `w.Subscribe[T](ctx, n)` returns a channel of the published values of type `T`: `Subscribe[any]` gets all of them, an interface type the values that implement it. The channel closes when `ctx` ends or the writer stops.
+
+The values arrive in commit order: batch by batch, the commands of a batch in their order, a command's values in the order it published them. The writer hands them over on its goroutine after the batch's `AfterCommit` functions and `OnCommit`, before any `Do` of the batch returns, and it never waits: each subscriber has a queue of `n`, and a value that finds it full is dropped for that subscriber alone. `w.Stats().Dropped` counts the drops, and Prometheus gets them as `<ns>_writer_events_dropped_total`.
+
+Publishing is best effort. A value is lost for a subscriber whose queue is full, and for all of them when the process stops between the commit and the delivery. A subscriber gets nothing from before it subscribed, and nothing is replayed. A listener that must not miss anything corrects itself from the data now and then, or reads [`lith/events`](/docs/guides/events) instead.
+
+Pages need none of this. Views render from the database, and `tx.Touch` already renders every view that shows what changed. A passing effect, such as a pulse on a card someone just edited, comes from the data too: the row keeps when and by whom it was edited, and the view adds a class while the edit is recent. An outcome a tab must show, such as a saved form, a validation error or a refused move, is the tab's state, written by the command and rendered by the tab's view, so it survives a stream that reconnects and a reload.
+
+`Publish` is for listeners in the process outside the views: notifications and mail, achievements, an admin's firehose, metrics, caches, webhooks. Which tool a change needs depends on who must hear of it, and on what may miss it:
+
+| Tool | For | What can miss it |
+| --- | --- | --- |
+| `tx.Touch(topics...)` | the views that read the topics, which render again | nothing: views render from the database, so a page that reconnects or reloads gets the current state |
+| `tx.AfterCommit(fn)` | a side effect of this one command, such as waking the outbox's sender | a crash between the commit and `fn`: keep the work in a table, as the outbox does, and let `fn` only wake it |
+| `tx.Publish(v)` | in-process listeners outside the views | a full queue, a crash before the delivery, a listener that subscribes later: a listener that must be right reconciles from the data |
+| [`lith/events`](/docs/guides/events) | projectors and other readers of a durable log | nothing: the events are rows of the command's transaction, and a projector catches up from its checkpoint after a restart |
+
+The board publishes an `Assigned` value when a card gets someone:
+
+```go source=site/internal/docs/example/board/commands.go
+tx.Publish(Assigned{Card: c.Card, From: from, To: c.Email}) // for in-process listeners, such as Workload
+```
+
+`Workload` keeps each person's open cards in memory for a metric. The values keep it current, and a count from the cards table corrects it every interval: after a dropped value, and after changes that publish nothing, such as an archive. It subscribes before its first count, so no commit falls between the two:
+
+```go source=site/internal/docs/example/board/workload.go
+// Run follows the writer's Assigned values, and counts from the database
+// every interval, until ctx ends or the writer stops.
+func (l *Workload) Run(ctx context.Context, db *sqlite.DB, w *writer.Writer, every time.Duration, log *slog.Logger) {
+	assigned := w.Subscribe[Assigned](ctx, 256) // before the count, so that no commit falls between
+	t := time.NewTicker(every)
+	defer t.Stop()
+	l.count(ctx, db, log)
+	for {
+		select {
+		case a, ok := <-assigned:
+			if !ok {
+				return
+			}
+			l.mu.Lock()
+			if l.open == nil { // no count went through yet
+				l.open = map[string]int{}
+			}
+			l.open[a.From]--
+			l.open[a.To]++
+			delete(l.open, "")
+			l.mu.Unlock()
+		case <-t.C:
+			l.count(ctx, db, log)
+		}
+	}
+}
+```
+
+A command that publishes nothing costs the writer nothing more, and each subscriber costs it a type check per published value.
+
 ## Statements
 
 The writer prepares each SQL text once, on its connection, and keeps the 512 used last. modernc's SQLite parses and plans every statement that has no prepared one, and in kanban that took 41% of the writer's CPU before the cache. So build SQL from constants and pass values as arguments.
@@ -316,4 +374,4 @@ The decision is a pure function of the command and the card's state, folded from
 | `CheckpointPages` | 1000 | the WAL pages between the writer's checkpoints, with `sqlite.CheckpointWriter` |
 | `Log` | `slog.Default()` | panics, failed batches, failed `Send`s, maintenance errors |
 
-`w.Stats()` counts batches, commands, failures, the largest batch, the queue's length, the last commit's time and the p99 of the last 1024 commits. [Metrics and monitoring](/docs/guides/monitoring) puts them in Prometheus, and [Performance](/docs/performance/writer) has what the writer does on one machine.
+`w.Stats()` counts batches, commands, failures, the largest batch, the queue's length, the last commit's time, the p99 of the last 1024 commits, and the values published and dropped. [Metrics and monitoring](/docs/guides/monitoring) puts them in Prometheus, and [Performance](/docs/performance/writer) has what the writer does on one machine.

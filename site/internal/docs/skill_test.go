@@ -66,6 +66,7 @@ func TestSkill(t *testing.T) {
 			"Start a new project":                    "/docs/getting-started",
 			"Wire a project":                         "/docs/getting-started/wiring",
 			"A command":                              "/docs/guides/commands#a-command",
+			"In-process listeners":                   "/docs/guides/commands#in-process-listeners",
 			"Query code for reads and commands":      "/docs/guides/reads#query-code-that-every-reader-shares",
 			"A view":                                 "/docs/guides/views#a-shared-view",
 			"Views in a shared database, per person": "/docs/guides/views#views-in-a-shared-database-per-person",

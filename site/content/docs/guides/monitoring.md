@@ -18,6 +18,7 @@ A lith app measures itself: `w.Stats()`, `hub.Stats()` and `hub.Budget().Stats()
 | | `Queue` | commands waiting now; a queue that stays long means the writer cannot keep up |
 | | `P99Commit` | the 99th percentile of the last 1024 transactions, from `BEGIN` to the end of `COMMIT` |
 | | `Running` | how long the command under way has run: every other command waits, so one that climbs is a command that blocks, where a slow disk shows in `P99Commit` |
+| | `Published`, `Dropped` | values committed commands published (`tx.Publish`), and those a subscriber's full queue dropped: a listener that falls behind ([Commands: in-process listeners](/docs/guides/commands#in-process-listeners)) |
 | `live.Stats` | `Ticks`, `Renders` | renders per tick |
 | | `Overruns` | ticks that took longer than the tick (50 ms): frames come late for everyone |
 | | `FramesSent`, `FramesDropped` | frames written to streams, and frames a newer one replaced before their stream sent them: slow clients |
@@ -83,6 +84,7 @@ The metrics, with the namespace `app`:
 | --- | --- |
 | `app_writer_batches_total`, `app_writer_commands_total`, `app_writer_command_failures_total`, `app_writer_busy_seconds_total` | `lith/prom` |
 | `app_writer_queue`, `app_writer_batch_max`, `app_writer_commit_p99_seconds`, `app_writer_command_running_seconds` | `lith/prom` |
+| `app_writer_events_published_total`, `app_writer_events_dropped_total` | `lith/prom` |
 | `app_live_ticks_total`, `app_live_renders_total`, `app_live_tick_overruns_total`, `app_live_read_txs_total` | `lith/prom` |
 | `app_live_frames_sent_total`, `app_live_frames_dropped_total`, `app_live_renders_deferred_total`, `app_live_streams`, `app_live_views` | `lith/prom` |
 | `app_live_newest_frame_behind_total`, `app_live_newest_frame_behind_streams_total`, `app_live_paces_total`, `app_live_releases_total`, `app_live_acks_total` | `lith/prom` |

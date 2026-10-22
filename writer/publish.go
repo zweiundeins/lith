@@ -17,7 +17,7 @@ import (
 // it full is dropped for this subscriber alone and counted in
 // Stats.Dropped. The channel closes once ctx ends or the writer stops.
 //
-// The bus is best effort and in process. A value is lost when its
+// Delivery is best effort and in process. A value is lost when its
 // subscriber's queue is full, and when the process stops between the
 // commit and the delivery; a subscriber gets nothing published before it
 // subscribed, and nothing is replayed. A listener that must not miss

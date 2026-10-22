@@ -149,7 +149,8 @@ type Options struct {
 	// OnCommit is called on the writer's goroutine once per committed
 	// batch, with the topics its successful commands touched, sorted and
 	// without duplicates (nil if none). It runs after the batch's
-	// AfterCommit functions and before any Do returns. It must not block.
+	// AfterCommit functions, before the values its commands published
+	// reach the subscribers, and before any Do returns. It must not block.
 	OnCommit func(topics []string)
 	// OptimizeEvery is how often the writer runs PRAGMA optimize between
 	// batches (default 6h, negative: only on Close).
@@ -237,6 +238,8 @@ type Stats struct {
 	P99Commit  time.Duration // 99th percentile of the last 1024 batches
 	Busy       time.Duration // time spent in batches
 	Running    time.Duration // how long the command under way has run, 0 between commands
+	Published  int64         // values committed commands published (Tx.Publish)
+	Dropped    int64         // values a subscriber's full queue did not take, once per subscriber
 	// Sizes counts the batches by the commands they took, in powers of
 	// two: Sizes[0] those of one command, Sizes[i] those of 2^i to
 	// 2^(i+1)-1, the last those of 1024 and more. They add up to Batches.
@@ -304,6 +307,14 @@ func (t *Tx) Local(key any) any
 
 Local returns the value SetLocal stored under key on this writer, or nil. Packages built on the writer keep there what they know of its database, such as whether their tables exist: one package-level value can then serve the databases of many writers, a database per account among them. Commands run one at a time, so Local needs no lock.
 
+#### func (*Tx) Publish {#Tx.Publish}
+
+```go
+func (t *Tx) Publish(v any)
+```
+
+Publish hands v to the writer's subscribers (Writer.Subscribe) once the batch has committed, after its AfterCommit functions and OnCommit. Like an AfterCommit function, v is dropped if the command fails, or the savepoint it was published in. Delivery is best effort: see Subscribe. A nil v is ignored.
+
 #### func (*Tx) Query {#Tx.Query}
 
 ```go
@@ -358,7 +369,7 @@ QueryUncached is Query for SQL built at runtime, without the statement cache. Ro
 func (t *Tx) Savepoint(fn func(*Tx) error) error
 ```
 
-Savepoint runs fn in a nested savepoint. If fn returns an error or panics, its changes are rolled back, the topics it touched and the functions it registered are dropped, and its error is returned: the command can go on.
+Savepoint runs fn in a nested savepoint. If fn returns an error or panics, its changes are rolled back, the topics it touched, the functions it registered and the values it published are dropped, and its error is returned: the command can go on.
 
 #### func (*Tx) SetLocal {#Tx.SetLocal}
 
@@ -382,7 +393,7 @@ Touch records that the command changed what the topics name. If the command succ
 func (t *Tx) Untouched(fn func(*Tx) error) error
 ```
 
-Untouched runs fn and drops the topics it touched, while its changes and its AfterCommit functions stay: for writes that no view reads yet, such as a table being filled to replace another. It returns fn's error and undoes nothing; run fn in a Savepoint for that.
+Untouched runs fn and drops the topics it touched, while its changes, its AfterCommit functions and its published values stay: for writes that no view reads yet, such as a table being filled to replace another. It returns fn's error and undoes nothing; run fn in a Savepoint for that.
 
 ### type Validator {#Validator}
 
@@ -500,3 +511,21 @@ func (w *Writer) Stats() Stats
 ```
 
 Stats reads the counters.
+
+#### func (*Writer) Subscribe {#Writer.Subscribe}
+
+```go
+func (w *Writer) Subscribe[T any](ctx context.Context, n int) <-chan T
+```
+
+Subscribe returns a channel of the values that committed commands publish (Tx.Publish) and that are of type T: Subscribe\[any] gets all of them, an interface type the values that implement it. They arrive in commit order: batch by batch, the commands of a batch in their order, and a command's values in the order it published them. The writer hands them over on its goroutine once the batch's AfterCommit functions and OnCommit have run, before any Do of the batch returns, and never waits: the channel holds n values (at least 1), and a value that finds it full is dropped for this subscriber alone and counted in Stats.Dropped. The channel closes once ctx ends or the writer stops.
+
+Delivery is best effort and in process. A value is lost when its subscriber's queue is full, and when the process stops between the commit and the delivery; a subscriber gets nothing published before it subscribed, and nothing is replayed. A listener that must not miss anything reconciles from the data now and then, or reads the events package's streams instead.
+
+```go
+go func() {
+	for m := range w.Subscribe[CardMoved](ctx, 256) {
+		notify(m.Board, m.Card)
+	}
+}()
+```

@@ -248,9 +248,9 @@ func (c Assign) Validate() error {
 
 func (c Assign) Apply(tx *writer.Tx) error {
 	var board int64
-	var title string
-	err := tx.QueryRow(`SELECT l.board_id, c.title FROM cards c JOIN lanes l ON l.id = c.lane_id
-		WHERE c.id = ?`, c.Card).Scan(&board, &title)
+	var title, from string
+	err := tx.QueryRow(`SELECT l.board_id, c.title, coalesce(c.assignee, '') FROM cards c JOIN lanes l ON l.id = c.lane_id
+		WHERE c.id = ?`, c.Card).Scan(&board, &title, &from)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -268,6 +268,7 @@ func (c Assign) Apply(tx *writer.Tx) error {
 	if c.Wake != nil {
 		tx.AfterCommit(c.Wake) // on the writer's goroutine, after the commit: must not block
 	}
+	tx.Publish(Assigned{Card: c.Card, From: from, To: c.Email}) // for in-process listeners, such as Workload
 	return nil
 }
 

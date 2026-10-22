@@ -26,8 +26,11 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    arrived; `w.Flush(ctx)` returns once everything queued before it is
    applied. Checks that read before they write go inside the command.
    Commands never render and never call the network; `tx.AfterCommit` runs
-   what must follow a commit. A failed Send goes to `OnSendError`, else to
-   the log.
+   what must follow a commit. `tx.Publish(v)` hands a value to in-process
+   listeners (`w.Subscribe[T]`) after the commit, best effort: never for
+   pages (views and `Touch` cover them), and a listener that must not miss
+   a value reconciles from the data. A failed Send goes to `OnSendError`,
+   else to the log.
 2. **The writer outlives the HTTP server.** Ending `w.Run`'s context drains
    the queue like `w.Close()`, and from then on Send and Do return
    `ErrClosed`. Run it on a context that outlives the server, never the
@@ -93,7 +96,7 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 | Package | Holds |
 | --- | --- |
 | `sqlite` | `Open`: one write connection and a read pool opened read-only and `query_only` (or `ReadOnly`) whose connections keep their statements prepared (`Statements`), pragmas, `user_version` migrations or the project's own runner (`Migrate`), `View` that joins a ctx's transaction (`WithTx`) and `ViewValue` that returns a result, `Querier`, `Uncached` for SQL built at runtime, `Backup` (VACUUM INTO), a wrapping `Driver` |
-| `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
+| `writer` | the single writer: `Send`, `Do`, `DoValue` (a command's result, typed), `Flush`, batches with savepoints, statement cache, `Once` and `OnceResult` for op ids, `OnCommit` topics, `Publish` and `Subscribe` for in-process listeners, `OnSendError`, `Exclusive` for what a transaction cannot hold, optimize and checkpoints |
 | `events` | event sourcing on the writer: typed streams, deciders that decide from a state row (`Execute`, expected versions), `Append`, inline projectors in the same savepoint, catch-up projectors after the commit, a `Runner` that rebuilds changed projectors into copies and swaps them in, upcasters, retention, `eventstest` |
 | `live` | views and topics, a topic hierarchy (`board:42` is also `board`, `src:A:*` everything below `src:A`, `Topic` and `Below`), topics a Render declares (`Depends`), commit numbers and topic versions for caches (`Hub.Seq`, `Hub.Version`, `Seq(ctx)`), the tick, render workers with prepared read statements, shared frames, no render while every watcher has a frame waiting, `Watch` before a stream opens, `WriteTick`, stream caps, overall and per client (`Spec.Client`, `HasStream`), presence, a heartbeat signal, fewer frames for slow links (`Spec.Slow`), stats, `newest-frame.js` for the page (`NewestFrame`, `Scripts`) and a count of pages behind their stream (`Behind`), pacing a page that falls behind (`Spec.Ack`, `Hub.Pace`, `Hub.Ack`, `Spec.Release`) |
 | `sse` | Datastar event formatting, per-stream zstd (level and window), brotli or gzip, a memory budget (a quarter of the machine's memory without a memory limit), write deadlines, `ReadSignals` for any method, with a deadline on the body |
@@ -108,9 +111,9 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 ## Where to look next
 
 - `references/recipes.md`: wiring and migrations, a command, op ids that
-  keep refusals, query code shared by reads and commands, a view with topics,
-  tab state and preferences, a per-tab view that navigates, caching an
-  aggregate against a version, a background job, a bulk import, work a
+  keep refusals, in-process listeners, query code shared by reads and
+  commands, a view with topics, tab state and preferences, a per-tab view
+  that navigates, caching an aggregate against a version, a background job, a bulk import, work a
   transaction cannot hold, an event-sourced command, projections of events
   and their rebuilds, backups, monitoring on a shared host, a new project.
 - `references/performance.md`: measured numbers, the knobs they set, how to

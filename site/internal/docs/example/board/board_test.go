@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -342,6 +343,49 @@ func TestOutbox(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no mail after the commit")
 	}
+}
+
+// The Assigned values move cards between people at once; an archive
+// publishes none, and the next count takes the card off.
+func TestWorkload(t *testing.T) {
+	db, w, _ := open(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	var l board.Workload
+	done := make(chan struct{})
+	go func() {
+		l.Run(ctx, db, w, 20*time.Millisecond, slog.Default())
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	for _, title := range []string{"a", "b"} {
+		if err := w.Do(ctx, board.AddCard{Lane: 1, Title: title}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, a := range []board.Assign{{Card: 1, Email: "ada"}, {Card: 2, Email: "ada"}, {Card: 2, Email: "bob"}} {
+		a.Email += "@example.com"
+		if err := w.Do(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wait := func(ada, bob int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for l.Open("ada@example.com") != ada || l.Open("bob@example.com") != bob {
+			if time.Now().After(deadline) {
+				t.Fatalf("ada %d, bob %d, want %d and %d", l.Open("ada@example.com"), l.Open("bob@example.com"), ada, bob)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	wait(1, 1)
+	if err := w.Do(ctx, board.ArchiveCards{Board: 1, Cards: []int64{1}, At: now}); err != nil {
+		t.Fatal(err)
+	}
+	wait(0, 1)
 }
 
 func TestImport(t *testing.T) {
