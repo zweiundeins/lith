@@ -27,15 +27,15 @@
 // on demand passes its account list as VerifyOptions.Names, so every tenant
 // is verified, and as MaintenanceOptions.Names, so every tenant's history
 // older than the retention window is pruned, attached or not. A tenant not
-// attached gets no snapshot, since nothing changed while it was not; detach
-// writes one when it is due.
+// attached gets no snapshot, since nothing changed while it was not; Attach
+// writes one in the background when it is due.
 //
 // Stop in this order: drain HTTP and the writer, so every accepted write is
 // in the file; call detach, the final sync, with a live context (the
 // signal's context is already cancelled); then checkpoint and close the
 // database. The process's stop timeout (systemd TimeoutStopSec) must cover
-// the drain, the final sync and detach's snapshot: killed mid-sync, the
-// replica trails the file.
+// the drain and the final sync: killed mid-sync, the replica trails the
+// file.
 //
 // Litestream opens the database with modernc.org/sqlite, so the application
 // must use it too: two SQLite copies in one process break each other's locks.
@@ -72,6 +72,7 @@ const (
 	DefaultSnapshotInterval    = 24 * time.Hour
 	DefaultMaintenanceInterval = time.Hour
 	DefaultVerifyInterval      = 24 * time.Hour
+	DefaultSnapshotTimeout     = 10 * time.Minute
 )
 
 var (
@@ -105,14 +106,18 @@ type Config struct {
 	RetentionWindow  time.Duration
 	SnapshotInterval time.Duration
 
+	// SnapshotTimeout bounds the snapshot Attach starts in the background
+	// when one is due; zero means DefaultSnapshotTimeout.
+	SnapshotTimeout time.Duration
+
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
 
 // ConfigFromEnv reads a Config from the environment variables prefix plus
 // BUCKET, ENDPOINT, REGION, ACCESS_KEY_ID, SECRET_ACCESS_KEY,
-// FORCE_PATH_STYLE (a bool), DIR, PREFIX, RETENTION and SNAPSHOT_INTERVAL
-// (durations such as 720h). With prefix "BACKUP_" the bucket is BACKUP_BUCKET.
+// FORCE_PATH_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT_INTERVAL and
+// SNAPSHOT_TIMEOUT (durations such as 720h). With prefix "BACKUP_" the bucket is BACKUP_BUCKET.
 func ConfigFromEnv(prefix string) (Config, error) {
 	env := func(k string) string { return os.Getenv(prefix + k) }
 	cfg := Config{
@@ -133,7 +138,7 @@ func ConfigFromEnv(prefix string) (Config, error) {
 	for _, d := range []struct {
 		key string
 		dst *time.Duration
-	}{{"RETENTION", &cfg.RetentionWindow}, {"SNAPSHOT_INTERVAL", &cfg.SnapshotInterval}} {
+	}{{"RETENTION", &cfg.RetentionWindow}, {"SNAPSHOT_INTERVAL", &cfg.SnapshotInterval}, {"SNAPSHOT_TIMEOUT", &cfg.SnapshotTimeout}} {
 		if v := env(d.key); v != "" {
 			if *d.dst, err = time.ParseDuration(v); err != nil {
 				return Config{}, fmt.Errorf("backup: %s%s: %w", prefix, d.key, err)
@@ -150,6 +155,7 @@ type Manager struct {
 	enabled          bool
 	retentionWindow  time.Duration
 	snapshotInterval time.Duration
+	snapshotTimeout  time.Duration
 	log              *slog.Logger
 	newClient        func(name string) litestream.ReplicaClient
 
@@ -171,6 +177,10 @@ type attachedDB struct {
 	deletes  *deleteCounter
 	maint    sync.Mutex
 	detached bool // set under maint by detach
+
+	// Attach's background snapshot: detach cancels it and waits for done.
+	cancelSnapshot context.CancelFunc
+	snapshotDone   chan struct{}
 }
 
 type verifyResult struct {
@@ -187,8 +197,8 @@ func New(cfg Config) (*Manager, error) {
 	switch {
 	case cfg.Bucket != "" && cfg.Dir != "":
 		return nil, errors.New("backup: set Bucket or Dir, not both")
-	case cfg.RetentionWindow < 0 || cfg.SnapshotInterval < 0:
-		return nil, errors.New("backup: negative retention window or snapshot interval")
+	case cfg.RetentionWindow < 0 || cfg.SnapshotInterval < 0 || cfg.SnapshotTimeout < 0:
+		return nil, errors.New("backup: negative retention window, snapshot interval or snapshot timeout")
 	case checkPrefix(cfg.Prefix) != nil:
 		return nil, checkPrefix(cfg.Prefix)
 	}
@@ -197,6 +207,7 @@ func New(cfg Config) (*Manager, error) {
 		enabled:          cfg.Bucket != "" || cfg.Dir != "",
 		retentionWindow:  orDefault(cfg.RetentionWindow, DefaultRetentionWindow),
 		snapshotInterval: orDefault(cfg.SnapshotInterval, DefaultSnapshotInterval),
+		snapshotTimeout:  orDefault(cfg.SnapshotTimeout, DefaultSnapshotTimeout),
 		log:              cfg.Logger,
 		reserved:         map[string]bool{},
 		attached:         map[string]*attachedDB{},
@@ -461,12 +472,16 @@ func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, e
 //
 // Call detach once, before the application's last checkpoint and close: it is
 // the final sync. A cancelled context gets a fresh one for it, bounded by
-// Litestream's shutdown sync timeout. After the sync, detach writes a
-// snapshot when the newest is older than the snapshot interval, so that a
-// database attached only between maintenance passes still gets snapshots,
-// and its WAL segments a floor to be pruned at; a failed snapshot is logged,
-// not returned. The stop timeout must cover it too. On a disabled Manager
-// detach does nothing.
+// Litestream's shutdown sync timeout. On a disabled Manager detach does
+// nothing.
+//
+// When the newest snapshot is older than the snapshot interval, Attach
+// writes one in the background after the first sync, bounded by
+// Config.SnapshotTimeout, so that a database attached only between
+// maintenance passes still gets snapshots, and its WAL segments a floor to
+// be pruned at. detach cancels it and waits for it to stop before the final
+// sync; a database detached before its snapshot is done gets one on its
+// next Attach.
 func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(context.Context) error, err error) {
 	if !m.enabled {
 		return func(context.Context) error { return nil }, nil
@@ -506,12 +521,15 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 		return nil, fmt.Errorf("backup: first sync of %s: %w", name, err)
 	}
 
-	a := &attachedDB{db: db, deletes: deletes}
+	a := &attachedDB{db: db, deletes: deletes, snapshotDone: make(chan struct{})}
+	var sctx context.Context
+	sctx, a.cancelSnapshot = context.WithTimeout(context.Background(), m.snapshotTimeout)
 	m.mu.Lock()
 	delete(m.reserved, name)
 	m.attached[name] = a
 	committed = true
 	m.mu.Unlock()
+	go m.snapshotAfterAttach(sctx, name, a)
 
 	var once sync.Once
 	var derr error
@@ -519,6 +537,26 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 		once.Do(func() { derr = m.detach(ctx, name, a) })
 		return derr
 	}, nil
+}
+
+// snapshotAfterAttach writes a snapshot when one is due, under the lock that
+// keeps a maintenance pass from snapshotting at the same time.
+func (m *Manager) snapshotAfterAttach(ctx context.Context, name string, a *attachedDB) {
+	defer close(a.snapshotDone)
+	defer a.cancelSnapshot()
+	a.maint.Lock()
+	defer a.maint.Unlock()
+	if a.detached {
+		return
+	}
+	_, err := m.snapshotIfDue(ctx, name, a.db, time.Now())
+	switch {
+	case err == nil:
+	case errors.Is(ctx.Err(), context.Canceled):
+		m.log.Debug("backup: snapshot after attach cancelled by detach", "replica", name, "error", err)
+	default:
+		m.log.Warn("backup: snapshot after attach failed; the next attached pass or attach takes one", "replica", name, "error", err)
+	}
 }
 
 // detach keeps name reserved until the final sync is done, so that no
@@ -534,6 +572,8 @@ func (m *Manager) detach(ctx context.Context, name string, a *attachedDB) error 
 		m.mu.Unlock()
 	}()
 
+	a.cancelSnapshot()
+	<-a.snapshotDone
 	a.maint.Lock()
 	defer a.maint.Unlock()
 	a.detached = true
@@ -542,11 +582,6 @@ func (m *Manager) detach(ctx context.Context, name string, a *attachedDB) error 
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), litestream.DefaultShutdownSyncTimeout)
 		defer cancel()
-	}
-	if err := a.db.SyncAndWait(ctx); err == nil {
-		if _, err := m.snapshotIfDue(ctx, name, a.db, time.Now()); err != nil {
-			m.log.Warn("backup: no snapshot at detach; the next detach or attached pass takes one", "replica", name, "error", err)
-		}
 	}
 	if err := a.db.Close(ctx); err != nil {
 		return fmt.Errorf("backup: final sync of %s: %w", name, err)

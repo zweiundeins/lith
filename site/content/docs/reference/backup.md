@@ -20,9 +20,9 @@ Start each database in this order:
 
 Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at the storage provider fails every replica at once and usually passes by itself, so RunVerifyLoop retries a failed verification before it reports, and reports once per run: alert on its OnFail, not on each failure.
 
-Both loops cover the attached replicas. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified, and as MaintenanceOptions.Names, so every tenant's history older than the retention window is pruned, attached or not. A tenant not attached gets no snapshot, since nothing changed while it was not; detach writes one when it is due.
+Both loops cover the attached replicas. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified, and as MaintenanceOptions.Names, so every tenant's history older than the retention window is pruned, attached or not. A tenant not attached gets no snapshot, since nothing changed while it was not; Attach writes one in the background when it is due.
 
-Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain, the final sync and detach's snapshot: killed mid-sync, the replica trails the file.
+Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
 
 Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time. Pruning relies on it: with one replicating process the positions in a replica only grow, so the pruning of a replica not attached is safe beside an Attach of it. A second writer, or a prefix and name reused for another database, resets the positions, and then any pruning is unsafe, attached or not.
 
@@ -34,6 +34,7 @@ const (
 	DefaultSnapshotInterval    = 24 * time.Hour
 	DefaultMaintenanceInterval = time.Hour
 	DefaultVerifyInterval      = 24 * time.Hour
+	DefaultSnapshotTimeout     = 10 * time.Minute
 )
 ```
 
@@ -98,6 +99,10 @@ type Config struct {
 	RetentionWindow  time.Duration
 	SnapshotInterval time.Duration
 
+	// SnapshotTimeout bounds the snapshot Attach starts in the background
+	// when one is due; zero means DefaultSnapshotTimeout.
+	SnapshotTimeout time.Duration
+
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -111,7 +116,7 @@ Config says where replicas go: set Bucket for S3, or Dir for a local directory (
 func ConfigFromEnv(prefix string) (Config, error)
 ```
 
-ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION and SNAPSHOT\_INTERVAL (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
+ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT\_INTERVAL and SNAPSHOT\_TIMEOUT (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
 
 ### type MaintenanceOptions {#MaintenanceOptions}
 
@@ -192,7 +197,9 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 
 Attach starts replicating the database at dbPath under name. It returns once the first sync has reached the replica, since until then a final sync does nothing. dbPath must exist and name must not be attached already.
 
-Call detach once, before the application's last checkpoint and close: it is the final sync. A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. After the sync, detach writes a snapshot when the newest is older than the snapshot interval, so that a database attached only between maintenance passes still gets snapshots, and its WAL segments a floor to be pruned at; a failed snapshot is logged, not returned. The stop timeout must cover it too. On a disabled Manager detach does nothing.
+Call detach once, before the application's last checkpoint and close: it is the final sync. A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
+
+When the newest snapshot is older than the snapshot interval, Attach writes one in the background after the first sync, bounded by Config.SnapshotTimeout, so that a database attached only between maintenance passes still gets snapshots, and its WAL segments a floor to be pruned at. detach cancels it and waits for it to stop before the final sync; a database detached before its snapshot is done gets one on its next Attach.
 
 #### func (*Manager) Collector {#Manager.Collector}
 

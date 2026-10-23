@@ -1359,8 +1359,10 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   (`DetachedInterval`), one name at a time with 250 ms after each
   (`DetachedConcurrency`, `DetachedPause`), since each name costs a client
   and a TLS handshake; no snapshot, only pruning through the bucket.
-  Attached replicas keep their hourly pass (2 at a time, 100 ms). Detach
-  writes a snapshot when one is due. Failures of a pass log one line; the
+  Attached replicas keep their hourly pass (2 at a time, 100 ms). A due
+  snapshot runs in the background after `Attach` (`Config.SnapshotTimeout`,
+  10 min); detach cancels it, so it never delays an eviction or a
+  shutdown. Failures of a pass log one line; the
   metrics are `<ns>_backup_detached_maintenance_passes_total`,
   `_failures_total`, `_detached_pruned_objects_total` (approximate) and
   `_detached_last_pass_timestamp_seconds`, the alert when older than two

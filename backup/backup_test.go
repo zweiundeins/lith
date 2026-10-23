@@ -64,7 +64,8 @@ func mustExec(t *testing.T, db *sql.DB, query string, args ...any) {
 	}
 }
 
-// replicated opens a database at path with one row, attached under name.
+// replicated opens a database at path with one row, attached under name,
+// and waits for Attach's snapshot, so that tests see one at the first row.
 func replicated(t *testing.T, m *Manager, name, path string) (*sql.DB, func(context.Context) error) {
 	t.Helper()
 	db := openApp(t, m, path)
@@ -74,7 +75,15 @@ func replicated(t *testing.T, m *Manager, name, path string) (*sql.DB, func(cont
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
+	waitForAttachSnapshot(m, name)
 	return db, detach
+}
+
+func waitForAttachSnapshot(m *Manager, name string) {
+	m.mu.Lock()
+	a := m.attached[name]
+	m.mu.Unlock()
+	<-a.snapshotDone
 }
 
 // shutdown detaches and closes in the documented order.
@@ -230,6 +239,7 @@ func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("APP_BACKUP_PREFIX", "prod")
 	t.Setenv("APP_BACKUP_RETENTION", "720h")
 	t.Setenv("APP_BACKUP_SNAPSHOT_INTERVAL", "12h")
+	t.Setenv("APP_BACKUP_SNAPSHOT_TIMEOUT", "5m")
 	cfg, err := ConfigFromEnv("APP_BACKUP_")
 	if err != nil {
 		t.Fatal(err)
@@ -238,6 +248,7 @@ func TestConfigFromEnv(t *testing.T) {
 		Bucket: "bucket", Endpoint: "https://s3.example", Region: "ch-1",
 		AccessKeyID: "id", SecretAccessKey: "secret", ForcePathStyle: true,
 		Prefix: "prod", RetentionWindow: 720 * time.Hour, SnapshotInterval: 12 * time.Hour,
+		SnapshotTimeout: 5 * time.Minute,
 	}
 	if cfg != want {
 		t.Errorf("ConfigFromEnv = %+v, want %+v", cfg, want)

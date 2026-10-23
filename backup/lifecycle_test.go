@@ -18,8 +18,9 @@ import (
 
 // hooks lets a test stall or fail a replica's uploads and listings.
 type hooks struct {
-	write atomic.Pointer[func(level int) error]
-	list  atomic.Pointer[func(level int)]
+	write    atomic.Pointer[func(level int) error]
+	snapshot atomic.Pointer[func(ctx context.Context) error] // snapshot uploads only
+	list     atomic.Pointer[func(level int)]
 }
 
 type hookedClient struct {
@@ -30,6 +31,11 @@ type hookedClient struct {
 func (c *hookedClient) WriteLTXFile(ctx context.Context, level int, minTXID, maxTXID ltx.TXID, r io.Reader) (*ltx.FileInfo, error) {
 	if f := c.h.write.Load(); f != nil {
 		if err := (*f)(level); err != nil {
+			return nil, err
+		}
+	}
+	if f := c.h.snapshot.Load(); f != nil && level == litestream.SnapshotLevel {
+		if err := (*f)(ctx); err != nil {
 			return nil, err
 		}
 	}

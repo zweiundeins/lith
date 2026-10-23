@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -52,39 +53,122 @@ func TestCountDeletesKeepsTheClientsInterfaces(t *testing.T) {
 	}
 }
 
-// TestDetachSnapshotsWhenDue: a database attached only between passes still
-// gets a snapshot, and no second one before the interval.
-func TestDetachSnapshotsWhenDue(t *testing.T) {
+// TestAttachSnapshotsWhenDue: a database attached only between passes still
+// gets a snapshot, after the first sync, and no second one before the
+// interval.
+func TestAttachSnapshotsWhenDue(t *testing.T) {
 	t.Parallel()
 	m := newManager(t)
 	path := filepath.Join(t.TempDir(), "app.db")
-	db, detach := replicated(t, m, "app", path)
-	writeAndWaitLevel0(t, m, db, "app", 2)
-	if n := countLevel(t, m, "app", litestream.SnapshotLevel); n != 0 {
-		t.Fatalf("snapshots = %d before detach, want none", n)
+	db := openApp(t, m, path)
+	mustExec(t, db, `CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)`)
+	detach, err := m.Attach(bg, "app", path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	waitFor(t, 10*time.Second, func() bool { return countLevel(t, m, "app", litestream.SnapshotLevel) == 1 })
+	mustExec(t, db, `INSERT INTO notes (body) VALUES ('first visit')`)
 	shutdown(t, db, detach)
 	first := snapshotTimes(t, m, "app")
-	if len(first) != 1 {
-		t.Fatalf("snapshots = %d after detach, want 1", len(first))
-	}
 
 	db = openApp(t, m, path)
 	again, err := m.Attach(bg, "app", path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitForAttachSnapshot(m, "app")
 	mustExec(t, db, `INSERT INTO notes (body) VALUES ('second visit')`)
 	shutdown(t, db, again)
-	if got := snapshotTimes(t, m, "app"); len(got) != 1 || !got[0].Equal(first[0]) {
-		t.Errorf("snapshots = %v after a second detach, want only %v", got, first)
+	if got := snapshotTimes(t, m, "app"); !slices.Equal(got, first) {
+		t.Errorf("snapshots = %v after a second attach, want only %v", got, first)
 	}
 	out := filepath.Join(t.TempDir(), "restored.db")
 	if err := m.Restore(bg, "app", out); err != nil {
 		t.Fatal(err)
 	}
-	if got := bodies(t, out); len(got) != 4 {
-		t.Errorf("restored rows = %v, want 4", got)
+	if got := bodies(t, out); len(got) != 2 {
+		t.Errorf("restored rows = %v, want 2", got)
+	}
+}
+
+// TestDetachCancelsASlowSnapshot: a shutdown that detaches many databases
+// does not wait for their snapshots, and every final sync still happens.
+func TestDetachCancelsASlowSnapshot(t *testing.T) {
+	t.Parallel()
+	m, h := hookedManager(t)
+	var entered sync.WaitGroup
+	entered.Add(4)
+	snapshot := func(ctx context.Context) error {
+		entered.Done()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	h.snapshot.Store(&snapshot)
+
+	type tenant struct {
+		db     *sql.DB
+		detach func(context.Context) error
+		path   string
+	}
+	var tenants []tenant
+	for i := range 4 {
+		name := fmt.Sprintf("t%d", i)
+		path := filepath.Join(t.TempDir(), name+".db")
+		db := openApp(t, m, path)
+		mustExec(t, db, `CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)`)
+		detach, err := m.Attach(bg, name, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tenants = append(tenants, tenant{db, detach, path})
+	}
+	entered.Wait()
+	start := time.Now()
+	for _, tn := range tenants {
+		mustExec(t, tn.db, `INSERT INTO notes (body) VALUES ('last word')`)
+		shutdown(t, tn.db, tn.detach)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("detaching took %v, want no wait for the snapshots", d)
+	}
+	h.snapshot.Store(nil)
+	for i := range tenants {
+		name := fmt.Sprintf("t%d", i)
+		if n := countLevel(t, m, name, litestream.SnapshotLevel); n != 0 {
+			t.Errorf("%s: snapshots = %d, want the cancelled one gone", name, n)
+		}
+		out := filepath.Join(t.TempDir(), name+"-restored.db")
+		if err := m.Restore(bg, name, out); err != nil {
+			t.Fatal(err)
+		}
+		if got := bodies(t, out); len(got) != 1 {
+			t.Errorf("%s: restored rows = %v, want the last word", name, got)
+		}
+	}
+}
+
+// TestAFailedAttachSnapshotIsLogged: a snapshot that fails is a warning, and
+// detach goes on as usual.
+func TestAFailedAttachSnapshotIsLogged(t *testing.T) {
+	t.Parallel()
+	msgs := &messages{prefix: "backup: snapshot after attach"}
+	m, err := New(Config{Dir: t.TempDir(), Logger: slog.New(msgs)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &hooks{}
+	base := m.newClient
+	m.newClient = func(name string) litestream.ReplicaClient { return &hookedClient{base(name), h} }
+	snapshot := func(context.Context) error { return errors.New("503 SlowDown") }
+	h.snapshot.Store(&snapshot)
+
+	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
+	if got := msgs.levels(); !slices.Equal(got, []slog.Level{slog.LevelWarn}) {
+		t.Errorf("levels = %v, want one warning", got)
+	}
+	shutdown(t, db, detach)
+	if err := m.VerifyRestore(bg, "app"); err != nil {
+		t.Errorf("VerifyRestore after detach: %v", err)
 	}
 }
 
@@ -145,14 +229,7 @@ func TestDetachedRestoreAtTheEdgeOfTheWindow(t *testing.T) {
 	t.Parallel()
 	m := newManager(t)
 	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
-	writeAndWaitLevel0(t, m, db, "app", 3)
-	if errs := m.MaintainAll(bg, time.Now()); errs["app"] != nil {
-		t.Fatal(errs["app"])
-	}
-	var atFloor int
-	if err := db.QueryRow(`SELECT count(*) FROM notes`).Scan(&atFloor); err != nil {
-		t.Fatal(err)
-	}
+	atFloor := 1 // the row Attach's snapshot holds
 	time.Sleep(100 * time.Millisecond)
 	writeAndWaitLevel0(t, m, db, "app", 3)
 	if errs := m.MaintainAll(bg, time.Now().Add(25*time.Hour)); errs["app"] != nil {
@@ -254,8 +331,8 @@ func TestNamesSkipTheAttached(t *testing.T) {
 	if got := slices.Sorted(maps.Keys(errs)); !slices.Equal(got, []string{"other"}) || errs["other"] != nil {
 		t.Fatalf("maintainNames = %v, want other alone without an error", errs)
 	}
-	if n := countLevel(t, m, "app", litestream.SnapshotLevel); n != 0 {
-		t.Errorf("snapshots = %d, want none from the names", n)
+	if st := m.Status(); st[0].MaintenancePasses != 0 {
+		t.Errorf("attached passes = %d, want none from the names", st[0].MaintenancePasses)
 	}
 	if got := detachedTotals(m); got.passes != 1 || got.pruned != 0 {
 		t.Errorf("detached totals = %+v, want other's pass", got)
