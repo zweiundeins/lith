@@ -2,10 +2,10 @@
 # (the host's Caddyfile imports that folder). app compresses its pages and its
 # streams itself, so there is no `encode`. A client that trickles its body
 # holds Caddy's connection to it as long as Caddy allows; the app frees its
-# own side (ReadTimeout, edge.UploadBody). The global read_body would have to
-# outlast the host's slowest honest upload, and request_body's read_timeout
-# is experimental, so lith leaves Caddy's timeouts to the host. Caddy's
-# HTTP/3 server sets no read timeout at all.
+# own side (ReadTimeout, edge.UploadBody). Since Caddy 2.11.5 the global
+# read_body is at most a ceiling sized to the host's slowest honest upload,
+# request_body's read_timeout no longer exists, and HTTP/3 has no read_body,
+# so lith leaves Caddy's timeouts to the host.
 app.example.com {
 	log {
 		output file /var/log/caddy/app-access.log {
