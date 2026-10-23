@@ -325,6 +325,8 @@ A stream keeps one notice per key: a Notify with the key of a notice that has no
 
 A notice is best effort: a stream that is not open, or ends before the notice goes out, never sends it, and a page that reconnects or reloads never sees it. A \[]byte notice still waiting when the hub stops goes out before the events of Options.Stopping. Render a notice into a region that one of the stream's views fills, such as the tab's outcome: that view's next frame replaces it.
 
+The streams' budget (sse.Budget) books view frames, not notices: up to MaxNotices waiting frames per stream that it does not see. Keep notices small, a message and an op id.
+
 #### func (*Hub) Pace {#Hub.Pace}
 
 ```go

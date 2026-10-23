@@ -65,6 +65,10 @@ type heldNote struct {
 // before the events of Options.Stopping. Render a notice into a region
 // that one of the stream's views fills, such as the tab's outcome: that
 // view's next frame replaces it.
+//
+// The streams' budget (sse.Budget) books view frames, not notices: up to
+// MaxNotices waiting frames per stream that it does not see. Keep notices
+// small, a message and an op id.
 func (h *Hub) Notify(streamID, key string, frame any) bool {
 	if streamID == "" || frame == nil {
 		return false

@@ -220,9 +220,66 @@ func (h *Hub) refreshLog(kind int, level slog.Level, msg string, args ...any) {
 	h.log.Log(context.Background(), level, msg, args...)
 }
 
-// holdsID reports whether ev holds an element with the id.
+// holdsID reports whether ev holds an element with the id: an attribute
+// named id in any case, with or without spaces around its =, whose value,
+// in double quotes, single quotes or none, is the id. An id written with
+// character references (&#115;tream) passes unseen.
 func holdsID(ev []byte, id string) bool {
-	return bytes.Contains(ev, []byte(`id="`+id+`"`)) || bytes.Contains(ev, []byte(`id='`+id+`'`))
+	if id == "" {
+		return false
+	}
+	for off := 0; ; {
+		i := bytes.Index(ev[off:], []byte(id))
+		if i < 0 {
+			return false
+		}
+		start := off + i
+		if idValue(ev, start, start+len(id)) {
+			return true
+		}
+		off = start + 1
+	}
+}
+
+// idValue reports whether ev[start:end] is the whole value of an id
+// attribute.
+func idValue(ev []byte, start, end int) bool {
+	j := start
+	var quote byte
+	if j > 0 && (ev[j-1] == '"' || ev[j-1] == '\'') {
+		j--
+		quote = ev[j]
+	}
+	switch {
+	case quote != 0:
+		if end == len(ev) || ev[end] != quote {
+			return false
+		}
+	case end < len(ev) && !htmlSpace(ev[end]) && ev[end] != '>':
+		return false // an unquoted value goes on to a space or the tag's end
+	}
+	for j > 0 && htmlSpace(ev[j-1]) {
+		j--
+	}
+	if j == 0 || ev[j-1] != '=' {
+		return false
+	}
+	j--
+	for j > 0 && htmlSpace(ev[j-1]) {
+		j--
+	}
+	if j < 3 || !bytes.EqualFold(ev[j-2:j], []byte("id")) {
+		return false
+	}
+	switch ev[j-3] { // what ends the attribute before it, or the tag's name
+	case ' ', '\t', '\n', '\r', '\f', '"', '\'', '/':
+		return true
+	}
+	return false
+}
+
+func htmlSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
 }
 
 func eventsLen(events [][]byte) int {

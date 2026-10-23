@@ -311,3 +311,29 @@ func TestRefreshOneSlotPerClient(t *testing.T) {
 		c.leave(t)
 	}
 }
+
+// holdsID finds the stream's element however its id attribute is written,
+// and nothing that only looks like one.
+func TestHoldsID(t *testing.T) {
+	for html, want := range map[string]bool{
+		`<div id="stream" data-init="@get('/s')"></div>`: true,
+		`<div id='stream'></div>`:                        true,
+		`<div id=stream></div>`:                          true,
+		`<div id=stream data-x></div>`:                   true,
+		`<div ID="stream"></div>`:                        true,
+		`<div Id = "stream"></div>`:                      true,
+		"<div\nid=\"stream\"></div>":                     true,
+		`<div class="a"id="stream"></div>`:               true,
+		`<div id="streams"></div>`:                       false,
+		`<div id="my-stream"></div>`:                     false,
+		`<div id=stream2></div>`:                         false,
+		`<div data-id="stream"></div>`:                   false,
+		`<div aria-labelledby="stream"></div>`:           false,
+		`<p>id="stream"</p>`:                             false,
+		`<div data-init="x(&#34;stream&#34;)"></div>`:    false,
+	} {
+		if got := holdsID(sse.PatchElements([]byte(html)), "stream"); got != want {
+			t.Errorf("%s: %v, want %v", html, got, want)
+		}
+	}
+}
