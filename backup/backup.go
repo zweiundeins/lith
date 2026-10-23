@@ -482,10 +482,8 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 
 	db := litestream.NewDB(dbPath)
 	db.SetLogger(m.log.With("replica", name))
-	// The wrapper hides the client's v0.3 support; only a restore uses it,
-	// and restores make their own client.
-	deletes := &deleteCounter{ReplicaClient: m.newClient(name)}
-	db.Replica = litestream.NewReplicaWithClient(db, deletes)
+	client, deletes := countDeletes(m.newClient(name))
+	db.Replica = litestream.NewReplicaWithClient(db, client)
 	if err := db.Open(); err != nil {
 		return nil, fmt.Errorf("backup: attach %s: %w", name, err)
 	}

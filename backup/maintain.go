@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"sort"
@@ -91,6 +92,43 @@ func (c *deleteCounter) DeleteLTXFiles(ctx context.Context, a []*ltx.FileInfo) e
 	}
 	c.n.Add(int64(len(a)))
 	return nil
+}
+
+// deleteCounterV3 is a deleteCounter over a client that also reads v0.3
+// backups, which a restore looks for with a type assertion.
+type deleteCounterV3 struct {
+	*deleteCounter
+	v3 litestream.ReplicaClientV3
+}
+
+func (c deleteCounterV3) GenerationsV3(ctx context.Context) ([]string, error) {
+	return c.v3.GenerationsV3(ctx)
+}
+
+func (c deleteCounterV3) SnapshotsV3(ctx context.Context, generation string) ([]litestream.SnapshotInfoV3, error) {
+	return c.v3.SnapshotsV3(ctx, generation)
+}
+
+func (c deleteCounterV3) WALSegmentsV3(ctx context.Context, generation string) ([]litestream.WALSegmentInfoV3, error) {
+	return c.v3.WALSegmentsV3(ctx, generation)
+}
+
+func (c deleteCounterV3) OpenSnapshotV3(ctx context.Context, generation string, index int) (io.ReadCloser, error) {
+	return c.v3.OpenSnapshotV3(ctx, generation, index)
+}
+
+func (c deleteCounterV3) OpenWALSegmentV3(ctx context.Context, generation string, index int, offset int64) (io.ReadCloser, error) {
+	return c.v3.OpenWALSegmentV3(ctx, generation, index, offset)
+}
+
+// countDeletes wraps client in a deleteCounter that keeps the optional
+// interfaces litestream asserts on a client.
+func countDeletes(client litestream.ReplicaClient) (litestream.ReplicaClient, *deleteCounter) {
+	c := &deleteCounter{ReplicaClient: client}
+	if v3, ok := client.(litestream.ReplicaClientV3); ok {
+		return deleteCounterV3{c, v3}, c
+	}
+	return c, c
 }
 
 // MaintainAll runs one maintenance pass on every attached replica, as of now:

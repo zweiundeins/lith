@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -16,12 +17,38 @@ import (
 	"time"
 
 	"github.com/benbjohnson/litestream"
+	"github.com/benbjohnson/litestream/file"
+	"github.com/benbjohnson/litestream/s3"
 )
 
 func detachedTotals(m *Manager) maintTotals {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.detachedMaint
+}
+
+// clientInterfaces are the optional interfaces litestream asserts on a
+// ReplicaClient (`rg '\.\(' --glob '!*_test.go'` in its module). Add any
+// that a litestream update brings, and forward it in countDeletes.
+var clientInterfaces = []reflect.Type{
+	reflect.TypeFor[litestream.ReplicaClientV3](),
+}
+
+// TestCountDeletesKeepsTheClientsInterfaces: the wrapper on an attached
+// replica's client must not hide what a restore looks for.
+func TestCountDeletesKeepsTheClientsInterfaces(t *testing.T) {
+	clients := []litestream.ReplicaClient{s3.NewReplicaClient(), file.NewReplicaClient(t.TempDir())}
+	if _, ok := clients[0].(litestream.ReplicaClientV3); !ok {
+		t.Fatal("the S3 client reads no v0.3 backups: the check below proves nothing")
+	}
+	for _, c := range clients {
+		wrapped, _ := countDeletes(c)
+		for _, i := range clientInterfaces {
+			if reflect.TypeOf(c).Implements(i) && !reflect.TypeOf(wrapped).Implements(i) {
+				t.Errorf("%T wrapped hides %v", c, i)
+			}
+		}
+	}
 }
 
 // TestMaintenancePrunesANamedDetachedReplica: a name that is not attached
