@@ -138,11 +138,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// action is what the page's actions send.
+// action is what the page's actions send: the tab, the op key and the op
+// id in headers (act), the rest in the body.
 type action struct {
-	Tab     string `json:"tab"`
-	Key     string `json:"key"` // the op key: the add form, a card
-	Op      string `json:"op"`
+	Tab     string `json:"-"` // Tab-Id
+	Key     string `json:"-"` // Op-Key: the add form, a card
+	Op      string `json:"-"` // Op-Id
 	Lane    int64  `json:"lane"`
 	Card    int64  `json:"card"`
 	Seen    int64  `json:"seen"`
@@ -152,24 +153,28 @@ type action struct {
 }
 
 // decode reads an action and checks the address's rate limit. op says
-// whether the action needs an op key and id. A body that does not parse,
-// or ids that no page of ours makes, get a bare 400: that is a bug or a
-// forged request, and the page ends its op in its own words. The limit is
-// sized so that nobody clicking reaches it: an action over it gets 429 for
-// the page's retry, and its tab a notice.
+// whether the action needs an op key and id. Ids that no page of ours
+// makes, or a body that does not parse, get a bare 400: that is a bug or
+// a forged request, and the page ends its op in its own words. The limit
+// is sized so that nobody clicking reaches it: an action over it gets 429
+// for the page's retry, and its tab a notice. The limit and the notice
+// need only the headers, so a request over it is never read.
 func (s *Server) decode(w http.ResponseWriter, r *http.Request, op bool) (action, bool) {
-	var a action
-	err := sse.ReadSignalsLimit(w, r, &a, 8<<10)
-	if err != nil || !validID(a.Tab) || op && (!validID(a.Key) || !validID(a.Op)) {
+	a := action{Tab: r.Header.Get("Tab-Id")}
+	if op {
+		a.Key, a.Op = r.Header.Get("Op-Key"), r.Header.Get("Op-Id")
+	}
+	if !validID(a.Tab) || op && (!validID(a.Key) || !validID(a.Op)) {
 		w.WriteHeader(http.StatusBadRequest)
 		return a, false
-	}
-	if !op {
-		a.Key, a.Op = "", "" // unchecked: they name no notice
 	}
 	if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
 		s.notify(r.Context(), a, "Too many actions at once. Wait a moment, then try again.")
 		w.WriteHeader(http.StatusTooManyRequests)
+		return a, false
+	}
+	if err := sse.ReadSignalsLimit(w, r, &a, 8<<10); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
 		return a, false
 	}
 	return a, true

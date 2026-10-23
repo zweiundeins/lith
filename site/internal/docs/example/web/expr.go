@@ -74,8 +74,12 @@ func watchdog(b int64) string {
 }
 
 // act posts the action of an op key, a JavaScript expression, with a new
-// op id, unless an op of that key is pending. The request goes out from an
-// element of its own in #ops, which names the key, so the element the
+// op id, unless an op of that key is pending. The tab, the key and the op
+// go in the Tab-Id, Op-Key and Op-Id headers, so the handler checks its
+// rate limit and sends the tab a notice before it reads the body. Headers
+// suit an op, unlike the stream: its request goes out from an element of
+// its own in #ops, whose data-init holds this op's values, so a retry
+// repeats the right ones. The element names the key, so the element the
 // person acted on may go meanwhile. requestCancellation 'disabled':
 // Datastar cancels a request when another goes to the same URL, anywhere
 // on the page, and two cards' moves would cancel each other. The tab's
@@ -89,7 +93,7 @@ func act(key, path, payload string) string {
 	$_ops[k] = {op: op, ack: e?.ack ?? '', refused: false, inflight: e?.inflight ?? 0, recheck: false};
 	const c = document.createElement('i');
 	c.dataset.opKey = k;
-	c.setAttribute('data-init', "@post('` + path + `', {payload: " + JSON.stringify({tab: $_tab, key: k, op: op, ...p}) + ", requestCancellation: 'disabled'})");
+	c.setAttribute('data-init', "@post('` + path + `', {headers: " + JSON.stringify({'Tab-Id': $_tab, 'Op-Key': k, 'Op-Id': op}) + ", payload: " + JSON.stringify(p) + ", requestCancellation: 'disabled'})");
 	document.getElementById('` + OpsID + `').append(c);
 })(` + key + `, {` + payload + `})`
 }
@@ -175,13 +179,14 @@ const patched = `(() => {
 // never runs it.
 const opsPatches = `{include: /^(_ops\.[^.]+\.ack|_synced)$/}`
 
-// panel opens a card's panel in this tab, or closes it with card 0.
+// panel opens a card's panel in this tab, or closes it with card 0. Like
+// an op, it names the tab in the Tab-Id header.
 func panel(card string) string {
-	return "@post('/cmd/panel', {payload: {tab: $_tab, card: " + card + "}})"
+	return "@post('/cmd/panel', {headers: {'Tab-Id': $_tab}, payload: {card: " + card + "}})"
 }
 
 // compact sets the session's preference, for every tab of the session.
-const compact = `@post('/cmd/compact', {payload: {tab: $_tab, compact: !$_compact}})`
+const compact = `@post('/cmd/compact', {headers: {'Tab-Id': $_tab}, payload: {compact: !$_compact}})`
 
 func id(n int64) string { return strconv.FormatInt(n, 10) }
 

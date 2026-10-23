@@ -232,8 +232,13 @@ any session that learns it push a notice with an ack it picks.
     notice key `notice:<key>`.
   - One stable element, `<div id="ops" hidden>`, outside every region a
     frame morphs, holds the listeners. `act(key, path, payload)` makes the
-    op id and appends `<i data-op-key=key data-init="@post(path, {payload,
-    requestCancellation: 'disabled'})">` to it, so the request outlives
+    op id and appends `<i data-op-key=key data-init="@post(path, {headers:
+    {'Tab-Id', 'Op-Key', 'Op-Id'}, payload, requestCancellation:
+    'disabled'})">` to it. The tab and op in headers let the handler check
+    its rate limit and notify before it reads the body. Headers are safe
+    here (each op's `<i>` runs its data-init once, with that op's values,
+    and a retry should repeat them), not on the stream, whose reopens
+    would repeat stale ones. The element lets the request outlive
     the form, dialog or card it came from (a form in a closed modal never
     leaks the count or misses its end). `requestCancellation: 'disabled'`:
     Datastar 1.0.4 cancels page-wide by method and URL, so two cards' moves

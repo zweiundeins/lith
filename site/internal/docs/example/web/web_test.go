@@ -2,7 +2,9 @@ package web_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -106,6 +108,15 @@ func TestNoticeOverTheLimit(t *testing.T) {
 		}
 		next(t, events, `<p id="outcome" role="status" class="notice">Too many actions at once.`)
 		next(t, events, `"_ops":{"card-7":{"ack":"`+op+`","refused":true}}`)
+		// The headers are enough for the limit and the notice: a body
+		// that does not parse is never read.
+		req := opRequest(t, base+"/cmd/move", `{"tab":"tab1","key":"card-7","op":"over"}`)
+		req.Body = io.NopCloser(strings.NewReader("not JSON"))
+		req.ContentLength = -1
+		if code := do(t, c, req); code != http.StatusTooManyRequests {
+			t.Fatalf("an action over the limit: %d, want 429", code)
+		}
+		next(t, events, `"_ops":{"card-7":{"ack":"over","refused":true}}`)
 		return
 	}
 	t.Fatal("no action reached the limit")
@@ -127,10 +138,7 @@ func TestCreateBoardOnce(t *testing.T) {
 	next(t, events, `"board":{"ack":"new0","refused":true}`)
 	var answers []string
 	for range 2 {
-		req, _ := http.NewRequest("POST", base+"/cmd/boards", strings.NewReader(`{"tab":"tab1","key":"board","op":"new1","name":"Second"}`))
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Sec-Fetch-Site", "same-origin")
-		res, err := c.Do(req)
+		res, err := c.Do(opRequest(t, base+"/cmd/boards", `{"tab":"tab1","key":"board","op":"new1","name":"Second"}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,14 +281,48 @@ func get(t *testing.T, c *http.Client, url string) string {
 	return string(body)
 }
 
+// post sends an action the way the page does (opRequest).
 func post(t *testing.T, c *http.Client, url, body string) int {
 	t.Helper()
-	req, err := http.NewRequest("POST", url, strings.NewReader(body))
+	return do(t, c, opRequest(t, url, body))
+}
+
+// opRequest is an action the way the page sends it (act, panel, compact):
+// body's "tab", "key" and "op" go in the Tab-Id, Op-Key and Op-Id
+// headers, the rest in the body.
+func opRequest(t *testing.T, url, body string) *http.Request {
+	t.Helper()
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(body), &fields); err != nil {
+		t.Fatal(err)
+	}
+	header := map[string]string{"tab": "Tab-Id", "key": "Op-Key", "op": "Op-Id"}
+	values := map[string]string{}
+	for field := range header {
+		if v, ok := fields[field].(string); ok {
+			values[field] = v
+		}
+		delete(fields, field)
+	}
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Sec-Fetch-Site", "same-origin") // as a browser sends it
+	for field, v := range values {
+		req.Header.Set(header[field], v)
+	}
+	return req
+}
+
+// do sends req and returns its status.
+func do(t *testing.T, c *http.Client, req *http.Request) int {
+	t.Helper()
 	res, err := c.Do(req)
 	if err != nil {
 		t.Fatal(err)

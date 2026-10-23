@@ -176,8 +176,6 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 }
 
 type signRequest struct {
-	Tab     string `json:"tab"`
-	Op      string `json:"op"`
 	Name    string `json:"name"`
 	Message string `json:"message"`
 }
@@ -185,15 +183,17 @@ type signRequest struct {
 // sign answers 204 once the signature is committed. Its outcome, an entry
 // or a refusal, reaches the page on the tab's stream. A status code
 // carries nothing a person reads: what no command decided, a rate limit or
-// a failed write, reaches the tab as a notice with the op id.
+// a failed write, reaches the tab as a notice with the op id. The tab and
+// the op come in headers (views.act), so a request over the limit gets
+// its notice before its body is read.
 func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
-	var req signRequest
-	if err := sse.ReadSignalsLimit(w, r, &req, 8<<10); err != nil || !validID(req.Tab) || !validID(req.Op) {
+	tab, op := r.Header.Get("Tab-Id"), r.Header.Get("Op-Id")
+	if !validID(tab) || !validID(op) {
 		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
 	sid := edge.SessionID(r.Context())
-	id := streamID(sid, req.Tab)
+	id := streamID(sid, tab)
 	// A tab whose stream is not open would never see the outcome, and its
 	// row would come from a tab id the client made up. The page waits on a
 	// 409 as on a 5xx: its stream connects again, the tab's row lacks the
@@ -203,12 +203,17 @@ func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
-		s.notify(r.Context(), id, req.Op, "Too many signatures at once. Wait a moment, then try again.")
+		s.notify(r.Context(), id, op, "Too many signatures at once. Wait a moment, then try again.")
 		w.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
-	cmd := guestbook.Sign{Session: sid, Tab: req.Tab, Op: req.Op, Name: req.Name, Message: req.Message, At: time.Now()}
-	switch err := s.w.Do(r.Context(), writer.Once(sid+":"+req.Op, cmd)); {
+	var req signRequest
+	if err := sse.ReadSignalsLimit(w, r, &req, 8<<10); err != nil {
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
+		return
+	}
+	cmd := guestbook.Sign{Session: sid, Tab: tab, Op: op, Name: req.Name, Message: req.Message, At: time.Now()}
+	switch err := s.w.Do(r.Context(), writer.Once(sid+":"+op, cmd)); {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, writer.ErrInvalid):
@@ -219,7 +224,7 @@ func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
 		// The client went away: nobody waits for an answer or a notice.
 	default:
 		s.log.Error("sign failed", "err", err)
-		s.notify(r.Context(), id, req.Op, "Your signature could not be saved. Try again in a moment.")
+		s.notify(r.Context(), id, op, "Your signature could not be saved. Try again in a moment.")
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }

@@ -73,13 +73,17 @@ const reopen = `(s => s.replaceWith(s.cloneNode(true)))(document.getElementById(
 // would abort its stream.
 const behind = `@post('/pace?tab=' + $_tab, {requestCancellation: 'disabled'})`
 
-// act posts payload, a JavaScript object, to path with a new op id and the
-// tab's id, as the op of key, unless an op of that key is pending. The
-// request goes out from an element of its own in #ops, which names the
-// key, so the element the person acted on may go meanwhile.
-// requestCancellation 'disabled': Datastar cancels a request when another
-// goes to the same URL, anywhere on the page. The tab's stream brings the
-// op's outcome, or a notice, back as $_ops[key].ack.
+// act posts payload, a JavaScript object, to path as the op of key, unless
+// an op of that key is pending. The tab's id and a new op id go in the
+// Tab-Id and Op-Id headers, so the handler checks its rate limit and
+// sends the tab a notice before it reads the body. Headers suit an op,
+// unlike the stream: its request goes out from an element of its own in
+// #ops, whose data-init holds this op's values, so a retry repeats the
+// right ones. The element names the key, so the element the person acted
+// on may go meanwhile. requestCancellation 'disabled': Datastar cancels a
+// request when another goes to the same URL, anywhere on the page. The
+// tab's stream brings the op's outcome, or a notice, back as
+// $_ops[key].ack.
 func act(key, path, payload string) string {
 	return `((k, p) => {
 	const e = $_ops[k];
@@ -91,7 +95,7 @@ func act(key, path, payload string) string {
 	e.recheck = false;
 	const c = document.createElement('i');
 	c.dataset.opKey = k;
-	c.setAttribute('data-init', "@post('` + path + `', {payload: " + JSON.stringify({...p, tab: $_tab, op: op}) + ", requestCancellation: 'disabled'})");
+	c.setAttribute('data-init', "@post('` + path + `', {headers: " + JSON.stringify({'Tab-Id': $_tab, 'Op-Id': op}) + ", payload: " + JSON.stringify(p) + ", requestCancellation: 'disabled'})");
 	document.getElementById('` + OpsID + `').append(c);
 })('` + key + `', ` + payload + `)`
 }

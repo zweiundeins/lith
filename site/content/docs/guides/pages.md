@@ -96,7 +96,7 @@ A click shows the user's own input at once and marks it pending. The outcome, a 
 
 Every op has a key: what the person acted on, such as the add form (`add`) or a card (`card-17`). `$_ops` holds one entry per key: the pending op id, the newest op the tab's row acks and whether it was refused, the key's requests in flight, and whether it must look again when they end.
 
-1. The action makes an op id and posts it with its payload, unless an op of its key is pending:
+1. The action makes an op id and posts its payload, unless an op of its key is pending. The tab, the op key and the op id go in the `Tab-Id`, `Op-Key` and `Op-Id` headers:
 
 ```go source=site/internal/docs/example/web/expr.go
 func act(key, path, payload string) string {
@@ -108,11 +108,13 @@ func act(key, path, payload string) string {
 	$_ops[k] = {op: op, ack: e?.ack ?? '', refused: false, inflight: e?.inflight ?? 0, recheck: false};
 	const c = document.createElement('i');
 	c.dataset.opKey = k;
-	c.setAttribute('data-init', "@post('` + path + `', {payload: " + JSON.stringify({tab: $_tab, key: k, op: op, ...p}) + ", requestCancellation: 'disabled'})");
+	c.setAttribute('data-init', "@post('` + path + `', {headers: " + JSON.stringify({'Tab-Id': $_tab, 'Op-Key': k, 'Op-Id': op}) + ", payload: " + JSON.stringify(p) + ", requestCancellation: 'disabled'})");
 	document.getElementById('` + OpsID + `').append(c);
 })(` + key + `, {` + payload + `})`
 }
 ```
+
+Headers, so that the handler knows the tab and the op before it reads the body: an action over the rate limit gets its 429 and the tab its notice without the body being read or decoded ([Commands](/docs/guides/commands#outcomes-notices-and-the-pages-own-words)). Headers are safe here and not on the stream: Datastar builds a request's headers once, when its expression runs, and repeats them on a retry. An op's element runs its `data-init` once, with that op's tab and id, so a retry should repeat them; the stream's element reopens with values that have changed since ([Refreshing a page after a deploy](#refreshing-a-page-after-a-deploy)).
 
 The request does not go out from the form or the button. It goes out from an element made for it, inside `#ops`, which names the op's key in `data-op-key`. `#ops` is hidden and sits outside every region a frame morphs, so no frame removes it. The form may sit in a dialog that closes, a menu that folds, a card that the next frame moves or removes: the request's events still reach `#ops`, which counts them and ends the op. A listener on the form would miss the end of a request whose form went away, keep counting it as in flight, and wait for ever.
 

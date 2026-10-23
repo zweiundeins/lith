@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -78,13 +79,7 @@ func TestNotices(t *testing.T) {
 	limited := ""
 	for i := range 20 {
 		op := "op" + strconv.Itoa(i)
-		req, err := http.NewRequest("POST", base+"/cmd/sign", strings.NewReader(`{"tab":"tab1","op":"`+op+`","name":"Ada","message":"Hello `+op+`"}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Datastar-Request", "true")
-		req.Header.Set("Sec-Fetch-Site", "same-origin")
-		res, err := c.Do(req)
+		res, err := c.Do(action(t, base+"/cmd/sign", `{"tab":"tab1","op":"`+op+`","name":"Ada","message":"Hello `+op+`"}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,6 +101,17 @@ func TestNotices(t *testing.T) {
 	}
 	next(t, events, `<p id="outcome" role="status" class="refused">Too many signatures at once.`)
 	next(t, events, `"sign":{"ack":"`+limited+`","refused":true}`)
+
+	// Over the limit, the tab and the op in the headers are enough: the
+	// notice goes out before the body is read, so a body that does not
+	// parse still gets a 429 and its notice.
+	req := action(t, base+"/cmd/sign", `{"tab":"tab1","op":"over"}`)
+	req.Body = io.NopCloser(strings.NewReader("not JSON"))
+	req.ContentLength = -1
+	if code := do(t, c, req); code != http.StatusTooManyRequests {
+		t.Fatalf("a request over the limit: %d, want 429", code)
+	}
+	next(t, events, `"sign":{"ack":"over","refused":true}`)
 
 	stop()
 	next(t, events, `The server is updating. Back in a moment.`)
@@ -569,16 +575,51 @@ func client(t *testing.T, base string) *http.Client {
 	return c
 }
 
-// post sends an action the way Datastar does.
+// post sends an action the way the page does (action).
 func post(t *testing.T, c *http.Client, url, body string) int {
 	t.Helper()
-	req, err := http.NewRequest("POST", url, strings.NewReader(body))
+	return do(t, c, action(t, url, body))
+}
+
+// action is an op's request the way the page sends it (views.act): body's
+// "tab" and "op" go in the Tab-Id and Op-Id headers, the rest in the body.
+func action(t *testing.T, url, body string) *http.Request {
+	t.Helper()
+	var tab, op string
+	payload := []byte(body)
+	if body != "" {
+		var fields map[string]any
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		tab, _ = fields["tab"].(string)
+		op, _ = fields["op"].(string)
+		delete(fields, "tab")
+		delete(fields, "op")
+		var err error
+		if payload, err = json.Marshal(fields); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	if tab != "" {
+		req.Header.Set("Tab-Id", tab)
+	}
+	if op != "" {
+		req.Header.Set("Op-Id", op)
+	}
+	return req
+}
+
+// do sends req and returns its status.
+func do(t *testing.T, c *http.Client, req *http.Request) int {
+	t.Helper()
 	res, err := c.Do(req)
 	if err != nil {
 		t.Fatal(err)

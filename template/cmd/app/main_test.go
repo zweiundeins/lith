@@ -241,7 +241,9 @@ func sign(t *testing.T, base string) {
 	}
 	next(`"sign":{"ack":"","refused":false}`)
 
-	req, _ = http.NewRequest("POST", base+"/cmd/sign", strings.NewReader(`{"tab":"tab1","op":"op1","name":"Ada","message":"Hello"}`))
+	req, _ = http.NewRequest("POST", base+"/cmd/sign", strings.NewReader(`{"name":"Ada","message":"Hello"}`))
+	req.Header.Set("Tab-Id", "tab1")
+	req.Header.Set("Op-Id", "op1")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Datastar-Request", "true")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
@@ -331,13 +333,37 @@ func TestHalfSentBody(t *testing.T) {
 	}
 	t.Parallel()
 	public, _ := run(t)
+	// The handler reads the body only for a tab whose stream is open.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &http.Client{Jar: jar}
+	res, err := c.Get(public + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", public+"/stream?tab=tab1", nil)
+	stream, err := c.Do(req)
+	if err != nil || stream.StatusCode != http.StatusOK {
+		t.Fatalf("stream: %v", err)
+	}
+	defer stream.Body.Close()
+	var cookie string
+	for _, ck := range jar.Cookies(req.URL) {
+		cookie += ck.Name + "=" + ck.Value + "; "
+	}
+
 	conn, err := net.Dial("tcp", strings.TrimPrefix(public, "http://"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
 	io.WriteString(conn, "POST /cmd/sign HTTP/1.1\r\nHost: app\r\nContent-Type: application/json\r\n"+
-		"Datastar-Request: true\r\nSec-Fetch-Site: same-origin\r\nContent-Length: 100\r\n\r\n{")
+		"Datastar-Request: true\r\nSec-Fetch-Site: same-origin\r\nTab-Id: tab1\r\nOp-Id: op1\r\nCookie: "+cookie+"\r\nContent-Length: 100\r\n\r\n{")
 	start := time.Now()
 	conn.SetReadDeadline(start.Add(20 * time.Second))
 	b, err := io.ReadAll(conn)
