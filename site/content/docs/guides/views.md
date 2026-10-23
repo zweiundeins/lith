@@ -37,6 +37,8 @@ The key says who shares the view: every stream that watches `board:1` watches on
 
 A frame is usually `[]byte`: one or more Datastar events, formatted once by `sse.PatchElements` or `sse.PatchSignals`, and the same bytes go to every stream. A frame of another type needs a `Spec.Write` or `Spec.WriteTick` that turns it into events per stream ([below](#tailoring-frames-per-stream)). Once returned, a frame must not change.
 
+A templ component renders straight into the event with `sse.NewElements(live.FrameBuffer(ctx))`: one buffer the size of the view's last frame, where a `bytes.Buffer` and then `sse.PatchElements` make the HTML twice, with the buffer's growth on top. For a lane of 1,000 cards, a 197 KB event, it took 0.37 ms and 381 KB against 0.47 ms and 877 KB. templ buffers its writes 4 KiB at a time; code that writes a row at a time puts a 4 KiB `bufio.Writer` in front (`sse.Elements` has the example).
+
 When `Render` fails, the hub logs the error and the streams send nothing: the page keeps the frame it has. So they do for a nil frame, and for a `[]byte` frame equal to the one before. A panic in `Render` is recovered and logged like an error. `Options.RenderTimeout`, 2 s by default, ends the render's context and logs the render; nothing can stop a render that ignores its context, and the tick waits for it.
 
 ## Topics
@@ -279,11 +281,11 @@ func tabView(sid, tab string) live.View {
 				}
 				page = views.Issue(is)
 			}
-			var buf bytes.Buffer
-			if err := page.Render(ctx, &buf); err != nil {
+			e := sse.NewElements(live.FrameBuffer(ctx), sse.Patch{Selector: "#main"})
+			if err := page.Render(ctx, e); err != nil {
 				return nil, err
 			}
-			return sse.PatchElements(buf.Bytes(), sse.Patch{Selector: "#main"}), nil
+			return e.Event(), nil
 		},
 	}
 }

@@ -287,15 +287,20 @@ func cardView(id int64) live.View {
 	}
 }
 
-// patch renders c as an event that morphs it into the page by its id.
+// patch renders c as an event that morphs it into the page by its id. The
+// HTML goes into the event as templ writes it (sse.Elements), in a buffer
+// the size of the view's last frame (live.FrameBuffer), without a copy in
+// between. templ buffers its writes itself, 4 KiB at a time.
 func patch(ctx context.Context, c templ.Component) ([]byte, error) {
-	html, err := render(ctx, c)
-	if err != nil {
+	e := sse.NewElements(live.FrameBuffer(ctx))
+	if err := c.Render(ctx, e); err != nil {
 		return nil, err
 	}
-	return sse.PatchElements(html), nil
+	return e.Event(), nil
 }
 
+// render renders c as HTML, for a frame that needs the HTML itself, such
+// as the board's lanes, which it hashes.
 func render(ctx context.Context, c templ.Component) ([]byte, error) {
 	var buf bytes.Buffer
 	err := c.Render(ctx, &buf)

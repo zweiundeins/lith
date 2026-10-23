@@ -234,8 +234,26 @@ func lines(b []byte) iter.Seq[[]byte] {
 // HTML. Its lines end as PatchElements ends them, at "\r\n", "\r" or "\n",
 // also where a write ends between a CR and its LF.
 //
+// Each write costs a call, so Elements wants writes of a few KiB: fed
+// 2,309 rows of 102 bytes one by one, it took twice as long as
+// PatchElements on the whole. templ buffers its writes itself, 4 KiB at a
+// time, so a templ component renders straight into it:
+//
 //	e := sse.NewElements(live.FrameBuffer(ctx))
 //	if err := page.Render(ctx, e); err != nil {
+//		return nil, err
+//	}
+//	return e.Event(), nil
+//
+// Code that writes small pieces of its own, such as a row at a time, puts
+// a 4 KiB bufio.Writer in front, and flushes it before Event:
+//
+//	e := sse.NewElements(live.FrameBuffer(ctx))
+//	w := bufio.NewWriterSize(e, 4<<10)
+//	for _, r := range rows {
+//		w.Write(r.HTML)
+//	}
+//	if err := w.Flush(); err != nil {
 //		return nil, err
 //	}
 //	return e.Event(), nil

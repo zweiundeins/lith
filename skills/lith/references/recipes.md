@@ -534,11 +534,12 @@ func boardView(id int64) live.View {
 			if err != nil {
 				return nil, err
 			}
-			var buf bytes.Buffer
-			if err := views.Board(b).Render(ctx, &buf); err != nil {
+			// templ writes into the event, in a buffer the size of the last frame.
+			e := sse.NewElements(live.FrameBuffer(ctx), sse.Patch{Selector: "#board"})
+			if err := views.Board(b).Render(ctx, e); err != nil {
 				return nil, err
 			}
-			return sse.PatchElements(buf.Bytes(), sse.Patch{Selector: "#board"}), nil
+			return e.Event(), nil
 		},
 	}
 }
@@ -872,11 +873,11 @@ func tabView(sid, tab string) live.View {
 				}
 				page = views.Issue(is)
 			}
-			var buf bytes.Buffer
-			if err := page.Render(ctx, &buf); err != nil {
+			e := sse.NewElements(live.FrameBuffer(ctx), sse.Patch{Selector: "#main"})
+			if err := page.Render(ctx, e); err != nil {
 				return nil, err
 			}
-			return sse.PatchElements(buf.Bytes(), sse.Patch{Selector: "#main"}), nil
+			return e.Event(), nil
 		},
 	}
 }

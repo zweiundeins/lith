@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -118,25 +117,29 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest, assets str
 	if u, err := url.Parse(rq.Page); err != nil || u.Path != "/" {
 		return nil, nil // not a page of ours
 	}
-	var buf bytes.Buffer
+	var ev []byte
 	err := s.db.View(ctx, func(tx *sql.Tx) error {
 		list, total, err := guestbook.Latest(ctx, tx, guestbook.Shown)
 		if err != nil {
 			return err
 		}
-		return views.Content(list, total).Render(ctx, &buf)
+		ev, err = patch(ctx, views.Content(list, total))
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return [][]byte{sse.PatchElements(buf.Bytes())}, nil
+	return [][]byte{ev}, nil
 }
 
-// patch renders c as an event that morphs it into the page by its id.
+// patch renders c as an event that morphs it into the page by its id. The
+// HTML goes into the event as templ writes it (sse.Elements), in a buffer
+// the size of the view's last frame (live.FrameBuffer), without a copy in
+// between. templ buffers its writes itself, 4 KiB at a time.
 func patch(ctx context.Context, c templ.Component) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := c.Render(ctx, &buf); err != nil {
+	e := sse.NewElements(live.FrameBuffer(ctx))
+	if err := c.Render(ctx, e); err != nil {
 		return nil, err
 	}
-	return sse.PatchElements(buf.Bytes()), nil
+	return e.Event(), nil
 }
