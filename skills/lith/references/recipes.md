@@ -1252,6 +1252,13 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   restores a missing file before `sqlite.Open`, attaches, verifies a restore
   daily; open the database with `sqlite.CheckpointExternal` so Litestream
   owns the checkpoints.
+- A provider incident fails every replica's verification at once, and
+  usually passes. `RunVerifyLoop(ctx, backup.VerifyOptions{OnFail: ...})`
+  retries the failed replicas 10 and 30 minutes later and calls `OnFail`
+  once per run with those that failed every attempt
+  (`[]backup.VerifyFailure`: `Name`, `First`, `Last`, `Attempts`). Alert
+  there, once per run, never per replica; passes on a retry show in
+  `<ns>_backup_replica_verify_retried_total{replica}`, not in an alert.
 - A check of a copy opens it with `sqlite.Options{ReadOnly: true}` and runs
   `PRAGMA integrity_check` on `db.R`: nothing is written, and a missing copy
   is an error.
