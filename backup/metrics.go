@@ -15,7 +15,10 @@ import (
 // exact: a batch delete that fails in part counts nothing, and a key already
 // gone counts as pruned. <namespace>_backup_detached_last_pass_timestamp_seconds
 // older than twice the detached interval is the alert for a loop over the
-// names that does not run, or whose Names keeps failing.
+// names that does not run, or whose Names keeps failing. It reads 0 until
+// the first pass ends, about ten minutes after the start, so the alert needs
+// "and ... > 0" or a "for:". A pass in which every name failed still sets
+// it: the failures counter and the error log are the signal for that.
 func (m *Manager) Collector(namespace string) prometheus.Collector {
 	desc := func(name, help string, labels ...string) *prometheus.Desc {
 		return prometheus.NewDesc(prometheus.BuildFQName(namespace, "backup", name), help, labels, nil)
@@ -38,7 +41,7 @@ func (m *Manager) Collector(namespace string) prometheus.Collector {
 		detPasses:      desc("detached_maintenance_passes_total", "Maintenance passes that completed on replicas not attached at the time, from MaintenanceOptions.Names."),
 		detFailures:    desc("detached_maintenance_failures_total", "Maintenance passes that failed on replicas not attached at the time."),
 		detPruned:      desc("detached_pruned_objects_total", "Objects the maintenance passes pruned from replicas not attached at the time, approximately."),
-		detLastPass:    desc("detached_last_pass_timestamp_seconds", "Unix time the last pass over MaintenanceOptions.Names ended, 0 before the first; a pass whose Names failed does not count."),
+		detLastPass:    desc("detached_last_pass_timestamp_seconds", "Unix time the last pass over MaintenanceOptions.Names ended, even if every name failed, 0 before the first; a pass whose Names failed does not count."),
 	}
 }
 

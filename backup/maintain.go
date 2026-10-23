@@ -183,20 +183,27 @@ func (m *Manager) RunMaintenanceLoop(ctx context.Context, opt MaintenanceOptions
 	defer wg.Wait()
 
 	workers, pause := spread(opt.Concurrency, opt.Pause, DefaultMaintenanceConcurrency, DefaultMaintenancePause)
-	t := time.NewTicker(orDefault(opt.Interval, DefaultMaintenanceInterval))
-	defer t.Stop()
 	var failing map[string]int
+	runEvery(ctx, orDefault(opt.Interval, DefaultMaintenanceInterval), func(now time.Time) {
+		results := m.maintainPass(ctx, m.attachedNames(), workers, pause, func(name string) (bool, error) {
+			return m.maintainAttached(ctx, name, now)
+		})
+		if ctx.Err() == nil {
+			failing = m.logMaintenance(results, failing)
+		}
+	})
+}
+
+// runEvery calls pass every interval until ctx is done, never two at once.
+func runEvery(ctx context.Context, interval time.Duration, pass func(now time.Time)) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
-			results := m.maintainPass(ctx, m.attachedNames(), workers, pause, func(name string) (bool, error) {
-				return m.maintainAttached(ctx, name, now)
-			})
-			if ctx.Err() == nil {
-				failing = m.logMaintenance(results, failing)
-			}
+			pass(now)
 		}
 	}
 }

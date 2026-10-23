@@ -1365,8 +1365,10 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   shutdown. Failures of a pass log one line; the
   metrics are `<ns>_backup_detached_maintenance_passes_total`,
   `_failures_total`, `_detached_pruned_objects_total` (approximate) and
-  `_detached_last_pass_timestamp_seconds`, the alert when older than two
-  intervals, without a replica label.
+  `_detached_last_pass_timestamp_seconds`, without a replica label. Alert
+  when the last is older than two intervals `and ... > 0` (0 until the
+  first pass); it is set even when every name failed, which the failures
+  counter shows.
 - A check of a copy opens it with `sqlite.Options{ReadOnly: true}` and runs
   `PRAGMA integrity_check` on `db.R`: nothing is written, and a missing copy
   is an error.

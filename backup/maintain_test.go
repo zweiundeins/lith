@@ -539,6 +539,99 @@ func TestMaintenanceHoldsItsConcurrency(t *testing.T) {
 	}
 }
 
+// TestAttachedLoopSchedule: a pass every interval, an hour by default, and
+// a cancel during a pass waits for it to end.
+func TestAttachedLoopSchedule(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		t0 := time.Now()
+		var calls []time.Duration
+		var returned time.Duration
+		go func() {
+			runEvery(ctx, DefaultMaintenanceInterval, func(time.Time) {
+				calls = append(calls, time.Since(t0))
+				if len(calls) == 3 {
+					cancel()
+					time.Sleep(30 * time.Minute)
+				}
+			})
+			returned = time.Since(t0)
+		}()
+		time.Sleep(5 * time.Hour)
+		synctest.Wait()
+		if want := []time.Duration{time.Hour, 2 * time.Hour, 3 * time.Hour}; !slices.Equal(calls, want) {
+			t.Errorf("passes at %v, want %v", calls, want)
+		}
+		if want := 3*time.Hour + 30*time.Minute; returned != want {
+			t.Errorf("the loop returned at %v, want %v, when its pass ended", returned, want)
+		}
+	})
+}
+
+// TestDetachedLoopWaitsForItsPass: a cancel while Names runs ends the loop
+// once Names returns, not before.
+func TestDetachedLoopWaitsForItsPass(t *testing.T) {
+	m := newManager(t)
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		t0 := time.Now()
+		var returned time.Duration
+		go func() {
+			m.RunMaintenanceLoop(ctx, MaintenanceOptions{Names: func(context.Context) ([]string, error) {
+				cancel()
+				time.Sleep(time.Hour)
+				return []string{"t1"}, nil
+			}})
+			returned = time.Since(t0)
+		}()
+		time.Sleep(3 * time.Hour)
+		synctest.Wait()
+		if want := 70 * time.Minute; returned != want {
+			t.Errorf("the loop returned at %v, want %v, when Names returned", returned, want)
+		}
+		if got := detachedTotals(m); got.passes != 0 {
+			t.Errorf("detached passes = %d after the cancel, want none", got.passes)
+		}
+	})
+}
+
+// TestPassPausesOnlyAfterTheNamesItMaintained: skipped names cost no pause,
+// and a cancel during a pause ends the pass at once, after the replica in
+// progress on another worker is done.
+func TestPassPausesOnlyAfterTheNamesItMaintained(t *testing.T) {
+	m := newManager(t)
+	t.Run("skips", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			t0 := time.Now()
+			out := m.maintainPass(t.Context(), []string{"skip1", "a", "skip2", "skip3", "b", "skip4"}, 1, time.Second, func(name string) (bool, error) {
+				return !strings.HasPrefix(name, "skip"), nil
+			})
+			if d := time.Since(t0); d != 2*time.Second || len(out) != 2 {
+				t.Errorf("pass took %v with %v, want 2s: a pause after a and b alone", d, out)
+			}
+		})
+	})
+	t.Run("cancel", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			t0 := time.Now()
+			time.AfterFunc(30*time.Minute, cancel)
+			out := m.maintainPass(ctx, []string{"a", "slow", "b", "c"}, 2, time.Hour, func(name string) (bool, error) {
+				if name == "slow" {
+					time.Sleep(2 * time.Hour)
+				}
+				return true, nil
+			})
+			if d := time.Since(t0); d != 2*time.Hour {
+				t.Errorf("pass returned after %v, want 2h, when slow was done", d)
+			}
+			if got := slices.Sorted(maps.Keys(out)); !slices.Equal(got, []string{"a", "slow"}) {
+				t.Errorf("maintained %v, want a and slow, nothing after the cancel", got)
+			}
+		})
+	})
+}
+
 // TestDetachedLoopSchedule: the first pass over the names after ten
 // minutes, then one a day from the start of the one before, each reading
 // the names afresh; a pass that runs past the next start is followed at
