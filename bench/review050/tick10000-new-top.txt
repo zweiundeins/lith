@@ -1,0 +1,45 @@
+File: live.new
+Build ID: c488c76243d507d8ee61f166cc28cc662ef20cf5
+Type: cpu
+Time: 2026-10-23 14:51:24 UTC
+Duration: 6.27s, Total samples = 13.64s (217.44%)
+Showing nodes accounting for 12.65s, 92.74% of 13.64s total
+Dropped 148 nodes (cum <= 0.07s)
+      flat  flat%   sum%        cum   cum%
+     4.04s 29.62% 29.62%      8.31s 60.92%  github.com/zweiundeins/lith/live.(*worker).render
+         0     0% 29.62%      8.31s 60.92%  github.com/zweiundeins/lith/live.(*worker).run
+         0     0% 29.62%      8.31s 60.92%  sync.(*WaitGroup).Go.func1
+     0.01s 0.073% 29.69%      4.61s 33.80%  github.com/zweiundeins/lith/live.BenchmarkTick.func1
+         0     0% 29.69%      4.61s 33.80%  testing.(*B).run1.func1
+         0     0% 29.69%      4.61s 33.80%  testing.(*B).runN
+     0.09s  0.66% 30.35%      3.81s 27.93%  github.com/zweiundeins/lith/live.(*Hub).run
+     1.98s 14.52% 44.87%      2.93s 21.48%  github.com/zweiundeins/lith/live.(*Hub).publish
+     0.26s  1.91% 46.77%      2.57s 18.84%  github.com/zweiundeins/lith/live.(*limit).render
+     1.48s 10.85% 57.62%      1.55s 11.36%  github.com/zweiundeins/lith/live.(*renderState).take
+     0.07s  0.51% 58.14%      0.91s  6.67%  github.com/zweiundeins/lith/live.render
+     0.01s 0.073% 58.21%      0.82s  6.01%  github.com/zweiundeins/lith/live.BenchmarkTick.func1.2.1
+     0.75s  5.50% 63.71%      0.75s  5.50%  internal/sync.(*Mutex).Unlock (inline)
+         0     0% 63.71%      0.75s  5.50%  sync.(*Mutex).Unlock (partial-inline)
+     0.58s  4.25% 67.96%      0.70s  5.13%  github.com/zweiundeins/lith/live.(*Hub).waiting
+     0.02s  0.15% 68.11%      0.61s  4.47%  time.Now
+     0.59s  4.33% 72.43%      0.59s  4.33%  time.runtimeNow
+     0.03s  0.22% 72.65%      0.53s  3.89%  strconv.AppendInt (inline)
+     0.01s 0.073% 72.73%      0.50s  3.67%  internal/strconv.AppendInt
+     0.01s 0.073% 72.80%      0.49s  3.59%  internal/strconv.AppendUint
+         0     0% 72.80%      0.49s  3.59%  runtime.systemstack
+     0.07s  0.51% 73.31%      0.45s  3.30%  runtime.mallocgc
+         0     0% 73.31%      0.41s  3.01%  runtime.gcBgMarkWorker
+         0     0% 73.31%      0.40s  2.93%  runtime.gcBgMarkWorker.func2
+     0.01s 0.073% 73.39%      0.40s  2.93%  runtime.gcDrain
+     0.15s  1.10% 74.49%      0.38s  2.79%  runtime.growslice
+     0.20s  1.47% 75.95%      0.37s  2.71%  github.com/zweiundeins/lith/live.take
+     0.29s  2.13% 78.08%      0.29s  2.13%  github.com/zweiundeins/lith/live.(*Hub).mark (inline)
+         0     0% 78.08%      0.28s  2.05%  runtime.convTslice
+     0.01s 0.073% 78.15%      0.26s  1.91%  github.com/zweiundeins/lith/live.(*Hub).lagging (inline)
+         0     0% 78.15%      0.25s  1.83%  slices.ContainsFunc[go.shape.[]*github.com/zweiundeins/lith/live.watch,go.shape.*uint8] (inline)
+     0.03s  0.22% 78.37%      0.25s  1.83%  slices.IndexFunc[go.shape.[]*github.com/zweiundeins/lith/live.watch,go.shape.*uint8] (inline)
+     0.01s 0.073% 78.45%      0.24s  1.76%  runtime.schedule
+         0     0% 78.45%      0.23s  1.69%  runtime.mcall
+         0     0% 78.45%      0.23s  1.69%  runtime.park_m
+     0.05s  0.37% 78.81%      0.23s  1.69%  runtime.scanObject
+         0     0% 78.81%      0.23s  1.69%  sync/atomic.(*Pointer[go.shape.struct { context.Context; github.com/zweiundeins/lith/live.cancel context.CancelCauseFunc; github.com/zweiundeins/lith/live.at sync/atomic.Int64 }]).Store (inline)

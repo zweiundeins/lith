@@ -1,0 +1,80 @@
+# run 1 base load 3.17 2.92 2.21
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  684130	      1520 ns/op	    2781 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 5747480	       215.2 ns/op	     179 B/op	       6 allocs/op
+PASS
+# run 2 base load 3.08 2.90 2.21
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  640344	      1931 ns/op	    2825 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 4702546	       273.5 ns/op	     186 B/op	       6 allocs/op
+PASS
+# run 3 base load 3.63 3.02 2.25
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  676850	      1680 ns/op	    2789 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 5465506	       218.5 ns/op	     180 B/op	       6 allocs/op
+PASS
+# run 4 base load 3.66 3.04 2.26
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  665232	      1529 ns/op	    2781 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 5666734	       212.7 ns/op	     179 B/op	       6 allocs/op
+PASS
+# run 5 base load 3.53 3.02 2.26
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  677072	      1539 ns/op	    2786 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 5782236	       213.6 ns/op	     178 B/op	       6 allocs/op
+PASS
+# run 6 base load 3.53 3.02 2.26
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  684758	      1518 ns/op	    2788 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 5609041	       217.5 ns/op	     179 B/op	       6 allocs/op
+PASS
+# run 7 base load 3.41 3.00 2.25
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  684765	      1527 ns/op	    2781 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 5454174	       224.2 ns/op	     180 B/op	       6 allocs/op
+PASS
+# run 8 base load 3.21 2.97 2.25
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  720301	      1722 ns/op	    2780 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 4520923	       271.6 ns/op	     188 B/op	       6 allocs/op
+PASS
+# run 9 base load 3.28 2.99 2.26
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  654795	      1810 ns/op	    2807 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 4478438	       251.4 ns/op	     188 B/op	       6 allocs/op
+PASS
+# run 10 base load 3.41 3.02 2.27
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/sse
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkHeartbeatAsleep/wake-12         	  601156	      1736 ns/op	    2824 B/op	      22 allocs/op
+BenchmarkHeartbeatAsleep/ping-12         	 4575463	       248.7 ns/op	     187 B/op	       6 allocs/op
+PASS
