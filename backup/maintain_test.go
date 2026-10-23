@@ -211,6 +211,9 @@ func TestThePassSkipsABusyReplica(t *testing.T) {
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("the pass took %v, want no wait for the upload", d)
 	}
+	if st := m.Status(); len(st) != 1 || st[0].MaintenanceSkipped != 1 {
+		t.Errorf("Status = %+v, want one skipped pass", st)
+	}
 	shutdown(t, db, detach)
 }
 
@@ -900,5 +903,26 @@ func TestMaintenanceFailuresWarnUntilTheThirdPassInARow(t *testing.T) {
 	}
 	if failing["a"] != 4 || failing["b"] != 1 {
 		t.Errorf("failing = %v, want a:4 b:1", failing)
+	}
+}
+
+// TestASkippedPassKeepsTheFailureStreak: a pass that finds the replica busy
+// neither ends its streak nor adds to it, while a detached one drops out.
+func TestASkippedPassKeepsTheFailureStreak(t *testing.T) {
+	h := &levels{}
+	m, err := New(Config{Dir: t.TempDir(), Logger: slog.New(h)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.attached["a"] = &attachedDB{}
+	fail := errors.New("503 SlowDown")
+	failing := map[string]int{"a": 2, "b": 2}
+	failing = m.logMaintenance(map[string]error{}, failing)
+	if failing["a"] != 2 || len(failing) != 1 {
+		t.Fatalf("failing after a skipped pass = %v, want a:2 alone", failing)
+	}
+	failing = m.logMaintenance(map[string]error{"a": fail}, failing)
+	if failing["a"] != 3 || !slices.Equal(h.got, []slog.Level{slog.LevelError}) {
+		t.Errorf("failing = %v and levels %v, want a:3 logged as an error", failing, h.got)
 	}
 }

@@ -86,8 +86,9 @@ type maintResult struct {
 	bytes          int64
 
 	// Passes while attached; detached ones count in Manager.detachedMaint.
-	passes int
-	pruned int
+	passes  int
+	pruned  int
+	skipped int // passes that found it busy
 }
 
 // maintTotals sums the passes over replicas that were not attached.
@@ -366,11 +367,16 @@ func (m *Manager) maintainAttached(ctx context.Context, name string, now time.Ti
 	m.mu.Lock()
 	a, busy := m.attached[name], m.pruning[name]
 	m.mu.Unlock()
-	if a == nil || busy {
+	if a == nil {
 		return false, nil
 	}
-	if !a.maint.TryLock() {
+	if busy || !a.maint.TryLock() {
 		m.log.Debug("backup: maintenance skips a busy replica until the next pass", "replica", name)
+		m.mu.Lock()
+		r := m.maintenance[name]
+		r.skipped++
+		m.maintenance[name] = r
+		m.mu.Unlock()
 		return false, nil
 	}
 	defer a.maint.Unlock()
@@ -382,8 +388,12 @@ func (m *Manager) maintainAttached(ctx context.Context, name string, now time.Ti
 	stop := context.AfterFunc(a.work, cancel)
 	defer stop()
 	err = m.maintain(ctx, name, a, now)
+	if err != nil && ctx.Err() != nil {
+		// Under a.maint, which detach takes before its final sync with the
+		// name reserved, so the listing finds no other upload of the name.
+		m.abortCancelledSnapshot(name)
+	}
 	if err != nil && a.work.Err() != nil {
-		go m.abortCancelledSnapshot(name)
 		return false, nil
 	}
 	return true, err
@@ -435,9 +445,17 @@ func (m *Manager) maintainNamed(ctx context.Context, name string, now time.Time,
 const maintenanceErrorAfter = 3
 
 // logMaintenance logs a pass's failures and returns each failing replica's
-// count of failed passes in a row.
+// count of failed passes in a row. A replica the pass skipped and that is
+// still attached keeps its count.
 func (m *Manager) logMaintenance(results map[string]error, failing map[string]int) map[string]int {
 	next := map[string]int{}
+	m.mu.Lock()
+	for name, n := range failing {
+		if _, ran := results[name]; !ran && m.attached[name] != nil {
+			next[name] = n
+		}
+	}
+	m.mu.Unlock()
 	for _, name := range slices.Sorted(maps.Keys(results)) {
 		err := results[name]
 		if err == nil {

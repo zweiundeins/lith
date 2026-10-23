@@ -38,6 +38,7 @@ func (m *Manager) Collector(namespace string) prometheus.Collector {
 		replicaBytes:   desc("replica_bytes", "Bytes in the replica at the last maintenance pass.", "replica"),
 		maintPasses:    desc("replica_maintenance_passes_total", "Maintenance passes that completed on the replica while it was attached.", "replica"),
 		maintPruned:    desc("replica_pruned_objects_total", "Objects the maintenance passes pruned from the replica while it was attached, approximately.", "replica"),
+		maintSkipped:   desc("replica_maintenance_skipped_total", "Maintenance passes that found the replica busy and left it to the next.", "replica"),
 		detPasses:      desc("detached_maintenance_passes_total", "Maintenance passes that completed on replicas not attached at the time, from MaintenanceOptions.Names."),
 		detFailures:    desc("detached_maintenance_failures_total", "Maintenance passes that failed on replicas not attached at the time."),
 		detPruned:      desc("detached_pruned_objects_total", "Objects the maintenance passes pruned from replicas not attached at the time, approximately."),
@@ -50,11 +51,12 @@ type collector struct {
 	enabled, replicas, retention                                               *prometheus.Desc
 	lastSync, lastVerify, verifyOK, lastSnapshot, replicaObjects, replicaBytes *prometheus.Desc
 	verifyAttempts, verifyRetried                                              *prometheus.Desc
-	maintPasses, maintPruned, detPasses, detFailures, detPruned, detLastPass   *prometheus.Desc
+	maintPasses, maintPruned, maintSkipped                                     *prometheus.Desc
+	detPasses, detFailures, detPruned, detLastPass                             *prometheus.Desc
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried, c.maintPasses, c.maintPruned, c.detPasses, c.detFailures, c.detPruned, c.detLastPass} {
+	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried, c.maintPasses, c.maintPruned, c.maintSkipped, c.detPasses, c.detFailures, c.detPruned, c.detLastPass} {
 		ch <- d
 	}
 }
@@ -81,6 +83,7 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		gauge(c.replicaBytes, float64(s.ReplicaBytes), s.Name)
 		counter(c.maintPasses, s.MaintenancePasses, s.Name)
 		counter(c.maintPruned, s.PrunedObjects, s.Name)
+		counter(c.maintSkipped, s.MaintenanceSkipped, s.Name)
 	}
 	c.m.mu.Lock()
 	det := c.m.detachedMaint

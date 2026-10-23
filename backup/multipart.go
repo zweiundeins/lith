@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/benbjohnson/litestream"
 )
 
@@ -37,10 +38,11 @@ const abortAfterCancel = 10 * time.Second
 // multipartClient builds the Manager's S3 client for multipart uploads with
 // newAPI, once it succeeds. The API is nil for a Dir.
 type multipartClient struct {
-	newAPI func(ctx context.Context) (multipartAPI, error)
-	mu     sync.Mutex
-	built  bool
-	api    multipartAPI
+	newAPI      func(ctx context.Context) (multipartAPI, error)
+	mu          sync.Mutex
+	built       bool
+	api         multipartAPI
+	unsupported sync.Once // logs a provider without ListMultipartUploads
 }
 
 func (m *Manager) multipart(ctx context.Context) (multipartAPI, error) {
@@ -96,24 +98,45 @@ func (m *Manager) newMultipartAPI(ctx context.Context) (multipartAPI, error) {
 	return client, nil
 }
 
+// maxUploadPages bounds a listing of unfinished uploads: a million at 1,000
+// a page, more than any replica leaves.
+const maxUploadPages = 1000
+
+// s3KeyPrefix is the prefix of the keys litestream's S3 client writes for a
+// replica, and for one of its levels when level is 0 or more: its Path, then
+// the level in four hex digits (s3.ReplicaClient.WriteLTXFile). The file
+// client's ltx/<level> layout does not apply.
+func s3KeyPrefix(root string, level int) string {
+	if level < 0 {
+		return root + "/"
+	}
+	return root + "/" + fmt.Sprintf("%04x/", level)
+}
+
 // abortUploads aborts every unfinished multipart upload under the replica
 // name, or under its level when level is 0 or more. It returns the number
-// it aborted.
+// it aborted. A provider without ListMultipartUploads has none to abort.
 func (m *Manager) abortUploads(ctx context.Context, name string, level int) (int, error) {
 	api, err := m.multipart(ctx)
 	if err != nil || api == nil {
 		return 0, err
 	}
-	prefix := path.Join(m.cfg.Prefix, name)
-	if level >= 0 {
-		prefix = litestream.LTXLevelDir(prefix, level)
-	}
-	prefix += "/"
+	prefix := s3KeyPrefix(path.Join(m.cfg.Prefix, name), level)
 	in := &s3.ListMultipartUploadsInput{Bucket: aws.String(m.cfg.Bucket), Prefix: aws.String(prefix)}
 	aborted := 0
 	var errs []error
-	for {
+	for page := 1; ; page++ {
 		out, err := api.ListMultipartUploads(ctx, in)
+		if notImplemented(err) {
+			m.mpu.unsupported.Do(func() {
+				m.log.Info("backup: the provider does not list multipart uploads; give the bucket a lifecycle rule that aborts them", "error", err)
+			})
+			return aborted, errors.Join(errs...)
+		}
+		if errorCode(err) == "NoSuchUpload" {
+			// gofakes3's answer for a bucket without uploads.
+			return aborted, errors.Join(errs...)
+		}
 		if err != nil {
 			return aborted, errors.Join(append(errs, fmt.Errorf("list multipart uploads: %w", err))...)
 		}
@@ -130,13 +153,39 @@ func (m *Manager) abortUploads(ctx context.Context, name string, level int) (int
 		if !aws.ToBool(out.IsTruncated) {
 			return aborted, errors.Join(errs...)
 		}
+		if aws.ToString(out.NextKeyMarker) == aws.ToString(in.KeyMarker) && aws.ToString(out.NextUploadIdMarker) == aws.ToString(in.UploadIdMarker) {
+			return aborted, errors.Join(append(errs, errors.New("list multipart uploads: the listing is truncated but does not move on"))...)
+		}
+		if page == maxUploadPages {
+			return aborted, errors.Join(append(errs, fmt.Errorf("list multipart uploads: more than %d pages", maxUploadPages))...)
+		}
 		in.KeyMarker, in.UploadIdMarker = out.NextKeyMarker, out.NextUploadIdMarker
 	}
 }
 
-// abortCancelledSnapshot aborts what a snapshot cancelled by detach may have
-// left, with a fresh context, since the snapshot's is cancelled. It is best
+// notImplemented reports an S3 error for an operation the provider lacks.
+func notImplemented(err error) bool {
+	if errorCode(err) == "NotImplemented" {
+		return true
+	}
+	var status interface{ HTTPStatusCode() int }
+	return errors.As(err, &status) && status.HTTPStatusCode() == http.StatusNotImplemented
+}
+
+// errorCode is the S3 error code of err, or "".
+func errorCode(err error) string {
+	var api smithy.APIError
+	if errors.As(err, &api) {
+		return api.ErrorCode()
+	}
+	return ""
+}
+
+// abortCancelledSnapshot aborts what a snapshot cut off by its context may
+// have left, with a fresh context, since the snapshot's has ended. It is best
 // effort: a bucket lifecycle rule or PurgeReplica catches what it misses.
+// The caller holds the replica's maint lock and, after a detach, the name's
+// reservation, so no other snapshot of the name uploads meanwhile.
 func (m *Manager) abortCancelledSnapshot(name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), abortAfterCancel)
 	defer cancel()

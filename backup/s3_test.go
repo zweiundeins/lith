@@ -2,26 +2,35 @@ package backup
 
 import (
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/benbjohnson/litestream"
+	"github.com/johannesboyne/gofakes3"
+	"github.com/johannesboyne/gofakes3/backend/s3mem"
 )
 
-// TestS3 runs the round trip, maintenance and purge against a real bucket.
-// It needs an existing bucket in LITH_BACKUP_TEST_BUCKET and its credentials
-// in LITH_BACKUP_TEST_ENDPOINT, _REGION, _ACCESS_KEY_ID, _SECRET_ACCESS_KEY
-// and _FORCE_PATH_STYLE (MinIO: true). Everything it writes lives under a
-// fresh prefix and is purged at the end.
+// TestS3 runs the round trip, maintenance and purge against a bucket: a real
+// one when LITH_BACKUP_TEST_BUCKET names it, with its credentials in
+// LITH_BACKUP_TEST_ENDPOINT, _REGION, _ACCESS_KEY_ID, _SECRET_ACCESS_KEY and
+// _FORCE_PATH_STYLE (MinIO: true), else gofakes3 in memory. Everything it
+// writes lives under a fresh prefix and is purged at the end.
 func TestS3(t *testing.T) {
-	if os.Getenv("LITH_BACKUP_TEST_BUCKET") == "" {
-		t.Skip("needs an S3 bucket: set LITH_BACKUP_TEST_BUCKET and its credentials (see the test's comment)")
-	}
 	cfg, err := ConfigFromEnv("LITH_BACKUP_TEST_")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if os.Getenv("LITH_BACKUP_TEST_BUCKET") == "" {
+		backend := s3mem.New()
+		if err := backend.CreateBucket("lith"); err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewServer(gofakes3.New(backend, gofakes3.WithLogger(gofakes3.DiscardLog())).Server())
+		t.Cleanup(srv.Close)
+		cfg = Config{Bucket: "lith", Endpoint: srv.URL, Region: "us-east-1", ForcePathStyle: true, AccessKeyID: "test", SecretAccessKey: "test"}
 	}
 	cfg.Prefix = fmt.Sprintf("lith-backup-test-%d", time.Now().UnixNano())
 	m, err := New(cfg)

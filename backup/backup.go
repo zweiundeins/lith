@@ -47,11 +47,13 @@
 //
 // An upload of 5 MiB or more to S3 goes up in parts, and one cut off (a
 // snapshot that detach cancels, a crash) can leave its parts in the bucket,
-// unlisted as objects. The Manager aborts the uploads of a snapshot it
-// cancels, best effort, and PurgeReplica aborts every one under the name
-// before it deletes, so an erasure leaves nothing. As a backstop, give the
-// bucket a lifecycle rule that aborts incomplete multipart uploads after a
-// day where the provider supports one.
+// unlisted as objects. The Manager aborts the upload of a snapshot cut off
+// by detach, shutdown or Config.SnapshotTimeout, best effort, before the
+// name can be attached again, and PurgeReplica aborts every one under the name
+// before it deletes, so an erasure leaves nothing. A provider that does not
+// implement ListMultipartUploads gets none aborted, logged once. As a
+// backstop, give the bucket a lifecycle rule that aborts incomplete
+// multipart uploads after a day where the provider supports one.
 package backup
 
 import (
@@ -494,8 +496,8 @@ func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, e
 // Config.SnapshotTimeout, so that a database attached only between
 // maintenance passes still gets snapshots, and its WAL segments a floor to
 // be pruned at. detach cancels it and waits for it to stop before the final
-// sync; a database detached before its snapshot is done gets one on its
-// next Attach.
+// sync, on S3 with the abort of the upload it cut off (10 s at most); a
+// database detached before its snapshot is done gets one on its next Attach.
 func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(context.Context) error, err error) {
 	if !m.enabled {
 		return func(context.Context) error { return nil }, nil
@@ -509,7 +511,7 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 	m.mu.Lock()
 	if m.reserved[name] || m.attached[name] != nil {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("backup: %s is already attached", name)
+		return nil, fmt.Errorf("backup: %s is already attached, or being detached or purged", name)
 	}
 	m.reserved[name] = true
 	m.mu.Unlock()
@@ -561,6 +563,11 @@ func (m *Manager) snapshotAfterAttach(name string, a *attachedDB) {
 	var err error
 	if ctx.Err() == nil {
 		_, err = m.snapshotIfDue(ctx, name, a.db, time.Now())
+		if err != nil && ctx.Err() != nil {
+			// Before snapshotDone, which detach waits for with the name
+			// reserved, so the listing finds no other upload of the name.
+			m.abortCancelledSnapshot(name)
+		}
 	}
 	a.maint.Unlock()
 	close(a.snapshotDone)
@@ -568,7 +575,6 @@ func (m *Manager) snapshotAfterAttach(name string, a *attachedDB) {
 	case err == nil:
 	case a.work.Err() != nil:
 		m.log.Debug("backup: snapshot after attach cancelled by detach", "replica", name, "error", err)
-		m.abortCancelledSnapshot(name)
 	default:
 		m.log.Warn("backup: snapshot after attach failed; the next attached pass or attach takes one", "replica", name, "error", err)
 	}
@@ -631,6 +637,11 @@ type ReplicaStatus struct {
 	// count in the Collector's detached totals.
 	MaintenancePasses int
 	PrunedObjects     int
+
+	// MaintenanceSkipped counts the passes that found the replica busy (a
+	// snapshot after Attach, or the pruning of names not attached) and left
+	// it to the next; such a pass neither ends nor adds to a failure streak.
+	MaintenanceSkipped int
 }
 
 // Status reports every attached replica, sorted by name. It reads no
@@ -650,7 +661,7 @@ func (m *Manager) Status() []ReplicaStatus {
 		}
 		if mr, ok := m.maintenance[name]; ok {
 			s.LastSnapshotAt, s.ReplicaObjects, s.ReplicaBytes = mr.lastSnapshotAt, mr.objects, mr.bytes
-			s.MaintenancePasses, s.PrunedObjects = mr.passes, mr.pruned
+			s.MaintenancePasses, s.PrunedObjects, s.MaintenanceSkipped = mr.passes, mr.pruned, mr.skipped
 		}
 		out = append(out, s)
 	}
@@ -733,12 +744,19 @@ func (m *Manager) PurgeReplica(ctx context.Context, name string) error {
 	if err := checkName(name); err != nil {
 		return err
 	}
+	// The reservation keeps an Attach out until the purge is done.
 	m.mu.Lock()
-	busy := m.reserved[name] || m.attached[name] != nil
-	m.mu.Unlock()
-	if busy {
-		return fmt.Errorf("backup: purge %s: still attached, detach it first", name)
+	if m.reserved[name] || m.attached[name] != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("backup: purge %s: still attached, or being attached, detached or purged; detach it first", name)
 	}
+	m.reserved[name] = true
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.reserved, name)
+		m.mu.Unlock()
+	}()
 	if _, err := m.abortUploads(ctx, name, -1); err != nil {
 		return fmt.Errorf("backup: purge %s: %w", name, err)
 	}

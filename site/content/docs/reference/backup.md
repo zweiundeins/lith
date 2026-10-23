@@ -26,7 +26,7 @@ Stop in this order: drain HTTP and the writer, so every accepted write is in the
 
 Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time. Pruning relies on it: with one replicating process the positions in a replica only grow, so the pruning of a replica not attached is safe beside an Attach of it. A second writer, or a prefix and name reused for another database, resets the positions, and then any pruning is unsafe, attached or not.
 
-An upload of 5 MiB or more to S3 goes up in parts, and one cut off (a snapshot that detach cancels, a crash) can leave its parts in the bucket, unlisted as objects. The Manager aborts the uploads of a snapshot it cancels, best effort, and PurgeReplica aborts every one under the name before it deletes, so an erasure leaves nothing. As a backstop, give the bucket a lifecycle rule that aborts incomplete multipart uploads after a day where the provider supports one.
+An upload of 5 MiB or more to S3 goes up in parts, and one cut off (a snapshot that detach cancels, a crash) can leave its parts in the bucket, unlisted as objects. The Manager aborts the upload of a snapshot cut off by detach, shutdown or Config.SnapshotTimeout, best effort, before the name can be attached again, and PurgeReplica aborts every one under the name before it deletes, so an erasure leaves nothing. A provider that does not implement ListMultipartUploads gets none aborted, logged once. As a backstop, give the bucket a lifecycle rule that aborts incomplete multipart uploads after a day where the provider supports one.
 
 ## Constants
 
@@ -201,7 +201,7 @@ Attach starts replicating the database at dbPath under name. It returns once the
 
 Call detach once, before the application's last checkpoint and close: it is the final sync. A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
 
-When the newest snapshot is older than the snapshot interval, Attach writes one in the background after the first sync, bounded by Config.SnapshotTimeout, so that a database attached only between maintenance passes still gets snapshots, and its WAL segments a floor to be pruned at. detach cancels it and waits for it to stop before the final sync; a database detached before its snapshot is done gets one on its next Attach.
+When the newest snapshot is older than the snapshot interval, Attach writes one in the background after the first sync, bounded by Config.SnapshotTimeout, so that a database attached only between maintenance passes still gets snapshots, and its WAL segments a floor to be pruned at. detach cancels it and waits for it to stop before the final sync, on S3 with the abort of the upload it cut off (10 s at most); a database detached before its snapshot is done gets one on its next Attach.
 
 #### func (*Manager) Collector {#Manager.Collector}
 
@@ -360,6 +360,11 @@ type ReplicaStatus struct {
 	// count in the Collector's detached totals.
 	MaintenancePasses int
 	PrunedObjects     int
+
+	// MaintenanceSkipped counts the passes that found the replica busy (a
+	// snapshot after Attach, or the pruning of names not attached) and left
+	// it to the next; such a pass neither ends nor adds to a failure streak.
+	MaintenanceSkipped int
 }
 ```
 
