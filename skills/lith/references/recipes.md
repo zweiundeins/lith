@@ -288,8 +288,11 @@ any session that learns it push a notice with an ack it picks.
   stream's views when it is called (the commit just before it), and goes
   after their frames in the same write; it waits behind a Slow stream's
   250 ms and a paced stream's full window (up to `live.AckTimeout`, 10 s).
-  One slot per key: use a fixed key per kind of notice (per form), never
-  the op id; the same key is last-wins and keeps the first one's place.
+  One slot per key, last-wins, keeping the first one's place. Key notices
+  as the page acks: a page that acks per op key (`$_ops[key]`, one op
+  pending per key) uses the op key; a page that acks per op
+  (`$_outcomes[op]`) keys by the op id, or a later notice drops an earlier
+  op's, which stays pending until a reconnect.
   At most `live.MaxNotices` (64) wait per stream; a new key beyond them
   drops the oldest. Keys from the client (op keys) are checked by the
   handler, and an action without an op uses one fixed notice key. A

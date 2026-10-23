@@ -47,9 +47,13 @@ type heldNote struct {
 // holds its frames back: up to 250 ms with Spec.Slow, and while a paced
 // stream's window is full, up to AckTimeout.
 //
-// A stream keeps one notice per key, so give a kind of notice a fixed key,
-// never the op id: a Notify with the key of a notice that has not gone
-// out yet replaces it, in its place, and the last one wins. A stream keeps
+// A stream keeps one notice per key: a Notify with the key of a notice
+// that has not gone out yet replaces it, in its place, and the last one
+// wins. Key notices as the page acks its ops. A page that acks per op
+// key, with one op pending per key, gives each key's notices that key. A
+// page that acks per op id keys each notice by the op id, or a later
+// notice would drop an earlier op's, which then stays pending until the
+// stream reconnects; MaxNotices bounds those keys. A stream keeps
 // MaxNotices waiting at most: one with a new key beyond them drops the
 // oldest, queued before held. Notify reports
 // whether such a stream is open; when none is, it does nothing and keeps
