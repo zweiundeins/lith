@@ -62,3 +62,37 @@ func TestSeparateCommand(t *testing.T) {
 		t.Fatalf("the site's limit let a second action through: %d", c)
 	}
 }
+
+// An address gets Rate.Sessions sessions' worth of a command, four by
+// default, however many sessions it makes up: each request without a
+// cookie gets a new one.
+func TestRateSessions(t *testing.T) {
+	mux := http.NewServeMux()
+	k := NewKit("town", mux, Deps{Commands: edge.NewLimiter(1000, 1000)})
+	ok := func(w http.ResponseWriter, r *http.Request) {
+		if Limited(r) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	k.Action("seek", Rate{Every: time.Hour, Burst: 2, Separate: true, Sessions: 1}, ok)
+	k.Action("place", Rate{Every: time.Hour, Burst: 2}, ok)
+	h := edge.Sessions{}.Handler(mux)
+	allowed := func(name string) (n int) {
+		for range 20 {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest("POST", "/cmd/town/"+name, nil))
+			if w.Code == http.StatusNoContent {
+				n++
+			}
+		}
+		return n
+	}
+	if n := allowed("seek"); n != 2 {
+		t.Errorf("an address made up sessions and got %d seeks, want 2", n)
+	}
+	if n := allowed("place"); n != 8 {
+		t.Errorf("an address got %d places, want 8", n)
+	}
+}

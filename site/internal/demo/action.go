@@ -1,6 +1,7 @@
 package demo
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -39,7 +40,8 @@ func (k *Kit) Action(name string, rate Rate, h http.HandlerFunc) {
 		panic(fmt.Sprintf("demo %s: command %s needs a Rate", k.slug, name))
 	}
 	perSecond := float64(time.Second) / float64(rate.Every)
-	byAddr := edge.NewLimiter(4*perSecond, 4*rate.Burst)
+	sessions := cmp.Or(max(rate.Sessions, 0), 4)
+	byAddr := edge.NewLimiter(float64(sessions)*perSecond, sessions*rate.Burst)
 	bySession := edge.NewLimiter(perSecond, rate.Burst)
 	k.mux.HandleFunc("POST /cmd/"+k.slug+"/"+name, func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()

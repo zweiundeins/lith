@@ -35,9 +35,11 @@ func mount(k *demo.Kit) {
 	})
 	// The slider: a position each tick while it is dragged. Separate keeps
 	// a drag out of the site's limit for all actions, which it would use
-	// up for every other demo. A notice ends the seek as the tab's view
-	// would, by its number.
-	k.Action("seek", demo.Rate{Every: seekEvery, Burst: seekBurst, Separate: true}, func(w http.ResponseWriter, r *http.Request) {
+	// up for every other demo. Each new position renders the tab's views
+	// afresh, so an address gets one drag's worth, however many sessions
+	// it makes up. A notice ends the seek as the tab's view would, by its
+	// number.
+	k.Action("seek", demo.Rate{Every: seekEvery, Burst: seekBurst, Separate: true, Sessions: 1}, func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Tab     string
 			At, Seq int64

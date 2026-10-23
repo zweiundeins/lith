@@ -58,10 +58,10 @@ func NewKit(slug string, mux *http.ServeMux, deps Deps) *Kit {
 }
 
 // Rate limits one command per session: Burst at once, then one every
-// Every. A client address gets four times as much, since several people
-// can share one (an office, a mobile network), and its limit comes first:
-// a client mints a session with every request that sends no cookie, so a
-// session id is no limiter key on its own.
+// Every. A client address gets Sessions times as much, four by default,
+// since several people can share one (an office, a mobile network), and
+// its limit comes first: a client mints a session with every request that
+// sends no cookie, so a session id is no limiter key on its own.
 type Rate struct {
 	Every time.Duration
 	Burst int
@@ -70,6 +70,11 @@ type Rate struct {
 	// (a pointer's moves, a brush's strokes), which would use that limit up
 	// for every other action; the command's own limits still hold.
 	Separate bool
+	// Sessions is how many sessions' worth of the command an address may
+	// send (default 4). A command that costs a render of its own and that
+	// one person sends many times a second, such as a slider's position,
+	// sets 1.
+	Sessions int
 }
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
