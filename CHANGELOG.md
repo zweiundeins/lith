@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- Template, example and docs: the page reports its build, typed flag and assets version as signals in its stream request, not in headers. Datastar 1.0.4 repeats a `@get`'s first headers on every reopen, so after a deploy a hidden tab shown again was refreshed each time, and a page with typed input could be morphed. In an app from the v0.5.0 template, replace the `Page-Build`, `Page-Assets` and `Page-Dirty` headers in `openStream` with `filterSignals: {include: /^_(build|assets|dirty)$/, exclude: /(?!)/}`, and read them in the stream handler with `sse.ReadSignals` (see `pageState` in `internal/web/server.go`).
+
 ## v0.5.0 (2026-10-23)
 
 A status code no longer carries anything a person reads. What a person causes is an outcome in the tab's row; what they must know but didn't cause is a notice on their stream; what only the browser knows the page says itself. Open tabs refresh in place after a deploy. The backup module's verification retries before it reports, and reports once per run. What to change in an app:
