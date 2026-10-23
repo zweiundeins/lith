@@ -49,7 +49,7 @@ templ Document(s Shell, body templ.Component) {
 		</head>
 		<body
 			if s.Stream != "" {
-				data-signals={ pageSignals(s.Tab) }
+				data-signals={ pageSignals(s) }
 				data-newest-frame
 				data-on:newest-frame-behind={ behind }
 			}
@@ -60,15 +60,35 @@ templ Document(s Shell, body templ.Component) {
 			}
 			<div class="site">
 				@Header(s)
-				<main id="main" class="site-main">
-					@body
-				</main>
+				@Main(body)
 				@Footer(s)
 			</div>
 			@Menu(s)
+			if s.Stream != "" {
+				@Update(false)
+			}
 			<span id="page-end" hidden></span>
 		</body>
 	</html>
+}
+
+// Main is the page's own content. A refresh after a deploy renders it
+// afresh (web.Server.refresh); the demos' islands keep theirs.
+templ Main(body templ.Component) {
+	<main id="main" class="site-main">
+		@body
+	</main>
+}
+
+// Update asks for a reload when a deploy changed the scripts or
+// stylesheets the page loads, which a refresh cannot bring.
+templ Update(show bool) {
+	<p id="update" class="site-update" role="status">
+		if show {
+			This page has a new version.
+			<button type="button" class="btn btn--sm" data-on:click="location.reload()">Reload</button>
+		}
+	</p>
 }
 
 templ Header(s Shell) {

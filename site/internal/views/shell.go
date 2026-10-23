@@ -4,7 +4,10 @@
 package views
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"strconv"
 	"strings"
 
@@ -59,6 +62,9 @@ type Shell struct {
 	// page that does not stream. The page opens it with the tab id Tab.
 	Stream string
 	Tab    string
+	// Build is the build that renders the page (live.Hub.Build), which its
+	// stream reports for a refresh after a deploy.
+	Build string
 	// Components are the Starbase components' bundles the page loads.
 	Components []Script
 	// JSONLD is the page's structured data, a schema.org @graph as JSON.
@@ -103,9 +109,10 @@ const StreamID = "stream"
 // which carries it through a restart; a 204 or a 3xx stops it, and a
 // stream the server ends stays closed, except through sse.Reconnect. It
 // marks every demo's tab view out of sync until its first frame
-// (demo.Resync).
+// (demo.Resync). Its headers report the page's build, assets version and
+// path, for a refresh after a deploy (web.Server.refresh).
 func openStream(url string) string {
-	return "(" + demo.Resync + ", @get(" + jsString(url+"?tab=") + " + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
+	return "(" + demo.Resync + ", @get(" + jsString(url+"?tab=") + " + $_tab, {headers: {'Page-Build': $_build, 'Page-Assets': $_assets, 'Page-Path': location.pathname + location.search, ...($_slow ? {'Save-Data': 'on'} : {})}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
 }
 
 // retrying marks the demos out of sync while Datastar opens the stream
@@ -126,9 +133,23 @@ const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(
 // pageSignals are the signals every streaming page starts with: the tab
 // id, local to the browser (_), and sent along by the actions that need
 // it, whether the link is slow, and the word a demo's badge says in place
-// of "live", such as the town's "past" (empty: live).
-func pageSignals(tab string) string {
-	return "{_tab: " + jsString(tab) + ", _slow: " + slowLink + ", _badge: ''}"
+// of "live", such as the town's "past" (empty: live), and the build and
+// assets version that rendered the page.
+func pageSignals(s Shell) string {
+	return "{_tab: " + jsString(s.Tab) + ", _slow: " + slowLink + ", _badge: '', _build: " + jsString(s.Build) + ", _assets: " + jsString(s.AssetsVersion()) + "}"
+}
+
+// AssetsVersion names the scripts and stylesheets the page loads: a page
+// that loaded others needs a reload, not a refresh, after a deploy.
+func (s Shell) AssetsVersion() string {
+	h := sha256.New()
+	for _, u := range []string{s.Assets.CSS, s.Assets.Datastar.URL, s.Assets.Transitions, s.Assets.NewestFrame} {
+		io.WriteString(h, u+" ")
+	}
+	for _, c := range s.Components {
+		io.WriteString(h, c.URL+" ")
+	}
+	return hex.EncodeToString(h.Sum(nil)[:6])
 }
 
 // behind posts the tab's id to /pace each time newest-frame.js reports

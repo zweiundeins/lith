@@ -68,6 +68,18 @@ templ LandingPage(l Landing) {
 			}
 		</div>
 	</section>
+	@LandingMore(l)
+}
+
+// LandingMore is the landing page below its demos' slots, which a refresh
+// after a deploy renders afresh by its id (web.Server.refresh).
+templ LandingMore(l Landing) {
+	<div id="landing-more" class="landing-more">
+		@landingMore(l)
+	</div>
+}
+
+templ landingMore(l Landing) {
 	<section class="band" aria-labelledby="numbers-title">
 		<div class="wrap section">
 			<header class="section__head reveal">

@@ -148,7 +148,10 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		// checkbox grid sends its twelve tiles in turn, and a tile refers
 		// back to its own last frame, 104 KB back.
 		SSE: sse.Options{Budget: sse.NewBudget(sse.BudgetOptions{MinWindow: 17})},
-		Log: cfg.Log,
+		// A page a former version rendered is refreshed as its stream opens
+		// (web.Server.refresh).
+		Build: cfg.Version,
+		Log:   cfg.Log,
 	})
 	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed, Log: cfg.Log})
 	if err != nil {

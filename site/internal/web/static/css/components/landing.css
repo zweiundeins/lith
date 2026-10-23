@@ -291,6 +291,11 @@
 		}
 	}
 
+	/* The sections below the slots, in one element for a refresh. */
+	.landing-more {
+		display: contents;
+	}
+
 	/* ── Numbers: a raised band. Cards inside read the band's tone with a
 	 * style query, so the same card sits on either surface. ─────────── */
 	.band {

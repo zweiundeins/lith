@@ -199,7 +199,7 @@ func (s *Server) shell(r *http.Request, title, description, path, nav string) vi
 		Title: title, Description: description, Path: path, Base: s.cfg.Base, Nav: nav,
 		Theme:  pref(r, "lith-theme", "dark", "light", "system"),
 		Style:  pref(r, "lith-style", "pixel", "smooth"),
-		Assets: s.assets, Nonce: edge.Nonce(r.Context()), Version: s.cfg.Version, Repo: s.cfg.Repo,
+		Assets: s.assets, Nonce: edge.Nonce(r.Context()), Version: s.cfg.Version, Repo: s.cfg.Repo, Build: s.hub.Build(),
 		Components: s.components(),
 	}
 }
@@ -225,13 +225,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	if s.embeds(viewer) != nil {
 		sh.Stream, sh.Tab = "/stream", viewer.Tab
 	}
-	uses := []string{"tabs"} // the quick start
-	for _, d := range s.demos {
-		if d.Embed != nil {
-			uses = append(uses, d.Components...)
-		}
-	}
-	sh.Components = s.components(uses...)
+	sh.Components = s.homeComponents()
 	cards := s.cards()
 	s.page(w, r, sh, func(ctx context.Context, tx *sql.Tx) (templ.Component, error) {
 		slots := map[string]templ.Component{}
@@ -247,6 +241,18 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		}
 		return views.LandingPage(views.Landing{Slots: slots, Cards: cards, Repo: s.cfg.Repo}), nil
 	})
+}
+
+// homeComponents are the bundles of the components the landing page
+// renders: the quick start's tabs and the embeds'.
+func (s *Server) homeComponents() []views.Script {
+	uses := []string{"tabs"}
+	for _, d := range s.demos {
+		if d.Embed != nil {
+			uses = append(uses, d.Components...)
+		}
+	}
+	return s.components(uses...)
 }
 
 // embeds are the views of the landing page's slots, nil if none streams.
@@ -352,7 +358,8 @@ func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 // client's address, so that one address cannot hold every stream
 // (live.Options.MaxStreamsPerClient).
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, v demo.Viewer, vs []live.View) {
-	spec := live.Spec{ID: v.Tab, Client: edge.ClientKey(r), Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r)}
+	spec := live.Spec{ID: v.Tab, Client: edge.ClientKey(r), Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r),
+		Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Refresh: s.refresh}
 	s.paceByAcks(&spec)
 	defer s.ownStream(v)()
 	err := s.hub.Serve(w, r, spec)

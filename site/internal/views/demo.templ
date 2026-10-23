@@ -10,34 +10,49 @@ type DemoPage struct {
 
 templ Demo(d DemoPage) {
 	<div class="wrap demo-page">
-		<header class="demo-head" style={ vtName("demo-" + d.Card.Slug) }>
-			<p class="crumbs"><a href="/demos">Demos</a></p>
-			<div class="demo-head__art" style={ vtName("demo-" + d.Card.Slug + "-art") }>
-				@Art(d.Card.Art, "")
-			</div>
-			<h1 style={ vtName("demo-" + d.Card.Slug + "-title") }>{ d.Card.Title }</h1>
-			<p class="lede">{ d.Card.Summary }</p>
-		</header>
+		@DemoHead(d.Card)
 		<div class="demo-body">
 			<section class="demo-stage" aria-labelledby="demo-stage-title">
 				<h2 id="demo-stage-title" class="visually-hidden">The demo</h2>
 				<p class="live-badge" data-class:is-live="$_live && !$_badge" data-class:is-held="$_live && !!$_badge" data-text="$_live ? $_badge || 'live' : 'connecting'">live</p>
 				@d.Stage
 			</section>
-			<aside class="panel" aria-labelledby="server-title">
-				<h2 id="server-title">On the server</h2>
-				<div class="prose prose--small">
-					@d.Server
-				</div>
-			</aside>
+			@DemoServer(d.Server)
 		</div>
-		<details class="howto">
-			<summary>How it works</summary>
-			<div class="prose">
-				@d.How
-			</div>
-		</details>
+		@DemoHow(d.How)
 	</div>
+}
+
+// DemoHead, DemoServer and DemoHow are the parts of a demo's page around
+// its stage, which a refresh after a deploy renders afresh by their ids
+// (web.Server.refresh). The stage is the demo's views'.
+templ DemoHead(c Card) {
+	<header id="demo-head" class="demo-head" style={ vtName("demo-" + c.Slug) }>
+		<p class="crumbs"><a href="/demos">Demos</a></p>
+		<div class="demo-head__art" style={ vtName("demo-" + c.Slug + "-art") }>
+			@Art(c.Art, "")
+		</div>
+		<h1 style={ vtName("demo-" + c.Slug + "-title") }>{ c.Title }</h1>
+		<p class="lede">{ c.Summary }</p>
+	</header>
+}
+
+templ DemoServer(server templ.Component) {
+	<aside id="demo-server" class="panel" aria-labelledby="server-title">
+		<h2 id="server-title">On the server</h2>
+		<div class="prose prose--small">
+			@server
+		</div>
+	</aside>
+}
+
+templ DemoHow(how templ.Component) {
+	<details id="demo-how" class="howto" data-preserve-attr="open">
+		<summary>How it works</summary>
+		<div class="prose">
+			@how
+		</div>
+	</details>
 }
 
 templ DemoIndex(cards []Card) {

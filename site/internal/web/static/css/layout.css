@@ -15,6 +15,28 @@
 		min-inline-size: 0;
 	}
 
+	/* A deploy's request for a reload (views.Update), over the page's foot. */
+	.site-update {
+		position: fixed;
+		inset-block-end: var(--lith-space-4);
+		inset-inline: var(--lith-space-4);
+		z-index: var(--lith-z-sticky);
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: center;
+		gap: var(--lith-space-3);
+		margin: 0;
+		padding: var(--lith-space-3) var(--lith-space-4);
+		background: var(--lith-surface-2);
+		border: 1px solid var(--lith-border-strong);
+		color: var(--lith-text-1);
+	}
+
+	.site-update:empty {
+		display: none;
+	}
+
 	.wrap {
 		--_gutter: clamp(var(--lith-space-4), 4vw, var(--lith-space-8));
 		inline-size: min(100% - 2 * var(--_gutter), var(--lith-content-max));
