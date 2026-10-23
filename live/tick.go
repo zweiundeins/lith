@@ -150,7 +150,7 @@ type tick struct {
 // offer is a new frame for one stream's watch.
 type offer struct {
 	w *watch
-	f *frame
+	f any
 }
 
 // run renders the dirty views and publishes their frames. It reports
@@ -276,7 +276,6 @@ func (h *Hub) publish(t *tick) {
 		if same && !v.owed {
 			continue
 		}
-		nf := &frame{value: f}
 		if !same {
 			v.frame, v.size, v.sum = nil, -1, t.sums[i]
 			if b, ok := f.([]byte); ok {
@@ -294,11 +293,11 @@ func (h *Hub) publish(t *tick) {
 				if len(w.s.offers) == 0 {
 					t.streams = append(t.streams, w.s)
 				}
-				w.s.offers = append(w.s.offers, offer{w, nf})
+				w.s.offers = append(w.s.offers, offer{w, f})
 			}
 		}
 		v.owed = owed
-		booked += h.keep(v, nf)
+		booked += h.keep(v, f)
 	}
 	for _, v := range t.views[taken:] {
 		v.rendering, v.joined = false, false
@@ -389,6 +388,7 @@ func (w *worker) render(t *tick) {
 		ctx = txctx.With(ctx, &txctx.Value{Tx: tx, Pool: w.h.read, Querier: q})
 	}
 	w.limit.begin(w.h, t.ctx, ctx)
+	var n int64
 	for {
 		i := int(t.next.Add(1)) - 1
 		if i >= len(t.views) {
@@ -406,9 +406,11 @@ func (w *worker) render(t *tick) {
 			q.release(false)
 		}
 		t.views[i].renders.Add(1)
-		w.h.renders.Add(1)
+		n++
 	}
 	w.limit.end()
+	// Once per worker and tick: the workers would contend for the counter.
+	w.h.renders.Add(n)
 	if tx != nil {
 		q.release(true)
 		if err := tx.Commit(); err != nil && t.ctx.Err() == nil {
