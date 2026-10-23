@@ -275,7 +275,8 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	published := h.attach(s, spec.Views)
 	lead, tail := h.refresh(ctx, r, spec)
 	o := h.sse
-	o.Frame = h.first(ctx, s, published) + eventsLen(lead)
+	// The lead goes out in a write of its own, before the first frames.
+	o.Frame = max(h.first(ctx, s, published), eventsLen(lead))
 	st, err := sse.Open(w, r.WithContext(ctx), o)
 	if err != nil {
 		h.detach(s, errors.Is(err, sse.ErrNoRoom), spec.Views)
