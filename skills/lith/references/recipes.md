@@ -1259,6 +1259,13 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   (`[]backup.VerifyFailure`: `Name`, `First`, `Last`, `Attempts`). Alert
   there, once per run, never per replica; passes on a retry show in
   `<ns>_backup_replica_verify_retried_total{replica}`, not in an alert.
+  For incidents that last hours, stretch `Retries` toward the interval
+  (`30m, 2h, 6h` against 24h).
+- Both loops cover attached replicas only. Tenants attached on demand:
+  pass the account list as `VerifyOptions.Names` (a `Names` error is one
+  `OnFail` failure with an empty `Name`); maintenance has no such list
+  yet, so a replica not attached during a pass is neither snapshotted nor
+  pruned.
 - A check of a copy opens it with `sqlite.Options{ReadOnly: true}` and runs
   `PRAGMA integrity_check` on `db.R`: nothing is written, and a missing copy
   is an error.

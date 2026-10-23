@@ -72,6 +72,7 @@ func run(path string) error {
 	go m.RunMaintenanceLoop(jobs, 0) // snapshots daily, history pruned after 30 days
 	// Verifies daily, and retries a failure after 10 and 30 minutes.
 	go m.RunVerifyLoop(jobs, backup.VerifyOptions{
+		// An app that attaches its tenants on demand sets Names to its account list.
 		OnFail: func(failures []backup.VerifyFailure, span time.Duration) {
 			// Once per run, with the replicas that failed every attempt: alert here.
 			var names []string

@@ -102,6 +102,7 @@ The configuration comes from the environment, `BACKUP_BUCKET`, `BACKUP_REGION`, 
 go m.RunMaintenanceLoop(jobs, 0) // snapshots daily, history pruned after 30 days
 // Verifies daily, and retries a failure after 10 and 30 minutes.
 go m.RunVerifyLoop(jobs, backup.VerifyOptions{
+	// An app that attaches its tenants on demand sets Names to its account list.
 	OnFail: func(failures []backup.VerifyFailure, span time.Duration) {
 		// Once per run, with the replicas that failed every attempt: alert here.
 		var names []string
@@ -114,7 +115,9 @@ go m.RunVerifyLoop(jobs, backup.VerifyOptions{
 prometheus.MustRegister(m.Collector("app")) // app_backup_enabled 0 is the alert for no backup
 ```
 
-An incident at the storage provider (throttling, errors that come and go for a few hours) fails every replica's verification at once, and replication usually catches up by itself. So the verify loop retries the replicas that failed, 10 and 30 minutes after the run (`VerifyOptions.Retries`), and calls `OnFail` once per run, after the retries, with only the replicas that failed every attempt: each with its first and last error and its number of attempts. A run in which everything passed, at once or on a retry, calls nothing. Alert there, once per run, never per replica or per failed attempt. The next run starts a day after this one started, however long its retries took, and a retry that would reach it is skipped.
+An incident at the storage provider (throttling, errors that come and go for a few hours) fails every replica's verification at once, and replication usually catches up by itself. So the verify loop retries the replicas that failed, 10 and 30 minutes after the run (`VerifyOptions.Retries`), and calls `OnFail` once per run, after the retries, with only the replicas that failed every attempt: each with its first and last error and its number of attempts. A run in which everything passed, at once or on a retry, calls nothing. Alert there, once per run, never per replica or per failed attempt. The failures of one call share their number of attempts, since each went through every retry. The next run starts a day after this one started, however long its retries took, and a retry that would reach it is skipped. For a provider whose incidents last hours, stretch the retries toward the interval, such as `Retries: []time.Duration{30 * time.Minute, 2 * time.Hour, 6 * time.Hour}` against a day.
+
+Both loops cover the attached replicas only. An app that attaches its tenants on demand ([One database per account](/docs/guides/tenants)) passes its account list as `VerifyOptions.Names`: each run then restores those names, attached or not, and a name with nothing replicated fails. Their results show in `Status` and the metrics once the replica is attached; until then `OnFail` and the logs are the signal. When `Names` returns an error, the run verifies nothing and `OnFail` gets one failure with an empty name and that error, since a day without a verification should not pass in silence. Maintenance has no such list yet: a replica that is not attached during an hourly pass gets no snapshot and no pruning. A replica purged with `PurgeReplica` during a run is not retried, not reported and keeps no result.
 
 The stop runs in the opposite order. Every accepted write must be in the file before the final sync, and the final sync needs a context that is still alive, since the signal's is cancelled already:
 
