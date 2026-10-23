@@ -11,32 +11,41 @@ A lith page is a document that a GET renders from one read transaction, and a st
 
 ## The document
 
-The board's document holds the page's signals, the element that opens the stream, the element that keeps the page's ops, the add form and the board:
+The board's document holds the page's signals, the element that opens the stream, the element that keeps the page's ops, a place for a notice after a deploy, and `#content`: the add form and the board.
 
 ```templ source=site/internal/docs/example/web/board.templ
-<main data-signals={ signals(p.Tab, p.Prefs) } data-class:compact="$_compact">
+<main data-signals={ signals(p.Tab, p.Build, p.Prefs) } data-class:compact="$_compact">
 	<div id={ StreamID } hidden data-init={ "$_beat = Date.now(); " + openStream(p.Board.ID) } data-on:datastar-fetch={ retrying } data-on:visibilitychange__window={ hidden } data-effect={ beat } data-on-interval__duration.10s={ watchdog(p.Board.ID) }></div>
-	<h1>{ p.Board.Name }</h1>
-	@Presence(0)
-	<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
 	<div id={ OpsID } hidden data-on:datastar-fetch={ fetched } data-on-signal-patch={ patched } data-on-signal-patch-filter={ opsPatches }></div>
-	<form data-on:submit__prevent={ add(firstLane(p.Board)) }>
-		<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending("add") }/>
-		<button type="submit" data-attr:aria-busy={ busy("add") }>Add</button>
-	</form>
-	<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
-	@Outcome(board.TabState{})
-	@Board(p.Lanes)
-	@NoPanel()
-	<style data-text={ waitingCards }></style>
+	<p id="update" role="status"></p>
+	@Content(p.Board, p.Lanes)
 </main>
+```
+
+```templ source=site/internal/docs/example/web/board.templ
+templ Content(b board.Board, lanes [][]byte) {
+	<div id="content">
+		<h1>{ b.Name }</h1>
+		@Presence(0)
+		<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
+		<form data-on:input={ typed } data-on:submit__prevent={ add(firstLane(b)) }>
+			<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending("add") } data-preserve-attr="readonly"/>
+			<button type="submit" data-attr:aria-busy={ busy("add") } data-preserve-attr="aria-busy">Add</button>
+		</form>
+		<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
+		@Outcome(board.TabState{})
+		@Board(lanes)
+		@NoPanel()
+		<style data-text={ waitingCards }></style>
+	</div>
+}
 ```
 
 The expressions live in Go, in `expr.go`, beside the templates that use them. Every signal starts with `_`: such signals stay in the browser, and an action sends only the payload it names. The tab's id, `$_tab`, is new for every document, so two tabs of one browser are two tabs to the server; the server never stores it until the tab acts.
 
 ```go source=site/internal/docs/example/web/expr.go
-func signals(tab string, p board.Prefs) string {
-	return fmt.Sprintf(`{_tab: %q, _title: '', _ops: {add: {op: '', ack: '', refused: false, inflight: 0, recheck: false}}, _synced: false, _problem: '', _compact: %t, _ping: 0, _beat: 0}`, tab, p.Compact)
+func signals(tab, build string, p board.Prefs) string {
+	return fmt.Sprintf(`{_tab: %q, _title: '', _ops: {add: {op: '', ack: '', refused: false, inflight: 0, recheck: false}}, _synced: false, _problem: '', _compact: %t, _ping: 0, _beat: 0, _build: %q, _dirty: false}`, tab, p.Compact, build)
 }
 ```
 
@@ -275,7 +284,7 @@ The stream opens from an element with an id, with Datastar's `retry: 'error'`:
 
 ```go source=site/internal/docs/example/web/expr.go
 func openStream(b int64) string {
-	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
+	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty)}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
 }
 ```
 
@@ -286,6 +295,82 @@ The stream's `Spec.Reconnect` names that element. When the server stops for a de
 - Datastar's default, `retry: 'auto'`, retries network errors only. It gives up at the proxy's 502, and never reopens a stream the server ended cleanly, so a deploy leaves the page stale without a sign.
 - `retry: 'always'` reopens every stream that ends, including one the server ended on purpose: a stream that a newer stream of the same tab replaced, say.
 - The element does nothing but open the stream, and mark the page out of sync until the stream's tab view speaks (`$_synced`): every deploy runs its `data-init` again, so anything else made there would be made again.
+
+## Refreshing a page after a deploy
+
+A stream that reconnects after a deploy renders its views afresh, but the rest of the page is still the HTML the old process rendered: a heading, a form's labels, a list that no view renders. A reader of a blog keeps the old list of posts until they reload. `live.Spec.Refresh` brings such a page up to date as its stream opens.
+
+**What the page reports.** The page starts with the build that rendered it in `$_build`, from `hub.Build()`. That is `live.Options.Build`, by default the binary's VCS revision, with `+dirty` for a build from a modified tree; a binary built without VCS information has none, and refresh stays off until the app sets one, such as the version it links in (the template sets its `-X main.version`). `$_dirty` turns true on input in the form and false when the form is sent. The stream's request sends both and the page's own path, `location.pathname + location.search`, in headers, as `openStream` above shows. Headers keep the stream's URL the same, so a stream opened again still aborts the old request. A retry repeats the headers of its first request. The stream handler passes them on:
+
+```go source=site/internal/docs/example/web/server.go
+	err = s.hub.Serve(w, r, live.Spec{
+		ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
+		Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Dirty: r.Header.Get("Page-Dirty") == "true",
+		Refresh: s.refresh,
+	})
+```
+
+**When it runs.** When `Spec.Refresh` is set and `Spec.Build` is not empty and differs from `hub.Build()`. A page loaded from the running build reports that build, and nothing happens. Otherwise lith calls `Refresh` and writes its events as the stream's first write, before the views' first frames. After those frames it patches the build signal (`live.Options.BuildSignal`, `_build` by default) to the running build in a signal patch of its own, never inside the morphed markup, so the next reconnect refreshes nothing. It patches the signal too when `Refresh` returns nil.
+
+The board's `Refresh` renders `#content` from the page's path as the GET renders it, or, when the person typed a title, a notice that asks for a reload:
+
+```go source=site/internal/docs/example/web/views.go
+func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+	if rq.Dirty {
+		ev, err := patch(ctx, Update())
+		return [][]byte{ev}, err
+	}
+	path, _, _ := strings.Cut(rq.Page, "?")
+	rest, ok := strings.CutPrefix(path, "/boards/")
+	id, err := strconv.ParseInt(rest, 10, 64)
+	if !ok || err != nil {
+		return nil, nil // not a board's page
+	}
+	return s.db.ViewValue(ctx, func(tx *sql.Tx) ([][]byte, error) {
+		b, err := board.Load(ctx, tx, id)
+		if errors.Is(err, board.ErrNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		lanes, err := renderLanes(ctx, b)
+		if err != nil {
+			return nil, err
+		}
+		ev, err := patch(ctx, Content(b, lanes))
+		return [][]byte{ev}, err
+	})
+}
+```
+
+`RefreshRequest` carries the page's path, the build it reported, `Dirty` and the stream's `*http.Request`, for the language, the cookies and the app's own headers. `Refresh` reads through the app's own transactions, with a ctx that ends after `Options.RenderTimeout`.
+
+**What a refresh may morph.** A container the app names, such as `#content` or `<main id="main">`, never `<body>`:
+
+- The stream's element (`Spec.Reconnect`) stays outside it. A morph of it would run its `data-init` again and open a second stream. lith skips a refresh whose events hold an element with that id, logs it at warn and counts it (`Stats.RefreshesGuarded`). The page's signals and `#ops` stay outside too.
+- Live views inside the container are fine: their first frames follow the refresh and win. The board's lanes, its presence and the tab's outcome render afresh twice, once in the refresh and once in their views' frames.
+- Signals declared in the refreshed markup use Datastar's `__ifmissing` (`data-signals:x__ifmissing`), so they add a signal the new build needs and leave the page's own values alone. A plain `data-signals` would overwrite them, the tab id and the pending ops among them.
+- Elements with `data-init` or `data-on-intersect` inside the container keep stable ids and unchanged attributes, since a morph that leaves an element's attributes as they are runs nothing again; or they sit inside a live view, or carry `data-ignore-morph`. Stateful custom elements likewise. An attribute a signal drives keeps its value through the morph with `data-preserve-attr`, as the form's `readonly` and `aria-busy` do.
+- A page with input the person typed (`Dirty`) gets a notice that asks for a reload, not a morph.
+- A page whose scripts or stylesheets changed gets the notice too: a morph would put new markup under the old hashed CSS, or call modules the page never loaded. The template's page reports its assets version in a `Page-Assets` header, and its `Refresh` compares it:
+
+```go source=template/internal/web/live.go
+	switch {
+	case rq.Dirty:
+		msg = views.UpdateTyped
+	case rq.Request.Header.Get("Page-Assets") != s.assets:
+		msg = views.UpdateAssets
+	}
+```
+
+**A page the deploy did not change.** `Refresh` returns nil when the page is current, such as when the page reported an ETag in a header of its own that matches the one the running build computes for it. A deploy that did not touch a page then costs its tabs only that check (`Stats.RefreshesUnchanged`), and the build signal is patched all the same.
+
+**Pages without a stream.** A refresh needs a stream. An app that wants it on every page opens a stream on every page, with `Reconnect` and no views or only the tab's own: an idle stream that hibernates costs little ([Hibernation](/docs/guides/streams#hibernation)).
+
+**After a deploy, all at once.** Every open tab reconnects within a few seconds of a deploy, and each one that a former build rendered calls `Refresh`. At most `Options.RefreshConcurrency` refreshes run at once, the hub's render `Workers` by default, each under `RenderTimeout`. A refresh that fails, runs past `RenderTimeout`, or finds no slot within `live.RefreshWait` (1 s) is skipped and logged, and the stream goes on without it. Such a stream leaves the build signal as it was, so the page asks again on its next reconnect. prom exports the counts as `<namespace>_live_refreshes_total`, `_refreshes_unchanged_total` and `_refreshes_skipped_total{reason}`, with the reasons `error`, `timeout`, `busy` and `stream_element`.
+
+`TestRefreshAfterDeploy` (`site/internal/docs/example/web`) loads a board, makes it a page of an old build and reconnects its stream in headless Chromium: `#content` is rendered afresh, the page keeps one stream and `$_build` becomes the running build. With a title typed, the page gets the notice and keeps the title.
 
 ## What an action's answer carries
 

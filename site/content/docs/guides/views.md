@@ -305,7 +305,11 @@ views := []live.View{boardView(id), presenceView(s.hub, id), tabView(sid, tab), 
 if state.Panel != 0 {
 	views = append(views, cardView(state.Panel))
 }
-err = s.hub.Serve(w, r, live.Spec{ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID})
+err = s.hub.Serve(w, r, live.Spec{
+	ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
+	Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Dirty: r.Header.Get("Page-Dirty") == "true",
+	Refresh: s.refresh,
+})
 ```
 
 `Serve` sends each view's newest frame at once when the hub keeps it, else a frame rendered in the next tick, then every new frame. The hub keeps the newest frame of a view that two or more streams watch, such as the board, and of any view whose frame is not `[]byte`. Of a view that one stream watches, such as the tab's, it keeps only the frame's length and hash once the stream has the frame: a render that repeats it still goes to no stream, and a tab's frame costs no memory between its writes ([the measurements](/docs/performance/budget#joining-a-view)). A stream keeps only the newest frame of each view, so a slow client skips frames and holds up no one else. Views that change in the same tick reach the stream together, in the order of `Spec.Views`.

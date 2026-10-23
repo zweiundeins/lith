@@ -699,6 +699,62 @@ Preferences that outlive a page (a sort order, a theme preview) go in a table
 keyed by the session and touch `sid:<id>`. A background command deletes tab
 rows not seen for a few days.
 
+## Refreshing a page after a deploy
+
+After a deploy the stream reconnects and its views render afresh; the rest
+of the page is the old process's HTML until a reload. `Spec.Refresh` fixes
+that as the stream opens.
+
+The page starts with `_build` (from `hub.Build()`, which is
+`live.Options.Build`, by default the binary's VCS revision) and `_dirty`
+(true on input in a form, false on submit), and its stream reports them with
+its own path in headers, so the URL stays the same:
+
+```js
+@get('/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty)}, retry: 'error', retryMaxCount: Infinity})
+```
+
+```go
+spec := live.Spec{
+	ID: streamID(sid, tab), Views: views, Reconnect: "stream",
+	Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"),
+	Dirty: r.Header.Get("Page-Dirty") == "true",
+	Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+		if rq.Dirty || rq.Request.Header.Get("Page-Assets") != assets {
+			return [][]byte{reloadNotice}, nil // a morph would take the input, or miss the new CSS and JS
+		}
+		html, err := renderContent(ctx, rq.Page) // <div id="content">, as the GET renders it
+		if err != nil || html == nil {
+			return nil, err // nil: the page is current
+		}
+		return [][]byte{sse.PatchElements(html)}, nil
+	},
+}
+```
+
+- It runs only when the reported build is set and differs from the hub's.
+  Its events are the stream's first write, the views' first frames follow
+  (and win), then lith patches `_build` (`Options.BuildSignal`) in a
+  separate signal patch, also after nil, so the next reconnect costs nothing.
+- Morph a container the app names, never `<body>`. The stream's element
+  (`Spec.Reconnect`), `#ops` and the signals stay outside it: a morphed
+  stream element opens a second stream, so lith skips such a refresh
+  (`Stats.RefreshesGuarded`).
+- Signals in refreshed markup use `data-signals:x__ifmissing`. Elements with
+  `data-init` or `data-on-intersect`, and stateful custom elements, keep
+  stable ids and unchanged attributes, sit in a live view, or carry
+  `data-ignore-morph`; signal-driven attributes need `data-preserve-attr`.
+- Return nil for a page the deploy did not change (compare its ETag): its
+  tabs pay only the check.
+- At most `Options.RefreshConcurrency` (default `Workers`) run at once, each
+  under `RenderTimeout`. One that fails, times out or waits longer than
+  `live.RefreshWait` (1 s) for a slot is skipped and logged, and the build
+  signal stays, so the next reconnect tries again. Metrics:
+  `<ns>_live_refreshes_total`, `_refreshes_unchanged_total`,
+  `_refreshes_skipped_total{reason}`.
+- No stream, no refresh: a page that needs it opens a minimal stream (an
+  idle stream that hibernates is cheap).
+
 ## Which feedback to give
 
 Mechanisms: the re-render; an inline error (the form's error slot, or the

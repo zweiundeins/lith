@@ -144,6 +144,14 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Fix.** That element opens the stream and nothing else. The tab's id and the page's signals live on another element, rendered once with the document.
 
+### A refresh after a deploy overwrites the page's signals
+
+**Symptom.** After a deploy, a page that `Spec.Refresh` brought up to date has a new tab id, its pending ops are gone, or it holds two streams.
+
+**Cause.** The refreshed markup is morphed into the page, and a plain `data-signals` in it sets every signal it names again. An element whose attributes change runs its `data-init` again, and the stream's element inside the container opens a second stream. A build reported in the stream's URL changes the URL, and Datastar aborts the request in flight only for a new one to the same URL.
+
+**Fix.** Keep the signals, `#ops` and the stream's element outside the container the refresh morphs, or declare signals there with `data-signals:x__ifmissing`, which adds a signal only where the page lacks it. Report the build in a header. lith skips a refresh whose markup holds the stream's element ([Pages](/docs/guides/pages#refreshing-a-page-after-a-deploy)).
+
 ### A watchdog never sees the server's heartbeat
 
 **Symptom.** A connection that went quiet without closing, after a laptop's sleep or a change of network, leaves the page frozen, and a watchdog written to catch it never fires.

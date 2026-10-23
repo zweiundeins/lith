@@ -28,7 +28,7 @@ err = s.db.View(ctx, func(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	return Page(PageData{Tab: newID(), Datastar: s.datastar, Board: b, Lanes: lanes, Prefs: prefs}).Render(ctx, &buf)
+	return Page(PageData{Tab: newID(), Build: s.hub.Build(), Datastar: s.datastar, Board: b, Lanes: lanes, Prefs: prefs}).Render(ctx, &buf)
 })
 ```
 

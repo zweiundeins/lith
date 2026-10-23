@@ -179,6 +179,7 @@ func startWith(t *testing.T, limit *edge.Limiter) server {
 	}
 	opts := web.HubOptions(db, slog.Default())
 	opts.Workers, opts.Tick = 2, 10*time.Millisecond
+	opts.Build = "now" // a test binary has no VCS revision
 	hub := live.New(opts)
 	mute := new(atomic.Bool)
 	w, err := writer.New(db, writer.Options{OnCommit: func(topics []string) {

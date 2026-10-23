@@ -71,6 +71,7 @@ func TestSkill(t *testing.T) {
 			"A view":                                 "/docs/guides/views#a-shared-view",
 			"Views in a shared database, per person": "/docs/guides/views#views-in-a-shared-database-per-person",
 			"Tab state and preferences":              "/docs/guides/pages#tab-state-in-sqlite",
+			"Refreshing a page after a deploy":       "/docs/guides/pages#refreshing-a-page-after-a-deploy",
 			"Which feedback to give":                 "/docs/guides/pages#which-feedback-to-give",
 			"A per-tab view that navigates":          "/docs/guides/views#a-per-tab-view-that-navigates",
 			"A topic hierarchy":                      "/docs/guides/views#a-topic-hierarchy",

@@ -61,6 +61,13 @@ look there before changing the behaviour.
 - The element that `Spec.Reconnect` names does nothing but open the stream:
   every deploy runs its data-init again, so a tab id or a signal made there
   would change.
+- Markup that `Spec.Refresh` morphs in after a deploy: a plain
+  `data-signals` overwrites the page's values (the tab id, pending ops), so
+  declare signals there with `data-signals:x__ifmissing`, or keep them
+  outside the container. An element whose attributes change runs its
+  `data-init` again; the stream's element inside the container would open a
+  second stream. Report the build in a header, not the URL: Datastar aborts
+  the request in flight only for a new one to the same URL.
 - A watchdog on the page needs the server's ping. An SSE comment never reaches
   the page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
   watchdog can read. [kanban]

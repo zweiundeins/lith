@@ -9,6 +9,7 @@ import (
 // PageData is what the board's document shows.
 type PageData struct {
 	Tab      string // new for every document: names the tab's stream and its row
+	Build    string // the build that renders it (live.Hub.Build)
 	Datastar string // the URL of Datastar's script
 	Board    board.Board
 	Lanes    [][]byte // each lane rendered, as the board's view renders them
@@ -25,24 +26,39 @@ templ Page(p PageData) {
 			<script type="module" src={ p.Datastar }></script>
 		</head>
 		<body>
-			<main data-signals={ signals(p.Tab, p.Prefs) } data-class:compact="$_compact">
+			<main data-signals={ signals(p.Tab, p.Build, p.Prefs) } data-class:compact="$_compact">
 				<div id={ StreamID } hidden data-init={ "$_beat = Date.now(); " + openStream(p.Board.ID) } data-on:datastar-fetch={ retrying } data-on:visibilitychange__window={ hidden } data-effect={ beat } data-on-interval__duration.10s={ watchdog(p.Board.ID) }></div>
-				<h1>{ p.Board.Name }</h1>
-				@Presence(0)
-				<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
 				<div id={ OpsID } hidden data-on:datastar-fetch={ fetched } data-on-signal-patch={ patched } data-on-signal-patch-filter={ opsPatches }></div>
-				<form data-on:submit__prevent={ add(firstLane(p.Board)) }>
-					<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending("add") }/>
-					<button type="submit" data-attr:aria-busy={ busy("add") }>Add</button>
-				</form>
-				<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
-				@Outcome(board.TabState{})
-				@Board(p.Lanes)
-				@NoPanel()
-				<style data-text={ waitingCards }></style>
+				<p id="update" role="status"></p>
+				@Content(p.Board, p.Lanes)
 			</main>
 		</body>
 	</html>
+}
+
+// Content is the page but its signals, the stream's element and #ops: what
+// a refresh after a deploy renders afresh.
+templ Content(b board.Board, lanes [][]byte) {
+	<div id="content">
+		<h1>{ b.Name }</h1>
+		@Presence(0)
+		<button type="button" data-on:click={ compact } data-text="$_compact ? 'Show details' : 'Compact'">Compact</button>
+		<form data-on:input={ typed } data-on:submit__prevent={ add(firstLane(b)) }>
+			<input data-bind="_title" maxlength={ strconv.Itoa(board.MaxTitle) } required aria-label="New card" data-attr:readonly={ pending("add") } data-preserve-attr="readonly"/>
+			<button type="submit" data-attr:aria-busy={ busy("add") } data-preserve-attr="aria-busy">Add</button>
+		</form>
+		<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
+		@Outcome(board.TabState{})
+		@Board(lanes)
+		@NoPanel()
+		<style data-text={ waitingCards }></style>
+	</div>
+}
+
+// Update asks for a reload in place of a refresh: the page holds a title
+// the person typed, which a morph of the form would take.
+templ Update() {
+	<p id="update" role="status">This board has a new version. Reloading clears the form. <button type="button" data-on:click="location.reload()">Reload</button></p>
 }
 
 // Board is the shared region, the same for every viewer: the lanes,

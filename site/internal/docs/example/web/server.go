@@ -81,7 +81,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		return Page(PageData{Tab: newID(), Datastar: s.datastar, Board: b, Lanes: lanes, Prefs: prefs}).Render(ctx, &buf)
+		return Page(PageData{Tab: newID(), Build: s.hub.Build(), Datastar: s.datastar, Board: b, Lanes: lanes, Prefs: prefs}).Render(ctx, &buf)
 	})
 	switch {
 	case errors.Is(err, board.ErrNotFound):
@@ -119,7 +119,11 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	if state.Panel != 0 {
 		views = append(views, cardView(state.Panel))
 	}
-	err = s.hub.Serve(w, r, live.Spec{ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID})
+	err = s.hub.Serve(w, r, live.Spec{
+		ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
+		Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Dirty: r.Header.Get("Page-Dirty") == "true",
+		Refresh: s.refresh,
+	})
 	if err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)
 	}

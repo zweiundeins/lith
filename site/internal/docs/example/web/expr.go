@@ -26,20 +26,27 @@ const OpsID = "ops"
 // form's title; the ops by key ($_ops.add, $_ops['card-7']): the pending
 // op id, the newest op the tab's row acks and whether it was refused, the
 // requests in flight and whether one must look again when they end;
-// whether the stream's tab view has spoken since it connected; and the
-// heartbeat's watch.
-func signals(tab string, p board.Prefs) string {
-	return fmt.Sprintf(`{_tab: %q, _title: '', _ops: {add: {op: '', ack: '', refused: false, inflight: 0, recheck: false}}, _synced: false, _problem: '', _compact: %t, _ping: 0, _beat: 0}`, tab, p.Compact)
+// whether the stream's tab view has spoken since it connected; the
+// heartbeat's watch; and, for a refresh after a deploy, the build that
+// rendered the page and whether the person typed since the last card.
+func signals(tab, build string, p board.Prefs) string {
+	return fmt.Sprintf(`{_tab: %q, _title: '', _ops: {add: {op: '', ack: '', refused: false, inflight: 0, recheck: false}}, _synced: false, _problem: '', _compact: %t, _ping: 0, _beat: 0, _build: %q, _dirty: false}`, tab, p.Compact, build)
 }
 
 // openStream opens the tab's stream, and marks the page out of sync until
 // the tab view's first frame. retry 'error' retries network errors and
 // every answer from 400 to 599 without end, which carries the page
 // through a restart; a 204 or a 3xx stops it, and a stream the server
-// ended stays closed.
+// ended stays closed. Its headers report the page's build, path and
+// whether the person typed, for a refresh (Server.refresh); headers, so
+// that the URL stays the same and a stream opened again aborts the old
+// request.
 func openStream(b int64) string {
-	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
+	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty)}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
 }
+
+// typed marks the page dirty: a refresh asks for a reload instead.
+const typed = `$_dirty = true`
 
 // retrying marks the page out of sync while Datastar opens the stream
 // again after its connection broke.
@@ -84,9 +91,10 @@ func act(key, path, payload string) string {
 })(` + key + `, {` + payload + `})`
 }
 
-// add adds a card with the title the form holds.
+// add adds a card with the title the form holds, and leaves nothing typed
+// to lose.
 func add(lane int64) string {
-	return "$_title.trim() && " + act("'add'", "/cmd/add", "lane: "+strconv.FormatInt(lane, 10)+", title: $_title")
+	return "$_title.trim() && ($_dirty = false, " + act("'add'", "/cmd/add", "lane: "+strconv.FormatInt(lane, 10)+", title: $_title") + ")"
 }
 
 // onBoard handles a click on a card's button: one with data-lane moves the

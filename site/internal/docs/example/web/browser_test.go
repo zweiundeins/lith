@@ -160,6 +160,58 @@ func TestPendingUntilTheAck(t *testing.T) {
 	}
 }
 
+// staleBuild makes the page one that a former build rendered: its $_build
+// is "old", and #content holds an element no build renders. A probe
+// outside #content shows $_build.
+func staleBuild(t *testing.T, p *browser.Page) {
+	t.Helper()
+	p.Eval(t, `(() => {
+		const main = document.querySelector('main')
+		main.insertAdjacentHTML('beforeend', '<div data-signals="{_build: \'old\'}"></div><span id="build-probe" data-text="$_build"></span>')
+		document.getElementById('content').insertAdjacentHTML('afterbegin', '<p id="stale">from the old build</p>')
+		return true
+	})()`, nil)
+	p.Wait(t, `document.getElementById('build-probe').textContent === 'old'`, 5*time.Second)
+}
+
+// TestRefreshAfterDeploy reconnects pages as pages that a former build
+// rendered do after a deploy. A page without typed input gets #content
+// rendered afresh, keeps one stream, and its $_build becomes the running
+// build; a page with a title the person typed gets the notice instead,
+// and keeps the title and its old content.
+func TestRefreshAfterDeploy(t *testing.T) {
+	s := startWith(t, nil)
+	p := open(t, s)
+	staleBuild(t, p)
+	reconnect(t, p)
+	p.Wait(t, `!document.getElementById('stale') && document.getElementById('build-probe').textContent === 'now' && document.querySelector('#presence').textContent === '1 tab on this board'`, 10*time.Second)
+	var ok bool
+	p.Eval(t, `document.querySelector('h1').textContent === 'Launch' && document.querySelectorAll('#board .lane').length > 0 && document.getElementById('update').textContent === ''`, &ok)
+	if !ok {
+		t.Fatal("the refreshed page lacks its board")
+	}
+	if st := s.hub.Stats(); st.Refreshes != 1 || st.Streams != 1 {
+		t.Fatalf("%d refreshes, %d streams", st.Refreshes, st.Streams)
+	}
+
+	p.Eval(t, `(() => {
+		const input = document.querySelector('form input')
+		input.value = 'Draft'
+		input.dispatchEvent(new Event('input', {bubbles: true}))
+		return true
+	})()`, nil)
+	staleBuild(t, p)
+	reconnect(t, p)
+	p.Wait(t, `document.getElementById('update').textContent.includes('This board has a new version.') && document.getElementById('build-probe').textContent === 'now'`, 10*time.Second)
+	p.Eval(t, `!!document.getElementById('stale') && document.querySelector('form input').value === 'Draft'`, &ok)
+	if !ok {
+		t.Fatal("the notice took the page's content or its title")
+	}
+	if errs := scriptErrors(p); len(errs) > 0 {
+		t.Errorf("page errors: %v", errs)
+	}
+}
+
 // TestReconnectWhileInFlight reconnects the stream while the op's request
 // still waits in the writer: its first frame lacks the ack, and nothing is
 // decided yet, so the op stays pending until its ack, and one card comes

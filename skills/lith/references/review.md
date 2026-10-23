@@ -151,6 +151,10 @@ pattern matches.
   a page's stream opens with `retry: 'error'` from an element whose id is the
   stream's `Spec.Reconnect`. `'auto'` (the default) leaves pages stale after
   a deploy; `'always'` also reopens streams the server ended on purpose.
+- `rg -n 'Refresh:' --type go`: a stream with `Spec.Refresh` morphs a
+  container that holds neither the stream's element nor the page's
+  `data-signals`, and returns a notice instead of a morph when the page is
+  `Dirty` or its assets version differs.
 - `rg -n 'BaseContext' --type go`: the server's BaseContext must not end
   with the signal. Request contexts would end before the hub stops, the
   streams would end without sse.Reconnect, and Chrome takes a cut stream for

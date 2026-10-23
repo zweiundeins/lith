@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"hash/maphash"
 	"slices"
 	"strconv"
@@ -213,6 +214,38 @@ func stopping(spec live.Spec) [][]byte {
 		return nil
 	}
 	return [][]byte{ev}
+}
+
+// refresh is the stream's live.Spec.Refresh, for a page that a former
+// build rendered: #content rendered afresh, as the GET renders it, and the
+// views' first frames after it. A page with a title the person typed gets
+// a notice that asks for a reload instead.
+func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+	if rq.Dirty {
+		ev, err := patch(ctx, Update())
+		return [][]byte{ev}, err
+	}
+	path, _, _ := strings.Cut(rq.Page, "?")
+	rest, ok := strings.CutPrefix(path, "/boards/")
+	id, err := strconv.ParseInt(rest, 10, 64)
+	if !ok || err != nil {
+		return nil, nil // not a board's page
+	}
+	return s.db.ViewValue(ctx, func(tx *sql.Tx) ([][]byte, error) {
+		b, err := board.Load(ctx, tx, id)
+		if errors.Is(err, board.ErrNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		lanes, err := renderLanes(ctx, b)
+		if err != nil {
+			return nil, err
+		}
+		ev, err := patch(ctx, Content(b, lanes))
+		return [][]byte{ev}, err
+	})
 }
 
 // prefsView patches the session's preferences into every tab of the

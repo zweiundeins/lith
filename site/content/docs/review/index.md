@@ -234,6 +234,14 @@ A page's stream opens with `retry: 'error'` from an element whose id is the stre
 rg -n "retry: '(always|auto)'|@(get|post)\('[^']*(stream|sse|live)" -g '*.templ' -g '*.go'
 ```
 
+### A refresh that morphs the stream or the signals
+
+A stream with `Spec.Refresh` morphs a container that holds neither the stream's element nor the page's `data-signals`: a morphed stream element opens a second stream (lith skips such a refresh), and a plain `data-signals` overwrites the tab id and the pending ops. A page with typed input (`Dirty`) or another assets version gets a notice that asks for a reload, not a morph ([Pages](/docs/guides/pages#refreshing-a-page-after-a-deploy)).
+
+```sh
+rg -n 'Refresh:' --type go
+```
+
 ### A server base context that ends with the signal
 
 The server's `BaseContext` must not end with the signal. Request contexts would end before the hub stops, the streams would end without `sse.Reconnect`, and Chrome takes a stream cut that way for a clean end, so even `retry: 'error'` does not reopen it. Stop the hub first, and give the server `context.WithoutCancel`, or no base context at all.
