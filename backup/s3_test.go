@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/benbjohnson/litestream"
-	"github.com/johannesboyne/gofakes3"
-	"github.com/johannesboyne/gofakes3/backend/s3mem"
 )
 
 // TestS3 runs the round trip, maintenance and purge against a bucket: a real
@@ -24,11 +22,7 @@ func TestS3(t *testing.T) {
 		t.Fatal(err)
 	}
 	if os.Getenv("LITH_BACKUP_TEST_BUCKET") == "" {
-		backend := s3mem.New()
-		if err := backend.CreateBucket("lith"); err != nil {
-			t.Fatal(err)
-		}
-		srv := httptest.NewServer(gofakes3.New(backend, gofakes3.WithLogger(gofakes3.DiscardLog())).Server())
+		srv := httptest.NewServer(fakeS3(t))
 		t.Cleanup(srv.Close)
 		cfg = Config{Bucket: "lith", Endpoint: srv.URL, Region: "us-east-1", ForcePathStyle: true, AccessKeyID: "test", SecretAccessKey: "test"}
 	}

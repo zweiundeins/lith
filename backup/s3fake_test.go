@@ -19,6 +19,36 @@ import (
 	"github.com/johannesboyne/gofakes3/backend/s3mem"
 )
 
+// fakeS3 is gofakes3 in memory with the bucket "lith". gofakes3 answers a
+// listing of multipart uploads in a bucket that never had one with
+// NoSuchUpload, where S3 lists none: the handler answers as S3 does.
+func fakeS3(t *testing.T) http.Handler {
+	t.Helper()
+	backend := s3mem.New()
+	if err := backend.CreateBucket("lith"); err != nil {
+		t.Fatal(err)
+	}
+	next := gofakes3.New(backend, gofakes3.WithLogger(gofakes3.DiscardLog())).Server()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !r.URL.Query().Has("uploads") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		rec := httptest.NewRecorder()
+		next.ServeHTTP(rec, r)
+		if rec.Code == http.StatusNotFound && strings.Contains(rec.Body.String(), "NoSuchUpload") {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><ListMultipartUploadsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>lith</Bucket><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>`)
+			return
+		}
+		for k, v := range rec.Header() {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
+	})
+}
+
 // stallingS3 is gofakes3 behind a handler that records the multipart uploads
 // created and aborted, by key, and holds the parts of the stalled-th upload
 // (counting from 1) until the client gives up. It knows nothing of the
@@ -76,14 +106,10 @@ func (s *stallingS3) wrap(next http.Handler) http.Handler {
 // under the key layout that client writes and aborted before detach returns.
 func TestS3AbortOfACancelledSnapshot(t *testing.T) {
 	t.Parallel()
-	backend := s3mem.New()
-	if err := backend.CreateBucket("lith"); err != nil {
-		t.Fatal(err)
-	}
 	// The first upload is the first sync's WAL segment, which Attach waits
 	// for; the second is Attach's snapshot.
 	stall := &stallingS3{stalled: 2, entered: make(chan struct{})}
-	srv := httptest.NewServer(stall.wrap(gofakes3.New(backend, gofakes3.WithLogger(gofakes3.DiscardLog())).Server()))
+	srv := httptest.NewServer(stall.wrap(fakeS3(t)))
 	t.Cleanup(srv.Close)
 
 	m, err := New(Config{

@@ -133,10 +133,6 @@ func (m *Manager) abortUploads(ctx context.Context, name string, level int) (int
 			})
 			return aborted, errors.Join(errs...)
 		}
-		if errorCode(err) == "NoSuchUpload" {
-			// gofakes3's answer for a bucket without uploads.
-			return aborted, errors.Join(errs...)
-		}
 		if err != nil {
 			return aborted, errors.Join(append(errs, fmt.Errorf("list multipart uploads: %w", err))...)
 		}
