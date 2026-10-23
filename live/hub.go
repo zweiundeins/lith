@@ -387,11 +387,12 @@ type watch struct {
 	s    *stream
 	v    *view
 	i    int       // index in v.watches, guarded by Hub.mu
-	owed bool      // joined while the hub kept no frame, until a render brings one; guarded by Hub.mu
+	owed bool      // lacks the view's newest frame: joined while the hub kept none, or the pump dropped it as stale; guarded by Hub.mu
 	skip uint64    // a fresh watch takes no frame of this tick, which was rendering when it joined; guarded by Hub.mu
 	next any       // the newest frame not sent yet, guarded by s.mu
 	gone bool      // unwatched, guarded by s.mu
 	sent time.Time // when the stream last took a frame of the view, with Spec.Slow; guarded by s.mu
+	done bool      // owed when a render of the view ended without a frame, which failed or returned nil; guarded by s.mu
 }
 
 type stream struct {

@@ -188,6 +188,89 @@ func TestRefreshBuildAfterSlowFirstFrame(t *testing.T) {
 	c.leave(t)
 }
 
+// nothing is a view whose Render has nothing to send.
+func nothing(key string, calls *atomic.Int64) View {
+	return View{Key: key, Render: func(context.Context, *sql.Tx) (any, error) {
+		calls.Add(1)
+		return nil, nil
+	}}
+}
+
+// A view whose first render brings no frame holds up no build signal,
+// which still waits for the frames of the others.
+func TestRefreshBuildAfterRenderWithoutFrame(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond, Build: "new", RenderTimeout: time.Minute})
+	release := make(chan struct{})
+	slow := text("slow", nil, func(ctx context.Context, _ *sql.Tx) (string, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return "late", nil
+	})
+	var calls atomic.Int64
+	refresh := func(context.Context, RefreshRequest) ([][]byte, error) { return nil, nil }
+	c := serve(h, Spec{Views: []View{nothing("none", &calls), slow}, Build: "old", Refresh: refresh}, "")
+	waitFor(t, "the empty render", func() bool { return calls.Load() == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if k := kinds(c); len(k) > 0 {
+		t.Fatalf("the stream wrote before the slow view's first frame: %q", k)
+	}
+	close(release)
+	waitFor(t, "the build signal", func() bool { return len(kinds(c)) == 2 })
+	want := []string{patchEv + `<p id="slow">late</p>`, signalsEv + `{"_build":"new"}`}
+	if k := kinds(c); !slices.Equal(k, want) {
+		t.Fatalf("got %q, want %q", k, want)
+	}
+	c.leave(t)
+
+	// A stream whose only view has nothing to send gets the build signal.
+	c = serve(h, Spec{Views: []View{nothing("none2", &calls)}, Build: "old", Refresh: refresh}, "")
+	waitFor(t, "the build signal", func() bool { return len(kinds(c)) == 1 })
+	if k := kinds(c); k[0] != signalsEv+`{"_build":"new"}` {
+		t.Fatalf("got %q", k)
+	}
+	c.leave(t)
+}
+
+// A first render that fails, or runs past RenderTimeout, brings no frame:
+// the build signal follows it and waits for no later render.
+func TestRefreshBuildAfterFailedRender(t *testing.T) {
+	const timeout = 50 * time.Millisecond
+	cases := []struct {
+		name   string
+		render func(context.Context) error
+	}{
+		{"error", func(context.Context) error { return errors.New("boom") }},
+		{"timeout", func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := start(t, Options{Tick: 5 * time.Millisecond, Build: "new", RenderTimeout: timeout})
+			var calls atomic.Int64
+			failing := View{Key: "failing", Render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+				calls.Add(1)
+				return nil, tc.render(ctx)
+			}}
+			began := time.Now()
+			c := serve(h, Spec{Views: []View{failing, constant("count", "1")}, Build: "old",
+				Refresh: func(context.Context, RefreshRequest) ([][]byte, error) { return nil, nil }}, "")
+			waitFor(t, "the build signal", func() bool { return len(kinds(c)) == 2 })
+			if d := time.Since(began); d > timeout+time.Second {
+				t.Fatalf("the build signal took %v", d)
+			}
+			want := []string{patchEv + `<p id="count">1</p>`, signalsEv + `{"_build":"new"}`}
+			if k := kinds(c); !slices.Equal(k, want) {
+				t.Fatalf("got %q, want %q", k, want)
+			}
+			if n := calls.Load(); n != 1 {
+				t.Fatalf("%d renders of the failing view", n)
+			}
+			c.leave(t)
+		})
+	}
+}
+
 // A refresh that fails, panics, runs past RenderTimeout, or holds the
 // stream's element is skipped and counted, and the stream goes on without
 // it and without the build signal.

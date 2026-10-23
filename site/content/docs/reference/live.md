@@ -632,9 +632,10 @@ type Spec struct {
 	// app names, such as <main id="main">, never <body>; or a notice that
 	// asks the person to reload, when Dirty or when the page's assets
 	// changed. nil says the page is current. Once the events are out,
-	// and after the first frame of every view in Views, however many
-	// ticks it takes, the stream patches the build signal to Hub.Build,
-	// so the next reconnect refreshes nothing.
+	// and after the first render of every view in Views, with or without
+	// a frame, however many ticks it takes, the stream patches the build
+	// signal to Hub.Build, so the next reconnect refreshes nothing. A
+	// render that fails or runs past RenderTimeout counts as one without.
 	//
 	// The element with the id Reconnect must sit outside the container:
 	// a morph would run its data-init again and open a second stream. A

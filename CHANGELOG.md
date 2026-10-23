@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `live`: the build signal follows the first render of every view, with or without a frame: since v0.5.1 a view whose `Render` returned nil, or failed, held it back for good, and every reconnect refreshed the page again. A frame dropped as stale goes out when the next render repeats it.
+
 ## v0.5.1 (2026-10-23)
 
 Fixes from an external review of v0.5.0, refresh state reported in signals instead of headers, an upload helper, and maintenance for backups that aren't attached. What to change in an app made from the v0.5.0 template:

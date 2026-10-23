@@ -1,8 +1,11 @@
 package live
 
 import (
+	"context"
+	"database/sql"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,6 +91,28 @@ func TestWindowSendsAFreshFrame(t *testing.T) {
 	if f[1] < f[0]+2 {
 		t.Fatalf("the frame that waited went out: %v", f)
 	}
+	if h.Stats().FramesDropped == 0 {
+		t.Error("no frame dropped")
+	}
+}
+
+// A frame dropped as stale goes out when the render after it repeats it:
+// the stream never sent it.
+func TestWindowSendsARepeatOfAStaleFrame(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	var n atomic.Int64
+	n.Store(1)
+	v := text("b", []string{"b"}, func(context.Context, *sql.Tx) (string, error) { return strconv.FormatInt(n.Load(), 10), nil })
+	c := serve(h, Spec{ID: "tab", Views: []View{v}, Window: 1, Ack: ackEvent}, "")
+	waitFor(t, "the first frame", func() bool { return c.has(`<p id="b">1</p>`) })
+	n.Store(2)
+	h.Changed([]string{"b"})
+	waitFor(t, "the frame that waits", func() bool { return h.Stats().RendersByKey["b"] == 2 })
+	h.Changed([]string{"b"})
+	waitFor(t, "a deferred render", func() bool { return h.Stats().RendersDeferred == 1 })
+	token, _ := acks(c)
+	h.Ack("tab", token, 1)
+	waitFor(t, "the frame", func() bool { return c.has(`<p id="b">2</p>`) })
 	if h.Stats().FramesDropped == 0 {
 		t.Error("no frame dropped")
 	}

@@ -270,6 +270,7 @@ func (h *Hub) publish(t *tick) {
 			if joined {
 				h.mark(v)
 			}
+			settle(v, t.seq)
 			continue
 		}
 		same := v.unchanged(f, t.sums[i])
@@ -344,6 +345,32 @@ func (h *Hub) publish(t *tick) {
 			h.log.Error("live: render", "view", t.views[i].key, "err", err)
 		}
 	}
+}
+
+// settle marks the watches of v that have no frame yet done with the
+// render of tick seq, which brought none, and wakes their streams: a
+// refreshed stream's build signal waits for no frame of it. A fresh watch
+// that skips the tick waits for the next render. Hub.mu is held.
+func settle(v *view, seq uint64) {
+	for _, w := range v.watches {
+		if !w.owed || w.skip == seq {
+			continue
+		}
+		w.s.mu.Lock()
+		w.done = true
+		w.s.mu.Unlock()
+		w.s.poke()
+	}
+}
+
+// reowe makes the watches of frames a pump dropped as stale owe their
+// view's next frame, which may repeat the dropped one.
+func (h *Hub) reowe(stale []offer) {
+	h.mu.Lock()
+	for _, o := range stale {
+		o.w.owed, o.w.v.owed = true, true
+	}
+	h.mu.Unlock()
 }
 
 // worker renders views from the tick's queue, all in one read

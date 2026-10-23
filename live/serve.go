@@ -78,9 +78,10 @@ type Spec struct {
 	// app names, such as <main id="main">, never <body>; or a notice that
 	// asks the person to reload, when Dirty or when the page's assets
 	// changed. nil says the page is current. Once the events are out,
-	// and after the first frame of every view in Views, however many
-	// ticks it takes, the stream patches the build signal to Hub.Build,
-	// so the next reconnect refreshes nothing.
+	// and after the first render of every view in Views, with or without
+	// a frame, however many ticks it takes, the stream patches the build
+	// signal to Hub.Build, so the next reconnect refreshes nothing. A
+	// render that fails or runs past RenderTimeout counts as one without.
 	//
 	// The element with the id Reconnect must sit outside the container:
 	// a morph would run its data-init again and open a second stream. A
@@ -569,9 +570,9 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 	var batch, stale []offer
 	var parts [][]byte
 	var frames []Frame
-	// owed holds the views of Spec.Views whose first frame has not gone
-	// out: tail waits for all of them, since a view the hub kept no frame
-	// of renders only in a later tick.
+	// owed holds the views of Spec.Views whose first render has not ended:
+	// tail waits for their frames, or for a render that brought none, since
+	// a view the hub kept no frame of renders only in a later tick.
 	var owed []*watch
 	if tail != nil {
 		s.mu.Lock()
@@ -607,6 +608,10 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 			}
 			notes, s.notes = s.notes, nil
 		}
+		if len(owed) > 0 {
+			// The frames of this batch go out before tail.
+			owed = slices.DeleteFunc(owed, func(w *watch) bool { return w.done && w.next == nil })
+		}
 		var heard time.Time
 		if full {
 			heard = s.heard
@@ -615,6 +620,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 		h.resume(batch)
 		if len(stale) > 0 {
 			h.dropped.Add(int64(len(stale)))
+			h.reowe(stale)
 			h.resume(stale)
 			clear(stale)
 			stale = stale[:0]
