@@ -389,6 +389,24 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte,
 
 **After a deploy, all at once.** Every open tab reconnects within a few seconds of a deploy, and each one that a former build rendered calls `Refresh`. At most `Options.RefreshConcurrency` refreshes run at once, the hub's render `Workers` by default, each under `RenderTimeout`. The streams of one `Spec.Client` refresh one at a time, before they take a shared slot: the build is the client's to report, and a client that reports an old one on every stream it opens would otherwise hold every slot and leave other people's pages stale. A refresh that fails, runs past `RenderTimeout`, or finds no slot within `live.RefreshWait` (1 s) is skipped and logged, at most once every 10 s for each reason, and the stream goes on without it. Such a stream leaves the build signal as it was, so the page asks again on its next reconnect. prom exports the counts as `<namespace>_live_refreshes_total`, `_refreshes_unchanged_total` and `_refreshes_skipped_total{reason}`, with the reasons `error`, `timeout`, `busy` and `stream_element`.
 
+**Many tabs, one render.** Each `Refresh` is a render of a whole container, so 2,000 open tabs make 2,000 renders of the same page within a second or two, four at a time on a box with four cores: at 1.2 ms and 1 MiB of garbage each for a 230 KB page, about 2.4 s of CPU and 2 GiB of garbage, and the tabs that wait past `RefreshWait` stay stale. The tabs of one page can share one render: the template keys its renders of `#content` by the page and keeps each for a second, so the first tab renders, the tabs that come meanwhile wait for it, and those within the second after take it as it is. Anything newer comes with the views' first frames, which follow the refresh. A render that failed is not shared. An app with languages, or a container that depends on the session, adds those to the key; the keys come from a known set, such as the app's pages, since each keeps its render:
+
+```go source=template/internal/web/live.go
+	ev, err := s.contents.do(ctx, u.Path, func() (ev []byte, err error) {
+		err = s.db.View(ctx, func(tx *sql.Tx) error {
+			list, total, err := guestbook.Latest(ctx, tx, guestbook.Shown)
+			if err != nil {
+				return err
+			}
+			ev, err = patch(ctx, views.Content(list, total))
+			return err
+		})
+		return ev, err
+	})
+```
+
+The hub skips a refresh that found no slot rather than run it after the first frames. A container morphed in after them would replace the regions they filled with its own render, which may be older, a shared one by up to a second, and the views send nothing new until their topics change. With renders shared, a refresh costs most tabs a lookup, and the slots are rarely busy for long. The site keeps its live demos out of the refreshed parts altogether, which renders less per tab. A page that reports a hash of its container's content in a signal of its own lets `Refresh` return nil when the hash still matches ([A page the deploy did not change](#refreshing-a-page-after-a-deploy)).
+
 `TestRefreshAfterDeploy` (`site/internal/docs/example/web`) loads a board, makes it a page of an old build and reconnects its stream in headless Chromium: `#content` is rendered afresh, the page keeps one stream and `$_build` becomes the running build. With a title typed, the page gets the notice and keeps the title. `TestRefreshAfterReopen` then hides and shows the refreshed tab twice and breaks its connection: the page reports the running build, is not refreshed again and keeps one stream; a page of an old build where the person typed gets the notice when it shows again, not the morph.
 
 ## What an action's answer carries

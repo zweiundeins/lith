@@ -787,11 +787,15 @@ spec := live.Spec{
   instant before its frame follows: harmless.
 - At most `Options.RefreshConcurrency` (default `Workers`) run at once, each
   under `RenderTimeout`, and one at a time per `Spec.Client` (the build is
-  the client's to forge, so set `Client`). One that fails, times out or waits longer than
-  `live.RefreshWait` (1 s) for a slot is skipped and logged, and the build
-  signal stays, so the next reconnect tries again. Metrics:
-  `<ns>_live_refreshes_total`, `_refreshes_unchanged_total`,
+  the client's to forge, so set `Client`). One that fails, times out or
+  waits longer than `live.RefreshWait` (1 s) for a slot is skipped and
+  logged, and the build signal stays, so the next reconnect tries again.
+  Metrics: `<ns>_live_refreshes_total`, `_refreshes_unchanged_total`,
   `_refreshes_skipped_total{reason}`.
+- Share the container's render among the tabs of one page for a second
+  (the template's `shared`, keyed by page, plus language where there is
+  one): after a deploy every tab refreshes at once, and a render per tab
+  is O(tabs) CPU and garbage.
 - No stream, no refresh: a page that needs it opens a minimal stream (an
   idle stream that hibernates is cheap).
 

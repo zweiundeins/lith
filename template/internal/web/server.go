@@ -41,7 +41,10 @@ type Server struct {
 	log    *slog.Logger
 	static *edge.Static
 	assets string // the version of the page's scripts and stylesheet
-	limit  *edge.Limiter
+	// contents shares a render of #content among the tabs that refresh
+	// after a deploy (refresh).
+	contents shared
+	limit    *edge.Limiter
 	// /pace and /ack are limited per client address first, then per
 	// session or stream: a client mints a session with every request
 	// that sends no cookie, so a session id alone is no limiter key.

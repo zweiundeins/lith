@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"slices"
+	"sync"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/zweiundeins/lith/live"
@@ -101,7 +104,9 @@ func Stopping(live.Spec) [][]byte {
 // #ops and the signals stay outside it. When the person has typed into the
 // form, or the page's scripts and stylesheet changed, it asks for a reload
 // instead: a morph would take what was typed, or leave new markup with the
-// old stylesheet. assets is the assets version the page reported.
+// old stylesheet. assets is the assets version the page reported. After a
+// deploy every open tab refreshes within a second or two: the tabs of one
+// page share a render of its container (s.contents).
 func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest, assets string) ([][]byte, error) {
 	var msg string
 	switch {
@@ -114,22 +119,92 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest, assets str
 		ev, err := patch(ctx, views.Update(msg))
 		return [][]byte{ev}, err
 	}
-	if u, err := url.Parse(rq.Page); err != nil || u.Path != "/" {
+	u, err := url.Parse(rq.Page)
+	if err != nil || u.Path != "/" {
 		return nil, nil // not a page of ours
 	}
-	var ev []byte
-	err := s.db.View(ctx, func(tx *sql.Tx) error {
-		list, total, err := guestbook.Latest(ctx, tx, guestbook.Shown)
-		if err != nil {
+	// The key holds what the render depends on: the page. An app with
+	// languages adds the request's language.
+	ev, err := s.contents.do(ctx, u.Path, func() (ev []byte, err error) {
+		err = s.db.View(ctx, func(tx *sql.Tx) error {
+			list, total, err := guestbook.Latest(ctx, tx, guestbook.Shown)
+			if err != nil {
+				return err
+			}
+			ev, err = patch(ctx, views.Content(list, total))
 			return err
-		}
-		ev, err = patch(ctx, views.Content(list, total))
-		return err
+		})
+		return ev, err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return [][]byte{ev}, nil
+}
+
+// sharedFor is how long a refresh's render of a container serves the tabs
+// that refresh after it. The views' first frames, which follow a refresh,
+// bring anything newer.
+const sharedFor = time.Second
+
+// shared lets concurrent refreshes of one key share a render: the first
+// renders, the others wait for it, and those that come within sharedFor
+// after it take it too. A failed render is not shared: a caller that
+// waited for it renders itself. Its keys must come from a known set,
+// such as the app's pages: it keeps one render per key.
+type shared struct {
+	mu    sync.Mutex
+	calls map[string]*sharedCall
+}
+
+type sharedCall struct {
+	done chan struct{} // closed once the render returned
+	at   time.Time     // when it returned, under shared.mu
+	ev   []byte        // read-only once done is closed
+	err  error
+}
+
+func (s *shared) do(ctx context.Context, key string, render func() ([]byte, error)) ([]byte, error) {
+	for {
+		s.mu.Lock()
+		c := s.calls[key]
+		if c == nil || !c.at.IsZero() && time.Since(c.at) >= sharedFor {
+			c = &sharedCall{done: make(chan struct{})}
+			if s.calls == nil {
+				s.calls = map[string]*sharedCall{}
+			}
+			s.calls[key] = c
+			s.mu.Unlock()
+			return s.run(key, c, render)
+		}
+		s.mu.Unlock()
+		select {
+		case <-c.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		if c.err == nil {
+			return c.ev, nil
+		}
+	}
+}
+
+// errNoRender stands for a render that panicked, until it returns.
+var errNoRender = errors.New("web: the shared render panicked")
+
+func (s *shared) run(key string, c *sharedCall, render func() ([]byte, error)) ([]byte, error) {
+	c.err = errNoRender
+	defer func() {
+		s.mu.Lock()
+		c.at = time.Now()
+		if c.err != nil && s.calls[key] == c {
+			delete(s.calls, key)
+		}
+		s.mu.Unlock()
+		close(c.done)
+	}()
+	c.ev, c.err = render()
+	return c.ev, c.err
 }
 
 // patch renders c as an event that morphs it into the page by its id. The
