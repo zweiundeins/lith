@@ -24,7 +24,7 @@ Limiter              starbase's token bucket, swept as it goes, a clock step tha
 Health, Ready        liveness and readiness probes, with checks registered by the app
 Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
 SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
-UploadBody           lith's v0.5.0 review: an upload's deadline that grows while the body arrives at a minimum rate
+Upload, TooLarge     lith's v0.5.0 review and Libretto: an upload's deadline that moves while the body arrives at a minimum rate
 ```
 
 A chain, built from the inside out:
@@ -39,13 +39,37 @@ h = edge.Recover(log, h)     // around Compress: a panic drops the held body
 h = edge.LogRequests(log, h) // around Recover: it logs the 500
 ```
 
-The server's handler is the mux that serves h, the probes and the static files. Its ReadTimeout bounds every request's body, on every route, read or not, and leaves streams alone: over HTTP/1.1 Go's server clears the read deadline once the body is in, or before the handler runs for a request without one, and over HTTP/2 the timeout is a timer per stream that does nothing once the body has ended. An upload's handler extends it with UploadBody.
+The server's handler is the mux that serves h, the probes and the static files. Its ReadTimeout bounds every request's body, on every route, read or not, and leaves streams alone: over HTTP/1.1 Go's server clears the read deadline once the body is in, or before the handler runs for a request without one, and over HTTP/2 the timeout is a timer per stream that does nothing once the body has ended. An upload's handler extends it with Upload.
 
 ```go
 srv := &http.Server{Handler: top, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 2 * time.Minute}
 ```
 
 ## Constants
+
+```go
+const (
+	// UploadWindow is the time an upload's body gets at first, and again
+	// each time it has sent MinRate for that long.
+	UploadWindow = 10 * time.Second
+
+	// UploadMinRate is a minimum rate for an upload over a slow link, in
+	// bytes a second: three uploads sharing a 0.4 Mbit/s mobile link get
+	// about 133 kbit/s each, some 16 KB/s, twice its 8 KiB/s, while a
+	// client that trickles a byte a second is cut off after a window.
+	UploadMinRate = 8 << 10
+
+	// UploadMax is the default size limit of an upload, 10 MiB.
+	UploadMax = 10 << 20
+
+	// UploadSlack is added to Max/MinRate for an upload's longest time, so
+	// that an upload of the largest size at the lowest rate, with the
+	// stalls of a mobile link, still finishes.
+	UploadSlack = time.Minute
+)
+```
+
+Upload defaults.
 
 ```go
 const NetworkHints = "ECT, RTT, Downlink"
@@ -58,18 +82,6 @@ const NonceSource = "'nonce'"
 ```
 
 NonceSource stands for the request's 'nonce-...' source among a directive's sources.
-
-```go
-const UploadMinRate = 8 << 10
-```
-
-UploadMinRate is a minimum rate for UploadBody, in bytes a second, for an upload over a slow link: three uploads sharing a 0.4 Mbit/s mobile link get about 133 kbit/s each, some 16 KB/s, twice its 8 KiB/s, while a client that trickles a byte a second is cut off after a window.
-
-```go
-const UploadWindow = 10 * time.Second
-```
-
-UploadWindow is the time an upload's body gets at first, and each time it earns more: UploadBody's window.
 
 ## Functions
 
@@ -189,6 +201,14 @@ func SlowLink(r *http.Request) bool
 
 SlowLink reports whether r says its client is on a slow link. Any of these does: the header Save-Data: on, which a browser sends when its user asked to save data, and a lith page sends on its stream's request from its own measurement (navigator.connection's saveData or an effective type of 2g or 3g, or where that is missing, a document that took over 300 ms to its first byte or came at under 100 KB/s), or once it fell behind its stream (live.NewestFrame); Chromium's client hints, after an Accept-CH of NetworkHints: ECT slow-2g, 2g or 3g, RTT over 300 (ms), Downlink under 0.8 (Mbit/s); the query parameter net=slow, which pages put in their stream's URL before they sent Save-Data, for those still open from then. A client that claims a slow link without one only gets fewer frames (live.Spec.Slow), which costs the server less.
 
+### func TooLarge {#TooLarge}
+
+```go
+func TooLarge(err error) bool
+```
+
+TooLarge reports whether err comes from a body over its limit: an \*http.MaxBytesError, as Upload's body and http.MaxBytesReader return, also through ParseMultipartForm, MultipartReader's parts and a json.Decoder.
+
 ### func TrustedProxies {#TrustedProxies}
 
 ```go
@@ -197,24 +217,36 @@ func TrustedProxies(addr net.Addr) string
 
 TrustedProxies says, for a log line at start, whose X-Forwarded-For and X-Real-IP ClientIP believes on a server that listens at addr (a listener's Addr). ClientIP believes peers on loopback and on a Unix socket: every local user who can connect to them can name any client address, and so dodge a per-address limit or spend someone else's. A socket whose mode lets only the proxy's group in (0660, the app's group holding the proxy's user) narrows that to the proxy. A proxy on another host, or on a container bridge, is not believed: every client then counts as the proxy's address, and one abuser spends the limit of all.
 
+### func Upload {#Upload}
+
+```go
+func Upload(w http.ResponseWriter, r *http.Request, l UploadLimits) (io.ReadCloser, error)
+```
+
+Upload wraps r.Body for a handler that takes a large body, such as an upload, whose body the server's ReadTimeout would cut off:
+
+```text
+body, err := edge.Upload(w, r, edge.UploadLimits{Max: 50 << 20})
+if err != nil {
+	log.Warn("upload without a deadline", "err", err)
+}
+r.Body = body
+if err := r.ParseMultipartForm(1 << 20); edge.TooLarge(err) { ... }
+```
+
+The body gets a Window, and each time it has sent MinRate\*Window bytes it gets a Window from then, until Max/MinRate+Slack from the call: a slow but honest upload takes as long as it needs, while a body that falls below MinRate is cut off a Window after the last time it kept up, a burst before a stall included. A body cut off fails its Read with an error that matches os.ErrDeadlineExceeded, and over HTTP/1.1 the server closes the connection after the answer. Reads past Max fail with an \*http.MaxBytesError (see TooLarge).
+
+The server's WriteTimeout, if it has one, would fail the answer to an upload that takes longer, so Upload clears the write deadline while the body arrives, and sets it to the server's WriteTimeout from the body's end (or its failure), for the answer.
+
+It works with ParseMultipartForm, MultipartReader and plain reads, over HTTP/1.1 and HTTP/2. Call it before the first Read. It sets the deadlines through http.ResponseController, so w must unwrap to the server's writer (lith's Compress and LogRequests do). When one cannot be set, such as with httptest's recorder, err says so, wrapping http.ErrNotSupported, and the body, still capped at Max, is usable without it. It never touches the read deadline after the body's end or a failed read: over HTTP/1.1 Go's server then watches the connection for a client that leaves, and a read deadline set on it would cancel the request's context when it passed. A write deadline has no such effect.
+
 ### func UploadBody {#UploadBody}
 
 ```go
-func UploadBody(w http.ResponseWriter, r *http.Request, minRate, maxSize int64) io.ReadCloser
+func UploadBody(w http.ResponseWriter, r *http.Request, minRate, maxSize int64) (io.ReadCloser, error)
 ```
 
-UploadBody wraps r.Body for a handler that takes a large body, such as an upload, whose body the server's ReadTimeout would cut off:
-
-```text
-r.Body = edge.UploadBody(w, r, edge.UploadMinRate, 10<<20)
-if err := r.ParseMultipartForm(1 << 20); err != nil { ... }
-```
-
-The body gets UploadWindow to send minRate\*UploadWindow bytes, and one more window each time it has, never more than one ahead, until maxSize/minRate from the call at the latest (at least one window): a slow but honest upload takes as long as it needs, while a body that falls below minRate is cut off after a window or two, a burst before a stall included. Reads past maxSize fail with an \*http.MaxBytesError (http.MaxBytesReader). A body cut off fails its Read with an error that matches os.ErrDeadlineExceeded, and over HTTP/1.1 the server closes the connection after the answer.
-
-It works with ParseMultipartForm, MultipartReader and plain reads, over HTTP/1.1 and HTTP/2. Call it before the first Read: it sets the read deadline through http.ResponseController, so w must unwrap to the server's writer (lith's Compress and LogRequests do); with one that does not, such as httptest's recorder, only the size limit holds. It never touches the deadline after the body's end or a failed read: over HTTP/1.1 Go's server then watches the connection for a client that leaves, and a deadline set on it would cancel the request's context when it passed.
-
-minRate and maxSize of 0 or less mean UploadMinRate and 10 MiB.
+UploadBody is Upload with a minimum rate and a size limit, and the default window and slack.
 
 ## Types
 
@@ -528,3 +560,16 @@ func StaticHashLen(n int) StaticOption
 ```
 
 StaticHashLen puts n hex digits of a file's SHA-256 in the names URL makes, instead of 12. Names an app made the same way before, with that many digits, then stay current. It panics unless 8 \<= n \<= 64.
+
+### type UploadLimits {#UploadLimits}
+
+```go
+type UploadLimits struct {
+	Max     int64         // bytes; UploadMax
+	MinRate int64         // bytes a second; UploadMinRate
+	Window  time.Duration // UploadWindow
+	Slack   time.Duration // UploadSlack
+}
+```
+
+UploadLimits configure Upload. A zero field takes its default.

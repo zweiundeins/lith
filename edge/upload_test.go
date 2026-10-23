@@ -3,6 +3,7 @@ package edge
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,12 +18,17 @@ import (
 )
 
 // servers starts h over HTTP/1.1 and HTTP/2 with the server's ReadTimeout
-// set, and runs f on each.
+// and WriteTimeout set, and runs f on each.
 func servers(t *testing.T, readTimeout time.Duration, h http.Handler, f func(t *testing.T, srv *httptest.Server)) {
+	serversWithWriteTimeout(t, readTimeout, 0, h, f)
+}
+
+func serversWithWriteTimeout(t *testing.T, readTimeout, writeTimeout time.Duration, h http.Handler, f func(t *testing.T, srv *httptest.Server)) {
 	for _, h2 := range []bool{false, true} {
 		t.Run(map[bool]string{false: "HTTP/1.1", true: "HTTP/2"}[h2], func(t *testing.T) {
 			srv := httptest.NewUnstartedServer(h)
 			srv.Config.ReadTimeout = readTimeout
+			srv.Config.WriteTimeout = writeTimeout
 			srv.EnableHTTP2 = h2
 			srv.StartTLS()
 			defer srv.Close()
@@ -128,15 +134,21 @@ func TestReadTimeoutSparesStreams(t *testing.T) {
 	}
 }
 
-// uploadHandler reads the body through UploadBody in the way named by the
+// testWindow is the tests' Upload window.
+const testWindow = 300 * time.Millisecond
+
+// uploadHandler reads the body through Upload in the way named by the
 // path, answers with the bytes it got or the error, and checks that the
-// request's context lives on after the body.
-func uploadHandler(t *testing.T, minRate, maxSize int64) http.Handler {
+// request's context lives on linger after the body.
+func uploadHandler(t *testing.T, l UploadLimits, linger time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = UploadBody(w, r, minRate, maxSize)
+		body, err := Upload(w, r, l)
+		if err != nil {
+			t.Errorf("Upload: %v", err)
+		}
+		r.Body = body
 		start := time.Now()
 		var n int64
-		var err error
 		switch r.URL.Path {
 		case "/plain":
 			n, err = io.Copy(io.Discard, r.Body)
@@ -162,9 +174,9 @@ func uploadHandler(t *testing.T, minRate, maxSize int64) http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		// A deadline set after the body's end would cancel the request's
-		// context over HTTP/1.1 when it passed.
-		time.Sleep(3 * uploadWindow)
+		// A read deadline set after the body's end would cancel the
+		// request's context over HTTP/1.1 when it passed.
+		time.Sleep(linger)
 		if err := r.Context().Err(); err != nil {
 			t.Errorf("%s: the request's context after the body: %v", r.URL.Path, err)
 		}
@@ -172,11 +184,8 @@ func uploadHandler(t *testing.T, minRate, maxSize int64) http.Handler {
 	})
 }
 
-func setUploadWindow(t *testing.T, d time.Duration) {
-	old := uploadWindow
-	uploadWindow = d
-	t.Cleanup(func() { uploadWindow = old })
-}
+// slowLimits wants 10 KB/s, 3 KB a window.
+var slowLimits = UploadLimits{MinRate: 10_000, Max: 1 << 20, Window: testWindow}
 
 // multipartBody wraps n bytes sent slowly as a form with one file.
 func multipartBody(n, piece int, gap time.Duration) (io.Reader, string) {
@@ -197,19 +206,17 @@ func multipartBody(n, piece int, gap time.Duration) (io.Reader, string) {
 // over several windows and past the server's ReadTimeout, in each way of
 // reading it, and the request's context lives on after it.
 func TestUploadBodyTakesASlowUpload(t *testing.T) {
-	const w = 300 * time.Millisecond
-	setUploadWindow(t, w)
-	// 10 KB/s wanted, 3 KB a window; sent at about 13 KB/s for 4 windows.
-	h := uploadHandler(t, 10_000, 1<<20)
-	servers(t, w, h, func(t *testing.T, srv *httptest.Server) {
+	// Sent at about 13 KB/s for 4 windows.
+	h := uploadHandler(t, slowLimits, 3*testWindow)
+	servers(t, testWindow, h, func(t *testing.T, srv *httptest.Server) {
 		for _, path := range []string{"/plain", "/form", "/parts"} {
 			const n = 16_000
 			var body io.Reader
 			ct := "application/octet-stream"
 			if path == "/plain" {
-				body = slowBody(n, 1300, 100*time.Millisecond)
+				body = slowBody(n, 260, 20*time.Millisecond)
 			} else {
-				body, ct = multipartBody(n, 1300, 100*time.Millisecond)
+				body, ct = multipartBody(n, 260, 20*time.Millisecond)
 			}
 			start := time.Now()
 			res, err := srv.Client().Post(srv.URL+path, ct, body)
@@ -228,9 +235,8 @@ func TestUploadBodyTakesASlowUpload(t *testing.T) {
 // TestUploadBodyCutsATrickle: a body under minRate is cut off after about a
 // window, over HTTP/1.1 and HTTP/2.
 func TestUploadBodyCutsATrickle(t *testing.T) {
-	const w = 300 * time.Millisecond
-	setUploadWindow(t, w)
-	h := uploadHandler(t, 10_000, 1<<20)
+	const w = testWindow
+	h := uploadHandler(t, slowLimits, 0)
 	servers(t, 5*time.Second, h, func(t *testing.T, srv *httptest.Server) {
 		res, err := srv.Client().Post(srv.URL+"/plain", "application/octet-stream", slowBody(100_000, 100, 50*time.Millisecond))
 		if err != nil {
@@ -246,12 +252,11 @@ func TestUploadBodyCutsATrickle(t *testing.T) {
 	})
 }
 
-// TestUploadBodyBurstThenStall: a burst earns one window ahead at most, so
-// a body that stalls after it is cut off within two.
+// TestUploadBodyBurstThenStall: a burst earns no time beyond a window from
+// its last read, so a body that stalls after it is cut off a window later.
 func TestUploadBodyBurstThenStall(t *testing.T) {
-	const w = 300 * time.Millisecond
-	setUploadWindow(t, w)
-	h := uploadHandler(t, 10_000, 1<<20)
+	const w = testWindow
+	h := uploadHandler(t, slowLimits, 0)
 	servers(t, 5*time.Second, h, func(t *testing.T, srv *httptest.Server) {
 		pr, pw := io.Pipe()
 		go func() {
@@ -266,22 +271,82 @@ func TestUploadBodyBurstThenStall(t *testing.T) {
 		b, _ := io.ReadAll(res.Body)
 		res.Body.Close()
 		took, _ := time.ParseDuration(res.Header.Get("Took"))
-		if res.StatusCode != http.StatusBadRequest || took > 2*w+time.Second {
+		if res.StatusCode != http.StatusBadRequest || took < w || took > 3*w/2 {
 			t.Errorf("a stall after a burst: %d after %v: %s", res.StatusCode, took, b)
 		}
 	})
 }
 
-// TestUploadBodyLimitsTheSize: a body over maxSize fails with
-// *http.MaxBytesError.
-func TestUploadBodyLimitsTheSize(t *testing.T) {
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, err := io.ReadAll(UploadBody(w, r, 0, 1000))
-		var tooBig *http.MaxBytesError
-		if !errors.As(err, &tooBig) {
-			t.Errorf("a body over the limit: %v", err)
+// TestUploadOutlastsTheWriteTimeout: an upload longer than the server's
+// WriteTimeout gets its answer, which has the WriteTimeout from the body's
+// end.
+func TestUploadOutlastsTheWriteTimeout(t *testing.T) {
+	h := uploadHandler(t, slowLimits, 100*time.Millisecond)
+	serversWithWriteTimeout(t, 5*time.Second, 400*time.Millisecond, h, func(t *testing.T, srv *httptest.Server) {
+		const n = 16_000 // about 1.2 s
+		res, err := srv.Client().Post(srv.URL+"/plain", "application/octet-stream", slowBody(n, 260, 20*time.Millisecond))
+		if err != nil {
+			t.Fatalf("the answer after a long upload: %v", err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK || string(b) != fmt.Sprint(n) {
+			t.Errorf("%d %s", res.StatusCode, b)
 		}
 	})
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("POST", "/", strings.NewReader(strings.Repeat("x", 2000))))
+}
+
+// TestTooLarge: a body over Max fails with *http.MaxBytesError, which
+// TooLarge finds through each way of reading it; a writer without a
+// connection gets no deadline and says so.
+func TestTooLarge(t *testing.T) {
+	form := func() (*bytes.Buffer, string) {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		fw, _ := mw.CreateFormFile("file", "photo.jpg")
+		fw.Write(bytes.Repeat([]byte("x"), 5000))
+		mw.Close()
+		return &b, mw.FormDataContentType()
+	}
+	for name, read := range map[string]func(r *http.Request) error{
+		"plain": func(r *http.Request) error { _, err := io.ReadAll(r.Body); return err },
+		"json":  func(r *http.Request) error { var v any; return json.NewDecoder(r.Body).Decode(&v) },
+		"form":  func(r *http.Request) error { return r.ParseMultipartForm(1 << 10) },
+		"parts": func(r *http.Request) error {
+			mr, err := r.MultipartReader()
+			if err != nil {
+				return err
+			}
+			p, err := mr.NextPart()
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(io.Discard, p)
+			return err
+		},
+	} {
+		var req *http.Request
+		switch name {
+		case "plain":
+			req = httptest.NewRequest("POST", "/", strings.NewReader(strings.Repeat("x", 2000)))
+		case "json":
+			req = httptest.NewRequest("POST", "/", strings.NewReader(`"`+strings.Repeat("x", 2000)+`"`))
+		default:
+			b, ct := form()
+			req = httptest.NewRequest("POST", "/", b)
+			req.Header.Set("Content-Type", ct)
+		}
+		w := httptest.NewRecorder()
+		body, err := Upload(w, req, UploadLimits{Max: 1000})
+		if !errors.Is(err, http.ErrNotSupported) {
+			t.Errorf("%s: Upload with a recorder: %v, want ErrNotSupported", name, err)
+		}
+		req.Body = body
+		if err := read(req); !TooLarge(err) {
+			t.Errorf("%s: %v, want TooLarge", name, err)
+		}
+	}
+	if TooLarge(errors.New("other")) || TooLarge(nil) {
+		t.Error("TooLarge of another error")
+	}
 }

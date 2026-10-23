@@ -235,13 +235,16 @@ A plain `fetch` sends no `datastar-fetch` events, so the page does what `fetched
 })(el.files[0], Date.now().toString(36) + Math.random().toString(36).slice(2, 7))
 ```
 
-The size check in the page saves the person the wait; the handler still checks, and records its refusal. The server's `ReadTimeout` gives a body 15 s, and no fixed time fits a slow link: 10 MB at 0.4 Mbit/s takes 200 s. So the upload's handler wraps the body in `edge.UploadBody` before it reads. The body then gets 10 s, and 10 s more each time 10 s' worth at the minimum rate arrived, up to the size over the rate in all; 8 KiB/s (`edge.UploadMinRate`) still lets three uploads share a 0.4 Mbit/s link, while a client that trickles is cut off after a window ([Request bodies](/docs/guides/edge#request-bodies)):
+The size check in the page saves the person the wait; the handler still checks, and records its refusal. The server's `ReadTimeout` gives a body 15 s, and no fixed time fits a slow link: 10 MB at 0.4 Mbit/s takes 200 s. So the upload's handler wraps the body in `edge.Upload` before it reads. The body then gets 10 s, and 10 s from then each time 10 s' worth at the minimum rate arrived, up to the size over the rate and a minute in all; 8 KiB/s (`edge.UploadMinRate`) still lets three uploads share a 0.4 Mbit/s link, while a client that trickles is cut off after a window. The answer keeps the server's `WriteTimeout`, if it has one, from the body's end ([Request bodies](/docs/guides/edge#request-bodies)):
 
 ```go
-r.Body = edge.UploadBody(w, r, edge.UploadMinRate, 10<<20)
-_, err := io.Copy(dst, r.Body) // the page sends the file as the body; a form reads r.FormFile
-var tooBig *http.MaxBytesError
-if errors.As(err, &tooBig) {
+body, err := edge.Upload(w, r, edge.UploadLimits{Max: 10 << 20})
+if err != nil {
+	log.Warn("upload without a deadline", "err", err) // a writer that does not unwrap
+}
+r.Body = body
+_, err = io.Copy(dst, r.Body) // the page sends the file as the body; a form reads r.FormFile
+if edge.TooLarge(err) {
 	// record the refusal with a command, then answer
 }
 ```

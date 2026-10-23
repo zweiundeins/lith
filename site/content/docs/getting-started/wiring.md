@@ -74,7 +74,7 @@ The health checks stay outside the edge, so probes get no cookie and no log line
 
 The static files stay outside `Sessions` too, behind `SecurityHeaders`, `Recover` and `LogRequests`: their answers are public and immutable, and a session cookie on one would go to everyone a shared cache hands it to. `Sessions` mints a cookie for every request without one.
 
-The server's `ReadTimeout`, 15 s, gives a request's headers and body that long to arrive, also on a route that never reads the body, where a client that trickles one would otherwise hold its connection; it leaves streams alone, and an upload extends it with `edge.UploadBody` ([Request bodies](/docs/guides/edge#request-bodies)).
+The server's `ReadTimeout`, 15 s, gives a request's headers and body that long to arrive, also on a route that never reads the body, where a client that trickles one would otherwise hold its connection; it leaves streams alone, and an upload extends it with `edge.Upload` ([Request bodies](/docs/guides/edge#request-bodies)).
 
 ## Starting and stopping
 

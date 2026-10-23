@@ -15,7 +15,7 @@
 //	Health, Ready        liveness and readiness probes, with checks registered by the app
 //	Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
 //	SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
-//	UploadBody           lith's v0.5.0 review: an upload's deadline that grows while the body arrives at a minimum rate
+//	Upload, TooLarge     lith's v0.5.0 review and Libretto: an upload's deadline that moves while the body arrives at a minimum rate
 //
 // A chain, built from the inside out:
 //
@@ -33,7 +33,7 @@
 // read deadline once the body is in, or before the handler runs for a
 // request without one, and over HTTP/2 the timeout is a timer per stream
 // that does nothing once the body has ended. An upload's handler extends
-// it with UploadBody.
+// it with Upload.
 //
 //	srv := &http.Server{Handler: top, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 2 * time.Minute}
 package edge

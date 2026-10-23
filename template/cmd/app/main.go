@@ -161,7 +161,7 @@ func serve(ctx context.Context, args []string) error {
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 		// ReadTimeout ends a body that does not arrive, on every route, read
 		// or not, and leaves streams alone; an upload extends it with
-		// edge.UploadBody. No WriteTimeout: a stream gives each of its
+		// edge.Upload. No WriteTimeout: a stream gives each of its
 		// writes a deadline.
 	}
 	// The metrics never go on the public listener.
