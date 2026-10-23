@@ -530,9 +530,9 @@ func (l *limit) render(v *view, tx *sql.Tx) (any, error) {
 	if !l.armed {
 		l.armed = true
 		if l.timer == nil {
-			l.timer = time.AfterFunc(d, l.fire)
+			l.timer = time.AfterFunc(time.Until(at), l.fire)
 		} else {
-			l.timer.Reset(d)
+			l.timer.Reset(time.Until(at))
 		}
 	}
 	l.mu.Unlock()

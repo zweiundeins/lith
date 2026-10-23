@@ -124,7 +124,9 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest, assets str
 		return nil, nil // not a page of ours
 	}
 	// The key holds what the render depends on: the page. An app with
-	// languages adds the request's language.
+	// languages adds the request's language. The render runs under the
+	// ctx of the tab that came first, so it reads nothing from ctx that
+	// the key does not hold: no nonce, a locale or a user only in the key.
 	ev, err := s.contents.do(ctx, u.Path, func() (ev []byte, err error) {
 		err = s.db.View(ctx, func(tx *sql.Tx) error {
 			list, total, err := guestbook.Latest(ctx, tx, guestbook.Shown)
@@ -150,11 +152,13 @@ const sharedFor = time.Second
 // shared lets concurrent refreshes of one key share a render: the first
 // renders, the others wait for it, and those that come within sharedFor
 // after it take it too. A failed render is not shared: a caller that
-// waited for it renders itself. Its keys must come from a known set,
-// such as the app's pages: it keeps one render per key.
+// waited for it renders itself. A render is dropped once sharedFor has
+// passed, at the next call's sweep, so keys by session or user hold
+// memory only while their tabs refresh.
 type shared struct {
 	mu    sync.Mutex
 	calls map[string]*sharedCall
+	swept time.Time
 }
 
 type sharedCall struct {
@@ -167,6 +171,14 @@ type sharedCall struct {
 func (s *shared) do(ctx context.Context, key string, render func() ([]byte, error)) ([]byte, error) {
 	for {
 		s.mu.Lock()
+		if now := time.Now(); now.Sub(s.swept) >= sharedFor {
+			s.swept = now
+			for k, c := range s.calls {
+				if !c.at.IsZero() && now.Sub(c.at) >= sharedFor {
+					delete(s.calls, k)
+				}
+			}
+		}
 		c := s.calls[key]
 		if c == nil || !c.at.IsZero() && time.Since(c.at) >= sharedFor {
 			c = &sharedCall{done: make(chan struct{})}

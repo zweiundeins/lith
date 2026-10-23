@@ -209,11 +209,15 @@ const (
 // Stats counts each.
 const refreshLogEvery = 10 * time.Second
 
+// refreshEpoch makes refreshLog's times monotonic: a step of the wall clock
+// back would silence it until the clock caught up.
+var refreshEpoch = time.Now()
+
 // refreshLog logs a skipped refresh, unless one of the same kind was logged
 // less than refreshLogEvery ago.
 func (h *Hub) refreshLog(kind int, level slog.Level, msg string, args ...any) {
 	last := &h.refreshLogged[kind]
-	now, prev := time.Now().UnixNano(), last.Load()
+	now, prev := int64(time.Since(refreshEpoch))+1, last.Load() // 0 is never logged
 	if prev != 0 && now-prev < int64(refreshLogEvery) || !last.CompareAndSwap(prev, now) {
 		return
 	}

@@ -133,7 +133,9 @@ type Options struct {
 	// RefreshConcurrency is how many Spec.Refresh calls run at once
 	// (default Workers). A stream waits up to RefreshWait for a slot. The
 	// streams of one Spec.Client refresh one at a time, so one address,
-	// which can report any build it likes, holds one slot at most.
+	// which can report any build it likes, holds one slot at most. That
+	// holds only for streams whose Spec sets Client: those without one
+	// each take a slot of their own.
 	RefreshConcurrency int
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).

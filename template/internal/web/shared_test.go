@@ -10,7 +10,8 @@ import (
 )
 
 // TestShared: the tabs that refresh at once share one render, and so do
-// those that come within sharedFor after it; a later one renders again. A
+// those that come within sharedFor after it; a later one renders again,
+// and a render older than sharedFor is dropped from the map. A
 // failed render is not shared: a caller that waited for it renders itself.
 func TestShared(t *testing.T) {
 	var s shared
@@ -42,6 +43,12 @@ func TestShared(t *testing.T) {
 	time.Sleep(sharedFor)
 	if ev, _ := s.do(context.Background(), "/", render); ev[0] != 3 {
 		t.Fatalf("a tab after sharedFor got the old render: %v", ev)
+	}
+	s.mu.Lock()
+	_, kept := s.calls["/other"]
+	s.mu.Unlock()
+	if kept {
+		t.Fatal("a render older than sharedFor was kept: keys by session would grow without bound")
 	}
 
 	fail := errors.New("the database is gone")
