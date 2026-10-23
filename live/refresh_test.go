@@ -156,6 +156,37 @@ func TestRefreshUnchanged(t *testing.T) {
 	c.leave(t)
 }
 
+// The build signal waits for the views' first frames, also when they
+// render ticks after the stream opened, as a view the hub keeps no frame
+// of does.
+func TestRefreshBuildAfterSlowFirstFrame(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond, Build: "new", RenderTimeout: time.Minute})
+	release := make(chan struct{})
+	slow := text("slow", nil, func(ctx context.Context, _ *sql.Tx) (string, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return "late", nil
+	})
+	c := serve(h, Spec{
+		Views: []View{slow}, Build: "old",
+		Refresh: func(context.Context, RefreshRequest) ([][]byte, error) { return nil, nil },
+	}, "")
+	waitFor(t, "the stream", func() bool { return h.Stats().Streams == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if k := kinds(c); len(k) > 0 {
+		t.Fatalf("the stream wrote before the view's first frame: %q", k)
+	}
+	close(release)
+	waitFor(t, "the build signal", func() bool { return len(kinds(c)) == 2 })
+	want := []string{patchEv + `<p id="slow">late</p>`, signalsEv + `{"_build":"new"}`}
+	if k := kinds(c); !slices.Equal(k, want) {
+		t.Fatalf("got %q, want %q", k, want)
+	}
+	c.leave(t)
+}
+
 // A refresh that fails, panics, runs past RenderTimeout, or holds the
 // stream's element is skipped and counted, and the stream goes on without
 // it and without the build signal.

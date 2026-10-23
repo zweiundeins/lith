@@ -78,8 +78,9 @@ type Spec struct {
 	// app names, such as <main id="main">, never <body>; or a notice that
 	// asks the person to reload, when Dirty or when the page's assets
 	// changed. nil says the page is current. Once the events are out,
-	// and after the views' first frames, the stream patches the build
-	// signal to Hub.Build, so the next reconnect refreshes nothing.
+	// and after the first frame of every view in Views, however many
+	// ticks it takes, the stream patches the build signal to Hub.Build,
+	// so the next reconnect refreshes nothing.
 	//
 	// The element with the id Reconnect must sit outside the container:
 	// a morph would run its data-init again and open a second stream. A
@@ -567,6 +568,15 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 	var batch, stale []offer
 	var parts [][]byte
 	var frames []Frame
+	// owed holds the views of Spec.Views whose first frame has not gone
+	// out: tail waits for all of them, since a view the hub kept no frame
+	// of renders only in a later tick.
+	var owed []*watch
+	if tail != nil {
+		s.mu.Lock()
+		owed = slices.Clone(s.watches)
+		s.mu.Unlock()
+	}
 	for {
 		var now time.Time
 		if s.every > 0 || s.ack != nil {
@@ -622,6 +632,9 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 		_, wire := st.Sent()
 		wrote := false
 		for _, o := range batch {
+			if len(owed) > 0 {
+				owed = slices.DeleteFunc(owed, func(w *watch) bool { return w == o.w })
+			}
 			if s.unwatched(o.w) {
 				continue
 			}
@@ -716,7 +729,10 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 			h.sent.Add(int64(n))
 		}
 		notes = nil
-		if tail != nil {
+		if len(owed) > 0 {
+			owed = slices.DeleteFunc(owed, s.unwatched)
+		}
+		if tail != nil && len(owed) == 0 {
 			err := st.Write(tail)
 			tail = nil
 			if err != nil {
