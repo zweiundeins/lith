@@ -707,20 +707,35 @@ that as the stream opens.
 
 The page starts with `_build` (from `hub.Build()`, which is
 `live.Options.Build`, by default the binary's VCS revision) and `_dirty`
-(true on input in a form, false on submit), and its stream reports them with
-its own path in headers, so the URL stays the same:
+(true on input in a form, false on submit), and `_assets` (the hash of its
+scripts and stylesheets). Its stream reports them as signals and its own
+path in a header. Not the other way round: Datastar 1.0.4 builds a `@get`'s
+headers once, and its own reopens (a retry, a hidden tab shown again)
+repeat them while they read the signals afresh, so a header build refreshes
+the tab on every show after a deploy and a header typed flag stays false.
+The `exclude` is needed: its default drops every `_` signal. Datastar keys
+cancellation by the URL written here, without the signals, so a reopen still
+aborts the old request.
 
 ```js
-@get('/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty)}, retry: 'error', retryMaxCount: Infinity})
+@get('/stream?tab=' + $_tab, {headers: {'Page-Path': location.pathname + location.search}, filterSignals: {include: /^_(build|assets|dirty)$/, exclude: /(?!)/}, retry: 'error', retryMaxCount: Infinity})
 ```
 
 ```go
+var page struct {
+	Build  string `json:"_build"`
+	Assets string `json:"_assets"`
+	Dirty  bool   `json:"_dirty"`
+}
+if sse.ReadSignals(w, r, &page) != nil { // a GET's come in its datastar query parameter
+	w.WriteHeader(http.StatusBadRequest)
+	return
+}
 spec := live.Spec{
 	ID: streamID(sid, tab), Views: views, Reconnect: "stream",
-	Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"),
-	Dirty: r.Header.Get("Page-Dirty") == "true",
+	Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 	Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
-		if rq.Dirty || rq.Request.Header.Get("Page-Assets") != assets {
+		if rq.Dirty || page.Assets != assets {
 			return [][]byte{reloadNotice}, nil // a morph would take the input, or miss the new CSS and JS
 		}
 		html, err := renderContent(ctx, rq.Page) // <div id="content">, as the GET renders it
@@ -746,6 +761,12 @@ spec := live.Spec{
   `data-ignore-morph`; signal-driven attributes need `data-preserve-attr`.
 - Return nil for a page the deploy did not change (compare its ETag): its
   tabs pay only the check.
+- The default build is the same for every local build of a modified tree
+  (`<rev>+dirty`), so local tests never refresh. Set `Options.Build` to
+  something content-based, such as a hash over all pages' ETags: that also
+  makes a deploy that changes no page send nothing.
+- A live region inside the morphed container shows its placeholder for an
+  instant before its frame follows: harmless.
 - At most `Options.RefreshConcurrency` (default `Workers`) run at once, each
   under `RenderTimeout`. One that fails, times out or waits longer than
   `live.RefreshWait` (1 s) for a slot is skipped and logged, and the build

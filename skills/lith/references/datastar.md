@@ -66,8 +66,19 @@ look there before changing the behaviour.
   declare signals there with `data-signals:x__ifmissing`, or keep them
   outside the container. An element whose attributes change runs its
   `data-init` again; the stream's element inside the container would open a
-  second stream. Report the build in a header, not the URL: Datastar aborts
-  the request in flight only for a new one to the same URL.
+  second stream. Report the build as a signal, not in the URL the expression
+  writes: Datastar aborts the request in flight only for a new one to the
+  same URL, which it takes before it adds the signals.
+- Datastar 1.0.4 builds a `@get`'s headers once, as the expression runs. A
+  reopen it makes by itself (a retry, a hidden tab shown again) sends the
+  same headers but reads the signals afresh into the `datastar` parameter.
+  So report what changes (build, typed flag, assets version) as signals,
+  `filterSignals: {include: /^_(build|dirty)$/, exclude: /(?!)/}` (the
+  default `exclude` drops every `_` signal, even one `include` names), and
+  read them with `sse.ReadSignals`. A build in a header refreshed a hidden
+  tab on every show after a deploy, and a typed flag in one stayed false.
+  Only what never changes for the page, its path, may stay a header. [lith,
+  2und1.ch]
 - A watchdog on the page needs the server's ping. An SSE comment never reaches
   the page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
   watchdog can read. [kanban]

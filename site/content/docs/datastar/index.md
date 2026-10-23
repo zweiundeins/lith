@@ -150,7 +150,15 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Cause.** The refreshed markup is morphed into the page, and a plain `data-signals` in it sets every signal it names again. An element whose attributes change runs its `data-init` again, and the stream's element inside the container opens a second stream. A build reported in the stream's URL changes the URL, and Datastar aborts the request in flight only for a new one to the same URL.
 
-**Fix.** Keep the signals, `#ops` and the stream's element outside the container the refresh morphs, or declare signals there with `data-signals:x__ifmissing`, which adds a signal only where the page lacks it. Report the build in a header. lith skips a refresh whose markup holds the stream's element ([Pages](/docs/guides/pages#refreshing-a-page-after-a-deploy)).
+**Fix.** Keep the signals, `#ops` and the stream's element outside the container the refresh morphs, or declare signals there with `data-signals:x__ifmissing`, which adds a signal only where the page lacks it. Report the build as a signal that `filterSignals` names, which Datastar adds to the URL after it took the URL as the request's key, never in the URL the expression writes. lith skips a refresh whose markup holds the stream's element ([Pages](/docs/guides/pages#refreshing-a-page-after-a-deploy)).
+
+### A reopened stream reports what the page said first
+
+**Symptom.** After a deploy, a tab that was hidden is refreshed again every time it shows, though the first refresh patched `$_build`; or a page where the person typed is morphed instead of getting the notice.
+
+**Cause.** Datastar 1.0.4 builds a `@get`'s headers once, as the expression runs. When it opens the request again by itself, a retry after the connection broke or a hidden tab shown again, it sends those same headers, but builds the URL and its `datastar` signals parameter afresh. A value reported in a header stays the one of the first request.
+
+**Fix.** Report what changes (the build, whether the person typed, the assets version) as signals: `filterSignals: {include: /^_(build|dirty)$/, exclude: /(?!)/}`. The `exclude` is needed, since its default drops every `_` signal even when `include` names it. Read them with `sse.ReadSignals`, which reads a GET's query parameter. Only a value that never changes for the page, such as its path, may stay a header.
 
 ### A watchdog never sees the server's heartbeat
 

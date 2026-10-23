@@ -611,7 +611,9 @@ type Spec struct {
 	// Options.BuildSignal, which the page starts with Hub.Build), its own
 	// path and query (location.pathname + location.search; the stream
 	// request's own path is the stream's), and whether it holds input the
-	// person typed.
+	// person typed. Report what changes as signals (sse.ReadSignals), not
+	// headers: Datastar 1.0.4 repeats a @get's first headers when it
+	// reopens the stream by itself, after a retry or a hidden tab.
 	Build string
 	Page  string
 	Dirty bool
