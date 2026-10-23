@@ -319,7 +319,7 @@ and passes them on:
 
 ```go source=site/internal/docs/example/web/server.go
 	err = s.hub.Serve(w, r, live.Spec{
-		ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
+		ID: streamID(sid, tab), Client: edge.ClientKey(r), Views: views, WriteTick: tailor(), Reconnect: StreamID,
 		Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 		Refresh: s.refresh,
 	})

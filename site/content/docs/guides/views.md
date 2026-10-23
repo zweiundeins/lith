@@ -200,7 +200,7 @@ func (s *Server) Stream(w http.ResponseWriter, r *http.Request) {
 			view = PagesView(person, space, r.URL.Query().Get("q"))
 		}
 	}
-	s.Hub.Serve(w, r, live.Spec{Views: []live.View{view}})
+	s.Hub.Serve(w, r, live.Spec{Client: edge.ClientKey(r), Views: []live.View{view}})
 }
 ```
 
@@ -308,7 +308,7 @@ if state.Panel != 0 {
 	views = append(views, cardView(state.Panel))
 }
 err = s.hub.Serve(w, r, live.Spec{
-	ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
+	ID: streamID(sid, tab), Client: edge.ClientKey(r), Views: views, WriteTick: tailor(), Reconnect: StreamID,
 	Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 	Refresh: s.refresh,
 })

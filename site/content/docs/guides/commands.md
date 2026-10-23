@@ -22,13 +22,13 @@ type AddCard struct {
 // Validate runs before the command is queued when it is handed to Send or
 // Do itself: they return its error wrapped in writer.ErrInvalid. Inside
 // an Act it runs in the writer instead, and the tab reads its message as
-// a refusal.
+// a refusal: a *writer.Refusal, whose message is for the person.
 func (c AddCard) Validate() error {
 	if c.Lane <= 0 {
-		return errors.New("A card needs a lane.")
+		return &writer.Refusal{Msg: "A card needs a lane."}
 	}
 	if n := utf8.RuneCountInString(strings.TrimSpace(c.Title)); n == 0 || n > MaxTitle {
-		return fmt.Errorf("A title has 1 to %d characters.", MaxTitle)
+		return &writer.Refusal{Msg: fmt.Sprintf("A title has 1 to %d characters.", MaxTitle)}
 	}
 	return nil
 }

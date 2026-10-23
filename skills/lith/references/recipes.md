@@ -127,7 +127,7 @@ type MoveCard struct{ Card, Lane, Seen int64 }
 
 func (c MoveCard) Validate() error {
 	if c.Card <= 0 || c.Lane <= 0 {
-		return errors.New("A move needs a card and a lane.")
+		return &writer.Refusal{Msg: "A move needs a card and a lane."} // the person reads it, inside an Act
 	}
 	return nil
 }
@@ -747,7 +747,7 @@ if sse.ReadSignals(w, r, &page) != nil { // a GET's come in its datastar query p
 	return
 }
 spec := live.Spec{
-	ID: streamID(sid, tab), Views: views, Reconnect: "stream",
+	ID: streamID(sid, tab), Client: edge.ClientKey(r), Views: views, Reconnect: "stream",
 	Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 	Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
 		if rq.Dirty || page.Assets != assets {

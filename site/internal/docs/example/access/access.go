@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sqlite"
 	"github.com/zweiundeins/lith/sse"
@@ -135,7 +136,7 @@ func (s *Server) Stream(w http.ResponseWriter, r *http.Request) {
 			view = PagesView(person, space, r.URL.Query().Get("q"))
 		}
 	}
-	s.Hub.Serve(w, r, live.Spec{Views: []live.View{view}})
+	s.Hub.Serve(w, r, live.Spec{Client: edge.ClientKey(r), Views: []live.View{view}})
 }
 
 func renderPages(pages []Page) []byte {

@@ -129,7 +129,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		views = append(views, cardView(state.Panel))
 	}
 	err = s.hub.Serve(w, r, live.Spec{
-		ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
+		ID: streamID(sid, tab), Client: edge.ClientKey(r), Views: views, WriteTick: tailor(), Reconnect: StreamID,
 		Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 		Refresh: s.refresh,
 	})
@@ -301,7 +301,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) statusStream(w http.ResponseWriter, r *http.Request) {
-	s.hub.Serve(w, r, live.Spec{Views: []live.View{statsView(s.w, s.hub)}, Reconnect: "status-stream"})
+	s.hub.Serve(w, r, live.Spec{Client: edge.ClientKey(r), Views: []live.View{statsView(s.w, s.hub)}, Reconnect: "status-stream"})
 }
 
 // fail logs err and answers a document with 500, which the person reads.
