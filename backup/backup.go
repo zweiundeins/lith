@@ -27,17 +27,23 @@
 // on demand passes its account list as VerifyOptions.Names, so every tenant
 // is verified, and as MaintenanceOptions.Names, so every tenant's history
 // older than the retention window is pruned, attached or not. A tenant not
-// attached gets no snapshot, since nothing changed while it was not.
+// attached gets no snapshot, since nothing changed while it was not; detach
+// writes one when it is due.
 //
 // Stop in this order: drain HTTP and the writer, so every accepted write is
 // in the file; call detach, the final sync, with a live context (the
 // signal's context is already cancelled); then checkpoint and close the
 // database. The process's stop timeout (systemd TimeoutStopSec) must cover
-// the drain and the final sync: killed mid-sync, the replica trails the file.
+// the drain, the final sync and detach's snapshot: killed mid-sync, the
+// replica trails the file.
 //
 // Litestream opens the database with modernc.org/sqlite, so the application
 // must use it too: two SQLite copies in one process break each other's locks.
-// Only one process may replicate a database at a time.
+// Only one process may replicate a database at a time. Pruning relies on it:
+// with one replicating process the positions in a replica only grow, so the
+// pruning of a replica not attached is safe beside an Attach of it. A
+// second writer, or a prefix and name reused for another database, resets
+// the positions, and then any pruning is unsafe, attached or not.
 package backup
 
 import (
@@ -153,6 +159,7 @@ type Manager struct {
 	verify        map[string]verifyResult
 	maintenance   map[string]maintResult
 	detachedMaint maintTotals
+	pruning       map[string]bool // names not attached being pruned
 	purgeSeq      uint64
 	purges        map[string]uint64 // purgeSeq at a name's last purge: a verification that overlaps it keeps no result
 }
@@ -195,6 +202,7 @@ func New(cfg Config) (*Manager, error) {
 		attached:         map[string]*attachedDB{},
 		verify:           map[string]verifyResult{},
 		maintenance:      map[string]maintResult{},
+		pruning:          map[string]bool{},
 		purges:           map[string]uint64{},
 	}
 	if m.log == nil {

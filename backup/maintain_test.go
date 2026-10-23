@@ -19,6 +19,7 @@ import (
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/file"
 	"github.com/benbjohnson/litestream/s3"
+	"github.com/superfly/ltx"
 )
 
 func detachedTotals(m *Manager) maintTotals {
@@ -113,9 +114,9 @@ func TestMaintenancePrunesANamedDetachedReplica(t *testing.T) {
 	if len(snaps) != 2 {
 		t.Fatalf("snapshots = %d, want 2 before the detached pass", len(snaps))
 	}
-	errs := m.maintainPass(bg, time.Now().Add(2*DefaultRetentionWindow), []string{"app"}, 1, 0)
+	errs := m.maintainNames(bg, time.Now().Add(2*DefaultRetentionWindow), []string{"app"}, 1, 0)
 	if err, ok := errs["app"]; !ok || err != nil {
-		t.Fatalf("maintainPass = %v, want app maintained", errs)
+		t.Fatalf("maintainNames = %v, want app maintained", errs)
 	}
 	after := snapshotTimes(t, m, "app")
 	if len(after) != 1 || !after[0].Equal(snaps[1]) {
@@ -137,27 +138,130 @@ func TestMaintenancePrunesANamedDetachedReplica(t *testing.T) {
 	}
 }
 
-// TestMaintenanceTakesANameOnce: a named replica that is attached is
-// maintained once, as an attached one, and a name with nothing replicated
-// is no failure.
-func TestMaintenanceTakesANameOnce(t *testing.T) {
+// TestDetachedRestoreAtTheEdgeOfTheWindow: with the floor before the
+// cutoff and a snapshot inside the window, a restore just after the cutoff
+// still lands where it should.
+func TestDetachedRestoreAtTheEdgeOfTheWindow(t *testing.T) {
+	t.Parallel()
+	m := newManager(t)
+	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
+	writeAndWaitLevel0(t, m, db, "app", 3)
+	if errs := m.MaintainAll(bg, time.Now()); errs["app"] != nil {
+		t.Fatal(errs["app"])
+	}
+	var atFloor int
+	if err := db.QueryRow(`SELECT count(*) FROM notes`).Scan(&atFloor); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	writeAndWaitLevel0(t, m, db, "app", 3)
+	if errs := m.MaintainAll(bg, time.Now().Add(25*time.Hour)); errs["app"] != nil {
+		t.Fatal(errs["app"])
+	}
+	writeAndWaitLevel0(t, m, db, "app", 1)
+	shutdown(t, db, detach)
+
+	snaps := snapshotTimes(t, m, "app")
+	if len(snaps) != 2 {
+		t.Fatalf("snapshots = %d, want 2", len(snaps))
+	}
+	cutoff := snaps[0].Add(20 * time.Millisecond)
+	if errs := m.maintainNames(bg, cutoff.Add(DefaultRetentionWindow), []string{"app"}, 1, 0); errs["app"] != nil {
+		t.Fatal(errs["app"])
+	}
+	if got := snapshotTimes(t, m, "app"); !slices.Equal(got, snaps) {
+		t.Errorf("snapshots = %v, want both kept: the floor and the one inside the window", got)
+	}
+	out := filepath.Join(t.TempDir(), "edge.db")
+	if err := m.RestoreAt(bg, "app", out, cutoff.Add(time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(bodies(t, out)); got != atFloor {
+		t.Errorf("rows just inside the window = %d, want %d", got, atFloor)
+	}
+}
+
+// TestAnAttachDuringTheDetachedPrune: an Attach that starts while the name
+// is pruned through the bucket loses nothing, and the attached pass leaves
+// the name to the prune meanwhile.
+func TestAnAttachDuringTheDetachedPrune(t *testing.T) {
+	t.Parallel()
+	m, h := hookedManager(t)
+	path := filepath.Join(t.TempDir(), "app.db")
+	db, detach := replicated(t, m, "app", path)
+	writeAndWaitLevel0(t, m, db, "app", 3)
+	if errs := m.MaintainAll(bg, time.Now()); errs["app"] != nil {
+		t.Fatal(errs["app"])
+	}
+	writeAndWaitLevel0(t, m, db, "app", 3)
+	if errs := m.MaintainAll(bg, time.Now().Add(25*time.Hour)); errs["app"] != nil {
+		t.Fatal(errs["app"])
+	}
+	writeAndWaitLevel0(t, m, db, "app", 1)
+	shutdown(t, db, detach)
+
+	var started atomic.Bool
+	var again func(context.Context) error
+	var skipped map[string]error
+	list := func(int) {
+		if !started.CompareAndSwap(false, true) {
+			return
+		}
+		db = openApp(t, m, path)
+		var err error
+		if again, err = m.Attach(bg, "app", path); err != nil {
+			t.Error(err)
+			return
+		}
+		skipped = m.MaintainAll(bg, time.Now())
+	}
+	h.list.Store(&list)
+	if errs := m.maintainNames(bg, time.Now().Add(2*DefaultRetentionWindow), []string{"app"}, 1, 0); errs["app"] != nil {
+		t.Fatalf("maintainNames = %v", errs)
+	}
+	h.list.Store(nil)
+	if again == nil {
+		t.Fatal("no attach during the prune")
+	}
+	if len(skipped) != 0 {
+		t.Errorf("MaintainAll during the prune = %v, want the name left to it", skipped)
+	}
+	mustExec(t, db, `INSERT INTO notes (body) VALUES ('after the prune')`)
+	var want int
+	if err := db.QueryRow(`SELECT count(*) FROM notes`).Scan(&want); err != nil {
+		t.Fatal(err)
+	}
+	shutdown(t, db, again)
+	out := filepath.Join(t.TempDir(), "restored.db")
+	if err := m.Restore(bg, "app", out); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(bodies(t, out)); got != want {
+		t.Errorf("restored rows = %d, want %d", got, want)
+	}
+}
+
+// TestNamesSkipTheAttached: the loop over the names leaves an attached one
+// to the attached passes, takes a name once, and a name with nothing
+// replicated is no failure.
+func TestNamesSkipTheAttached(t *testing.T) {
 	t.Parallel()
 	m := newManager(t)
 	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
 	defer shutdown(t, db, detach)
 
-	errs := m.maintainPass(bg, time.Now(), []string{"other", "app", "app"}, 2, 0)
-	if got := slices.Sorted(maps.Keys(errs)); !slices.Equal(got, []string{"app", "other"}) || errs["app"] != nil || errs["other"] != nil {
-		t.Fatalf("maintainPass = %v, want app and other without errors", errs)
+	errs := m.maintainNames(bg, time.Now(), []string{"other", "app", "other", "../bad"}, 2, 0)
+	if got := slices.Sorted(maps.Keys(errs)); !slices.Equal(got, []string{"other"}) || errs["other"] != nil {
+		t.Fatalf("maintainNames = %v, want other alone without an error", errs)
 	}
-	if n := countLevel(t, m, "app", litestream.SnapshotLevel); n != 1 {
-		t.Errorf("snapshots = %d, want 1", n)
-	}
-	if st := m.Status(); st[0].MaintenancePasses != 1 {
-		t.Errorf("attached passes = %d, want 1", st[0].MaintenancePasses)
+	if n := countLevel(t, m, "app", litestream.SnapshotLevel); n != 0 {
+		t.Errorf("snapshots = %d, want none from the names", n)
 	}
 	if got := detachedTotals(m); got.passes != 1 || got.pruned != 0 {
 		t.Errorf("detached totals = %+v, want other's pass", got)
+	}
+	if errs := m.MaintainAll(bg, time.Now()); errs["app"] != nil {
+		t.Fatal(errs["app"])
 	}
 
 	mfs := gather(t, m.Collector("app"))
@@ -194,27 +298,27 @@ func TestMaintenanceSkipsANamePurgedDuringThePass(t *testing.T) {
 	}
 	h.list.Store(&list)
 
-	errs := m.maintainPass(bg, time.Now(), []string{"a", "b", "c"}, 1, 0)
+	errs := m.maintainNames(bg, time.Now(), []string{"a", "b", "c"}, 1, 0)
 	if got := slices.Sorted(maps.Keys(errs)); !slices.Equal(got, []string{"c"}) {
-		t.Errorf("maintainPass = %v, want only c", errs)
+		t.Errorf("maintainNames = %v, want only c", errs)
 	}
 	if got := detachedTotals(m); got.passes != 1 {
 		t.Errorf("detached passes = %d, want c's alone", got.passes)
 	}
 }
 
-// messages records the level of each record whose message has prefix.
+// messages records the records whose message has prefix.
 type messages struct {
 	prefix string
 	mu     sync.Mutex
-	got    []slog.Level
+	got    []slog.Record
 }
 
 func (l *messages) Enabled(context.Context, slog.Level) bool { return true }
 func (l *messages) Handle(_ context.Context, r slog.Record) error {
 	if strings.HasPrefix(r.Message, l.prefix) {
 		l.mu.Lock()
-		l.got = append(l.got, r.Level)
+		l.got = append(l.got, r.Clone())
 		l.mu.Unlock()
 	}
 	return nil
@@ -222,41 +326,109 @@ func (l *messages) Handle(_ context.Context, r slog.Record) error {
 func (l *messages) WithAttrs([]slog.Attr) slog.Handler { return l }
 func (l *messages) WithGroup(string) slog.Handler      { return l }
 
-// TestAFailedNamesStillMaintainsTheAttached: without the list, a pass still
-// maintains the attached replicas, and a list that keeps failing is an error
-// from its third pass in a row.
-func TestAFailedNamesStillMaintainsTheAttached(t *testing.T) {
+func (l *messages) levels() []slog.Level {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []slog.Level
+	for _, r := range l.got {
+		out = append(out, r.Level)
+	}
+	return out
+}
+
+// failingClient fails every listing.
+type failingClient struct{ litestream.ReplicaClient }
+
+func (failingClient) LTXFiles(context.Context, int, ltx.TXID, bool) (ltx.FileIterator, error) {
+	return nil, errors.New("503 Please reduce your request rate")
+}
+
+func lastDetachedPass(t *testing.T, m *Manager) float64 {
+	t.Helper()
+	return gauge(t, gather(t, m.Collector("app")), "app_backup_detached_last_pass_timestamp_seconds", "")
+}
+
+// TestAFailedNamesShowsInTheLogAndTheMetrics: a list that keeps failing is
+// an error from its third pass in a row, and the last pass's time stays
+// where it was.
+func TestAFailedNamesShowsInTheLogAndTheMetrics(t *testing.T) {
 	t.Parallel()
 	h := &messages{prefix: "backup: listing"}
 	m, err := New(Config{Dir: t.TempDir(), Logger: slog.New(h)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
-	defer shutdown(t, db, detach)
-
 	fail := true
-	opt := MaintenanceOptions{Pause: -1, Names: func(context.Context) ([]string, error) {
+	opt := MaintenanceOptions{DetachedPause: -1, Names: func(context.Context) ([]string, error) {
 		if fail {
 			return nil, errors.New("accounts: database is locked")
 		}
-		return []string{"app"}, nil
+		return []string{"t1"}, nil
 	}}
-	var l maintLoop
+	l := detachedLoop{rejected: map[string]bool{}}
 	for range 3 {
 		l.pass(bg, m, time.Now(), opt)
 	}
+	if v := lastDetachedPass(t, m); v != 0 {
+		t.Errorf("last pass = %v while Names fails, want 0", v)
+	}
 	fail = false
 	l.pass(bg, m, time.Now(), opt)
+	if v := lastDetachedPass(t, m); v <= 0 {
+		t.Errorf("last pass = %v after a pass, want its time", v)
+	}
 	fail = true
 	l.pass(bg, m, time.Now(), opt)
 
-	if st := m.Status(); st[0].MaintenancePasses != 5 || st[0].LastSnapshotAt.IsZero() {
-		t.Errorf("Status = %+v, want 5 passes and a snapshot", st[0])
-	}
 	want := []slog.Level{slog.LevelWarn, slog.LevelWarn, slog.LevelError, slog.LevelWarn}
-	if !slices.Equal(h.got, want) {
-		t.Errorf("levels = %v, want %v", h.got, want)
+	if got := h.levels(); !slices.Equal(got, want) {
+		t.Errorf("levels = %v, want %v", got, want)
+	}
+}
+
+// TestDetachedFailuresAreOneLinePerPass: the names that fail in a pass are
+// one summary with the first five, a warning until the third failed pass in
+// a row; a name checkName rejects is a warning once.
+func TestDetachedFailuresAreOneLinePerPass(t *testing.T) {
+	t.Parallel()
+	h := &messages{prefix: "backup: maintenance"}
+	m, err := New(Config{Dir: t.TempDir(), Logger: slog.New(h)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.newClient = func(string) litestream.ReplicaClient { return failingClient{} }
+	names := []string{"a/b"}
+	for i := range 7 {
+		names = append(names, fmt.Sprintf("t%d", i))
+	}
+	opt := MaintenanceOptions{DetachedConcurrency: 3, DetachedPause: -1, Names: func(context.Context) ([]string, error) {
+		return names, nil
+	}}
+	l := detachedLoop{rejected: map[string]bool{}}
+	for range 3 {
+		l.pass(bg, m, time.Now(), opt)
+	}
+
+	want := []slog.Level{slog.LevelWarn, slog.LevelWarn, slog.LevelWarn, slog.LevelError}
+	if got := h.levels(); !slices.Equal(got, want) {
+		t.Fatalf("levels = %v, want the rejected name once, then a line per pass: %v", got, want)
+	}
+	h.got[3].Attrs(func(a slog.Attr) bool {
+		switch a.Key {
+		case "failed":
+			if a.Value.Int64() != 7 {
+				t.Errorf("failed = %v, want 7", a.Value)
+			}
+		case "replicas":
+			if got := a.Value.Any().([]string); !slices.Equal(got, names[1:6]) {
+				t.Errorf("replicas = %v, want the first five", got)
+			}
+		}
+		return true
+	})
+	mfs := gather(t, m.Collector("app"))
+	if v := mfs["app_backup_detached_maintenance_failures_total"].GetMetric()[0].GetCounter().GetValue(); v != 21 {
+		t.Errorf("failures = %v, want 21", v)
 	}
 }
 
@@ -282,34 +454,46 @@ func TestMaintenanceHoldsItsConcurrency(t *testing.T) {
 	}
 	h.list.Store(&list)
 
-	if errs := m.maintainPass(bg, time.Now(), names, 2, 0); len(errs) != len(names) {
-		t.Fatalf("maintainPass = %v, want every name", errs)
+	if errs := m.maintainNames(bg, time.Now(), names, 2, 0); len(errs) != len(names) {
+		t.Fatalf("maintainNames = %v, want every name", errs)
 	}
 	if p := peak.Load(); p != 2 {
 		t.Errorf("listings at once = %d, want 2", p)
 	}
 }
 
-// TestMaintenanceLoopSchedule: a pass every interval, an hour by default,
-// each reading the names afresh, until ctx is done.
-func TestMaintenanceLoopSchedule(t *testing.T) {
+// TestDetachedLoopSchedule: the first pass over the names after ten
+// minutes, then one a day from the start of the one before, each reading
+// the names afresh; a pass that runs past the next start is followed at
+// once, never overlapped.
+func TestDetachedLoopSchedule(t *testing.T) {
 	m := newManager(t)
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		t0 := time.Now()
 		var calls []time.Duration
+		running := 0
 		done := make(chan struct{})
 		go func() {
 			m.RunMaintenanceLoop(ctx, MaintenanceOptions{Names: func(context.Context) ([]string, error) {
+				running++
+				defer func() { running-- }()
+				if running > 1 {
+					t.Error("two passes at once")
+				}
 				calls = append(calls, time.Since(t0))
+				if len(calls) == 2 {
+					time.Sleep(30 * time.Hour)
+				}
 				return nil, nil
 			}})
 			close(done)
 		}()
-		time.Sleep(3*time.Hour + time.Minute)
+		time.Sleep(80 * time.Hour)
 		cancel()
 		synctest.Wait()
-		if want := []time.Duration{time.Hour, 2 * time.Hour, 3 * time.Hour}; !slices.Equal(calls, want) {
+		hr, mn := time.Hour, time.Minute
+		if want := []time.Duration{10 * mn, 24*hr + 10*mn, 54*hr + 10*mn, 78*hr + 10*mn}; !slices.Equal(calls, want) {
 			t.Errorf("passes at %v, want %v", calls, want)
 		}
 		select {

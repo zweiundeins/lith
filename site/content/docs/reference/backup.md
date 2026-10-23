@@ -20,11 +20,11 @@ Start each database in this order:
 
 Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at the storage provider fails every replica at once and usually passes by itself, so RunVerifyLoop retries a failed verification before it reports, and reports once per run: alert on its OnFail, not on each failure.
 
-Both loops cover the attached replicas. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified, and as MaintenanceOptions.Names, so every tenant's history older than the retention window is pruned, attached or not. A tenant not attached gets no snapshot, since nothing changed while it was not.
+Both loops cover the attached replicas. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified, and as MaintenanceOptions.Names, so every tenant's history older than the retention window is pruned, attached or not. A tenant not attached gets no snapshot, since nothing changed while it was not; detach writes one when it is due.
 
-Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
+Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain, the final sync and detach's snapshot: killed mid-sync, the replica trails the file.
 
-Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time.
+Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time. Pruning relies on it: with one replicating process the positions in a replica only grow, so the pruning of a replica not attached is safe beside an Attach of it. A second writer, or a prefix and name reused for another database, resets the positions, and then any pruning is unsafe, attached or not.
 
 ## Constants
 
@@ -43,10 +43,13 @@ Policy defaults. RetentionWindow is also the point-in-time recovery floor: nothi
 const (
 	DefaultMaintenanceConcurrency = 2
 	DefaultMaintenancePause       = 100 * time.Millisecond
+	DefaultDetachedInterval       = 24 * time.Hour
+	DefaultDetachedConcurrency    = 1
+	DefaultDetachedPause          = 250 * time.Millisecond
 )
 ```
 
-Maintenance defaults: a pass maintains two replicas at a time and waits after each, so that a long list of names does not burst listings and deletes at the storage provider.
+Maintenance defaults. A pass over the attached replicas maintains two at a time and waits after each. Names not attached get a pass a day, one at a time with a longer wait, since each costs a client of its own (see MaintenanceOptions.Names). Both spread a long list, so that the storage provider sees no burst of listings and deletes.
 
 ## Variables
 
@@ -114,32 +117,50 @@ ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, 
 
 ```go
 type MaintenanceOptions struct {
-	// Interval is the time between passes; zero means
-	// DefaultMaintenanceInterval. It only has to be shorter than the snapshot
-	// interval.
+	// Interval is the time between passes over the attached replicas; zero
+	// means DefaultMaintenanceInterval. It only has to be shorter than the
+	// snapshot interval.
 	Interval time.Duration
 
-	// Names, if set, lists replicas each pass maintains besides the attached
-	// ones: an app that attaches its tenants on demand passes its account
-	// list, since a tenant not attached at the time is otherwise never
-	// pruned. A name that is attached is maintained as an attached replica.
-	// One that is not gets no snapshot, since nothing changed while it was
-	// detached, only the pruning of its history older than the retention
-	// window, through the bucket alone. A name with nothing replicated under
-	// it costs one listing and is no failure. When Names fails, the pass
-	// maintains the attached replicas only.
-	Names func(ctx context.Context) ([]string, error)
-
-	// Concurrency is the number of replicas maintained at once; zero means
-	// DefaultMaintenanceConcurrency.
+	// Concurrency is the number of attached replicas maintained at once; zero
+	// means DefaultMaintenanceConcurrency.
 	Concurrency int
 
-	// Pause is the wait after each replica before the same worker takes the
-	// next, so that a long list spreads its requests over the pass; zero
-	// means DefaultMaintenancePause, a negative value none. With the
-	// defaults a pass takes at least 50 ms per replica: 1,000 names take a
-	// minute.
+	// Pause is the wait after each attached replica before the same worker
+	// takes the next; zero means DefaultMaintenancePause, a negative value
+	// none. It sets a floor of 50 ms per replica with the defaults; the round
+	// trips to the provider usually take longer.
 	Pause time.Duration
+
+	// Names, if set, lists the replicas of a second loop, for the ones not
+	// attached: an app that attaches its tenants on demand passes its
+	// account list, since a tenant not attached at the time is otherwise
+	// never pruned. That loop skips the attached names. A name not attached
+	// gets no snapshot, since nothing changed while it was not attached,
+	// only the pruning of its history older than the retention window,
+	// through the bucket alone: one listing, and one more with a snapshot
+	// older than the window. A name with nothing replicated is no failure.
+	//
+	// Each such name takes a replica client of its own, and with S3 a new
+	// HTTP transport and TLS handshake, whose idle connection lingers for
+	// 90 s. There is no cache of clients, since thousands of tenants would
+	// keep thousands of transports; the cost is held down by the cadence
+	// instead: a pass a day, one name at a time.
+	Names func(ctx context.Context) ([]string, error)
+
+	// DetachedInterval is the time from the start of one pass over Names to
+	// the start of the next; zero means DefaultDetachedInterval. The first
+	// starts after at most ten minutes, and a pass that runs longer is
+	// followed at once by the next, never overlapped.
+	DetachedInterval time.Duration
+
+	// DetachedConcurrency and DetachedPause are Concurrency and Pause for
+	// the names not attached; zero means DefaultDetachedConcurrency and
+	// DefaultDetachedPause. With the defaults 1,000 names take at least four
+	// minutes, and in practice more: the round trips, a handshake and one or
+	// two listings per name, dominate.
+	DetachedConcurrency int
+	DetachedPause       time.Duration
 }
 ```
 
@@ -179,7 +200,7 @@ Call detach once, before the application's last checkpoint and close: it is the 
 func (m *Manager) Collector(namespace string) prometheus.Collector
 ```
 
-Collector returns a prometheus.Collector of the Manager's state, read from Status on each scrape. Register it even when the Manager is disabled: \<namespace>\_backup\_enabled 0 is the alert for a process without a backup. Series with a replica label cover the attached replicas; maintenance of the others counts in the detached totals, so that a long MaintenanceOptions.Names adds no series.
+Collector returns a prometheus.Collector of the Manager's state, read from Status on each scrape. Register it even when the Manager is disabled: \<namespace>\_backup\_enabled 0 is the alert for a process without a backup. Series with a replica label cover the attached replicas; maintenance of the others counts in the detached totals, so that a long MaintenanceOptions.Names adds no series. The pruned counts are close, not exact: a batch delete that fails in part counts nothing, and a key already gone counts as pruned. \<namespace>\_backup\_detached\_last\_pass\_timestamp\_seconds older than twice the detached interval is the alert for a loop over the names that does not run, or whose Names keeps failing.
 
 #### func (*Manager) Enabled {#Manager.Enabled}
 
@@ -259,7 +280,7 @@ RetentionWindow is how far back a restore can reach.
 func (m *Manager) RunMaintenanceLoop(ctx context.Context, opt MaintenanceOptions)
 ```
 
-RunMaintenanceLoop runs a maintenance pass every opt.Interval until ctx is done, over the attached replicas and opt.Names. A replica not attached costs one listing per pass, and one more once it has a snapshot older than the retention window; an attached one also lists every level for Status. A replica's failure is logged as a warning, since the next pass retries it, and as an error from its third failed pass in a row on; so is a failure of opt.Names.
+RunMaintenanceLoop maintains the attached replicas every opt.Interval and, when opt.Names is set, the names not attached every opt.DetachedInterval, until ctx is done. An attached replica costs a listing of each level per pass, for Status. Its failure is logged as a warning, since the next pass retries it, and as an error from its third failed pass in a row on. The names not attached that fail are logged once per pass, as a count with the first few names, by the same rule, and so is a failure of opt.Names.
 
 #### func (*Manager) RunVerifyLoop {#Manager.RunVerifyLoop}
 

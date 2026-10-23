@@ -1354,12 +1354,17 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   (`30m, 2h, 6h` against 24h).
 - Both loops cover attached replicas. Tenants attached on demand: pass the
   account list as `VerifyOptions.Names` (a `Names` error is one `OnFail`
-  failure with an empty `Name`) and as `MaintenanceOptions.Names` (a
-  `Names` error maintains the attached ones only). A name not attached gets
-  no snapshot, only pruning through the bucket; a pass runs on 2 at a time
-  with 100 ms after each (`Concurrency`, `Pause`). Its passes count in
-  `<ns>_backup_detached_maintenance_passes_total` and
-  `_detached_pruned_objects_total`, without a replica label.
+  failure with an empty `Name`) and as `MaintenanceOptions.Names`. The
+  names not attached get a loop of their own, a pass a day
+  (`DetachedInterval`), one name at a time with 250 ms after each
+  (`DetachedConcurrency`, `DetachedPause`), since each name costs a client
+  and a TLS handshake; no snapshot, only pruning through the bucket.
+  Attached replicas keep their hourly pass (2 at a time, 100 ms). Detach
+  writes a snapshot when one is due. Failures of a pass log one line; the
+  metrics are `<ns>_backup_detached_maintenance_passes_total`,
+  `_failures_total`, `_detached_pruned_objects_total` (approximate) and
+  `_detached_last_pass_timestamp_seconds`, the alert when older than two
+  intervals, without a replica label.
 - A check of a copy opens it with `sqlite.Options{ReadOnly: true}` and runs
   `PRAGMA integrity_check` on `db.R`: nothing is written, and a missing copy
   is an error.

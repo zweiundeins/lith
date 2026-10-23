@@ -11,7 +11,11 @@ import (
 // <namespace>_backup_enabled 0 is the alert for a process without a backup.
 // Series with a replica label cover the attached replicas; maintenance of
 // the others counts in the detached totals, so that a long
-// MaintenanceOptions.Names adds no series.
+// MaintenanceOptions.Names adds no series. The pruned counts are close, not
+// exact: a batch delete that fails in part counts nothing, and a key already
+// gone counts as pruned. <namespace>_backup_detached_last_pass_timestamp_seconds
+// older than twice the detached interval is the alert for a loop over the
+// names that does not run, or whose Names keeps failing.
 func (m *Manager) Collector(namespace string) prometheus.Collector {
 	desc := func(name, help string, labels ...string) *prometheus.Desc {
 		return prometheus.NewDesc(prometheus.BuildFQName(namespace, "backup", name), help, labels, nil)
@@ -30,9 +34,11 @@ func (m *Manager) Collector(namespace string) prometheus.Collector {
 		replicaObjects: desc("replica_objects", "Objects in the replica at the last maintenance pass.", "replica"),
 		replicaBytes:   desc("replica_bytes", "Bytes in the replica at the last maintenance pass.", "replica"),
 		maintPasses:    desc("replica_maintenance_passes_total", "Maintenance passes that completed on the replica while it was attached.", "replica"),
-		maintPruned:    desc("replica_pruned_objects_total", "Objects the maintenance passes pruned from the replica while it was attached.", "replica"),
+		maintPruned:    desc("replica_pruned_objects_total", "Objects the maintenance passes pruned from the replica while it was attached, approximately.", "replica"),
 		detPasses:      desc("detached_maintenance_passes_total", "Maintenance passes that completed on replicas not attached at the time, from MaintenanceOptions.Names."),
-		detPruned:      desc("detached_pruned_objects_total", "Objects the maintenance passes pruned from replicas not attached at the time."),
+		detFailures:    desc("detached_maintenance_failures_total", "Maintenance passes that failed on replicas not attached at the time."),
+		detPruned:      desc("detached_pruned_objects_total", "Objects the maintenance passes pruned from replicas not attached at the time, approximately."),
+		detLastPass:    desc("detached_last_pass_timestamp_seconds", "Unix time the last pass over MaintenanceOptions.Names ended, 0 before the first; a pass whose Names failed does not count."),
 	}
 }
 
@@ -41,11 +47,11 @@ type collector struct {
 	enabled, replicas, retention                                               *prometheus.Desc
 	lastSync, lastVerify, verifyOK, lastSnapshot, replicaObjects, replicaBytes *prometheus.Desc
 	verifyAttempts, verifyRetried                                              *prometheus.Desc
-	maintPasses, maintPruned, detPasses, detPruned                             *prometheus.Desc
+	maintPasses, maintPruned, detPasses, detFailures, detPruned, detLastPass   *prometheus.Desc
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried, c.maintPasses, c.maintPruned, c.detPasses, c.detPruned} {
+	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried, c.maintPasses, c.maintPruned, c.detPasses, c.detFailures, c.detPruned, c.detLastPass} {
 		ch <- d
 	}
 }
@@ -77,7 +83,9 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 	det := c.m.detachedMaint
 	c.m.mu.Unlock()
 	counter(c.detPasses, det.passes)
+	counter(c.detFailures, det.failures)
 	counter(c.detPruned, det.pruned)
+	gauge(c.detLastPass, unix(det.lastPass))
 }
 
 func boolValue(b bool) float64 {
