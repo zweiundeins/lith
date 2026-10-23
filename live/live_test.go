@@ -1014,6 +1014,42 @@ func TestRenderCtxPerWorker(t *testing.T) {
 	}
 }
 
+// The worker's timer is set once, for the first Render of the tick: a
+// Render that begins later still runs until its own time is up, and its
+// overrun is logged while it runs.
+func TestRenderTimerMovesToLaterRender(t *testing.T) {
+	l := &logs{}
+	h := New(Options{RenderTimeout: 40 * time.Millisecond, Log: l.logger()})
+	var lim limit
+	lim.begin(h, context.Background(), context.Background())
+	defer lim.end()
+	first := &view{key: "first", render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		time.Sleep(25 * time.Millisecond)
+		return nil, ctx.Err()
+	}}
+	if _, err := lim.render(first, nil); err != nil {
+		t.Fatal(err)
+	}
+	var ran time.Duration
+	var logged bool
+	slow := &view{key: "slow", render: func(ctx context.Context, _ *sql.Tx) (any, error) {
+		began := time.Now()
+		<-ctx.Done()
+		ran = time.Since(began)
+		logged = strings.Contains(l.String(), "view=slow")
+		return nil, ctx.Err()
+	}}
+	if _, err := lim.render(slow, nil); err != context.DeadlineExceeded {
+		t.Fatalf("a Render that ran over: %v", err)
+	}
+	if ran < 35*time.Millisecond || !logged {
+		t.Fatalf("ended after %v, logged while running: %v", ran, logged)
+	}
+	if strings.Contains(l.String(), "view=first") {
+		t.Fatalf("logged %s", l.String())
+	}
+}
+
 // FrameBuffer has room for the view's last []byte frame and an eighth
 // more, and nothing before the first or outside a Render.
 func TestFrameBuffer(t *testing.T) {
