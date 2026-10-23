@@ -24,7 +24,7 @@ Limiter              starbase's token bucket, swept as it goes, a clock step tha
 Health, Ready        liveness and readiness probes, with checks registered by the app
 Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
 SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
-BodyDeadline         lith's v0.5.0 review: a trickled body to a route that never reads it held the connection
+UploadBody           lith's v0.5.0 review: an upload's deadline that grows while the body arrives at a minimum rate
 ```
 
 A chain, built from the inside out:
@@ -39,19 +39,13 @@ h = edge.Recover(log, h)     // around Compress: a panic drops the held body
 h = edge.LogRequests(log, h) // around Recover: it logs the 500
 ```
 
-The server's handler goes around everything, top being the mux that serves h, the probes and the static files:
+The server's handler is the mux that serves h, the probes and the static files. Its ReadTimeout bounds every request's body, on every route, read or not, and leaves streams alone: over HTTP/1.1 Go's server clears the read deadline once the body is in, or before the handler runs for a request without one, and over HTTP/2 the timeout is a timer per stream that does nothing once the body has ended. An upload's handler extends it with UploadBody.
 
 ```go
-srv := &http.Server{Handler: edge.BodyDeadline(edge.BodyTimeout, top), ReadHeaderTimeout: 10 * time.Second}
+srv := &http.Server{Handler: top, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 2 * time.Minute}
 ```
 
 ## Constants
-
-```go
-const BodyTimeout = 10 * time.Second
-```
-
-BodyTimeout is the time BodyDeadline gives a request's body by default, as sse.ReadSignals gives an action's.
 
 ```go
 const NetworkHints = "ECT, RTT, Downlink"
@@ -65,23 +59,19 @@ const NonceSource = "'nonce'"
 
 NonceSource stands for the request's 'nonce-...' source among a directive's sources.
 
+```go
+const UploadMinRate = 8 << 10
+```
+
+UploadMinRate is a minimum rate for UploadBody, in bytes a second, for an upload over a slow link: three uploads sharing a 0.4 Mbit/s mobile link get about 133 kbit/s each, some 16 KB/s, twice its 8 KiB/s, while a client that trickles a byte a second is cut off after a window.
+
+```go
+const UploadWindow = 10 * time.Second
+```
+
+UploadWindow is the time an upload's body gets at first, and each time it earns more: UploadBody's window.
+
 ## Functions
-
-### func BodyDeadline {#BodyDeadline}
-
-```go
-func BodyDeadline(d time.Duration, next http.Handler) http.Handler
-```
-
-BodyDeadline gives the body of every request that has one d to arrive (BodyTimeout when d is 0 or less): it sets a read deadline on the connection through http.ResponseController before next runs. A handler that never reads the body, such as one that answers 204 or renders a page, would otherwise hold its connection and a goroutine for as long as a client trickles a body it declared: Go's server reads the rest of the body before it sends the answer, without a deadline. With one, it gives up once the deadline has passed, sends the answer and closes the connection.
-
-A request without a body, such as a stream's GET, gets no deadline. Go's server clears the deadline itself once the body is in, as it starts to watch the connection for a client that leaves, so a handler that read the body, or a stream whose headers went out after it, runs on as long as it likes. A handler that takes a large body, such as an upload, sets a later deadline of its own before it reads:
-
-```go
-http.NewResponseController(w).SetReadDeadline(time.Now().Add(time.Minute))
-```
-
-Mount it outermost, around the probes and the static files too: a trickled body holds a connection on any route.
 
 ### func BrotliLen {#BrotliLen}
 
@@ -206,6 +196,25 @@ func TrustedProxies(addr net.Addr) string
 ```
 
 TrustedProxies says, for a log line at start, whose X-Forwarded-For and X-Real-IP ClientIP believes on a server that listens at addr (a listener's Addr). ClientIP believes peers on loopback and on a Unix socket: every local user who can connect to them can name any client address, and so dodge a per-address limit or spend someone else's. A socket whose mode lets only the proxy's group in (0660, the app's group holding the proxy's user) narrows that to the proxy. A proxy on another host, or on a container bridge, is not believed: every client then counts as the proxy's address, and one abuser spends the limit of all.
+
+### func UploadBody {#UploadBody}
+
+```go
+func UploadBody(w http.ResponseWriter, r *http.Request, minRate, maxSize int64) io.ReadCloser
+```
+
+UploadBody wraps r.Body for a handler that takes a large body, such as an upload, whose body the server's ReadTimeout would cut off:
+
+```text
+r.Body = edge.UploadBody(w, r, edge.UploadMinRate, 10<<20)
+if err := r.ParseMultipartForm(1 << 20); err != nil { ... }
+```
+
+The body gets UploadWindow to send minRate\*UploadWindow bytes, and one more window each time it has, never more than one ahead, until maxSize/minRate from the call at the latest (at least one window): a slow but honest upload takes as long as it needs, while a body that falls below minRate is cut off after a window or two, a burst before a stall included. Reads past maxSize fail with an \*http.MaxBytesError (http.MaxBytesReader). A body cut off fails its Read with an error that matches os.ErrDeadlineExceeded, and over HTTP/1.1 the server closes the connection after the answer.
+
+It works with ParseMultipartForm, MultipartReader and plain reads, over HTTP/1.1 and HTTP/2. Call it before the first Read: it sets the read deadline through http.ResponseController, so w must unwrap to the server's writer (lith's Compress and LogRequests do); with one that does not, such as httptest's recorder, only the size limit holds. It never touches the deadline after the body's end or a failed read: over HTTP/1.1 Go's server then watches the connection for a client that leaves, and a deadline set on it would cancel the request's context when it passed.
+
+minRate and maxSize of 0 or less mean UploadMinRate and 10 MiB.
 
 ## Types
 

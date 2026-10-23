@@ -15,7 +15,7 @@
 //	Health, Ready        liveness and readiness probes, with checks registered by the app
 //	Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
 //	SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
-//	BodyDeadline         lith's v0.5.0 review: a trickled body to a route that never reads it held the connection
+//	UploadBody           lith's v0.5.0 review: an upload's deadline that grows while the body arrives at a minimum rate
 //
 // A chain, built from the inside out:
 //
@@ -27,8 +27,13 @@
 //	h = edge.Recover(log, h)     // around Compress: a panic drops the held body
 //	h = edge.LogRequests(log, h) // around Recover: it logs the 500
 //
-// The server's handler goes around everything, top being the mux that
-// serves h, the probes and the static files:
+// The server's handler is the mux that serves h, the probes and the static
+// files. Its ReadTimeout bounds every request's body, on every route, read
+// or not, and leaves streams alone: over HTTP/1.1 Go's server clears the
+// read deadline once the body is in, or before the handler runs for a
+// request without one, and over HTTP/2 the timeout is a timer per stream
+// that does nothing once the body has ended. An upload's handler extends
+// it with UploadBody.
 //
-//	srv := &http.Server{Handler: edge.BodyDeadline(edge.BodyTimeout, top), ReadHeaderTimeout: 10 * time.Second}
+//	srv := &http.Server{Handler: top, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 2 * time.Minute}
 package edge

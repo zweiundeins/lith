@@ -3,9 +3,8 @@
 # Separate systemd unit (lith-site) on the socket /run/lith-site/lith-site.sock,
 # which Caddy reaches as a member of the group lith-site; its /metrics
 # listen on 127.0.0.1:8197 for Prometheus only. The app compresses its
-# pages, files and streams itself, so no `encode`. It gives a request's
-# body 10 s itself (edge.BodyDeadline); Caddy's global read_body timeout
-# closes the client's side and leaves streams alone. ---
+# pages, files and streams itself, so no `encode`. It ends a body that does
+# not arrive itself (ReadTimeout); Caddy's timeouts are the host's. ---
 lith.zweiundeins.gmbh {
 	log {
 		output file /var/log/caddy/lith-access.log {

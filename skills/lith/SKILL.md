@@ -80,8 +80,10 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    filters), with `openWhenHidden: false` when it opens a stream; `@post` for
    commands. Read signals with `sse.ReadSignals` for any method, before
    `sse.Open`: it caps the body and gives it 10 s (`sse.SignalsTimeout`).
-   Put `edge.BodyDeadline` around the server's whole mux, so a route that
-   never reads its body gives one 10 s too.
+   Set the server's `ReadTimeout` (15 s), so a route that never reads its
+   body ends one that does not arrive too; it leaves streams alone. An
+   upload's handler wraps its body in `edge.UploadBody` before the first
+   read; never set a read deadline after the body's end.
 8. **Reads go through the transaction you are given**: the worker's in a
    view, `db.View` for a GET document. A render's ctx carries its
    transaction, so a store that calls `db.View(ctx, fn)` from a render joins

@@ -1,9 +1,11 @@
 # Caddy 2: the site block, with the real domain, as /etc/caddy/sites/app.caddy
 # (the host's Caddyfile imports that folder). app compresses its pages and its
-# streams itself, so there is no `encode`. It gives a request's body 10 s
-# (edge.BodyDeadline); for the client's side, set the global option
-# `servers { timeouts { read_body 10s } }` in the host's Caddyfile, longer
-# than any site's slowest upload. It leaves streams alone.
+# streams itself, so there is no `encode`. A client that trickles its body
+# holds Caddy's connection to it as long as Caddy allows; the app frees its
+# own side (ReadTimeout, edge.UploadBody). The global read_body would have to
+# outlast the host's slowest honest upload, and request_body's read_timeout
+# is experimental, so lith leaves Caddy's timeouts to the host. Caddy's
+# HTTP/3 server sets no read timeout at all.
 app.example.com {
 	log {
 		output file /var/log/caddy/app-access.log {

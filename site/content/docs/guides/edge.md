@@ -36,16 +36,19 @@ static := edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: *secure}.Handler(si
 static = edge.LogRequests(log, edge.Recover(log, static))
 ```
 
-The server has no `WriteTimeout`: each write to a stream has a deadline of its own, and a server-wide timeout would cut every stream after that long. `edge.BodyDeadline` sits around everything, the probes and the static files too, and gives a request's body 10 s ([Request bodies](#request-bodies)).
+The server has no `WriteTimeout`: each write to a stream has a deadline of its own, and a server-wide timeout would cut every stream after that long. Its `ReadTimeout` gives a request's headers and body 15 s on every route, the probes and the static files too, and leaves streams alone ([Request bodies](#request-bodies)).
 
 ```go source=template/cmd/app/main.go
 srv := &http.Server{
-	// A request's body gets 10 s on every route, also on one that never reads it.
-	Handler:           edge.BodyDeadline(edge.BodyTimeout, mux),
+	Handler:           mux,
 	ReadHeaderTimeout: 10 * time.Second,
+	ReadTimeout:       15 * time.Second,
 	IdleTimeout:       2 * time.Minute,
 	ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-	// No WriteTimeout: a stream gives each of its writes a deadline.
+	// ReadTimeout ends a body that does not arrive, on every route, read
+	// or not, and leaves streams alone; an upload extends it with
+	// edge.UploadBody. No WriteTimeout: a stream gives each of its
+	// writes a deadline.
 }
 ```
 
@@ -155,9 +158,13 @@ A compressed page that holds a secret of the user beside text the request reflec
 
 `sse.ReadSignals` and `ReadSignalsLimit` cap an action's body (1 MiB, the template's 8 KiB), and give it `sse.SignalsTimeout`, 10 s, to arrive: they set a read deadline on the connection through `http.ResponseController` before they read, and clear it once the body is in. A client that declares a body and sends one byte of it then gets an error, and the server closes the connection, where it held a goroutine until the client left.
 
-A route that never reads its body needs the same: `/pace`, `/ack`, a page. Go's server reads what is left of a body before it sends the answer, without a deadline, so a client that declares 100 KB and sends a byte every few seconds held the connection and a goroutine as long as it liked, and never got the answer. `edge.BodyDeadline` sets the deadline for every request with a body before any handler runs; the template and the site put it around the whole server. Once it passes, the server gives up on the body, sends the answer and closes the connection. A request without a body, such as a stream's `@get`, gets no deadline, and Go's server clears the deadline itself once a body is in, so a stream lives on either way. A handler that takes a large body, such as an upload, sets a later deadline before it reads: `http.NewResponseController(w).SetReadDeadline(time.Now().Add(time.Minute))`.
+A route that never reads its body needs the same: `/pace`, `/ack`, a page. Over HTTP/1.1 Go's server reads what is left of a body before it sends the answer, so without a deadline a client that declares 100 KB and sends a byte every few seconds held the connection and a goroutine as long as it liked, and never got the answer. The server's `ReadTimeout`, 15 s in the template and the site, is that deadline, for the headers and the body together, on every route. Once it passes, the server gives up on the body, sends the answer and closes the connection.
 
-Behind Caddy, the deadline frees only the app's side. Caddy passes a body on to the app as it arrives, and keeps the client's connection open, without the answer, for as long as the client trickles: measured with Caddy 2.10.2 over HTTP/1.1, it was still open after 40 s, while the app had closed its side at the deadline. Caddy's own `servers { timeouts { read_body 10s } }` closes it after 10 s. It is a global option of the host's Caddyfile and holds for every site there, so it must be longer than the slowest upload any of them takes. It does not end streams: Caddy is Go's server as well, and a stream through Caddy with `read_body 5s` ran its full 25 s. The template's Caddy block also caps bodies at 1 MB (`request_body { max_size 1MB }`).
+It leaves streams alone. v0.5.0's docs said a server-wide `ReadTimeout` would end every stream, and that Caddy's `read_body` would; neither does. Over HTTP/1.1 Go's server clears the read deadline once the body has been read to its end, and before the handler runs for a request without one, as it starts to watch the connection for a client that leaves. Over HTTP/2 the timeout is a timer per stream, which does nothing once the body has ended. So a stream's `@get`, and a `@post` stream whose signals are in, run on as long as they like (`TestReadTimeoutSparesStreams` in `edge`, and the template's `TestHalfSentBody`).
+
+A handler that takes a large body, such as an upload, wraps it before the first read: `r.Body = edge.UploadBody(w, r, edge.UploadMinRate, 10<<20)`. The body gets 10 s to send `minRate` times 10 s of bytes, and another 10 s each time it has, one window ahead at most, up to `maxSize/minRate` in all, and `http.MaxBytesReader` caps it at `maxSize`; it works with `ParseMultipartForm`, `MultipartReader` and plain reads, over HTTP/1.1 and HTTP/2. A fixed deadline does not fit a slow link: 10 MB at 0.4 Mbit/s takes 200 s. `UploadMinRate` is 8 KiB/s: three uploads that share a 0.4 Mbit/s link get some 133 kbit/s each, about 16 KB/s, twice that. It sets the deadline through `http.ResponseController`, so the writer must unwrap to the server's (lith's `Compress` and `LogRequests` do). Whatever sets a deadline by hand: set or extend it before the first `Read`, never after the body's end. Over HTTP/1.1 the server then watches the connection for a client that leaves, and a deadline set on it lands on that watch and cancels the request's context when it passes.
+
+Behind Caddy, a client that trickles its body still holds Caddy's connection to the client for as long as Caddy allows. Caddy passes a body on to the app as it arrives and keeps the client's connection open, without the answer, while the client trickles: measured with Caddy 2.10.2 over HTTP/1.1, it was still open after 40 s, while the app had closed its side at its deadline. The app frees its own side with `ReadTimeout` and `UploadBody`. Caddy's server-wide `read_body` timeout would close the client's side too, and does not end streams (Caddy is Go's server as well: a stream through Caddy with `read_body 5s` ran its full 25 s), but it holds for every site on the host and would have to be longer than the host's slowest honest upload; its per-route `request_body { read_timeout }` is experimental. So lith recommends neither and leaves Caddy's timeouts to the host. Caddy's HTTP/3 server sets no read timeout at all. The template's Caddy block caps bodies at 1 MB (`request_body { max_size 1MB }`).
 
 ## Static files
 

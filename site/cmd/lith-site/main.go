@@ -106,9 +106,12 @@ func serve(args []string) error {
 	srv := &http.Server{
 		Handler:           a.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-		// No WriteTimeout: a stream gives each of its writes a deadline.
+		// ReadTimeout ends a body that does not arrive, on every route, read
+		// or not, and leaves streams alone. No WriteTimeout: a stream gives
+		// each of its writes a deadline.
 	}
 	var msrv *http.Server
 	if maddr != "" {

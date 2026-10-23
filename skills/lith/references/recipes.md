@@ -94,9 +94,9 @@ h = edge.SecurityHeaders{CSP: edge.DefaultCSP()}.Handler(h)
 h = edge.Compress(h)
 h = edge.Recover(log, h)
 h = edge.LogRequests(log, h)
-// top serves h, the probes and the static files. A body gets 10 s on
-// every route, also on one that never reads it.
-srv := &http.Server{Handler: edge.BodyDeadline(edge.BodyTimeout, top), ReadHeaderTimeout: 10 * time.Second}
+// top serves h, the probes and the static files. ReadTimeout ends a body
+// that does not arrive on every route, read or not, and spares streams.
+srv := &http.Server{Handler: top, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 2 * time.Minute}
 ```
 
 Static files go out under hashed, immutable URLs, precompressed, and

@@ -326,13 +326,13 @@ func TestStreamsPerClient(t *testing.T) {
 }
 
 // TestHalfSentBody: a request whose body stops after one byte gets its
-// answer once 10 s have passed, and the connection closes, instead of
-// holding a goroutine until the client leaves: an action 400
-// (sse.SignalsTimeout), /pace, /ack and the page their usual answer
-// (edge.BodyDeadline). A stream lives on.
+// answer, and the connection closes, instead of holding a goroutine until
+// the client leaves: an action 400 after 10 s (sse.SignalsTimeout), /pace,
+// /ack and the page their usual answer after the server's ReadTimeout,
+// 15 s. A stream, open for longer than that, lives on.
 func TestHalfSentBody(t *testing.T) {
 	if testing.Short() {
-		t.Skip("waits sse.SignalsTimeout, 10 s")
+		t.Skip("waits the server's ReadTimeout, 15 s")
 	}
 	t.Parallel()
 	public, _ := run(t)
@@ -360,8 +360,8 @@ func TestHalfSentBody(t *testing.T) {
 		cookie += ck.Name + "=" + ck.Value + "; "
 	}
 
-	// /cmd/sign reads the body; /pace, /ack and the page never do, and
-	// edge.BodyDeadline gives theirs the same 10 s.
+	// /cmd/sign reads the body; /pace, /ack and the page never do, and the
+	// server's ReadTimeout ends theirs.
 	var probes sync.WaitGroup
 	for line, want := range map[string]string{
 		"POST /cmd/sign":             "HTTP/1.1 400",
@@ -379,9 +379,9 @@ func TestHalfSentBody(t *testing.T) {
 			io.WriteString(conn, line+" HTTP/1.1\r\nHost: app\r\nContent-Type: application/json\r\n"+
 				"Datastar-Request: true\r\nSec-Fetch-Site: same-origin\r\nTab-Id: tab1\r\nOp-Id: op1\r\nCookie: "+cookie+"\r\nContent-Length: 100\r\n\r\n{")
 			start := time.Now()
-			conn.SetReadDeadline(start.Add(20 * time.Second))
+			conn.SetReadDeadline(start.Add(30 * time.Second))
 			b, err := io.ReadAll(conn)
-			if took := time.Since(start); err != nil || !strings.HasPrefix(string(b), want) || took > 15*time.Second {
+			if took := time.Since(start); err != nil || !strings.HasPrefix(string(b), want) || took > 20*time.Second {
 				t.Errorf("%s: after %v: %v\n%.300s", line, took.Round(time.Millisecond), err, b)
 			}
 		})

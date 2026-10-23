@@ -154,12 +154,15 @@ func serve(ctx context.Context, args []string) error {
 	mux.Handle("/", h) // probes skip the edge: no cookie, no log line
 
 	srv := &http.Server{
-		// A request's body gets 10 s on every route, also on one that never reads it.
-		Handler:           edge.BodyDeadline(edge.BodyTimeout, mux),
+		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
-		// No WriteTimeout: a stream gives each of its writes a deadline.
+		// ReadTimeout ends a body that does not arrive, on every route, read
+		// or not, and leaves streams alone; an upload extends it with
+		// edge.UploadBody. No WriteTimeout: a stream gives each of its
+		// writes a deadline.
 	}
 	// The metrics never go on the public listener.
 	msrv := &http.Server{Handler: metrics(w, hub, log), ReadHeaderTimeout: 5 * time.Second}
