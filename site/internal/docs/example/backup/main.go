@@ -70,8 +70,16 @@ func run(path string) error {
 	jobs, stopJobs := context.WithCancel(context.Background())
 	defer stopJobs()
 	go m.RunMaintenanceLoop(jobs, 0) // snapshots daily, history pruned after 30 days
-	go m.RunVerifyLoop(jobs, 0, func(name string, err error) {
-		slog.Error("backup: the replica does not restore", "db", name, "err", err)
+	// Verifies daily, and retries a failure after 10 and 30 minutes.
+	go m.RunVerifyLoop(jobs, backup.VerifyOptions{
+		OnFail: func(failures []backup.VerifyFailure, span time.Duration) {
+			// Once per run, with the replicas that failed every attempt: alert here.
+			var names []string
+			for _, f := range failures {
+				names = append(names, f.Name)
+			}
+			slog.Error("backup: replicas do not restore", "dbs", names, "first", failures[0].First, "last", failures[0].Last, "span", span)
+		},
 	})
 	prometheus.MustRegister(m.Collector("app")) // app_backup_enabled 0 is the alert for no backup
 

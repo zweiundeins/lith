@@ -21,6 +21,8 @@ func (m *Manager) Collector(namespace string) prometheus.Collector {
 		lastSync:       desc("replica_last_sync_timestamp_seconds", "Unix time of the replica's last successful sync, 0 before the first.", "replica"),
 		lastVerify:     desc("replica_last_verify_timestamp_seconds", "Unix time of the replica's last restore verification, 0 if none ran.", "replica"),
 		verifyOK:       desc("replica_verify_ok", "1 if the replica's last restore verification passed, 0 if it failed or never ran.", "replica"),
+		verifyAttempts: desc("replica_verify_attempts", "Restore verifications of the replica in the verify loop's last run: 1 if it passed at once, 0 before a run finished.", "replica"),
+		verifyRetried:  desc("replica_verify_retried_total", "Verify loop runs in which the replica failed and then passed on a retry.", "replica"),
 		lastSnapshot:   desc("replica_last_snapshot_timestamp_seconds", "Unix time of the replica's newest snapshot at the last maintenance pass, 0 if none.", "replica"),
 		replicaObjects: desc("replica_objects", "Objects in the replica at the last maintenance pass.", "replica"),
 		replicaBytes:   desc("replica_bytes", "Bytes in the replica at the last maintenance pass.", "replica"),
@@ -31,10 +33,11 @@ type collector struct {
 	m                                                                          *Manager
 	enabled, replicas, retention                                               *prometheus.Desc
 	lastSync, lastVerify, verifyOK, lastSnapshot, replicaObjects, replicaBytes *prometheus.Desc
+	verifyAttempts, verifyRetried                                              *prometheus.Desc
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes} {
+	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried} {
 		ch <- d
 	}
 }
@@ -51,6 +54,8 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		gauge(c.lastSync, unix(s.LastSyncAt), s.Name)
 		gauge(c.lastVerify, unix(s.LastVerifyAt), s.Name)
 		gauge(c.verifyOK, boolValue(s.VerifyOK), s.Name)
+		gauge(c.verifyAttempts, float64(s.VerifyAttempts), s.Name)
+		ch <- prometheus.MustNewConstMetric(c.verifyRetried, prometheus.CounterValue, float64(s.VerifyRetried), s.Name)
 		gauge(c.lastSnapshot, unix(s.LastSnapshotAt), s.Name)
 		gauge(c.replicaObjects, float64(s.ReplicaObjects), s.Name)
 		gauge(c.replicaBytes, float64(s.ReplicaBytes), s.Name)

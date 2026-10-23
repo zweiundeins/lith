@@ -18,7 +18,9 @@ Start each database in this order:
  2. Open the database. While the Manager is enabled its write connection sets PRAGMA wal\_autocheckpoint=0 (see WALAutocheckpoint) and leaves checkpoints to Litestream, which makes them at positions it has replicated. Without Litestream the WAL would grow without bound, so keep SQLite's default then.
  3. Attach. It returns once the first sync has reached the replica.
 
-Run RunMaintenanceLoop and RunVerifyLoop once per process. Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
+Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at the storage provider fails every replica at once and usually passes by itself, so RunVerifyLoop retries a failed verification before it reports, and reports once per run: alert on its OnFail, not on each failure.
+
+Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
 
 Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time.
 
@@ -211,15 +213,15 @@ RetentionWindow is how far back a restore can reach.
 func (m *Manager) RunMaintenanceLoop(ctx context.Context, interval time.Duration)
 ```
 
-RunMaintenanceLoop runs MaintainAll every interval (DefaultMaintenanceInterval if zero) until ctx is done. The interval only has to be shorter than the snapshot interval: a pass that is not due for a snapshot costs one listing per replica.
+RunMaintenanceLoop runs MaintainAll every interval (DefaultMaintenanceInterval if zero) until ctx is done. The interval only has to be shorter than the snapshot interval: a pass that is not due for a snapshot costs one listing per replica. A replica's failure is logged as a warning, since the next pass retries it, and as an error from its third failed pass in a row on.
 
 #### func (*Manager) RunVerifyLoop {#Manager.RunVerifyLoop}
 
 ```go
-func (m *Manager) RunVerifyLoop(ctx context.Context, interval time.Duration, onFail func(name string, err error))
+func (m *Manager) RunVerifyLoop(ctx context.Context, opt VerifyOptions)
 ```
 
-RunVerifyLoop verifies every attached replica every interval (DefaultVerifyInterval if zero) until ctx is done, starting after at most ten minutes. Failures are logged and, if onFail is set, passed to it.
+RunVerifyLoop runs VerifyAll until ctx is done: the first run after at most ten minutes, then one every opt.Interval from the start of the one before. The replicas a run finds failing are verified again after each of opt.Retries, and those that never pass go to opt.OnFail, once per run. When ctx ends during a run, the run reports nothing.
 
 #### func (*Manager) Status {#Manager.Status}
 
@@ -235,7 +237,7 @@ Status reports every attached replica, sorted by name. It reads no network, so i
 func (m *Manager) VerifyAll(ctx context.Context) map[string]error
 ```
 
-VerifyAll runs VerifyRestore on every attached replica.
+VerifyAll runs VerifyRestore on every attached replica, and stops when ctx is done.
 
 #### func (*Manager) VerifyRestore {#Manager.VerifyRestore}
 
@@ -264,6 +266,13 @@ type ReplicaStatus struct {
 
 	LastVerifyAt time.Time // zero until VerifyRestore ran
 	VerifyOK     bool      // the last VerifyRestore restored and passed integrity_check
+
+	// From RunVerifyLoop. VerifyAttempts is the number of verifications in its
+	// last run: 1 if the replica passed at once, 0 until a run has finished.
+	// VerifyRetried counts the runs in which it failed and then passed on a
+	// retry.
+	VerifyAttempts int
+	VerifyRetried  int
 
 	// From the last maintenance pass; zero until one ran.
 	LastSnapshotAt time.Time
@@ -300,3 +309,39 @@ type Timeline struct {
 ```
 
 Timeline is every restore point of a replica, oldest first, for a point-in-time picker that shows where history is and where it has gaps.
+
+### type VerifyFailure {#VerifyFailure}
+
+```go
+type VerifyFailure struct {
+	Name        string
+	First, Last error
+	Attempts    int
+}
+```
+
+VerifyFailure is a replica that failed every verification of a run. First and Last are the errors of its first and last attempt.
+
+### type VerifyOptions {#VerifyOptions}
+
+```go
+type VerifyOptions struct {
+	// Interval is the time from one run's start to the next one's; zero means
+	// DefaultVerifyInterval.
+	Interval time.Duration
+
+	// Retries are the waits before each retry of the replicas still failing,
+	// each from the end of the attempt before. Nil means 10 and 20 minutes,
+	// about 10 and 30 minutes after the run; an empty slice means none. A retry that would start at or after
+	// the next run's start is skipped, with every one after it.
+	Retries []time.Duration
+
+	// OnFail, if set, is called once per run, after its retries, with the
+	// replicas that failed every attempt, sorted by name, and the run's span:
+	// the time from its start to the end of its last attempt. A run in which
+	// every replica passed, at once or on a retry, calls nothing.
+	OnFail func(failures []VerifyFailure, span time.Duration)
+}
+```
+
+VerifyOptions configure RunVerifyLoop.

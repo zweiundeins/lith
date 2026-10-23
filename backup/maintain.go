@@ -51,25 +51,50 @@ func (m *Manager) MaintainAll(ctx context.Context, now time.Time) map[string]err
 // RunMaintenanceLoop runs MaintainAll every interval
 // (DefaultMaintenanceInterval if zero) until ctx is done. The interval only
 // has to be shorter than the snapshot interval: a pass that is not due for a
-// snapshot costs one listing per replica.
+// snapshot costs one listing per replica. A replica's failure is logged as a
+// warning, since the next pass retries it, and as an error from its third
+// failed pass in a row on.
 func (m *Manager) RunMaintenanceLoop(ctx context.Context, interval time.Duration) {
 	if !m.enabled {
 		return
 	}
 	t := time.NewTicker(orDefault(interval, DefaultMaintenanceInterval))
 	defer t.Stop()
+	failing := map[string]int{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
-			for name, err := range m.MaintainAll(ctx, now) {
-				if err != nil && ctx.Err() == nil {
-					m.log.Error("backup: maintenance failed", "replica", name, "error", err)
-				}
+			results := m.MaintainAll(ctx, now)
+			if ctx.Err() == nil {
+				failing = m.logMaintenance(results, failing)
 			}
 		}
 	}
+}
+
+// maintenanceErrorAfter is the number of failed passes in a row from which a
+// replica's maintenance failure is an error.
+const maintenanceErrorAfter = 3
+
+// logMaintenance logs a pass's failures and returns each failing replica's
+// count of failed passes in a row.
+func (m *Manager) logMaintenance(results map[string]error, failing map[string]int) map[string]int {
+	next := map[string]int{}
+	for _, name := range slices.Sorted(maps.Keys(results)) {
+		err := results[name]
+		if err == nil {
+			continue
+		}
+		next[name] = failing[name] + 1
+		if next[name] < maintenanceErrorAfter {
+			m.log.Warn("backup: maintenance failed; the next pass retries it", "replica", name, "error", err, "passes", next[name])
+		} else {
+			m.log.Error("backup: maintenance failed", "replica", name, "error", err, "passes", next[name])
+		}
+	}
+	return next
 }
 
 // maintain snapshots one replica when due, then prunes what no restore

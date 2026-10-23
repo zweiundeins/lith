@@ -18,12 +18,16 @@
 //     keep SQLite's default then.
 //  3. Attach. It returns once the first sync has reached the replica.
 //
-// Run RunMaintenanceLoop and RunVerifyLoop once per process. Stop in this
-// order: drain HTTP and the writer, so every accepted write is in the file;
-// call detach, the final sync, with a live context (the signal's context is
-// already cancelled); then checkpoint and close the database. The process's
-// stop timeout (systemd TimeoutStopSec) must cover the drain and the final
-// sync: killed mid-sync, the replica trails the file.
+// Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at
+// the storage provider fails every replica at once and usually passes by
+// itself, so RunVerifyLoop retries a failed verification before it reports,
+// and reports once per run: alert on its OnFail, not on each failure.
+//
+// Stop in this order: drain HTTP and the writer, so every accepted write is
+// in the file; call detach, the final sync, with a live context (the
+// signal's context is already cancelled); then checkpoint and close the
+// database. The process's stop timeout (systemd TimeoutStopSec) must cover
+// the drain and the final sync: killed mid-sync, the replica trails the file.
 //
 // Litestream opens the database with modernc.org/sqlite, so the application
 // must use it too: two SQLite copies in one process break each other's locks.
@@ -155,6 +159,10 @@ type attachedDB struct {
 type verifyResult struct {
 	at  time.Time
 	err error
+
+	// From RunVerifyLoop's runs.
+	attempts int
+	retried  int
 }
 
 // New returns a Manager for cfg.
@@ -526,6 +534,13 @@ type ReplicaStatus struct {
 	LastVerifyAt time.Time // zero until VerifyRestore ran
 	VerifyOK     bool      // the last VerifyRestore restored and passed integrity_check
 
+	// From RunVerifyLoop. VerifyAttempts is the number of verifications in its
+	// last run: 1 if the replica passed at once, 0 until a run has finished.
+	// VerifyRetried counts the runs in which it failed and then passed on a
+	// retry.
+	VerifyAttempts int
+	VerifyRetried  int
+
 	// From the last maintenance pass; zero until one ran.
 	LastSnapshotAt time.Time
 	ReplicaObjects int
@@ -544,7 +559,8 @@ func (m *Manager) Status() []ReplicaStatus {
 			s.TXID = pos.TXID.String()
 		}
 		if v, ok := m.verify[name]; ok {
-			s.LastVerifyAt, s.VerifyOK = v.at, v.err == nil
+			s.LastVerifyAt, s.VerifyOK = v.at, v.err == nil && !v.at.IsZero()
+			s.VerifyAttempts, s.VerifyRetried = v.attempts, v.retried
 		}
 		if mr, ok := m.maintenance[name]; ok {
 			s.LastSnapshotAt, s.ReplicaObjects, s.ReplicaBytes = mr.lastSnapshotAt, mr.objects, mr.bytes
@@ -567,8 +583,13 @@ func (m *Manager) VerifyRestore(ctx context.Context, name string) error {
 		return err
 	}
 	err := m.verifyRestore(ctx, name)
+	if err != nil && ctx.Err() != nil {
+		return err
+	}
 	m.mu.Lock()
-	m.verify[name] = verifyResult{at: time.Now(), err: err}
+	v := m.verify[name]
+	v.at, v.err = time.Now(), err
+	m.verify[name] = v
 	m.mu.Unlock()
 	return err
 }
@@ -582,10 +603,14 @@ func (m *Manager) verifyRestore(ctx context.Context, name string) error {
 	return wrap(m.restore(ctx, name, filepath.Join(tmp, "verify.db"), time.Time{}, litestream.IntegrityCheckFull), "verify", name)
 }
 
-// VerifyAll runs VerifyRestore on every attached replica.
+// VerifyAll runs VerifyRestore on every attached replica, and stops when ctx
+// is done.
 func (m *Manager) VerifyAll(ctx context.Context) map[string]error {
 	out := map[string]error{}
 	for _, name := range m.attachedNames() {
+		if ctx.Err() != nil {
+			break
+		}
 		out[name] = m.VerifyRestore(ctx, name)
 	}
 	return out
@@ -600,39 +625,6 @@ func (m *Manager) attachedNames() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// RunVerifyLoop verifies every attached replica every interval
-// (DefaultVerifyInterval if zero) until ctx is done, starting after at most
-// ten minutes. Failures are logged and, if onFail is set, passed to it.
-func (m *Manager) RunVerifyLoop(ctx context.Context, interval time.Duration, onFail func(name string, err error)) {
-	if !m.enabled {
-		return
-	}
-	interval = orDefault(interval, DefaultVerifyInterval)
-	timer := time.NewTimer(min(10*time.Minute, interval))
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-		for name, err := range m.VerifyAll(ctx) {
-			if err == nil {
-				m.log.Info("backup: restore verified", "replica", name)
-				continue
-			}
-			if ctx.Err() != nil {
-				return
-			}
-			m.log.Error("backup: restore verification failed; the replica may not be restorable", "replica", name, "error", err)
-			if onFail != nil {
-				onFail(name, err)
-			}
-		}
-		timer.Reset(interval)
-	}
 }
 
 // PurgeReplica deletes everything replicated under name, for an erasure. The

@@ -1,8 +1,11 @@
 package backup
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -129,5 +132,43 @@ func TestNewestAtOrBefore(t *testing.T) {
 	}
 	if _, ok := newestAtOrBefore(nil, base); ok {
 		t.Error("a floor without snapshots")
+	}
+}
+
+// levels records the level of each log record.
+type levels struct{ got []slog.Level }
+
+func (l *levels) Enabled(context.Context, slog.Level) bool { return true }
+func (l *levels) Handle(_ context.Context, r slog.Record) error {
+	l.got = append(l.got, r.Level)
+	return nil
+}
+func (l *levels) WithAttrs([]slog.Attr) slog.Handler { return l }
+func (l *levels) WithGroup(string) slog.Handler      { return l }
+
+// TestMaintenanceFailuresWarnUntilTheThirdPassInARow: the next pass retries
+// a failure, so only a replica that keeps failing is an error.
+func TestMaintenanceFailuresWarnUntilTheThirdPassInARow(t *testing.T) {
+	h := &levels{}
+	m, err := New(Config{Dir: t.TempDir(), Logger: slog.New(h)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fail := errors.New("503 SlowDown")
+	failing := map[string]int{}
+	for _, pass := range []map[string]error{
+		{"a": fail, "b": nil},
+		{"a": fail, "b": fail},
+		{"a": fail, "b": nil},
+		{"a": fail, "b": fail},
+	} {
+		failing = m.logMaintenance(pass, failing)
+	}
+	want := []slog.Level{slog.LevelWarn, slog.LevelWarn, slog.LevelWarn, slog.LevelError, slog.LevelError, slog.LevelWarn}
+	if !slices.Equal(h.got, want) {
+		t.Errorf("levels = %v, want %v", h.got, want)
+	}
+	if failing["a"] != 4 || failing["b"] != 1 {
+		t.Errorf("failing = %v, want a:4 b:1", failing)
 	}
 }

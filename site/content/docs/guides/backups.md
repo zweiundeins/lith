@@ -100,11 +100,21 @@ The configuration comes from the environment, `BACKUP_BUCKET`, `BACKUP_REGION`, 
 
 ```go source=site/internal/docs/example/backup/main.go
 go m.RunMaintenanceLoop(jobs, 0) // snapshots daily, history pruned after 30 days
-go m.RunVerifyLoop(jobs, 0, func(name string, err error) {
-	slog.Error("backup: the replica does not restore", "db", name, "err", err)
+// Verifies daily, and retries a failure after 10 and 30 minutes.
+go m.RunVerifyLoop(jobs, backup.VerifyOptions{
+	OnFail: func(failures []backup.VerifyFailure, span time.Duration) {
+		// Once per run, with the replicas that failed every attempt: alert here.
+		var names []string
+		for _, f := range failures {
+			names = append(names, f.Name)
+		}
+		slog.Error("backup: replicas do not restore", "dbs", names, "first", failures[0].First, "last", failures[0].Last, "span", span)
+	},
 })
 prometheus.MustRegister(m.Collector("app")) // app_backup_enabled 0 is the alert for no backup
 ```
+
+An incident at the storage provider (throttling, errors that come and go for a few hours) fails every replica's verification at once, and replication usually catches up by itself. So the verify loop retries the replicas that failed, 10 and 30 minutes after the run (`VerifyOptions.Retries`), and calls `OnFail` once per run, after the retries, with only the replicas that failed every attempt: each with its first and last error and its number of attempts. A run in which everything passed, at once or on a retry, calls nothing. Alert there, once per run, never per replica or per failed attempt. The next run starts a day after this one started, however long its retries took, and a retry that would reach it is skipped.
 
 The stop runs in the opposite order. Every accepted write must be in the file before the final sync, and the final sync needs a context that is still alive, since the signal's is cancelled already:
 
@@ -121,7 +131,7 @@ return errors.Join(err, db.Close())
 
 The unit's stop timeout (`TimeoutStopSec`) must cover the drain and the final sync: a process killed mid-sync leaves the replica behind the file. Only one process may replicate a database at a time, and Litestream opens the database with modernc's SQLite, which the app must use too: two SQLite builds in one process break each other's locks. lith uses modernc's.
 
-`m.Collector("app")` exports `app_backup_enabled`, the last sync and the last verification of each replica, its snapshot's time and its size. Register it even when the manager is disabled: `app_backup_enabled 0` is the alert for a process that backs up nothing.
+`m.Collector("app")` exports `app_backup_enabled`, the last sync and the last verification of each replica, its snapshot's time and its size. Register it even when the manager is disabled: `app_backup_enabled 0` is the alert for a process that backs up nothing. `app_backup_replica_verify_retried_total{replica}` counts the runs in which a replica failed and then passed on a retry, and `app_backup_replica_verify_attempts{replica}` is the number of verifications in the last run: worth a panel, since a replica that keeps needing retries points at the provider, but not an alert.
 
 ## Restoring to a moment
 
