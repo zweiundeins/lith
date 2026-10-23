@@ -52,7 +52,9 @@ func openStream(b int64) string {
 const typed = `$_dirty = true`
 
 // retrying marks the page out of sync while Datastar opens the stream
-// again after its connection broke.
+// again after its connection broke. openStream, retrying and hidden must
+// each set $_synced false: data-on-signal-patch fires only on a change,
+// so the tab view's next true would otherwise never reach patched.
 const retrying = `evt.detail.el === el && evt.detail.type === 'retrying' && ($_synced = false)`
 
 // hidden marks the page out of sync when the tab hides: Datastar closes

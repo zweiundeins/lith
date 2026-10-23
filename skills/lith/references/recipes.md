@@ -262,7 +262,10 @@ any session that learns it push a notice with an ack it picks.
     through") and keeps the input.
   - In-flight and recheck are per key: a hung request holds only its own
     key, and a lost op elsewhere still ends on the next reconnect.
-  - Opening the stream sets `$_synced = false`, and so do `retrying` on the
+  - `data-on-signal-patch` fires only on a change, so every open, retry
+    and hide must set `$_synced` false, or the next `true` changes
+    nothing and `patched` never sees the reconnect.
+    Opening the stream sets `$_synced = false`, and so do `retrying` on the
     stream element and a tab that hides
     (`data-on:visibilitychange__window="document.hidden && ($_synced = false)"`:
     Datastar closes a hidden tab's `@get` and opens it again on show,
@@ -769,6 +772,9 @@ spec := live.Spec{
   `data-ignore-morph`; signal-driven attributes need `data-preserve-attr`.
 - Return nil for a page the deploy did not change (compare its ETag): its
   tabs pay only the check.
+- A `Refresh` that only ever returns the reload notice, no morph, is a
+  supported choice, not only the dirty-page fallback: for areas that keep
+  state in plain signals and stateful elements (an editor, a board).
 - The default build is the same for every local build of a modified tree
   (`<rev>+dirty`), so local tests never refresh. Set `Options.Build` to
   something content-based, such as a hash over all pages' ETags: that also

@@ -183,7 +183,7 @@ Datastar's fetch events reach every listener on the page, so `fetched` takes onl
 
 6. A stream that connects again without the op's ack ends it too, once no request of its key is in flight: the second half of `patched`. A notice goes only to the stream open when it is sent: one that a reconnect cut off, or one sent while the tab had no stream, never arrives. Both happen around a reconnect, and the reconnected stream's first frame of the tab's view holds the tab's row. When that row does not ack a pending op, the page ends it in its own words and keeps what was typed.
 
-The page tells the first frame after a (re)connect by `$_synced`. Opening the stream sets it false (`openStream`), and so do Datastar's `retrying` on the stream's element and a tab that hides (`hidden`, on `visibilitychange`): Datastar closes the stream of a hidden tab and opens it again when the tab shows, without `data-init` and without `retrying`. The tab's view patches `_synced: true` with every frame, so the signal changes only with the first frame after a (re)connect.
+The page tells the first frame after a (re)connect by `$_synced`. Opening the stream sets it false (`openStream`), and so do Datastar's `retrying` on the stream's element and a tab that hides (`hidden`, on `visibilitychange`): Datastar closes the stream of a hidden tab and opens it again when the tab shows, without `data-init` and without `retrying`. The tab's view patches `_synced: true` with every frame, so the signal changes only with the first frame after a (re)connect. Each of the three must set it false: `data-on-signal-patch` fires only when a value changes, so a reopen that left `$_synced` true would bring a `true` that changes nothing, and `patched` would never run for it.
 
 While a request of the key is open, nothing is decided: its command may still wait in the writer, or the click came before the stream's first frame. Ending the op then would tell the person "did not go through" about a command that commits a moment later, and their retry, with a new op id, would add a second card. So `patched` only notes that the key must look again (`recheck`), and when the key's last request ends, `fetched` opens the stream once more (`reopen`, as `sse.Reconnect` does). By then the answer is in: a 204 means the command committed, so the fresh frame of the tab's row holds the ack; a failure status means a notice was sent, perhaps to a stream that was gone, and the fresh frame without the ack ends the op in the page's words.
 
@@ -380,6 +380,8 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte,
 		msg = views.UpdateAssets
 	}
 ```
+
+**Only a notice.** A `Refresh` that never morphs and always returns the notice that asks for a reload is a supported choice, not only the fallback for a page with typed input. It suits an app whose areas keep their state in plain signals and stateful elements, an editor or a board, where a morph would have to spare each of them: the person reloads when it suits them, and nothing changes under their hands meanwhile.
 
 **A page the deploy did not change.** `Refresh` returns nil when the page is current, such as when the page reports its ETag in a signal of its own, which a refresh patches with the new content, and it matches the one the running build computes for it. A deploy that did not touch a page then costs its tabs only that check (`Stats.RefreshesUnchanged`), and the build signal is patched all the same.
 

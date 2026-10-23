@@ -27,6 +27,15 @@ look there before changing the behaviour.
   [hyperlith README]
 - Assigning an object to a signal merges into it; `null` deletes the signal and
   leaves every effect that read it stale. Use `false` or `''`. [starbase CLAUDE.md]
+- An effect that writes a signal undoes any other write to that signal at
+  once, a signal patch from the server included: one writer per signal,
+  and react to patches with `data-on-signal-patch`. [tickit]
+- Reading a missing key creates it: `$_outcomes[op]` on an unknown op adds
+  the key with `''`. Test for `''`, not `undefined`. [tickit]
+- `@post` (any action) returns a promise in Datastar 1.0.4, undocumented: it
+  settles after `finished` and rejects after `retries-failed`. lith's
+  template and recipes do not rely on it (they follow `datastar-fetch`
+  events); an app that chains on it catches the rejection. [tickit]
 - `data-bind` on a custom element only writes to a signal that exists: declare
   it with `data-signals` first. [starbase]
 - Copy that ends up inside an expression is a single-quoted JS string: a

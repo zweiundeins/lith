@@ -76,6 +76,22 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Fix.** Clear with `false` or `''`, never `null`. Keep maps whose keys come and go in plain variables, and expose what the template renders.
 
+### An effect that writes a signal undoes every other write to it
+
+**Symptom.** A signal the stream patches, or an action sets, snaps back at once.
+
+**Cause.** An effect (`data-effect`, `data-computed` written by hand) that assigns a signal runs again whenever what it reads changes, and writes its own value over any other write to that signal, a signal patch from the server included.
+
+**Fix.** Let each signal have one writer. React to a patch with `data-on-signal-patch` and a filter, not with an effect that writes the same signal.
+
+### Reading a missing key creates it
+
+**Symptom.** A map of ops such as `$_outcomes` fills with empty entries, or a check like `$_outcomes[op] === undefined` is never true.
+
+**Cause.** Reading a key that a signal object lacks, such as `$_outcomes[op]`, creates it, with the value `''`.
+
+**Fix.** Test with `''` rather than `undefined`, or keep such maps in plain variables, and create the entry when the op starts.
+
 ### data-bind on a custom element needs its signal first
 
 **Symptom.** A web component's value never reaches its signal.
@@ -175,6 +191,14 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 **Cause.** By default (`requestCancellation: 'auto'`), Datastar 1.0.4 cancels the request in flight with the same method to the same URL when another one starts, from any element of the page: the move of one card aborts the move of another.
 
 **Fix.** Actions that must all arrive set `requestCancellation: 'disabled'`, every action that carries an op among them. Give each an op id, so a retried one runs once ([Commands](/docs/guides/commands#op-ids-and-retries)).
+
+### @post returns a promise
+
+**Symptom.** Code that chains on an action, `@post(...).then(...)`, works, and an unhandled rejection shows in the console when the connection is down.
+
+**Cause.** In Datastar 1.0.4 an action such as `@post` returns a promise that settles after its `finished` event, and rejects (`FetchFailed`) after `retries-failed`. It is not documented, so it may change.
+
+**Fix.** lith's template and recipes do not use it: they follow a request by its `datastar-fetch` events on `#ops`. An app that chains on the promise catches its rejection, and keeps its pending state on the events and the stream, not on the promise alone.
 
 ### A form request that never finishes
 
