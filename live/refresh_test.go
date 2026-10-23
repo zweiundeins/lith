@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -229,6 +230,14 @@ func TestRefreshSkipped(t *testing.T) {
 				t.Fatalf("the log lacks %q: %s", tc.log, l.String())
 			}
 			c.leave(t)
+			// A second one within refreshLogEvery counts, and logs nothing.
+			lines := strings.Count(l.String(), "\n")
+			c = serve(h, Spec{Reconnect: "stream", Views: []View{constant("count", "1")}, Build: "old", Refresh: tc.refresh}, "")
+			waitFor(t, "the second count", func() bool { return tc.count(h.Stats()) == 2 })
+			if n := strings.Count(l.String(), "\n"); n != lines {
+				t.Fatalf("a second skipped refresh logged again: %s", l.String())
+			}
+			c.leave(t)
 		})
 	}
 }
@@ -262,4 +271,43 @@ func TestRefreshBusy(t *testing.T) {
 	c.leave(t)
 	slow.leave(t)
 	again.leave(t)
+}
+
+// A client whose streams all report an old build, as a forged one, holds
+// one of the shared slots at most: another client's stream still gets its
+// refresh while the first client's refreshes hang. Its next stream waits
+// for the client's own slot and is skipped after RefreshWait.
+func TestRefreshOneSlotPerClient(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond, Build: "new", RefreshConcurrency: 2, RenderTimeout: 5 * time.Second})
+	h.refreshWait = 200 * time.Millisecond
+	release := make(chan struct{})
+	var running atomic.Int32
+	hang := func(context.Context, RefreshRequest) ([][]byte, error) {
+		running.Add(1)
+		<-release
+		return mainPatch("late"), nil
+	}
+	var forged []*client
+	for i := range 3 {
+		forged = append(forged, serve(h, Spec{ID: "a" + strconv.Itoa(i), Client: "198.51.100.7", Views: []View{constant("count", "1")}, Build: "forged", Refresh: hang}, ""))
+	}
+	waitFor(t, "the first refresh", func() bool { return running.Load() == 1 })
+	waitFor(t, "the others skipped", func() bool { return h.Stats().RefreshesBusy == 2 })
+	if n := running.Load(); n != 1 {
+		t.Fatalf("%d refreshes of one client run at once", n)
+	}
+	other := serve(h, Spec{ID: "b", Client: "203.0.113.9", Views: []View{constant("count", "1")}, Build: "old", Refresh: func(context.Context, RefreshRequest) ([][]byte, error) {
+		return mainPatch("fresh"), nil
+	}}, "")
+	waitFor(t, "the other client's refresh", func() bool { return other.has(`<main id="main">fresh</main>`) })
+	close(release)
+	waitFor(t, "the client's slot given back", func() bool {
+		h.refreshMu.Lock()
+		defer h.refreshMu.Unlock()
+		return len(h.refreshing) == 0
+	})
+	other.leave(t)
+	for _, c := range forged {
+		c.leave(t)
+	}
 }

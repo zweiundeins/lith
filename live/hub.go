@@ -131,7 +131,9 @@ type Options struct {
 	// first frames.
 	BuildSignal string
 	// RefreshConcurrency is how many Spec.Refresh calls run at once
-	// (default Workers). A stream waits up to RefreshWait for a slot.
+	// (default Workers). A stream waits up to RefreshWait for a slot. The
+	// streams of one Spec.Client refresh one at a time, so one address,
+	// which can report any build it likes, holds one slot at most.
 	RefreshConcurrency int
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
@@ -290,6 +292,9 @@ type Hub struct {
 	buildPatch    []byte        // patches Options.BuildSignal to build
 	refreshSlots  chan struct{} // Options.RefreshConcurrency
 	refreshWait   time.Duration // RefreshWait
+	refreshMu     sync.Mutex
+	refreshing    map[string]*clientRefresh // by Spec.Client, while one of its streams waits for a refresh or runs one
+	refreshLogged [4]atomic.Int64           // when each kind of skipped refresh was last logged (refreshLog)
 	heartbeat     time.Duration
 	hibernate     time.Duration
 	ping          []byte       // the heartbeat signal's patch up to its number, nil for none
@@ -505,6 +510,7 @@ func New(o Options) *Hub {
 		buildPatch:    buildPatch(o.BuildSignal, o.Build),
 		refreshSlots:  make(chan struct{}, o.RefreshConcurrency),
 		refreshWait:   RefreshWait,
+		refreshing:    map[string]*clientRefresh{},
 		heartbeat:     o.Heartbeat,
 		hibernate:     max(0, o.Hibernate),
 		ping:          ping,

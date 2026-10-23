@@ -785,7 +785,8 @@ spec := live.Spec{
 - A live region inside the morphed container shows its placeholder for an
   instant before its frame follows: harmless.
 - At most `Options.RefreshConcurrency` (default `Workers`) run at once, each
-  under `RenderTimeout`. One that fails, times out or waits longer than
+  under `RenderTimeout`, and one at a time per `Spec.Client` (the build is
+  the client's to forge, so set `Client`). One that fails, times out or waits longer than
   `live.RefreshWait` (1 s) for a slot is skipped and logged, and the build
   signal stays, so the next reconnect tries again. Metrics:
   `<ns>_live_refreshes_total`, `_refreshes_unchanged_total`,
