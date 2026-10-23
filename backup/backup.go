@@ -44,6 +44,14 @@
 // pruning of a replica not attached is safe beside an Attach of it. A
 // second writer, or a prefix and name reused for another database, resets
 // the positions, and then any pruning is unsafe, attached or not.
+//
+// An upload of 5 MiB or more to S3 goes up in parts, and one cut off (a
+// snapshot that detach cancels, a crash) can leave its parts in the bucket,
+// unlisted as objects. The Manager aborts the uploads of a snapshot it
+// cancels, best effort, and PurgeReplica aborts every one under the name
+// before it deletes, so an erasure leaves nothing. As a backstop, give the
+// bucket a lifecycle rule that aborts incomplete multipart uploads after a
+// day where the provider supports one.
 package backup
 
 import (
@@ -158,6 +166,7 @@ type Manager struct {
 	snapshotTimeout  time.Duration
 	log              *slog.Logger
 	newClient        func(name string) litestream.ReplicaClient
+	mpu              *multipartClient
 
 	mu            sync.Mutex
 	reserved      map[string]bool // names being attached or detached
@@ -178,9 +187,12 @@ type attachedDB struct {
 	maint    sync.Mutex
 	detached bool // set under maint by detach
 
-	// Attach's background snapshot: detach cancels it and waits for done.
-	cancelSnapshot context.CancelFunc
-	snapshotDone   chan struct{}
+	// work is the context of the snapshots and maintenance of the replica,
+	// which detach cancels first, so that it waits for no upload; it waits
+	// for Attach's background snapshot to stop on snapshotDone.
+	work         context.Context
+	stopWork     context.CancelFunc
+	snapshotDone chan struct{}
 }
 
 type verifyResult struct {
@@ -214,6 +226,7 @@ func New(cfg Config) (*Manager, error) {
 		verify:           map[string]verifyResult{},
 		maintenance:      map[string]maintResult{},
 		pruning:          map[string]bool{},
+		mpu:              &multipartClient{},
 		purges:           map[string]uint64{},
 	}
 	if m.log == nil {
@@ -224,6 +237,7 @@ func New(cfg Config) (*Manager, error) {
 	} else {
 		m.newClient = m.s3Client
 	}
+	m.mpu.newAPI = m.newMultipartAPI
 	return m, nil
 }
 
@@ -522,14 +536,13 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 	}
 
 	a := &attachedDB{db: db, deletes: deletes, snapshotDone: make(chan struct{})}
-	var sctx context.Context
-	sctx, a.cancelSnapshot = context.WithTimeout(context.Background(), m.snapshotTimeout)
+	a.work, a.stopWork = context.WithCancel(context.Background())
 	m.mu.Lock()
 	delete(m.reserved, name)
 	m.attached[name] = a
 	committed = true
 	m.mu.Unlock()
-	go m.snapshotAfterAttach(sctx, name, a)
+	go m.snapshotAfterAttach(name, a)
 
 	var once sync.Once
 	var derr error
@@ -541,19 +554,21 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 
 // snapshotAfterAttach writes a snapshot when one is due, under the lock that
 // keeps a maintenance pass from snapshotting at the same time.
-func (m *Manager) snapshotAfterAttach(ctx context.Context, name string, a *attachedDB) {
-	defer close(a.snapshotDone)
-	defer a.cancelSnapshot()
+func (m *Manager) snapshotAfterAttach(name string, a *attachedDB) {
+	ctx, cancel := context.WithTimeout(a.work, m.snapshotTimeout)
+	defer cancel()
 	a.maint.Lock()
-	defer a.maint.Unlock()
-	if a.detached {
-		return
+	var err error
+	if ctx.Err() == nil {
+		_, err = m.snapshotIfDue(ctx, name, a.db, time.Now())
 	}
-	_, err := m.snapshotIfDue(ctx, name, a.db, time.Now())
+	a.maint.Unlock()
+	close(a.snapshotDone)
 	switch {
 	case err == nil:
-	case errors.Is(ctx.Err(), context.Canceled):
+	case a.work.Err() != nil:
 		m.log.Debug("backup: snapshot after attach cancelled by detach", "replica", name, "error", err)
+		m.abortCancelledSnapshot(name)
 	default:
 		m.log.Warn("backup: snapshot after attach failed; the next attached pass or attach takes one", "replica", name, "error", err)
 	}
@@ -572,7 +587,7 @@ func (m *Manager) detach(ctx context.Context, name string, a *attachedDB) error 
 		m.mu.Unlock()
 	}()
 
-	a.cancelSnapshot()
+	a.stopWork()
 	<-a.snapshotDone
 	a.maint.Lock()
 	defer a.maint.Unlock()
@@ -705,9 +720,12 @@ func (m *Manager) attachedNames() []string {
 	return names
 }
 
-// PurgeReplica deletes everything replicated under name, for an erasure. The
-// database must be detached first. Purging a name never replicated, or on a
-// disabled Manager, does nothing.
+// PurgeReplica deletes everything replicated under name, for an erasure:
+// the objects, and on S3 the parts of every unfinished multipart upload
+// under it, which a listing of objects does not show. It fails without
+// deleting anything when those uploads cannot be listed or aborted, so that
+// a retry finds them. The database must be detached first. Purging a name
+// never replicated, or on a disabled Manager, does nothing.
 func (m *Manager) PurgeReplica(ctx context.Context, name string) error {
 	if !m.enabled {
 		return nil
@@ -720,6 +738,9 @@ func (m *Manager) PurgeReplica(ctx context.Context, name string) error {
 	m.mu.Unlock()
 	if busy {
 		return fmt.Errorf("backup: purge %s: still attached, detach it first", name)
+	}
+	if _, err := m.abortUploads(ctx, name, -1); err != nil {
+		return fmt.Errorf("backup: purge %s: %w", name, err)
 	}
 	if err := m.newClient(name).DeleteAll(ctx); err != nil {
 		return fmt.Errorf("backup: purge %s: %w", name, err)

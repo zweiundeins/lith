@@ -358,8 +358,10 @@ func (m *Manager) maintainPass(ctx context.Context, list []string, workers int, 
 }
 
 // maintainAttached maintains an attached replica; ok is false when it was
-// skipped: detached meanwhile, or pruned by the loop over the names not
-// attached right now.
+// skipped: detached meanwhile, pruned by the loop over the names not
+// attached right now, busy with Attach's snapshot or a detach, or cut off
+// by a detach. The pass takes no turn waiting on a busy replica, so that one
+// slow upload does not hold a worker.
 func (m *Manager) maintainAttached(ctx context.Context, name string, now time.Time) (ok bool, err error) {
 	m.mu.Lock()
 	a, busy := m.attached[name], m.pruning[name]
@@ -367,12 +369,24 @@ func (m *Manager) maintainAttached(ctx context.Context, name string, now time.Ti
 	if a == nil || busy {
 		return false, nil
 	}
-	a.maint.Lock()
+	if !a.maint.TryLock() {
+		m.log.Debug("backup: maintenance skips a busy replica until the next pass", "replica", name)
+		return false, nil
+	}
 	defer a.maint.Unlock()
 	if a.detached {
 		return false, nil
 	}
-	return true, m.maintain(ctx, name, a, now)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(a.work, cancel)
+	defer stop()
+	err = m.maintain(ctx, name, a, now)
+	if err != nil && a.work.Err() != nil {
+		go m.abortCancelledSnapshot(name)
+		return false, nil
+	}
+	return true, err
 }
 
 // maintainNamed prunes a replica that is not attached; ok is false when it

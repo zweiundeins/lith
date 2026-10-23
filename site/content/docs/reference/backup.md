@@ -26,6 +26,8 @@ Stop in this order: drain HTTP and the writer, so every accepted write is in the
 
 Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time. Pruning relies on it: with one replicating process the positions in a replica only grow, so the pruning of a replica not attached is safe beside an Attach of it. A second writer, or a prefix and name reused for another database, resets the positions, and then any pruning is unsafe, attached or not.
 
+An upload of 5 MiB or more to S3 goes up in parts, and one cut off (a snapshot that detach cancels, a crash) can leave its parts in the bucket, unlisted as objects. The Manager aborts the uploads of a snapshot it cancels, best effort, and PurgeReplica aborts every one under the name before it deletes, so an erasure leaves nothing. As a backstop, give the bucket a lifecycle rule that aborts incomplete multipart uploads after a day where the provider supports one.
+
 ## Constants
 
 ```go
@@ -231,7 +233,7 @@ MaintainAll runs one maintenance pass on every attached replica, as of now: a fu
 func (m *Manager) PurgeReplica(ctx context.Context, name string) error
 ```
 
-PurgeReplica deletes everything replicated under name, for an erasure. The database must be detached first. Purging a name never replicated, or on a disabled Manager, does nothing.
+PurgeReplica deletes everything replicated under name, for an erasure: the objects, and on S3 the parts of every unfinished multipart upload under it, which a listing of objects does not show. It fails without deleting anything when those uploads cannot be listed or aborted, so that a retry finds them. The database must be detached first. Purging a name never replicated, or on a disabled Manager, does nothing.
 
 #### func (*Manager) Restore {#Manager.Restore}
 

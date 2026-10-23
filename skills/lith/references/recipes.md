@@ -1361,8 +1361,12 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   and a TLS handshake; no snapshot, only pruning through the bucket.
   Attached replicas keep their hourly pass (2 at a time, 100 ms). A due
   snapshot runs in the background after `Attach` (`Config.SnapshotTimeout`,
-  10 min); detach cancels it, so it never delays an eviction or a
-  shutdown. Failures of a pass log one line; the
+  10 min); detach cancels it and the hourly pass's work on the tenant, so
+  an eviction or a shutdown waits for a cancel, not an upload.
+  `PurgeReplica` aborts unfinished multipart uploads too (their parts are
+  not objects); add a lifecycle rule `AbortIncompleteMultipartUpload` as a
+  backstop where the provider supports it (unconfirmed on Swift-based S3
+  such as Infomaniak). Failures of a pass log one line; the
   metrics are `<ns>_backup_detached_maintenance_passes_total`,
   `_failures_total`, `_detached_pruned_objects_total` (approximate) and
   `_detached_last_pass_timestamp_seconds`, without a replica label. Alert

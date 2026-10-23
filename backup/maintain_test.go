@@ -147,6 +147,73 @@ func TestDetachCancelsASlowSnapshot(t *testing.T) {
 	}
 }
 
+// TestDetachCutsOffTheHourlyPass: a detach while the attached pass uploads
+// a snapshot cancels it instead of waiting, and the final sync lands.
+func TestDetachCutsOffTheHourlyPass(t *testing.T) {
+	t.Parallel()
+	m, h := hookedManager(t)
+	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
+	writeAndWaitLevel0(t, m, db, "app", 1)
+	entered := make(chan struct{})
+	snapshot := func(ctx context.Context) error {
+		close(entered)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	h.snapshot.Store(&snapshot)
+	passed := make(chan map[string]error, 1)
+	go func() { passed <- m.MaintainAll(bg, time.Now().Add(25*time.Hour)) }()
+	<-entered
+
+	start := time.Now()
+	mustExec(t, db, `INSERT INTO notes (body) VALUES ('last word')`)
+	shutdown(t, db, detach)
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("detach took %v, want no wait for the pass's upload", d)
+	}
+	if errs := <-passed; len(errs) != 0 {
+		t.Errorf("MaintainAll = %v, want the cut-off replica left out", errs)
+	}
+	h.snapshot.Store(nil)
+	out := filepath.Join(t.TempDir(), "restored.db")
+	if err := m.Restore(bg, "app", out); err != nil {
+		t.Fatal(err)
+	}
+	if got := bodies(t, out); len(got) != 3 {
+		t.Errorf("restored rows = %v, want the last word", got)
+	}
+}
+
+// TestThePassSkipsABusyReplica: while Attach's snapshot uploads, the pass
+// moves on instead of holding a worker.
+func TestThePassSkipsABusyReplica(t *testing.T) {
+	t.Parallel()
+	m, h := hookedManager(t)
+	entered := make(chan struct{})
+	snapshot := func(ctx context.Context) error {
+		close(entered)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	h.snapshot.Store(&snapshot)
+	path := filepath.Join(t.TempDir(), "app.db")
+	db := openApp(t, m, path)
+	mustExec(t, db, `CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)`)
+	detach, err := m.Attach(bg, "app", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-entered
+	start := time.Now()
+	if errs := m.MaintainAll(bg, time.Now()); len(errs) != 0 {
+		t.Errorf("MaintainAll = %v, want the busy replica skipped", errs)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("the pass took %v, want no wait for the upload", d)
+	}
+	shutdown(t, db, detach)
+}
+
 // TestAFailedAttachSnapshotIsLogged: a snapshot that fails is a warning, and
 // detach goes on as usual.
 func TestAFailedAttachSnapshotIsLogged(t *testing.T) {
@@ -163,6 +230,7 @@ func TestAFailedAttachSnapshotIsLogged(t *testing.T) {
 	h.snapshot.Store(&snapshot)
 
 	db, detach := replicated(t, m, "app", filepath.Join(t.TempDir(), "app.db"))
+	waitFor(t, 5*time.Second, func() bool { return len(msgs.levels()) > 0 })
 	if got := msgs.levels(); !slices.Equal(got, []slog.Level{slog.LevelWarn}) {
 		t.Errorf("levels = %v, want one warning", got)
 	}
