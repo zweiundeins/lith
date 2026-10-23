@@ -1,6 +1,6 @@
 module github.com/zweiundeins/lith/site/internal/docs/example/backup
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/prometheus/client_golang v1.25.0

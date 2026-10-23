@@ -1,6 +1,6 @@
 module github.com/zweiundeins/lith/minify
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/tdewolff/minify/v2 v2.24.19
