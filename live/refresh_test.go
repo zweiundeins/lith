@@ -215,7 +215,8 @@ func TestRefreshSkipped(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var l logs
-			h := start(t, Options{Tick: 5 * time.Millisecond, Build: "new", RenderTimeout: 50 * time.Millisecond, Log: l.logger()})
+			// Two slots: a refresh past RenderTimeout holds its slot until it returns.
+			h := start(t, Options{Tick: 5 * time.Millisecond, Build: "new", RenderTimeout: 50 * time.Millisecond, RefreshConcurrency: 2, Log: l.logger()})
 			c := serve(h, Spec{Reconnect: "stream", Views: []View{constant("count", "1")}, Build: "old", Refresh: tc.refresh}, "")
 			waitFor(t, "the frame", func() bool { return c.has(`<p id="count">1</p>`) })
 			time.Sleep(20 * time.Millisecond)
