@@ -38,7 +38,7 @@ type collector struct {
 
 	batches, commands, failures, busy, queue, batchMax, commitP99, running, published, undelivered, subscribers *prometheus.Desc
 
-	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views, behind, behindStreams, acks, paces, releases *prometheus.Desc
+	ticks, renders, sent, dropped, deferred, overruns, readTxs, streams, views, behind, behindStreams, acks, paces, releases, refreshes, unchanged, skipped *prometheus.Desc
 
 	limit, reserved, frames, tier, refused, reopened *prometheus.Desc
 
@@ -83,6 +83,9 @@ func New(namespace string, s Sources) prometheus.Collector {
 		acks:          d("live", "acks_total", "Acknowledgements of paced streams' writes (Hub.Ack)."),
 		paces:         d("live", "paces_total", "Streams that Hub.Pace started to pace."),
 		releases:      d("live", "releases_total", "Paced streams whose page kept up for Spec.Release, and that send every frame again."),
+		refreshes:     d("live", "refreshes_total", "Streams whose page a former build rendered and that sent Spec.Refresh's events first."),
+		unchanged:     d("live", "refreshes_unchanged_total", "Streams whose page a former build rendered and whose Spec.Refresh found it current."),
+		skipped:       d("live", "refreshes_skipped_total", "Refreshes skipped, by reason: error, timeout, busy (no slot within live.RefreshWait) or stream_element (the events held the stream's element).", "reason"),
 		limit:         d("sse_budget", "limit_bytes", "The memory the streams may hold together, their encoders and the frames kept for them, 0 for none."),
 		reserved:      d("sse_budget", "reserved_bytes", "The memory the open streams hold: their encoders, 32 KiB each besides, and the frames kept for them."),
 		frames:        d("sse_budget", "frames_bytes", "The memory the frames kept for the streams hold (the newest of the hub's views that two or more streams watch)."),
@@ -102,7 +105,7 @@ func New(namespace string, s Sources) prometheus.Collector {
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{c.batches, c.commands, c.failures, c.busy, c.queue, c.batchMax, c.commitP99, c.running, c.published, c.undelivered, c.subscribers,
-		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views, c.behind, c.behindStreams, c.acks, c.paces, c.releases,
+		c.ticks, c.renders, c.sent, c.dropped, c.deferred, c.overruns, c.readTxs, c.streams, c.views, c.behind, c.behindStreams, c.acks, c.paces, c.releases, c.refreshes, c.unchanged, c.skipped,
 		c.limit, c.reserved, c.frames, c.tier, c.refused, c.reopened,
 		c.appended, c.conflicts, c.refolds, c.head, c.position, c.lag, c.status, c.attempts} {
 		ch <- d
@@ -144,6 +147,12 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		counter(c.acks, float64(st.Acks))
 		counter(c.paces, float64(st.Paces))
 		counter(c.releases, float64(st.Releases))
+		counter(c.refreshes, float64(st.Refreshes))
+		counter(c.unchanged, float64(st.RefreshesUnchanged))
+		counter(c.skipped, float64(st.RefreshErrors), "error")
+		counter(c.skipped, float64(st.RefreshTimeouts), "timeout")
+		counter(c.skipped, float64(st.RefreshesBusy), "busy")
+		counter(c.skipped, float64(st.RefreshesGuarded), "stream_element")
 		gauge(c.streams, float64(st.Streams))
 		gauge(c.views, float64(st.Views))
 	}

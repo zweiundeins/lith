@@ -119,6 +119,20 @@ type Options struct {
 	// from its own goroutine as the hub stops, so it runs concurrently and
 	// must not block. A panic in it is logged, and that stream sends none.
 	Stopping func(spec Spec) [][]byte
+	// Build names the build the hub runs, for the refresh of pages a
+	// former build rendered (Spec.Refresh). Default: the binary's VCS
+	// revision, with "+dirty" for a build from a modified tree. A binary
+	// built without VCS information (outside the repository, or with
+	// -buildvcs=false) has none: refresh is off unless the app sets Build,
+	// such as from a version it links in.
+	Build string
+	// BuildSignal names the top-level signal that holds the page's build
+	// (default "_build"). A refreshed stream patches it to Build after its
+	// first frames.
+	BuildSignal string
+	// RefreshConcurrency is how many Spec.Refresh calls run at once
+	// (default Workers). A stream waits up to RefreshWait for a slot.
+	RefreshConcurrency int
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
@@ -241,9 +255,22 @@ type Stats struct {
 	Acks          int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
 	Paces         int64 // streams that Hub.Pace started to pace
 	Releases      int64 // paced streams whose page kept up for Spec.Release
-	Streams       int
-	Views         int
-	ReadTxs       int64 // read transactions the render workers began
+	// Refreshes counts the streams whose page a former build rendered and
+	// that sent Spec.Refresh's events first, and RefreshesUnchanged those
+	// whose Refresh returned none (the page is current). The rest were
+	// skipped and went on without a refresh: RefreshErrors (Refresh failed
+	// or panicked), RefreshTimeouts (it ran past Options.RenderTimeout),
+	// RefreshesBusy (no slot within RefreshWait) and RefreshesGuarded (its
+	// events held the stream's element, Spec.Reconnect).
+	Refreshes          int64
+	RefreshesUnchanged int64
+	RefreshErrors      int64
+	RefreshTimeouts    int64
+	RefreshesBusy      int64
+	RefreshesGuarded   int64
+	Streams            int
+	Views              int
+	ReadTxs            int64 // read transactions the render workers began
 	// RendersByKey counts the renders of each view watched now, by its
 	// key, since it was first watched.
 	RendersByKey map[string]int64
@@ -259,6 +286,10 @@ type Hub struct {
 	maxPerClient  int // 0: no cap
 	pendingFor    time.Duration
 	stopping      func(Spec) [][]byte
+	build         string
+	buildPatch    []byte        // patches Options.BuildSignal to build
+	refreshSlots  chan struct{} // Options.RefreshConcurrency
+	refreshWait   time.Duration // RefreshWait
 	heartbeat     time.Duration
 	hibernate     time.Duration
 	ping          []byte       // the heartbeat signal's patch up to its number, nil for none
@@ -307,6 +338,8 @@ type Hub struct {
 
 	ticks, renders, sent, dropped, deferred, overruns, readTxs, acks, paces, releases atomic.Int64
 	behind, behindStreams                                                             atomic.Int64
+	refreshes, refreshesUnchanged, refreshErrors, refreshTimeouts                     atomic.Int64
+	refreshesBusy, refreshesGuarded                                                   atomic.Int64
 
 	samplesMu sync.Mutex
 	samples   []time.Duration // nil while no overrun is being sampled
@@ -416,6 +449,15 @@ func New(o Options) *Hub {
 	if o.MaxStreamsPerClient == 0 {
 		o.MaxStreamsPerClient = 16
 	}
+	if o.Build == "" {
+		o.Build = buildOf()
+	}
+	if o.BuildSignal == "" {
+		o.BuildSignal = "_build"
+	}
+	if o.RefreshConcurrency <= 0 {
+		o.RefreshConcurrency = o.Workers
+	}
 	if o.PendingWatch == 0 {
 		o.PendingWatch = 10 * time.Second
 	}
@@ -459,6 +501,10 @@ func New(o Options) *Hub {
 		maxPerClient:  max(0, o.MaxStreamsPerClient),
 		pendingFor:    o.PendingWatch,
 		stopping:      o.Stopping,
+		build:         o.Build,
+		buildPatch:    buildPatch(o.BuildSignal, o.Build),
+		refreshSlots:  make(chan struct{}, o.RefreshConcurrency),
+		refreshWait:   RefreshWait,
 		heartbeat:     o.Heartbeat,
 		hibernate:     max(0, o.Hibernate),
 		ping:          ping,
@@ -711,21 +757,27 @@ func (h *Hub) Stats() Stats {
 	}
 	h.mu.Unlock()
 	return Stats{
-		Ticks:           h.ticks.Load(),
-		Renders:         h.renders.Load(),
-		FramesSent:      h.sent.Load(),
-		FramesDropped:   h.dropped.Load(),
-		RendersDeferred: h.deferred.Load(),
-		Overruns:        h.overruns.Load(),
-		Behind:          h.behind.Load(),
-		BehindStreams:   h.behindStreams.Load(),
-		Acks:            h.acks.Load(),
-		Paces:           h.paces.Load(),
-		Releases:        h.releases.Load(),
-		Streams:         streams,
-		Views:           views,
-		ReadTxs:         h.readTxs.Load(),
-		RendersByKey:    byKey,
+		Ticks:              h.ticks.Load(),
+		Renders:            h.renders.Load(),
+		FramesSent:         h.sent.Load(),
+		FramesDropped:      h.dropped.Load(),
+		RendersDeferred:    h.deferred.Load(),
+		Overruns:           h.overruns.Load(),
+		Behind:             h.behind.Load(),
+		BehindStreams:      h.behindStreams.Load(),
+		Acks:               h.acks.Load(),
+		Paces:              h.paces.Load(),
+		Releases:           h.releases.Load(),
+		Refreshes:          h.refreshes.Load(),
+		RefreshesUnchanged: h.refreshesUnchanged.Load(),
+		RefreshErrors:      h.refreshErrors.Load(),
+		RefreshTimeouts:    h.refreshTimeouts.Load(),
+		RefreshesBusy:      h.refreshesBusy.Load(),
+		RefreshesGuarded:   h.refreshesGuarded.Load(),
+		Streams:            streams,
+		Views:              views,
+		ReadTxs:            h.readTxs.Load(),
+		RendersByKey:       byKey,
 	}
 }
 

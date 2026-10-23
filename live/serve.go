@@ -58,6 +58,37 @@ type Spec struct {
 	// the stream just ends, as it does when a newer stream with its ID
 	// replaces it.
 	Reconnect string
+	// Build, Page and Dirty are what the page reports with its stream
+	// request, for Refresh: the build that rendered it (the signal
+	// Options.BuildSignal, which the page starts with Hub.Build), its own
+	// path and query (location.pathname + location.search; the stream
+	// request's own path is the stream's), and whether it holds input the
+	// person typed.
+	Build string
+	Page  string
+	Dirty bool
+	// Refresh, if set, brings a page that a former build rendered up to
+	// date as its stream opens, typically after a deploy: the stream's
+	// views render afresh, but the rest of the page is the old process's
+	// HTML. It runs when Build is not empty and differs from Hub.Build.
+	// It returns the events the stream writes first, before the views'
+	// first frames: typically one sse.PatchElements of a container the
+	// app names, such as <main id="main">, never <body>; or a notice that
+	// asks the person to reload, when Dirty or when the page's assets
+	// changed. nil says the page is current. Once the events are out,
+	// and after the views' first frames, the stream patches the build
+	// signal to Hub.Build, so the next reconnect refreshes nothing.
+	//
+	// The element with the id Reconnect must sit outside the container:
+	// a morph would run its data-init again and open a second stream. A
+	// refresh whose events hold it is skipped and logged
+	// (Stats.RefreshesGuarded). So is one that fails, runs past
+	// Options.RenderTimeout, or finds no slot of
+	// Options.RefreshConcurrency within RefreshWait: the stream goes on
+	// without it and leaves the build signal, so the next reconnect tries
+	// again. Refresh runs on its own goroutine with a ctx that ends after
+	// RenderTimeout, and reads through the app's own transactions.
+	Refresh func(ctx context.Context, rq RefreshRequest) ([][]byte, error)
 	// Slow marks a stream to a client on a slow link (edge.SlowLink tells
 	// one). It sends the newest frame of a view 250 ms or more after the
 	// last, four a second. A frame is due at once when it is its view's
@@ -179,7 +210,9 @@ const slowEvery = 250 * time.Millisecond
 // there, or the tick that renders them has ended, and passes their length
 // to the streams' budget (sse.Options.Frame), so the response's headers go
 // out with the first frames: a budget with sse.BudgetOptions.Refuse lets
-// the stream in only with room for a window that holds them. When the hub
+// the stream in only with room for a window that holds them. A page that a
+// former build rendered gets the events of Spec.Refresh before the first
+// frames, and the build signal after them. When the hub
 // is full or stopped, or the streams' budget refuses the stream, it
 // answers 503, or 429 to a client over Options.MaxStreamsPerClient, with
 // no body, and returns ErrFull, ErrStopped, sse.ErrNoRoom or
@@ -237,8 +270,9 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 		}
 	}
 	published := h.attach(s, spec.Views)
+	lead, tail := h.refresh(ctx, r, spec)
 	o := h.sse
-	o.Frame = h.first(ctx, s, published)
+	o.Frame = h.first(ctx, s, published) + eventsLen(lead)
 	st, err := sse.Open(w, r.WithContext(ctx), o)
 	if err != nil {
 		h.detach(s, errors.Is(err, sse.ErrNoRoom), spec.Views)
@@ -259,7 +293,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	var last [][]byte
 	defer func() { st.CloseWith(last...) }()
 	defer h.detach(s, false, nil)
-	err = h.pump(ctx, s, st)
+	err = h.pump(ctx, s, st, lead, tail)
 	stopped, here := h.done.Err() != nil, r.Context().Err() == nil
 	if stopped && here {
 		last = append(last, h.unsent(s)...)
@@ -479,7 +513,13 @@ func (s *stream) unwatched(w *watch) bool {
 // one is due (s.hold), and a heartbeat when it has been silent for
 // h.heartbeat, or every h.heartbeat with a heartbeat signal. It returns
 // errReopen when the stream's budget asks it to open again (s.upgrade).
-func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
+// lead goes out before everything else, tail after the first frames.
+func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte, tail []byte) error {
+	if len(lead) > 0 {
+		if err := st.Write(lead...); err != nil {
+			return err
+		}
+	}
 	idle := time.NewTimer(h.heartbeat)
 	defer idle.Stop()
 	var due <-chan time.Time // fires when a frame that waits is due
@@ -674,6 +714,13 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream) error {
 			h.sent.Add(int64(n))
 		}
 		notes = nil
+		if tail != nil {
+			err := st.Write(tail)
+			tail = nil
+			if err != nil {
+				return err
+			}
+		}
 		if _, now := st.Sent(); now != wire {
 			if h.ping == nil {
 				idle.Reset(h.heartbeat)

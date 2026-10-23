@@ -66,6 +66,12 @@ A page whose main thread is too slow for its stream falls behind, and the hub ca
 
 With data-newest-frame\_\_reopen it also sets $\_slow and opens the stream again from a copy of its element. The page's stream sends Save-Data: on while $\_slow is true, so the handler's edge.SlowLink gives it a slow stream (Spec.Slow) at the same URL, and Datastar aborts the old request. It asks once; a page that measured a slow link as it started never asks. It is not the default: the slow stream's four frames a second are fixed, fewer than a page only somewhat slow applies without it, and the page never switches back.
 
+```go
+const RefreshWait = time.Second
+```
+
+RefreshWait is how long a stream that needs a refresh waits for one of Options.RefreshConcurrency's slots. Right after a deploy every open tab reconnects at once; a stream that gets no slot in this time goes on without its refresh (Stats.RefreshesBusy), and its page tries again on its next reconnect.
+
 ## Variables
 
 ```go
@@ -255,6 +261,14 @@ func (h *Hub) Budget() *sse.Budget
 
 Budget is the budget the hub's streams share: Options.SSE.Budget, or the one New made. Its Stats tell what the streams hold, the frames the hub keeps among it, and SetLimit moves its limit while the hub runs.
 
+#### func (*Hub) Build {#Hub.Build}
+
+```go
+func (h *Hub) Build() string
+```
+
+Build is the build the hub runs (Options.Build), "" when unknown.
+
 #### func (*Hub) Changed {#Hub.Changed}
 
 ```go
@@ -353,7 +367,7 @@ A cache that a GET fills reads Seq before its read transaction begins: every com
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error
 ```
 
-Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's newest frame when the hub keeps it (View.Render), else a frame rendered in the next tick, then every new frame. It opens the stream once those first frames are there, or the tick that renders them has ended, and passes their length to the streams' budget (sse.Options.Frame), so the response's headers go out with the first frames: a budget with sse.BudgetOptions.Refuse lets the stream in only with room for a window that holds them. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503, or 429 to a client over Options.MaxStreamsPerClient, with no body, and returns ErrFull, ErrStopped, sse.ErrNoRoom or ErrClientFull: the status is for the page's retry, and the page tells the person in its own words. A failed write ends the stream with its error. When the hub stops, the stream sends the events of Options.Stopping, then sse.Reconnect with Spec.Reconnect.
+Serve streams the views of spec to the client until it leaves or the hub stops, and then returns nil. It sends each view's newest frame when the hub keeps it (View.Render), else a frame rendered in the next tick, then every new frame. It opens the stream once those first frames are there, or the tick that renders them has ended, and passes their length to the streams' budget (sse.Options.Frame), so the response's headers go out with the first frames: a budget with sse.BudgetOptions.Refuse lets the stream in only with room for a window that holds them. A page that a former build rendered gets the events of Spec.Refresh before the first frames, and the build signal after them. When the hub is full or stopped, or the streams' budget refuses the stream, it answers 503, or 429 to a client over Options.MaxStreamsPerClient, with no body, and returns ErrFull, ErrStopped, sse.ErrNoRoom or ErrClientFull: the status is for the page's retry, and the page tells the person in its own words. A failed write ends the stream with its error. When the hub stops, the stream sends the events of Options.Stopping, then sse.Reconnect with Spec.Reconnect.
 
 #### func (*Hub) Stats {#Hub.Stats}
 
@@ -443,6 +457,20 @@ type Options struct {
 	// from its own goroutine as the hub stops, so it runs concurrently and
 	// must not block. A panic in it is logged, and that stream sends none.
 	Stopping func(spec Spec) [][]byte
+	// Build names the build the hub runs, for the refresh of pages a
+	// former build rendered (Spec.Refresh). Default: the binary's VCS
+	// revision, with "+dirty" for a build from a modified tree. A binary
+	// built without VCS information (outside the repository, or with
+	// -buildvcs=false) has none: refresh is off unless the app sets Build,
+	// such as from a version it links in.
+	Build string
+	// BuildSignal names the top-level signal that holds the page's build
+	// (default "_build"). A refreshed stream patches it to Build after its
+	// first frames.
+	BuildSignal string
+	// RefreshConcurrency is how many Spec.Refresh calls run at once
+	// (default Workers). A stream waits up to RefreshWait for a slot.
+	RefreshConcurrency int
 	// Heartbeat is how long a stream stays silent before it sends a
 	// comment that keeps proxies from closing it (default 20s).
 	Heartbeat time.Duration
@@ -513,6 +541,24 @@ type Options struct {
 
 Options configure a Hub. The zero value of every field but Read selects its default.
 
+### type RefreshRequest {#RefreshRequest}
+
+```go
+type RefreshRequest struct {
+	// Page is Spec.Page: the path and query of the page that opened the
+	// stream.
+	Page string
+	// Build is Spec.Build: the build that rendered the page.
+	Build string
+	// Dirty is Spec.Dirty: the page holds input the person typed.
+	Dirty bool
+	// Request is the stream's request.
+	Request *http.Request
+}
+```
+
+RefreshRequest is what Spec.Refresh gets: what the page reported with its stream request, and the request itself, for its language, cookies and app values such as an assets version.
+
 ### type Spec {#Spec}
 
 ```go
@@ -560,6 +606,37 @@ type Spec struct {
 	// the stream just ends, as it does when a newer stream with its ID
 	// replaces it.
 	Reconnect string
+	// Build, Page and Dirty are what the page reports with its stream
+	// request, for Refresh: the build that rendered it (the signal
+	// Options.BuildSignal, which the page starts with Hub.Build), its own
+	// path and query (location.pathname + location.search; the stream
+	// request's own path is the stream's), and whether it holds input the
+	// person typed.
+	Build string
+	Page  string
+	Dirty bool
+	// Refresh, if set, brings a page that a former build rendered up to
+	// date as its stream opens, typically after a deploy: the stream's
+	// views render afresh, but the rest of the page is the old process's
+	// HTML. It runs when Build is not empty and differs from Hub.Build.
+	// It returns the events the stream writes first, before the views'
+	// first frames: typically one sse.PatchElements of a container the
+	// app names, such as <main id="main">, never <body>; or a notice that
+	// asks the person to reload, when Dirty or when the page's assets
+	// changed. nil says the page is current. Once the events are out,
+	// and after the views' first frames, the stream patches the build
+	// signal to Hub.Build, so the next reconnect refreshes nothing.
+	//
+	// The element with the id Reconnect must sit outside the container:
+	// a morph would run its data-init again and open a second stream. A
+	// refresh whose events hold it is skipped and logged
+	// (Stats.RefreshesGuarded). So is one that fails, runs past
+	// Options.RenderTimeout, or finds no slot of
+	// Options.RefreshConcurrency within RefreshWait: the stream goes on
+	// without it and leaves the build signal, so the next reconnect tries
+	// again. Refresh runs on its own goroutine with a ctx that ends after
+	// RenderTimeout, and reads through the app's own transactions.
+	Refresh func(ctx context.Context, rq RefreshRequest) ([][]byte, error)
 	// Slow marks a stream to a client on a slow link (edge.SlowLink tells
 	// one). It sends the newest frame of a view 250 ms or more after the
 	// last, four a second. A frame is due at once when it is its view's
@@ -647,9 +724,22 @@ type Stats struct {
 	Acks          int64 // acknowledgements of streams with Spec.Window (Hub.Ack)
 	Paces         int64 // streams that Hub.Pace started to pace
 	Releases      int64 // paced streams whose page kept up for Spec.Release
-	Streams       int
-	Views         int
-	ReadTxs       int64 // read transactions the render workers began
+	// Refreshes counts the streams whose page a former build rendered and
+	// that sent Spec.Refresh's events first, and RefreshesUnchanged those
+	// whose Refresh returned none (the page is current). The rest were
+	// skipped and went on without a refresh: RefreshErrors (Refresh failed
+	// or panicked), RefreshTimeouts (it ran past Options.RenderTimeout),
+	// RefreshesBusy (no slot within RefreshWait) and RefreshesGuarded (its
+	// events held the stream's element, Spec.Reconnect).
+	Refreshes          int64
+	RefreshesUnchanged int64
+	RefreshErrors      int64
+	RefreshTimeouts    int64
+	RefreshesBusy      int64
+	RefreshesGuarded   int64
+	Streams            int
+	Views              int
+	ReadTxs            int64 // read transactions the render workers began
 	// RendersByKey counts the renders of each view watched now, by its
 	// key, since it was first watched.
 	RendersByKey map[string]int64
