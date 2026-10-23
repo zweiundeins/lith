@@ -10,6 +10,8 @@ import (
 // Page is what the guestbook's document shows.
 type Page struct {
 	Tab         string // new for every document: names the tab's stream and state
+	Build       string // the build that renders it (live.Hub.Build)
+	Assets      string // the version of its scripts and stylesheet
 	Nonce       string // the request's CSP nonce, for the import map
 	CSS, JS     string // URLs of the stylesheet and of Datastar
 	NewestFrame string // URL of lith's newest-frame.js (live.NewestFrame)
@@ -32,27 +34,49 @@ templ Guestbook(p Page) {
 			<script type="module" src={ p.NewestFrame }></script>
 		</head>
 		<body data-newest-frame data-on:newest-frame-behind={ behind }>
-			<main data-signals={ signals(p.Tab) }>
+			<main data-signals={ signals(p) }>
 				<div id="stream" hidden data-init={ openStream } data-on:datastar-fetch={ retrying } data-on:visibilitychange__window={ hidden }></div>
-				<h1>Guestbook</h1>
 				<div id={ OpsID } hidden data-on:datastar-fetch={ fetched } data-on-signal-patch={ patched } data-on-signal-patch-filter={ opsPatches }></div>
-				<form data-on:submit__prevent={ sign }>
-					<label>
-						<span>Name</span>
-						<input data-bind="_name" maxlength={ strconv.Itoa(guestbook.MaxName) } required autocomplete="name" data-attr:readonly={ pending }/>
-					</label>
-					<label>
-						<span>Message</span>
-						<textarea data-bind="_message" maxlength={ strconv.Itoa(guestbook.MaxMessage) } required rows="3" data-attr:readonly={ pending }></textarea>
-					</label>
-					<button type="submit" data-attr:aria-busy={ busy }>Sign</button>
-					@Outcome(guestbook.TabState{})
-					<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
-				</form>
-				@Entries(p.Entries, p.Total)
+				@Update("")
+				@Content(p.Entries, p.Total)
 			</main>
 		</body>
 	</html>
+}
+
+// Content is what a refresh after a deploy renders afresh (web.refresh):
+// everything but the stream's element, the ops and the signals, which
+// stay outside it.
+templ Content(list []guestbook.Entry, total int) {
+	<div id="content">
+		<h1>Guestbook</h1>
+		<form data-on:input={ typed } data-on:submit__prevent={ sign }>
+			<label>
+				<span>Name</span>
+				<input data-bind="_name" maxlength={ strconv.Itoa(guestbook.MaxName) } required autocomplete="name" data-attr:readonly={ pending } data-preserve-attr="readonly"/>
+			</label>
+			<label>
+				<span>Message</span>
+				<textarea data-bind="_message" maxlength={ strconv.Itoa(guestbook.MaxMessage) } required rows="3" data-attr:readonly={ pending } data-preserve-attr="readonly"></textarea>
+			</label>
+			<button type="submit" data-attr:aria-busy={ busy } data-preserve-attr="aria-busy">Sign</button>
+			@Outcome(guestbook.TabState{})
+			<p class="problem" role="alert" data-show="$_problem" data-text="$_problem"></p>
+		</form>
+		@Entries(list, total)
+	</div>
+}
+
+// Update asks for a reload where a refresh would not do: the person has
+// typed into the page (UpdateTyped), or its scripts and stylesheet changed
+// (UpdateAssets). "" renders it empty.
+templ Update(msg string) {
+	<p id="update" role="status">
+		if msg != "" {
+			{ msg }
+			<button type="button" data-on:click="location.reload()">Reload</button>
+		}
+	</p>
 }
 
 // Outcome is the tab's own region: what became of its last signature.

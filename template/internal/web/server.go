@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -38,6 +40,7 @@ type Server struct {
 	hub    *live.Hub
 	log    *slog.Logger
 	static *edge.Static
+	assets string // the version of the page's scripts and stylesheet
 	limit  *edge.Limiter
 	// /pace and /ack are limited per client address first, then per
 	// session or stream: a client mints a session with every request
@@ -68,8 +71,10 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev b
 		return nil, err
 	}
 	static.Add("lith/"+live.NewestFrame, js)
+	assets := sha256.Sum256([]byte(static.URL("style.css") + " " + static.URL("vendor/datastar-rocket.js") + " " + static.URL("lith/"+live.NewestFrame)))
 	return &Server{
 		db: db, w: w, hub: hub, log: log, static: static,
+		assets:    hex.EncodeToString(assets[:6]),
 		limit:     edge.NewLimiter(0.5, 5),  // per client address: five signatures at once, then one every two seconds
 		paceAddrs: edge.NewLimiter(4, 20),   // per client address: a few people's tabs
 		paces:     edge.NewLimiter(1, 5),    // per session: a page reports every 3 s at most
@@ -107,6 +112,8 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		}
 		return views.Guestbook(views.Page{
 			Tab:         newID(),
+			Build:       s.hub.Build(),
+			Assets:      s.assets,
 			Nonce:       edge.Nonce(ctx),
 			CSS:         s.static.URL("style.css"),
 			JS:          s.static.URL("vendor/datastar-rocket.js"),
@@ -130,7 +137,8 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 // A tab on a slow link gets each view's frames about four times a second.
 // The stream sends every frame until /pace paces it. It counts under the
 // client's address, so one address cannot hold every stream
-// (live.Options.MaxStreamsPerClient).
+// (live.Options.MaxStreamsPerClient). A page that a former build rendered
+// is refreshed first (refresh).
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
 	if !validID(tab) {
@@ -145,6 +153,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
 		Ack:       ackEvent(tab),
+		Build:     r.Header.Get("Page-Build"),
+		Page:      r.Header.Get("Page-Path"),
+		Dirty:     r.Header.Get("Page-Dirty") == "true",
+		Refresh:   s.refresh,
 	}
 	if err := s.hub.Serve(w, r, spec); err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)

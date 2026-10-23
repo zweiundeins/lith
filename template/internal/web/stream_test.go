@@ -111,6 +111,54 @@ func TestNotices(t *testing.T) {
 	next(t, events, `document.getElementById(&#34;stream&#34;)`)
 }
 
+// TestRefresh opens streams as pages that a former build rendered do after
+// a deploy: an untouched page gets #content first, then the views' frames,
+// then $_build; a page with typed input or other assets gets the notice
+// instead; a page of the running build gets its frames alone.
+func TestRefresh(t *testing.T) {
+	base, _, _ := startBuild(t, "new")
+	c := client(t, base)
+	res, err := c.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	m := regexp.MustCompile(`_build: &#34;new&#34;, _assets: &#34;([0-9a-f]+)&#34;`).FindSubmatch(page)
+	if m == nil {
+		t.Fatalf("the page lacks its build and assets:\n%s", page)
+	}
+	assets := string(m[1])
+	open := func(tab, build, assets string, dirty bool) <-chan string {
+		return listen(t, c, base+"/stream?tab="+tab, http.Header{"Page-Build": {build}, "Page-Assets": {assets}, "Page-Path": {"/"}, "Page-Dirty": {strconv.FormatBool(dirty)}})
+	}
+
+	events := open("tab1", "old", assets, false)
+	if first := <-events; !strings.Contains(first, `<div id="content">`) || strings.Contains(first, `id="stream"`) {
+		t.Fatalf("the first event is %q", first)
+	}
+	next(t, events, `<section id="entries"`)
+	next(t, events, `"sign":{"ack":"","refused":false}`)
+	next(t, events, `{"_build":"new"}`)
+
+	events = open("tab2", "old", assets, true)
+	if first := <-events; !strings.Contains(first, `<p id="update" role="status">This page has a new version. Reloading clears the form.`) {
+		t.Fatalf("a page with typed input got %q", first)
+	}
+	next(t, events, `{"_build":"new"}`)
+
+	events = open("tab3", "old", "stale", false)
+	if first := <-events; !strings.Contains(first, `<p id="update" role="status">This page has a new version. <button`) {
+		t.Fatalf("a page with other assets got %q", first)
+	}
+
+	events = open("tab4", "new", assets, false)
+	if first := <-events; !strings.Contains(first, `<section id="entries"`) {
+		t.Fatalf("a page of the running build got %q", first)
+	}
+	none(t, events, `_build`, 100*time.Millisecond)
+}
+
 // TestSignNeedsAStream refuses a signature from a tab whose stream is not
 // open: its outcome would reach no page, and its row would come from a tab
 // id the client made up. Another session's stream with that tab id does not
@@ -147,7 +195,7 @@ func TestSlowLink(t *testing.T) {
 	if got := res.Header.Get("Accept-CH"); got != edge.NetworkHints {
 		t.Errorf("Accept-CH: %q", got)
 	}
-	if !strings.Contains(string(page), "_slow: ((c, n) =&gt;") || !strings.Contains(string(page), "@get(&#39;/stream?tab=&#39; + $_tab, {headers: $_slow ? {&#39;Save-Data&#39;: &#39;on&#39;} : {}") {
+	if !strings.Contains(string(page), "_slow: ((c, n) =&gt;") || !strings.Contains(string(page), "@get(&#39;/stream?tab=&#39; + $_tab, {headers: {") || !strings.Contains(string(page), "...($_slow ? {&#39;Save-Data&#39;: &#39;on&#39;} : {})}") {
 		t.Errorf("the page does not measure its link:\n%s", page)
 	}
 	events := listen(t, http.DefaultClient, base+"/stream?tab=tab1", http.Header{"Save-Data": {"on"}})
@@ -362,6 +410,12 @@ func startHub(t *testing.T) (string, *live.Hub) {
 // deploy does.
 func startStoppable(t *testing.T) (string, *live.Hub, func()) {
 	t.Helper()
+	return startBuild(t, "")
+}
+
+// startBuild is startStoppable with a hub that runs the build.
+func startBuild(t *testing.T, build string) (string, *live.Hub, func()) {
+	t.Helper()
 	db, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"), sqlite.Options{
 		Synchronous: "NORMAL",
 		Migrations:  migrations.FS,
@@ -369,7 +423,7 @@ func startStoppable(t *testing.T) (string, *live.Hub, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hub := live.New(live.Options{Read: db.R, Workers: 2, Stopping: web.Stopping})
+	hub := live.New(live.Options{Read: db.R, Workers: 2, Stopping: web.Stopping, Build: build})
 	w, err := writer.New(db, writer.Options{OnCommit: hub.Changed})
 	if err != nil {
 		t.Fatal(err)

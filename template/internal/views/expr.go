@@ -13,9 +13,12 @@ import (
 // pending op id, the newest op the tab's row acks and whether it was
 // refused, the requests in flight and whether one must look again when
 // they end. $_synced tells whether the stream's tab view has spoken since
-// it connected.
-func signals(tab string) string {
-	return fmt.Sprintf(`{_tab: %q, _slow: %s, _name: '', _message: '', _ops: {sign: {op: '', ack: '', refused: false, inflight: 0, recheck: false}}, _synced: false, _problem: ''}`, tab, slowLink)
+// it connected. $_build and $_assets are the build and the assets version
+// that rendered the page, and $_dirty whether the person has typed since
+// the last signature: the stream reports them for a refresh after a
+// deploy (web.refresh), which patches $_build once the page is current.
+func signals(p Page) string {
+	return fmt.Sprintf(`{_tab: %q, _build: %q, _assets: %q, _dirty: false, _slow: %s, _name: '', _message: '', _ops: {sign: {op: '', ack: '', refused: false, inflight: 0, recheck: false}}, _synced: false, _problem: ''}`, p.Tab, p.Build, p.Assets, slowLink)
 }
 
 // OpsID is the element that keeps the page's ops: hidden, outside every
@@ -39,8 +42,14 @@ const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(
 // restart; a 204 or a 3xx stops it, and a stream the server ends stays
 // closed: on a deploy the server ends it with sse.Reconnect, which runs
 // this again. It marks the page out of sync until the tab view's first
-// frame.
-const openStream = `($_synced = false, @get('/stream?tab=' + $_tab, {headers: $_slow ? {'Save-Data': 'on'} : {}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))`
+// frame. Its headers report the page's build, assets version, path and
+// whether the person typed, for a refresh after a deploy (web.refresh); a
+// retry repeats those of its first request.
+const openStream = `($_synced = false, @get('/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Assets': $_assets, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty), ...($_slow ? {'Save-Data': 'on'} : {})}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))`
+
+// typed marks the page dirty: a refresh after a deploy then asks for a
+// reload instead of rendering the form afresh.
+const typed = `$_dirty = true`
 
 // retrying marks the page out of sync while Datastar opens the stream
 // again after its connection broke.
@@ -84,8 +93,8 @@ func act(key, path, payload string) string {
 })('` + key + `', ` + payload + `)`
 }
 
-// sign sends the form as the op "sign".
-var sign = `$_name.trim() && $_message.trim() && ` + act("sign", "/cmd/sign", "{name: $_name, message: $_message}")
+// sign sends the form as the op "sign", which leaves nothing typed to lose.
+var sign = `$_name.trim() && $_message.trim() && ($_dirty = false, ` + act("sign", "/cmd/sign", "{name: $_name, message: $_message}") + `)`
 
 // pending is true from the click until the stream brings the outcome.
 const pending = `!!$_ops.sign.op && $_ops.sign.ack !== $_ops.sign.op`

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/url"
 	"slices"
 
 	"github.com/a-h/templ"
@@ -94,6 +95,41 @@ func Stopping(live.Spec) [][]byte {
 		return nil
 	}
 	return [][]byte{ev}
+}
+
+// refresh is the stream's live.Spec.Refresh, for a page that a former
+// build rendered: it renders #content afresh, while the stream's element,
+// #ops and the signals stay outside it. When the person has typed into the
+// form, or the page's scripts and stylesheet changed, it asks for a reload
+// instead: a morph would take what was typed, or leave new markup with the
+// old stylesheet.
+func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+	var msg string
+	switch {
+	case rq.Dirty:
+		msg = views.UpdateTyped
+	case rq.Request.Header.Get("Page-Assets") != s.assets:
+		msg = views.UpdateAssets
+	}
+	if msg != "" {
+		ev, err := patch(ctx, views.Update(msg))
+		return [][]byte{ev}, err
+	}
+	if u, err := url.Parse(rq.Page); err != nil || u.Path != "/" {
+		return nil, nil // not a page of ours
+	}
+	var buf bytes.Buffer
+	err := s.db.View(ctx, func(tx *sql.Tx) error {
+		list, total, err := guestbook.Latest(ctx, tx, guestbook.Shown)
+		if err != nil {
+			return err
+		}
+		return views.Content(list, total).Render(ctx, &buf)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return [][]byte{sse.PatchElements(buf.Bytes())}, nil
 }
 
 // patch renders c as an event that morphs it into the page by its id.

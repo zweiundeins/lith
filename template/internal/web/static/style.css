@@ -92,6 +92,10 @@ button[aria-busy="true"] {
 	margin: 0;
 }
 
+#update:empty {
+	display: none;
+}
+
 .refused,
 .problem {
 	color: var(--refused);
