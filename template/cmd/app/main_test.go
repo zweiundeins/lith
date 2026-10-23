@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -324,9 +325,11 @@ func TestStreamsPerClient(t *testing.T) {
 	}
 }
 
-// TestHalfSentBody: an action whose body stops after one byte gets 400
-// once sse.SignalsTimeout has passed, and the connection closes, instead
-// of holding a goroutine until the client leaves.
+// TestHalfSentBody: a request whose body stops after one byte gets its
+// answer once 10 s have passed, and the connection closes, instead of
+// holding a goroutine until the client leaves: an action 400
+// (sse.SignalsTimeout), /pace, /ack and the page their usual answer
+// (edge.BodyDeadline). A stream lives on.
 func TestHalfSentBody(t *testing.T) {
 	if testing.Short() {
 		t.Skip("waits sse.SignalsTimeout, 10 s")
@@ -357,18 +360,46 @@ func TestHalfSentBody(t *testing.T) {
 		cookie += ck.Name + "=" + ck.Value + "; "
 	}
 
-	conn, err := net.Dial("tcp", strings.TrimPrefix(public, "http://"))
+	// /cmd/sign reads the body; /pace, /ack and the page never do, and
+	// edge.BodyDeadline gives theirs the same 10 s.
+	var probes sync.WaitGroup
+	for line, want := range map[string]string{
+		"POST /cmd/sign":             "HTTP/1.1 400",
+		"POST /pace?tab=tab1":        "HTTP/1.1 204",
+		"POST /ack?tab=tab1&s=1&n=1": "HTTP/1.1 204",
+		"GET /":                      "HTTP/1.1 200",
+	} {
+		probes.Go(func() {
+			conn, err := net.Dial("tcp", strings.TrimPrefix(public, "http://"))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer conn.Close()
+			io.WriteString(conn, line+" HTTP/1.1\r\nHost: app\r\nContent-Type: application/json\r\n"+
+				"Datastar-Request: true\r\nSec-Fetch-Site: same-origin\r\nTab-Id: tab1\r\nOp-Id: op1\r\nCookie: "+cookie+"\r\nContent-Length: 100\r\n\r\n{")
+			start := time.Now()
+			conn.SetReadDeadline(start.Add(20 * time.Second))
+			b, err := io.ReadAll(conn)
+			if took := time.Since(start); err != nil || !strings.HasPrefix(string(b), want) || took > 15*time.Second {
+				t.Errorf("%s: after %v: %v\n%.300s", line, took.Round(time.Millisecond), err, b)
+			}
+		})
+	}
+	probes.Wait()
+
+	// The stream, whose request has no body, is still open: its tab signs.
+	sign, _ := http.NewRequest("POST", public+"/cmd/sign", strings.NewReader(`{"name":"Ada","message":"Still here"}`))
+	for k, v := range map[string]string{"Content-Type": "application/json", "Datastar-Request": "true", "Sec-Fetch-Site": "same-origin", "Tab-Id": "tab1", "Op-Id": "op2"} {
+		sign.Header.Set(k, v)
+	}
+	res, err = c.Do(sign)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
-	io.WriteString(conn, "POST /cmd/sign HTTP/1.1\r\nHost: app\r\nContent-Type: application/json\r\n"+
-		"Datastar-Request: true\r\nSec-Fetch-Site: same-origin\r\nTab-Id: tab1\r\nOp-Id: op1\r\nCookie: "+cookie+"\r\nContent-Length: 100\r\n\r\n{")
-	start := time.Now()
-	conn.SetReadDeadline(start.Add(20 * time.Second))
-	b, err := io.ReadAll(conn)
-	if err != nil || !strings.HasPrefix(string(b), "HTTP/1.1 400") {
-		t.Fatalf("after %v: %v\n%s", time.Since(start).Round(time.Millisecond), err, b)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Errorf("a signature after the probes: %d, want 204 from a tab whose stream is open", res.StatusCode)
 	}
 }
 

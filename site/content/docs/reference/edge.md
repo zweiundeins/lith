@@ -24,6 +24,7 @@ Limiter              starbase's token bucket, swept as it goes, a clock step tha
 Health, Ready        liveness and readiness probes, with checks registered by the app
 Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
 SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
+BodyDeadline         lith's v0.5.0 review: a trickled body to a route that never reads it held the connection
 ```
 
 A chain, built from the inside out:
@@ -38,7 +39,19 @@ h = edge.Recover(log, h)     // around Compress: a panic drops the held body
 h = edge.LogRequests(log, h) // around Recover: it logs the 500
 ```
 
+The server's handler goes around everything, top being the mux that serves h, the probes and the static files:
+
+```go
+srv := &http.Server{Handler: edge.BodyDeadline(edge.BodyTimeout, top), ReadHeaderTimeout: 10 * time.Second}
+```
+
 ## Constants
+
+```go
+const BodyTimeout = 10 * time.Second
+```
+
+BodyTimeout is the time BodyDeadline gives a request's body by default, as sse.ReadSignals gives an action's.
 
 ```go
 const NetworkHints = "ECT, RTT, Downlink"
@@ -53,6 +66,22 @@ const NonceSource = "'nonce'"
 NonceSource stands for the request's 'nonce-...' source among a directive's sources.
 
 ## Functions
+
+### func BodyDeadline {#BodyDeadline}
+
+```go
+func BodyDeadline(d time.Duration, next http.Handler) http.Handler
+```
+
+BodyDeadline gives the body of every request that has one d to arrive (BodyTimeout when d is 0 or less): it sets a read deadline on the connection through http.ResponseController before next runs. A handler that never reads the body, such as one that answers 204 or renders a page, would otherwise hold its connection and a goroutine for as long as a client trickles a body it declared: Go's server reads the rest of the body before it sends the answer, without a deadline. With one, it gives up once the deadline has passed, sends the answer and closes the connection.
+
+A request without a body, such as a stream's GET, gets no deadline. Go's server clears the deadline itself once the body is in, as it starts to watch the connection for a client that leaves, so a handler that read the body, or a stream whose headers went out after it, runs on as long as it likes. A handler that takes a large body, such as an upload, sets a later deadline of its own before it reads:
+
+```go
+http.NewResponseController(w).SetReadDeadline(time.Now().Add(time.Minute))
+```
+
+Mount it outermost, around the probes and the static files too: a trickled body holds a connection on any route.
 
 ### func BrotliLen {#BrotliLen}
 

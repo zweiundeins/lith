@@ -154,7 +154,8 @@ func serve(ctx context.Context, args []string) error {
 	mux.Handle("/", h) // probes skip the edge: no cookie, no log line
 
 	srv := &http.Server{
-		Handler:           mux,
+		// A request's body gets 10 s on every route, also on one that never reads it.
+		Handler:           edge.BodyDeadline(edge.BodyTimeout, mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),

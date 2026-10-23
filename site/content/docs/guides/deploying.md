@@ -89,7 +89,7 @@ reverse_proxy unix//run/app/app.sock {
 }
 ```
 
-`flush_interval -1` passes every write of a stream through at once; without it, Caddy buffers frames. The block caps request bodies at 1 MB (`request_body { max_size 1MB }`); the app gives a body 10 s itself (`sse.SignalsTimeout`), since Caddy's `read_body` timeout is a global option of the host's Caddyfile and ends every stream over HTTP/1.1 after that long. The access log is JSON, in `/var/log/caddy`, with mode 0640, and keeps a hash of each tab id instead of the id: a tab id lets whoever has it pace or end that tab's stream, and the log keeps 30 days. Run as root, `caddy validate` creates the log owned by root and the next reload fails; `chown caddy:caddy` on the file fixes it.
+`flush_interval -1` passes every write of a stream through at once; without it, Caddy buffers frames. The block caps request bodies at 1 MB (`request_body { max_size 1MB }`). The app gives a body 10 s on every route (`edge.BodyDeadline`), which frees its own side of a connection whose client trickles a body; Caddy keeps the client's side open until `servers { timeouts { read_body 10s } }` in the host's Caddyfile closes it. That option holds for every site on the host, so it must be longer than the slowest upload any of them takes; it does not end streams ([Request bodies](/docs/guides/edge#request-bodies)). The access log is JSON, in `/var/log/caddy`, with mode 0640, and keeps a hash of each tab id instead of the id: a tab id lets whoever has it pace or end that tab's stream, and the log keeps 30 days. Run as root, `caddy validate` creates the log owned by root and the next reload fails; `chown caddy:caddy` on the file fixes it.
 
 ## The deploy script
 

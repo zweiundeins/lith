@@ -207,7 +207,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		mux.Handle(pattern, p)
 	}
 	mux.Handle("/", h) // probes skip the edge: no cookie, no log line, no count
-	a.handler = mux
+	// A request's body gets 10 s on every route, also on one that never reads it.
+	a.handler = edge.BodyDeadline(edge.BodyTimeout, mux)
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(

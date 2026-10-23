@@ -15,6 +15,7 @@
 //	Health, Ready        liveness and readiness probes, with checks registered by the app
 //	Recover, LogRequests starbase's and kanban's recoverer and request log, on slog
 //	SlowLink             lith's site: the page's own measurement, Save-Data and Chromium's network hints
+//	BodyDeadline         lith's v0.5.0 review: a trickled body to a route that never reads it held the connection
 //
 // A chain, built from the inside out:
 //
@@ -25,4 +26,9 @@
 //	h = edge.Compress(h)
 //	h = edge.Recover(log, h)     // around Compress: a panic drops the held body
 //	h = edge.LogRequests(log, h) // around Recover: it logs the 500
+//
+// The server's handler goes around everything, top being the mux that
+// serves h, the probes and the static files:
+//
+//	srv := &http.Server{Handler: edge.BodyDeadline(edge.BodyTimeout, top), ReadHeaderTimeout: 10 * time.Second}
 package edge

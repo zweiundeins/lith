@@ -36,11 +36,12 @@ static := edge.SecurityHeaders{CSP: edge.DefaultCSP(), HSTS: *secure}.Handler(si
 static = edge.LogRequests(log, edge.Recover(log, static))
 ```
 
-The server has no `WriteTimeout`: each write to a stream has a deadline of its own, and a server-wide timeout would cut every stream after that long.
+The server has no `WriteTimeout`: each write to a stream has a deadline of its own, and a server-wide timeout would cut every stream after that long. `edge.BodyDeadline` sits around everything, the probes and the static files too, and gives a request's body 10 s ([Request bodies](#request-bodies)).
 
 ```go source=template/cmd/app/main.go
 srv := &http.Server{
-	Handler:           mux,
+	// A request's body gets 10 s on every route, also on one that never reads it.
+	Handler:           edge.BodyDeadline(edge.BodyTimeout, mux),
 	ReadHeaderTimeout: 10 * time.Second,
 	IdleTimeout:       2 * time.Minute,
 	ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
@@ -152,7 +153,11 @@ A compressed page that holds a secret of the user beside text the request reflec
 
 ## Request bodies
 
-`sse.ReadSignals` and `ReadSignalsLimit` cap an action's body (1 MiB, the template's 8 KiB), and give it `sse.SignalsTimeout`, 10 s, to arrive: they set a read deadline on the connection through `http.ResponseController` before they read, and clear it once the body is in. A client that declares a body and sends one byte of it then gets an error, and the server closes the connection, where it held a goroutine until the client left. The server itself has no `ReadTimeout`, which would end every stream. The template's Caddy block caps bodies at 1 MB as well (`request_body { max_size 1MB }`); Caddy's own `read_body` timeout is a global option, and Go's server, which Caddy is, ends a stream over HTTP/1.1 once a request has run that long.
+`sse.ReadSignals` and `ReadSignalsLimit` cap an action's body (1 MiB, the template's 8 KiB), and give it `sse.SignalsTimeout`, 10 s, to arrive: they set a read deadline on the connection through `http.ResponseController` before they read, and clear it once the body is in. A client that declares a body and sends one byte of it then gets an error, and the server closes the connection, where it held a goroutine until the client left.
+
+A route that never reads its body needs the same: `/pace`, `/ack`, a page. Go's server reads what is left of a body before it sends the answer, without a deadline, so a client that declares 100 KB and sends a byte every few seconds held the connection and a goroutine as long as it liked, and never got the answer. `edge.BodyDeadline` sets the deadline for every request with a body before any handler runs; the template and the site put it around the whole server. Once it passes, the server gives up on the body, sends the answer and closes the connection. A request without a body, such as a stream's `@get`, gets no deadline, and Go's server clears the deadline itself once a body is in, so a stream lives on either way. A handler that takes a large body, such as an upload, sets a later deadline before it reads: `http.NewResponseController(w).SetReadDeadline(time.Now().Add(time.Minute))`.
+
+Behind Caddy, the deadline frees only the app's side. Caddy passes a body on to the app as it arrives, and keeps the client's connection open, without the answer, for as long as the client trickles: measured with Caddy 2.10.2 over HTTP/1.1, it was still open after 40 s, while the app had closed its side at the deadline. Caddy's own `servers { timeouts { read_body 10s } }` closes it after 10 s. It is a global option of the host's Caddyfile and holds for every site there, so it must be longer than the slowest upload any of them takes. It does not end streams: Caddy is Go's server as well, and a stream through Caddy with `read_body 5s` ran its full 25 s. The template's Caddy block also caps bodies at 1 MB (`request_body { max_size 1MB }`).
 
 ## Static files
 

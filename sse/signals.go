@@ -16,8 +16,9 @@ const MaxSignals = 1 << 20
 
 // SignalsTimeout is how long ReadSignals waits for a request's body: a
 // client that declares a body and sends it slowly, or not at all, would
-// otherwise hold its connection and a goroutine until it leaves. The
-// server needs no ReadTimeout for it, which would end every stream.
+// otherwise hold its connection and a goroutine until it leaves.
+// edge.BodyDeadline gives the body of a request to any route the same
+// time, read or not.
 const SignalsTimeout = 10 * time.Second
 
 // signalsTimeout is SignalsTimeout, shorter in tests.

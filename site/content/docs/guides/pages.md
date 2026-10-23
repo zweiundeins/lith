@@ -235,7 +235,7 @@ A plain `fetch` sends no `datastar-fetch` events, so the page does what `fetched
 })(el.files[0], Date.now().toString(36) + Math.random().toString(36).slice(2, 7))
 ```
 
-The size check in the page saves the person the wait; the handler still checks, and records its refusal. A server that answers "too large" before it has read the body makes Go close the connection after about 256 KB it did not read, and Chrome then often rejects the `fetch` with `ERR_CONNECTION_RESET`, though the outcome was recorded. So a rejected `fetch` is no proof that the connection is down: the page treats it as an op whose answer was lost, and the stream decides, with the ack, or with the reopen that finds none. "The connection is down" is for a stream that is down.
+The size check in the page saves the person the wait; the handler still checks, and records its refusal. `edge.BodyDeadline` gives a body 10 s, too little for 10 MB on a slow link, so the upload's handler sets a deadline of its own before it reads, such as `http.NewResponseController(w).SetReadDeadline(time.Now().Add(2 * time.Minute))`, and Caddy's `read_body` must allow as long ([Request bodies](/docs/guides/edge#request-bodies)). A server that answers "too large" before it has read the body makes Go close the connection after about 256 KB it did not read, and Chrome then often rejects the `fetch` with `ERR_CONNECTION_RESET`, though the outcome was recorded. So a rejected `fetch` is no proof that the connection is down: the page treats it as an op whose answer was lost, and the stream decides, with the ack, or with the reopen that finds none. "The connection is down" is for a stream that is down.
 
 ## A refusal next to where the user acted
 
