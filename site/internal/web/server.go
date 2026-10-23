@@ -351,6 +351,14 @@ func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 	s.stream(w, r, viewer, d.Page.Views(viewer))
 }
 
+// pageState is what a stream's request reports in its signals, for a
+// refresh after a deploy (views.openStream): the build and the assets
+// version that rendered the page.
+type pageState struct {
+	Build  string `json:"_build"`
+	Assets string `json:"_assets"`
+}
+
 // stream serves the tab's stream of views until the tab leaves or the
 // server stops; then its last event re-creates the page's stream element,
 // which opens it again on the next process. A tab on a slow link gets its
@@ -358,8 +366,15 @@ func (s *Server) demoStream(w http.ResponseWriter, r *http.Request) {
 // client's address, so that one address cannot hold every stream
 // (live.Options.MaxStreamsPerClient).
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, v demo.Viewer, vs []live.View) {
+	var page pageState
+	if sse.ReadSignals(w, r, &page) != nil {
+		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
+		return
+	}
 	spec := live.Spec{ID: v.Tab, Client: edge.ClientKey(r), Views: vs, Reconnect: views.StreamID, WriteTick: frameWriter(), Slow: edge.SlowLink(r),
-		Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Refresh: s.refresh}
+		Build: page.Build, Page: r.Header.Get("Page-Path"), Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+			return s.refresh(ctx, rq, page.Assets)
+		}}
 	s.paceByAcks(&spec)
 	defer s.ownStream(v)()
 	err := s.hub.Serve(w, r, spec)

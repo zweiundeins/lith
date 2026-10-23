@@ -49,6 +49,34 @@ func TestRefreshAfterDeploy(t *testing.T) {
 		t.Fatalf("%d refreshes, %d streams", st.Refreshes, st.Streams)
 	}
 
+	// Hidden and shown again, the tab reopens its stream without data-init,
+	// from the signals as they are now: it reports the running build.
+	streams := func(n int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for a.Hub().Stats().Streams != n {
+			if time.Now().After(deadline) {
+				t.Fatalf("%d streams, want %d", a.Hub().Stats().Streams, n)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	for _, hidden := range []bool{true, false} {
+		p.Eval(t, `(() => {
+			Object.defineProperty(document, 'hidden', {get: () => `+strconv.FormatBool(hidden)+`, configurable: true})
+			document.dispatchEvent(new Event('visibilitychange', {bubbles: true}))
+			return true
+		})()`, nil)
+		if hidden {
+			streams(0)
+		}
+	}
+	streams(1)
+	time.Sleep(300 * time.Millisecond)
+	if st := a.Hub().Stats(); st.Refreshes != 1 || st.Streams != 1 {
+		t.Fatalf("after hide and show: %d refreshes, %d streams", st.Refreshes, st.Streams)
+	}
+
 	p.Eval(t, `(document.querySelectorAll('#build-probe').forEach(e => e.remove()), true)`, nil)
 	stale(`{_build: 'old', _assets: 'old'}`)
 	p.Wait(t, `document.getElementById('update').textContent.includes('This page has a new version.')`, 10*time.Second)

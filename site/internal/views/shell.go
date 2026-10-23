@@ -103,16 +103,19 @@ func colorScheme(theme string) string {
 const StreamID = "stream"
 
 // openStream opens the tab's stream. On a slow link, measured as the page
-// starts, it sends Save-Data: on (edge.SlowLink). The URL stays the same,
-// so a stream opened again aborts the old request. retry 'error' retries
-// network errors and every answer from 400 to 599 and never gives up,
-// which carries it through a restart; a 204 or a 3xx stops it, and a
-// stream the server ends stays closed, except through sse.Reconnect. It
-// marks every demo's tab view out of sync until its first frame
-// (demo.Resync). Its headers report the page's build, assets version and
-// path, for a refresh after a deploy (web.Server.refresh).
+// starts, it sends Save-Data: on (edge.SlowLink). Datastar cancels by the
+// URL written here, without the signals, so a stream opened again aborts
+// the old request. retry 'error' retries network errors and every answer
+// from 400 to 599 and never gives up, which carries it through a restart;
+// a 204 or a 3xx stops it, and a stream the server ends stays closed,
+// except through sse.Reconnect. It marks every demo's tab view out of
+// sync until its first frame (demo.Resync). For a refresh after a deploy
+// (web.Server.refresh) it reports the page's build and assets version as
+// signals, which Datastar reads afresh for every reopen, a retry or the
+// tab shown again, where it repeats the first request's headers; the
+// path, which never changes, goes in a header.
 func openStream(url string) string {
-	return "(" + demo.Resync + ", @get(" + jsString(url+"?tab=") + " + $_tab, {headers: {'Page-Build': $_build, 'Page-Assets': $_assets, 'Page-Path': location.pathname + location.search, ...($_slow ? {'Save-Data': 'on'} : {})}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
+	return "(" + demo.Resync + ", @get(" + jsString(url+"?tab=") + " + $_tab, {headers: {'Page-Path': location.pathname + location.search, ...($_slow ? {'Save-Data': 'on'} : {})}, filterSignals: {include: /^_(build|assets)$/, exclude: /(?!)/}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
 }
 
 // retrying marks the demos out of sync while Datastar opens the stream

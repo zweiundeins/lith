@@ -16,8 +16,9 @@ import (
 // around the demos, rendered afresh by their ids. The demos' islands stay
 // as they are, since their views keep them current and they hold the
 // demos' signals and live elements. A page that loaded other scripts or
-// stylesheets gets a notice that asks for a reload instead.
-func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+// stylesheets gets a notice that asks for a reload instead: assets is the
+// assets version the page reported.
+func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest, assets string) ([][]byte, error) {
 	path, _, _ := strings.Cut(rq.Page, "?")
 	var parts []templ.Component
 	var scripts []views.Script
@@ -32,7 +33,7 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte,
 	default:
 		return nil, nil // not a page that streams
 	}
-	if rq.Request.Header.Get("Page-Assets") != (views.Shell{Assets: s.assets, Components: scripts}).AssetsVersion() {
+	if assets != (views.Shell{Assets: s.assets, Components: scripts}).AssetsVersion() {
 		ev, err := demo.Patch(ctx, views.Update(true))
 		return [][]byte{ev}, err
 	}
