@@ -20,6 +20,8 @@ Start each database in this order:
 
 Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at the storage provider fails every replica at once and usually passes by itself, so RunVerifyLoop retries a failed verification before it reports, and reports once per run: alert on its OnFail, not on each failure.
 
+Both loops cover the attached replicas only. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified. Maintenance has no such list yet: a replica not attached during a pass gets no snapshot and no pruning.
+
 Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
 
 Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time.
@@ -221,7 +223,7 @@ RunMaintenanceLoop runs MaintainAll every interval (DefaultMaintenanceInterval i
 func (m *Manager) RunVerifyLoop(ctx context.Context, opt VerifyOptions)
 ```
 
-RunVerifyLoop runs VerifyAll until ctx is done: the first run after at most ten minutes, then one every opt.Interval from the start of the one before. The replicas a run finds failing are verified again after each of opt.Retries, and those that never pass go to opt.OnFail, once per run. When ctx ends during a run, the run reports nothing.
+RunVerifyLoop verifies every attached replica, or opt.Names, until ctx is done: the first run after at most ten minutes, then one every opt.Interval from the start of the one before. The replicas a run finds failing are verified again after each of opt.Retries, and those that never pass go to opt.OnFail, once per run. When ctx ends during a run, the run reports nothing.
 
 #### func (*Manager) Status {#Manager.Status}
 
@@ -245,7 +247,7 @@ VerifyAll runs VerifyRestore on every attached replica, and stops when ctx is do
 func (m *Manager) VerifyRestore(ctx context.Context, name string) error
 ```
 
-VerifyRestore proves the replica under name is restorable: it restores the latest state to a temporary file, runs PRAGMA integrity\_check and removes it. The result shows in Status. It reads the whole replica, so it belongs in a daily loop, not on a request.
+VerifyRestore proves the replica under name is restorable: it restores the latest state to a temporary file, runs PRAGMA integrity\_check and removes it. The result shows in Status while the replica is attached; it is kept for a replica that is not, and shows once it is. A restore cut off by a cancelled ctx keeps no result, one cut off by its deadline fails, and one that overlaps PurgeReplica of the name keeps none. It reads the whole replica, so it belongs in a daily loop, not on a request.
 
 #### func (*Manager) WALAutocheckpoint {#Manager.WALAutocheckpoint}
 
@@ -320,7 +322,7 @@ type VerifyFailure struct {
 }
 ```
 
-VerifyFailure is a replica that failed every verification of a run. First and Last are the errors of its first and last attempt.
+VerifyFailure is a replica that failed every verification of a run. First and Last are the errors of its first and last attempt. The failures of one run share Attempts, since each went through every retry.
 
 ### type VerifyOptions {#VerifyOptions}
 
@@ -332,14 +334,29 @@ type VerifyOptions struct {
 
 	// Retries are the waits before each retry of the replicas still failing,
 	// each from the end of the attempt before. Nil means 10 and 20 minutes,
-	// about 10 and 30 minutes after the run; an empty slice means none. A retry that would start at or after
-	// the next run's start is skipped, with every one after it.
+	// about 10 and 30 minutes after the run; an empty slice means none. A
+	// zero or negative wait retries at once. A retry that would start at or
+	// after the next run's start is skipped, with every one after it. For a
+	// provider whose incidents last hours, stretch them toward the interval,
+	// such as 30m, 2h and 6h against 24h.
 	Retries []time.Duration
+
+	// Names, if set, lists the replicas each run verifies, in place of the
+	// attached ones: an app that attaches its tenants on demand passes its
+	// account list, since a tenant not attached at the time is otherwise
+	// never verified. Each is verified by name with VerifyRestore, which
+	// attaches nothing; a name with nothing replicated under it fails. Its
+	// results show in Status and the metrics once the replica is attached.
+	// When Names fails, the run verifies nothing and OnFail gets one failure
+	// with an empty Name and Names' error.
+	Names func(ctx context.Context) ([]string, error)
 
 	// OnFail, if set, is called once per run, after its retries, with the
 	// replicas that failed every attempt, sorted by name, and the run's span:
 	// the time from its start to the end of its last attempt. A run in which
-	// every replica passed, at once or on a retry, calls nothing.
+	// every replica passed, at once or on a retry, calls nothing, and a
+	// replica purged during the run is left out. A panic in OnFail is logged
+	// and the loop goes on.
 	OnFail func(failures []VerifyFailure, span time.Duration)
 }
 ```

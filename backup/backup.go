@@ -23,6 +23,11 @@
 // itself, so RunVerifyLoop retries a failed verification before it reports,
 // and reports once per run: alert on its OnFail, not on each failure.
 //
+// Both loops cover the attached replicas only. An app that attaches its
+// tenants on demand passes its account list as VerifyOptions.Names, so every
+// tenant is verified. Maintenance has no such list yet: a replica not
+// attached during a pass gets no snapshot and no pruning.
+//
 // Stop in this order: drain HTTP and the writer, so every accepted write is
 // in the file; call detach, the final sync, with a live context (the
 // signal's context is already cancelled); then checkpoint and close the
@@ -146,6 +151,8 @@ type Manager struct {
 	attached    map[string]*attachedDB
 	verify      map[string]verifyResult
 	maintenance map[string]maintResult
+	purgeSeq    uint64
+	purges      map[string]uint64 // purgeSeq at a name's last purge: a verification that overlaps it keeps no result
 }
 
 // attachedDB pairs a replicating database with the lock that keeps a
@@ -185,6 +192,7 @@ func New(cfg Config) (*Manager, error) {
 		attached:         map[string]*attachedDB{},
 		verify:           map[string]verifyResult{},
 		maintenance:      map[string]maintResult{},
+		purges:           map[string]uint64{},
 	}
 	if m.log == nil {
 		m.log = slog.Default()
@@ -573,8 +581,11 @@ func (m *Manager) Status() []ReplicaStatus {
 
 // VerifyRestore proves the replica under name is restorable: it restores the
 // latest state to a temporary file, runs PRAGMA integrity_check and removes
-// it. The result shows in Status. It reads the whole replica, so it belongs
-// in a daily loop, not on a request.
+// it. The result shows in Status while the replica is attached; it is kept
+// for a replica that is not, and shows once it is. A restore cut off by a
+// cancelled ctx keeps no result, one cut off by its deadline fails, and one
+// that overlaps PurgeReplica of the name keeps none. It reads the whole
+// replica, so it belongs in a daily loop, not on a request.
 func (m *Manager) VerifyRestore(ctx context.Context, name string) error {
 	if !m.enabled {
 		return ErrDisabled
@@ -582,14 +593,17 @@ func (m *Manager) VerifyRestore(ctx context.Context, name string) error {
 	if err := checkName(name); err != nil {
 		return err
 	}
+	mark := m.purgeMark()
 	err := m.verifyRestore(ctx, name)
-	if err != nil && ctx.Err() != nil {
+	if err != nil && errors.Is(ctx.Err(), context.Canceled) {
 		return err
 	}
 	m.mu.Lock()
-	v := m.verify[name]
-	v.at, v.err = time.Now(), err
-	m.verify[name] = v
+	if m.purges[name] <= mark {
+		v := m.verify[name]
+		v.at, v.err = time.Now(), err
+		m.verify[name] = v
+	}
 	m.mu.Unlock()
 	return err
 }
@@ -647,6 +661,8 @@ func (m *Manager) PurgeReplica(ctx context.Context, name string) error {
 		return fmt.Errorf("backup: purge %s: %w", name, err)
 	}
 	m.mu.Lock()
+	m.purgeSeq++
+	m.purges[name] = m.purgeSeq
 	delete(m.verify, name)
 	delete(m.maintenance, name)
 	m.mu.Unlock()
