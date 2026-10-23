@@ -23,10 +23,11 @@
 // itself, so RunVerifyLoop retries a failed verification before it reports,
 // and reports once per run: alert on its OnFail, not on each failure.
 //
-// Both loops cover the attached replicas only. An app that attaches its
-// tenants on demand passes its account list as VerifyOptions.Names, so every
-// tenant is verified. Maintenance has no such list yet: a replica not
-// attached during a pass gets no snapshot and no pruning.
+// Both loops cover the attached replicas. An app that attaches its tenants
+// on demand passes its account list as VerifyOptions.Names, so every tenant
+// is verified, and as MaintenanceOptions.Names, so every tenant's history
+// older than the retention window is pruned, attached or not. A tenant not
+// attached gets no snapshot, since nothing changed while it was not.
 //
 // Stop in this order: drain HTTP and the writer, so every accepted write is
 // in the file; call detach, the final sync, with a live context (the
@@ -146,19 +147,21 @@ type Manager struct {
 	log              *slog.Logger
 	newClient        func(name string) litestream.ReplicaClient
 
-	mu          sync.Mutex
-	reserved    map[string]bool // names being attached or detached
-	attached    map[string]*attachedDB
-	verify      map[string]verifyResult
-	maintenance map[string]maintResult
-	purgeSeq    uint64
-	purges      map[string]uint64 // purgeSeq at a name's last purge: a verification that overlaps it keeps no result
+	mu            sync.Mutex
+	reserved      map[string]bool // names being attached or detached
+	attached      map[string]*attachedDB
+	verify        map[string]verifyResult
+	maintenance   map[string]maintResult
+	detachedMaint maintTotals
+	purgeSeq      uint64
+	purges        map[string]uint64 // purgeSeq at a name's last purge: a verification that overlaps it keeps no result
 }
 
 // attachedDB pairs a replicating database with the lock that keeps a
 // maintenance pass and detach from running on it at once.
 type attachedDB struct {
 	db       *litestream.DB
+	deletes  *deleteCounter
 	maint    sync.Mutex
 	detached bool // set under maint by detach
 }
@@ -479,7 +482,10 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 
 	db := litestream.NewDB(dbPath)
 	db.SetLogger(m.log.With("replica", name))
-	db.Replica = litestream.NewReplicaWithClient(db, m.newClient(name))
+	// The wrapper hides the client's v0.3 support; only a restore uses it,
+	// and restores make their own client.
+	deletes := &deleteCounter{ReplicaClient: m.newClient(name)}
+	db.Replica = litestream.NewReplicaWithClient(db, deletes)
 	if err := db.Open(); err != nil {
 		return nil, fmt.Errorf("backup: attach %s: %w", name, err)
 	}
@@ -489,7 +495,7 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 		return nil, fmt.Errorf("backup: first sync of %s: %w", name, err)
 	}
 
-	a := &attachedDB{db: db}
+	a := &attachedDB{db: db, deletes: deletes}
 	m.mu.Lock()
 	delete(m.reserved, name)
 	m.attached[name] = a
@@ -553,6 +559,12 @@ type ReplicaStatus struct {
 	LastSnapshotAt time.Time
 	ReplicaObjects int
 	ReplicaBytes   int64
+
+	// The maintenance passes that completed while the replica was attached,
+	// and the objects they pruned. Passes over it while it was not attached
+	// count in the Collector's detached totals.
+	MaintenancePasses int
+	PrunedObjects     int
 }
 
 // Status reports every attached replica, sorted by name. It reads no
@@ -572,6 +584,7 @@ func (m *Manager) Status() []ReplicaStatus {
 		}
 		if mr, ok := m.maintenance[name]; ok {
 			s.LastSnapshotAt, s.ReplicaObjects, s.ReplicaBytes = mr.lastSnapshotAt, mr.objects, mr.bytes
+			s.MaintenancePasses, s.PrunedObjects = mr.passes, mr.pruned
 		}
 		out = append(out, s)
 	}

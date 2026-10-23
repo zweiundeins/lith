@@ -69,7 +69,9 @@ func run(path string) error {
 
 	jobs, stopJobs := context.WithCancel(context.Background())
 	defer stopJobs()
-	go m.RunMaintenanceLoop(jobs, 0) // snapshots daily, history pruned after 30 days
+	// Snapshots daily, history pruned after 30 days. An app that attaches its
+	// tenants on demand sets Names to its account list here too.
+	go m.RunMaintenanceLoop(jobs, backup.MaintenanceOptions{})
 	// Verifies daily, and retries a failure after 10 and 30 minutes.
 	go m.RunVerifyLoop(jobs, backup.VerifyOptions{
 		// An app that attaches its tenants on demand sets Names to its account list.

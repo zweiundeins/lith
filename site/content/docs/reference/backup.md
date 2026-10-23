@@ -20,7 +20,7 @@ Start each database in this order:
 
 Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at the storage provider fails every replica at once and usually passes by itself, so RunVerifyLoop retries a failed verification before it reports, and reports once per run: alert on its OnFail, not on each failure.
 
-Both loops cover the attached replicas only. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified. Maintenance has no such list yet: a replica not attached during a pass gets no snapshot and no pruning.
+Both loops cover the attached replicas. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified, and as MaintenanceOptions.Names, so every tenant's history older than the retention window is pruned, attached or not. A tenant not attached gets no snapshot, since nothing changed while it was not.
 
 Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
 
@@ -38,6 +38,15 @@ const (
 ```
 
 Policy defaults. RetentionWindow is also the point-in-time recovery floor: nothing older is restorable.
+
+```go
+const (
+	DefaultMaintenanceConcurrency = 2
+	DefaultMaintenancePause       = 100 * time.Millisecond
+)
+```
+
+Maintenance defaults: a pass maintains two replicas at a time and waits after each, so that a long list of names does not burst listings and deletes at the storage provider.
 
 ## Variables
 
@@ -101,6 +110,41 @@ func ConfigFromEnv(prefix string) (Config, error)
 
 ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION and SNAPSHOT\_INTERVAL (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
 
+### type MaintenanceOptions {#MaintenanceOptions}
+
+```go
+type MaintenanceOptions struct {
+	// Interval is the time between passes; zero means
+	// DefaultMaintenanceInterval. It only has to be shorter than the snapshot
+	// interval.
+	Interval time.Duration
+
+	// Names, if set, lists replicas each pass maintains besides the attached
+	// ones: an app that attaches its tenants on demand passes its account
+	// list, since a tenant not attached at the time is otherwise never
+	// pruned. A name that is attached is maintained as an attached replica.
+	// One that is not gets no snapshot, since nothing changed while it was
+	// detached, only the pruning of its history older than the retention
+	// window, through the bucket alone. A name with nothing replicated under
+	// it costs one listing and is no failure. When Names fails, the pass
+	// maintains the attached replicas only.
+	Names func(ctx context.Context) ([]string, error)
+
+	// Concurrency is the number of replicas maintained at once; zero means
+	// DefaultMaintenanceConcurrency.
+	Concurrency int
+
+	// Pause is the wait after each replica before the same worker takes the
+	// next, so that a long list spreads its requests over the pass; zero
+	// means DefaultMaintenancePause, a negative value none. With the
+	// defaults a pass takes at least 50 ms per replica: 1,000 names take a
+	// minute.
+	Pause time.Duration
+}
+```
+
+MaintenanceOptions configure RunMaintenanceLoop.
+
 ### type Manager {#Manager}
 
 ```go
@@ -135,7 +179,7 @@ Call detach once, before the application's last checkpoint and close: it is the 
 func (m *Manager) Collector(namespace string) prometheus.Collector
 ```
 
-Collector returns a prometheus.Collector of the Manager's state, read from Status on each scrape. Register it even when the Manager is disabled: \<namespace>\_backup\_enabled 0 is the alert for a process without a backup.
+Collector returns a prometheus.Collector of the Manager's state, read from Status on each scrape. Register it even when the Manager is disabled: \<namespace>\_backup\_enabled 0 is the alert for a process without a backup. Series with a replica label cover the attached replicas; maintenance of the others counts in the detached totals, so that a long MaintenanceOptions.Names adds no series.
 
 #### func (*Manager) Enabled {#Manager.Enabled}
 
@@ -212,10 +256,10 @@ RetentionWindow is how far back a restore can reach.
 #### func (*Manager) RunMaintenanceLoop {#Manager.RunMaintenanceLoop}
 
 ```go
-func (m *Manager) RunMaintenanceLoop(ctx context.Context, interval time.Duration)
+func (m *Manager) RunMaintenanceLoop(ctx context.Context, opt MaintenanceOptions)
 ```
 
-RunMaintenanceLoop runs MaintainAll every interval (DefaultMaintenanceInterval if zero) until ctx is done. The interval only has to be shorter than the snapshot interval: a pass that is not due for a snapshot costs one listing per replica. A replica's failure is logged as a warning, since the next pass retries it, and as an error from its third failed pass in a row on.
+RunMaintenanceLoop runs a maintenance pass every opt.Interval until ctx is done, over the attached replicas and opt.Names. A replica not attached costs one listing per pass, and one more once it has a snapshot older than the retention window; an attached one also lists every level for Status. A replica's failure is logged as a warning, since the next pass retries it, and as an error from its third failed pass in a row on; so is a failure of opt.Names.
 
 #### func (*Manager) RunVerifyLoop {#Manager.RunVerifyLoop}
 
@@ -280,6 +324,12 @@ type ReplicaStatus struct {
 	LastSnapshotAt time.Time
 	ReplicaObjects int
 	ReplicaBytes   int64
+
+	// The maintenance passes that completed while the replica was attached,
+	// and the objects they pruned. Passes over it while it was not attached
+	// count in the Collector's detached totals.
+	MaintenancePasses int
+	PrunedObjects     int
 }
 ```
 

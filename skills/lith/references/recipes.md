@@ -1352,11 +1352,14 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   `<ns>_backup_replica_verify_retried_total{replica}`, not in an alert.
   For incidents that last hours, stretch `Retries` toward the interval
   (`30m, 2h, 6h` against 24h).
-- Both loops cover attached replicas only. Tenants attached on demand:
-  pass the account list as `VerifyOptions.Names` (a `Names` error is one
-  `OnFail` failure with an empty `Name`); maintenance has no such list
-  yet, so a replica not attached during a pass is neither snapshotted nor
-  pruned.
+- Both loops cover attached replicas. Tenants attached on demand: pass the
+  account list as `VerifyOptions.Names` (a `Names` error is one `OnFail`
+  failure with an empty `Name`) and as `MaintenanceOptions.Names` (a
+  `Names` error maintains the attached ones only). A name not attached gets
+  no snapshot, only pruning through the bucket; a pass runs on 2 at a time
+  with 100 ms after each (`Concurrency`, `Pause`). Its passes count in
+  `<ns>_backup_detached_maintenance_passes_total` and
+  `_detached_pruned_objects_total`, without a replica label.
 - A check of a copy opens it with `sqlite.Options{ReadOnly: true}` and runs
   `PRAGMA integrity_check` on `db.R`: nothing is written, and a missing copy
   is an error.

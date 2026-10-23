@@ -9,6 +9,9 @@ import (
 // Collector returns a prometheus.Collector of the Manager's state, read from
 // Status on each scrape. Register it even when the Manager is disabled:
 // <namespace>_backup_enabled 0 is the alert for a process without a backup.
+// Series with a replica label cover the attached replicas; maintenance of
+// the others counts in the detached totals, so that a long
+// MaintenanceOptions.Names adds no series.
 func (m *Manager) Collector(namespace string) prometheus.Collector {
 	desc := func(name, help string, labels ...string) *prometheus.Desc {
 		return prometheus.NewDesc(prometheus.BuildFQName(namespace, "backup", name), help, labels, nil)
@@ -26,6 +29,10 @@ func (m *Manager) Collector(namespace string) prometheus.Collector {
 		lastSnapshot:   desc("replica_last_snapshot_timestamp_seconds", "Unix time of the replica's newest snapshot at the last maintenance pass, 0 if none.", "replica"),
 		replicaObjects: desc("replica_objects", "Objects in the replica at the last maintenance pass.", "replica"),
 		replicaBytes:   desc("replica_bytes", "Bytes in the replica at the last maintenance pass.", "replica"),
+		maintPasses:    desc("replica_maintenance_passes_total", "Maintenance passes that completed on the replica while it was attached.", "replica"),
+		maintPruned:    desc("replica_pruned_objects_total", "Objects the maintenance passes pruned from the replica while it was attached.", "replica"),
+		detPasses:      desc("detached_maintenance_passes_total", "Maintenance passes that completed on replicas not attached at the time, from MaintenanceOptions.Names."),
+		detPruned:      desc("detached_pruned_objects_total", "Objects the maintenance passes pruned from replicas not attached at the time."),
 	}
 }
 
@@ -34,10 +41,11 @@ type collector struct {
 	enabled, replicas, retention                                               *prometheus.Desc
 	lastSync, lastVerify, verifyOK, lastSnapshot, replicaObjects, replicaBytes *prometheus.Desc
 	verifyAttempts, verifyRetried                                              *prometheus.Desc
+	maintPasses, maintPruned, detPasses, detPruned                             *prometheus.Desc
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried} {
+	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried, c.maintPasses, c.maintPruned, c.detPasses, c.detPruned} {
 		ch <- d
 	}
 }
@@ -45,6 +53,9 @@ func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 func (c *collector) Collect(ch chan<- prometheus.Metric) {
 	gauge := func(d *prometheus.Desc, v float64, labels ...string) {
 		ch <- prometheus.MustNewConstMetric(d, prometheus.GaugeValue, v, labels...)
+	}
+	counter := func(d *prometheus.Desc, v int, labels ...string) {
+		ch <- prometheus.MustNewConstMetric(d, prometheus.CounterValue, float64(v), labels...)
 	}
 	gauge(c.enabled, boolValue(c.m.Enabled()))
 	gauge(c.retention, c.m.RetentionWindow().Seconds())
@@ -55,11 +66,18 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		gauge(c.lastVerify, unix(s.LastVerifyAt), s.Name)
 		gauge(c.verifyOK, boolValue(s.VerifyOK), s.Name)
 		gauge(c.verifyAttempts, float64(s.VerifyAttempts), s.Name)
-		ch <- prometheus.MustNewConstMetric(c.verifyRetried, prometheus.CounterValue, float64(s.VerifyRetried), s.Name)
+		counter(c.verifyRetried, s.VerifyRetried, s.Name)
 		gauge(c.lastSnapshot, unix(s.LastSnapshotAt), s.Name)
 		gauge(c.replicaObjects, float64(s.ReplicaObjects), s.Name)
 		gauge(c.replicaBytes, float64(s.ReplicaBytes), s.Name)
+		counter(c.maintPasses, s.MaintenancePasses, s.Name)
+		counter(c.maintPruned, s.PrunedObjects, s.Name)
 	}
+	c.m.mu.Lock()
+	det := c.m.detachedMaint
+	c.m.mu.Unlock()
+	counter(c.detPasses, det.passes)
+	counter(c.detPruned, det.pruned)
 }
 
 func boolValue(b bool) float64 {
