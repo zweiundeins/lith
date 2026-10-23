@@ -366,7 +366,7 @@ type view struct {
 	deferred atomic.Bool
 
 	// Guarded by Hub.mu.
-	frame     *frame // the newest frame while two or more streams watch the view, else nil
+	frame     any    // the newest frame while two or more streams watch the view, else nil
 	size      int    // the newest frame's length, -1 when it is not []byte or there is none
 	sum       uint64 // its hash, for the unchanged-frame check once the hub drops its bytes
 	booked    int64  // what the hub booked for frame in the budget
@@ -380,10 +380,6 @@ type view struct {
 	due       time.Time // when Every renders it again
 }
 
-type frame struct {
-	value any
-}
-
 // watch is one stream watching one view.
 type watch struct {
 	s    *stream
@@ -391,7 +387,7 @@ type watch struct {
 	i    int       // index in v.watches, guarded by Hub.mu
 	owed bool      // joined while the hub kept no frame, until a render brings one; guarded by Hub.mu
 	skip uint64    // a fresh watch takes no frame of this tick, which was rendering when it joined; guarded by Hub.mu
-	next *frame    // the newest frame not sent yet, guarded by s.mu
+	next any       // the newest frame not sent yet, guarded by s.mu
 	gone bool      // unwatched, guarded by s.mu
 	sent time.Time // when the stream last took a frame of the view, with Spec.Slow; guarded by s.mu
 }
@@ -983,7 +979,7 @@ func (h *Hub) redepend(v *view, deps []string, seq uint64) bool {
 // join rendered it. Else the stream that watches v has the frame in its
 // pending slot or wrote it, and v keeps none. It returns the change in
 // what the hub books for v. Hub.mu is held.
-func (h *Hub) keep(v *view, nf *frame) int64 {
+func (h *Hub) keep(v *view, nf any) int64 {
 	switch {
 	case len(v.watches) == 0, len(v.watches) == 1 && v.size >= 0:
 		v.frame = nil
@@ -992,7 +988,7 @@ func (h *Hub) keep(v *view, nf *frame) int64 {
 	}
 	var n int64
 	if v.frame != nil {
-		n = frameHeap(v.frame.value)
+		n = frameHeap(v.frame)
 	}
 	d := n - v.booked
 	v.booked = n
@@ -1036,6 +1032,6 @@ func (v *view) unchanged(f any, sum uint64) bool {
 	if v.frame == nil {
 		return true
 	}
-	a, ok := v.frame.value.([]byte)
+	a, ok := v.frame.([]byte)
 	return ok && bytes.Equal(a, b)
 }

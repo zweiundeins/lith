@@ -1,0 +1,150 @@
+# run 1 r5 load 3.57 2.71 1.88
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11481147	       102.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8252637	       142.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 7008441	       169.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   70646	     17069 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   40485	     29680 ns/op	    3964 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5277	    212112 ns/op	   33008 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     499	   2409342 ns/op	  321008 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    5374	    238662 ns/op	   33264 B/op	    2025 allocs/op
+BenchmarkTickDepends/moved-12        	    1096	   1124874 ns/op	   33594 B/op	    2025 allocs/op
+PASS
+# run 2 r5 load 3.20 2.70 1.90
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11502438	       102.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8492767	       141.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 7010872	       170.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   69478	     17175 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   40149	     29747 ns/op	    3957 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5808	    211576 ns/op	   33009 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     464	   2455883 ns/op	  321010 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    5151	    231728 ns/op	   33264 B/op	    2024 allocs/op
+BenchmarkTickDepends/moved-12        	    1116	   1125501 ns/op	   33587 B/op	    2025 allocs/op
+PASS
+# run 3 r5 load 3.30 2.78 1.96
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11404670	       103.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8349711	       144.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 6938854	       171.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   71631	     16966 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   40144	     29790 ns/op	    3953 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5194	    221891 ns/op	   33009 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     505	   2386349 ns/op	  321010 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    4942	    233560 ns/op	   33265 B/op	    2025 allocs/op
+BenchmarkTickDepends/moved-12        	    1118	   1096991 ns/op	   33586 B/op	    2025 allocs/op
+PASS
+# run 4 r5 load 2.93 2.74 1.97
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11345750	       105.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8670177	       142.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 7041225	       171.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   68974	     17193 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   40580	     30419 ns/op	    3969 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5774	    214479 ns/op	   33009 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     489	   2462847 ns/op	  321009 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    5118	    236327 ns/op	   33264 B/op	    2024 allocs/op
+BenchmarkTickDepends/moved-12        	    1012	   1188084 ns/op	   33621 B/op	    2026 allocs/op
+PASS
+# run 5 r5 load 3.29 2.86 2.04
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11334650	       104.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8153512	       145.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 6819474	       175.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   68692	     17702 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   40531	     29553 ns/op	    3963 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5691	    212291 ns/op	   33010 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     513	   2381410 ns/op	  321010 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    5059	    233375 ns/op	   33264 B/op	    2024 allocs/op
+BenchmarkTickDepends/moved-12        	    1098	   1120391 ns/op	   33592 B/op	    2025 allocs/op
+PASS
+# run 6 r5 load 3.00 2.83 2.06
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11670609	       102.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8192112	       145.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 7069784	       174.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   68143	     17960 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   39634	     30447 ns/op	    3969 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5444	    218443 ns/op	   33008 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     464	   2425630 ns/op	  321021 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    5175	    233122 ns/op	   33264 B/op	    2024 allocs/op
+BenchmarkTickDepends/moved-12        	    1102	   1113928 ns/op	   33591 B/op	    2025 allocs/op
+PASS
+# run 7 r5 load 2.91 2.82 2.08
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11331945	       106.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8207564	       147.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 6995649	       172.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   68365	     17794 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   39706	     29958 ns/op	    3961 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5506	    211325 ns/op	   33009 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     501	   2399191 ns/op	  321010 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    5276	    232322 ns/op	   33264 B/op	    2025 allocs/op
+BenchmarkTickDepends/moved-12        	    1081	   1137123 ns/op	   33598 B/op	    2025 allocs/op
+PASS
+# run 8 r5 load 2.62 2.76 2.09
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	10673962	       111.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8133064	       146.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 6238518	       180.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   67410	     18053 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   40647	     29445 ns/op	    3980 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5689	    212030 ns/op	   33010 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     502	   2395331 ns/op	  321009 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    4860	    234748 ns/op	   33264 B/op	    2025 allocs/op
+BenchmarkTickDepends/moved-12        	    1041	   1173134 ns/op	   33611 B/op	    2026 allocs/op
+PASS
+# run 9 r5 load 2.93 2.82 2.13
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	11042146	       107.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 8368914	       148.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 6028717	       212.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   49994	     20188 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   38647	     32279 ns/op	    3969 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    4960	    222109 ns/op	   33009 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     494	   2445082 ns/op	  321009 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    4812	    260654 ns/op	   33264 B/op	    2024 allocs/op
+BenchmarkTickDepends/moved-12        	    1052	   1184466 ns/op	   33607 B/op	    2026 allocs/op
+PASS
+# run 10 r5 load 3.39 2.93 2.19
+goos: linux
+goarch: amd64
+pkg: github.com/zweiundeins/lith/live
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkChanged/depth=1-12 	 8034452	       142.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=2-12 	 6375453	       195.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChanged/depth=3-12 	 5441970	       211.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChangedBelow-12    	   63313	     19897 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTick/100-12        	   34674	     31353 ns/op	    3975 B/op	     215 allocs/op
+BenchmarkTick/1000-12       	    5256	    220409 ns/op	   33010 B/op	    2020 allocs/op
+BenchmarkTick/10000-12      	     507	   2494830 ns/op	  321010 B/op	   20021 allocs/op
+BenchmarkTickDepends/same-12         	    4830	    238570 ns/op	   33265 B/op	    2025 allocs/op
+BenchmarkTickDepends/moved-12        	    1092	   1097727 ns/op	   33595 B/op	    2025 allocs/op
+PASS

@@ -275,7 +275,8 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, spec Spec) error {
 	published := h.attach(s, spec.Views)
 	lead, tail := h.refresh(ctx, r, spec)
 	o := h.sse
-	o.Frame = h.first(ctx, s, published) + eventsLen(lead)
+	// The lead goes out in a write of its own, before the first frames.
+	o.Frame = max(h.first(ctx, s, published), eventsLen(lead))
 	st, err := sse.Open(w, r.WithContext(ctx), o)
 	if err != nil {
 		h.detach(s, errors.Is(err, sse.ErrNoRoom), spec.Views)
@@ -474,7 +475,7 @@ func (s *stream) offered() (n int, all bool) {
 			all = false
 			continue
 		}
-		n += max(0, frameLen(w.next.value))
+		n += max(0, frameLen(w.next))
 	}
 	return n, all
 }
@@ -639,20 +640,20 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 				continue
 			}
 			if s.writeTick != nil {
-				frames = append(frames, Frame{Key: o.w.v.key, Value: o.f.value})
+				frames = append(frames, Frame{Key: o.w.v.key, Value: o.f})
 				continue
 			}
 			if s.write != nil {
-				if err := s.write(st, o.w.v.key, o.f.value); err != nil {
+				if err := s.write(st, o.w.v.key, o.f); err != nil {
 					return err
 				}
 				h.sent.Add(1)
 				wrote = true
 				continue
 			}
-			b, ok := o.f.value.([]byte)
+			b, ok := o.f.([]byte)
 			if !ok {
-				h.log.Error("live: a frame is not []byte and the stream has no Write", "view", o.w.v.key, "type", fmt.Sprintf("%T", o.f.value))
+				h.log.Error("live: a frame is not []byte and the stream has no Write", "view", o.w.v.key, "type", fmt.Sprintf("%T", o.f))
 				continue
 			}
 			parts = append(parts, b)

@@ -442,6 +442,23 @@ A frame that a Render formats with `sse.Elements` or `sse.AppendPatchElements` i
 
 A heartbeat on a hibernating zstd stream, with a budget (`BenchmarkHeartbeatAsleep`): woken for it and hibernated again, as live's streams sent it, 3.27 µs, 22 allocations and 2.9 KiB with the encoder in the pool; with `Stream.Ping` in raw blocks, 0.34 µs, 6 allocations and 175 bytes, and nothing changes in the budget. Once the garbage collector has emptied the pool, waking also builds an encoder of 0.6 to 1.7 MiB.
 
+## The hub's own costs after the review of v0.5.0
+
+Measured on 2026-10-23 between 14:45 and 14:52 UTC on the same i5-13500 with Go 1.27.2, pinned with `taskset -c 0-11`, under `flock /tmp/lith-bench.lock`. Three test binaries, built once, alternated ten times with `-count 1` (`bench/review050/run.sh`): the base at 5ddf4b9 (v0.5.0's main), `r5` with only the frame and counter change, and `new` with every change below. The 1-minute load average was 2.6 to 4.0. Medians by benchstat; the output, with the load before every run, and the CPU profiles' tops are in `bench/review050`:
+
+| | base | r5 | new | allocations a view, base | new | bytes a view, base | new |
+|---|---|---|---|---|---|---|---|
+| `Tick`, 1,000 views | 245 µs | 213 µs | 192 µs | 3.0 | 2.0 | 49 | 33 |
+| `Tick`, 10,000 views | 2.73 ms | 2.42 ms | 2.16 ms | 3.0 | 2.0 | 48 | 32 |
+| `TickDepends`, the same topics | 264 µs | 234 µs | 210 µs | 3.0 | 2.0 | 49 | 33 |
+| `TickDepends`, topics that move | 1.19 ms | 1.13 ms | 1.11 ms | 3.0 | 2.0 | 50 | 34 |
+
+The hub's own allocation went: a view's frame is kept and offered as the `any` its Render returned, not in a box allocated per changed view and tick; the two left are the benchmark's Render. The workers add their renders to the hub's counter once per tick. Each worker sets its render timer once per tick, and a Render reads the clock once, when it returns; the next Render's time starts there. When the timer fires for a Render that has returned, it moves itself to the one under way, so each Render still has its own deadline and its overrun is logged while it runs. In the CPU profiles of `Tick` with 10,000 views (5 s each), `limit.render` fell from 31% to 19% of the samples, from 199 ns to 88 ns a view of CPU summed over the workers, of which the Render is 31 ns; `Timer.Reset` and `Timer.Stop` are gone from it, and `time.Now` fell from 8.2% to 4.5%. Most of what is left in `worker.render` is cache traffic: the workers take views from one queue in turn and write their results into adjacent slots of the tick's slices.
+
+`HeartbeatAsleep/wake`, a hibernating zstd stream woken for a heartbeat: 1.61 µs, 22 allocations and 2,787 bytes before, 0.95 µs, 8 allocations and 279 bytes now. The budget keeps the tier menus it builds, by coding, the options they depend on and the frame's size class, so a wake builds none. `HeartbeatAsleep/ping` is unchanged at 0.22 µs and 6 allocations.
+
+With `BudgetOptions.Refuse`, a refreshed stream now needs a window for the larger of its Refresh's events and its first frames, which go out in separate writes: a 230 KB container and a 230 KB view need zstd 2^18 (912 KiB with the stream), where both together needed 2^19 (1,168 KiB) or were refused (`TestRefuseRefreshNeedsTheLargerWrite`).
+
 ## Stream budget and hibernation
 
 Measured on 2026-10-13 between 15:20 and 16:10 UTC on the same machine, with Go 1.27.2, klauspost/compress v1.20.3 and andybalholm/brotli v1.2.6, on lith's budget branch, pinned to the performance cores; the frame sizes, the views, the curve, the simulation, the load test and the pressure test again on 2026-10-14, on the budget-learn branch, with the 1-minute load average between 1.7 and 4.1; the settings and the floor again on 2026-10-14 between 17:28 and 17:34 UTC, on lith's main at ff7e536 (v0.2.0, whose streams flush their brotli encoders within a frame), with the 1-minute load average between 1.5 and 4.9. The tests in `bench/budget` run only with `LITH_BUDGET=1` and write the CSV files next to them:

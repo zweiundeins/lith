@@ -144,6 +144,7 @@ type Budget struct {
 	timerAt  time.Time
 	starved  atomic.Int64 // counts the times a stream found no room for its frame's window; changed with mu held
 	freed    atomic.Int64 // counts the times room freed up; changed with mu held
+	menus    map[menuKey]menuEntry
 }
 
 // NewBudget returns a budget for streams to share through Options.Budget.
@@ -324,14 +325,67 @@ var (
 	brotliFloor = brotliTiers[3][4]
 )
 
-// menu lists the tiers a stream of the coding may get when its largest
+// menuKey is what menu's answer depends on: the options it reads, whether
+// the budget has a limit, and the frame's size class, the least window
+// whose tier holds it.
+type menuKey struct {
+	coding  string
+	lowMem  bool
+	quality int
+	own     int
+	limited bool
+	class   int
+}
+
+type menuEntry struct {
+	fit  []tier
+	last tier
+}
+
+// gzipMenu is gzip's menu, the one tier.
+var gzipMenu = []tier{gzipTier}
+
+// menu is menuOf, kept per menuKey, so that a stream's wake builds no
+// slices. Callers must not change fit. b.mu is held.
+func (b *Budget) menu(coding string, o Options, n int) (fit []tier, last tier) {
+	switch coding {
+	case Gzip:
+		return gzipMenu, tier{}
+	case Zstd, Brotli:
+	default:
+		return nil, tier{}
+	}
+	k := menuKey{coding: coding, limited: b.limit != 0}
+	if coding == Zstd {
+		k.lowMem, k.own = o.ZstdLowMemory, o.ZstdWindow
+	} else {
+		k.quality, k.own = o.BrotliQuality, o.BrotliWindow
+	}
+	if k.limited {
+		for k.class < 40 && int64(n)*16 > int64(15)<<k.class {
+			k.class++
+		}
+	}
+	if e, ok := b.menus[k]; ok {
+		return e.fit, e.last
+	}
+	fit, last = b.menuOf(coding, o, n)
+	if b.menus == nil || len(b.menus) >= 64 {
+		// A few options and sizes make a few keys; this only bounds them.
+		b.menus = map[menuKey]menuEntry{}
+	}
+	b.menus[k] = menuEntry{fit, last}
+	return fit, last
+}
+
+// menuOf lists the tiers a stream of the coding may get when its largest
 // write is n bytes: those whose window holds it, best first, and the last
 // resort, the coding's smallest tier, which compresses each frame alone.
 // A larger brotli window holds no more of the frame before, so brotli's
 // are the window that holds it at the stream's quality, then at 3. When
 // no window holds the frame, there are none, and the last resort is all.
 // Without a limit, the menu is the largest tier the stream's options allow.
-func (b *Budget) menu(coding string, o Options, n int) (fit []tier, last tier) {
+func (b *Budget) menuOf(coding string, o Options, n int) (fit []tier, last tier) {
 	var all []tier
 	floor, def := 0, 0
 	switch coding {

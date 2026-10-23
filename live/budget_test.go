@@ -522,6 +522,34 @@ func TestRefuseNeedsTheFrameWindow(t *testing.T) {
 }
 
 // holdsFrame reports whether a tier, as the budget's Stats name it, holds
+
+// With Refuse, a refreshed stream needs a window that holds its largest
+// write: the Refresh's events go out on their own, before the first
+// frames, so a 230 KB container and a 230 KB view need 2^18, not the
+// 2^19 that both together would.
+func TestRefuseRefreshNeedsTheLargerWrite(t *testing.T) {
+	const zstdNeed = (880 + 32) << 10 // zstd 2^18 low memory and a stream
+	b := sse.NewBudget(sse.BudgetOptions{Limit: zstdNeed + 64<<10, Refuse: true})
+	h := start(t, Options{Tick: time.Millisecond, Heartbeat: time.Hour, Build: "new", SSE: sse.Options{Budget: b}})
+	var version atomic.Int64
+	view := tabView("tab", 1410, &version)
+	f, _ := view.Render(t.Context(), nil)
+	lead := f.([]byte)
+	c := serve(h, Spec{Views: []View{view}, Build: "old", Refresh: func(context.Context, RefreshRequest) ([][]byte, error) {
+		return [][]byte{lead}, nil
+	}}, sse.Zstd)
+	waitFor(t, "the first frame or the refusal", func() bool {
+		return h.Stats().FramesSent == 1 || c.status() == http.StatusServiceUnavailable
+	})
+	if c.status() == http.StatusServiceUnavailable {
+		t.Fatalf("refused, with %v", b.Stats())
+	}
+	if st := b.Stats(); st.Streams["zstd 2^18 low memory"] != 1 {
+		t.Fatalf("a frame and a lead of %d bytes each: %v", len(lead), st.Streams)
+	}
+	c.leave(t)
+}
+
 // a frame of n bytes with a sixteenth to spare.
 func holdsFrame(tier string, n int) bool {
 	_, w, ok := strings.Cut(tier, "2^")

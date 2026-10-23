@@ -1437,3 +1437,37 @@ func BenchmarkHeartbeatAsleep(b *testing.B) {
 		})
 	}
 }
+
+// The menus a budget keeps are the ones menuOf builds, for every option
+// it reads and frames of every size, with a limit and without, and a
+// wake builds none.
+func TestMenuCache(t *testing.T) {
+	sizes := []int{0, 1, 4 << 10, 30 << 10, 60 << 10, 61 << 10, 122 << 10, 123 << 10, 230 << 10, 245 << 10, 246 << 10, 491 << 10, 492 << 10, 983 << 10, 984 << 10, 4 << 20, math.MaxInt32}
+	for _, limit := range []int64{-1, 64 << 20} {
+		for _, bo := range []BudgetOptions{{Limit: limit}, {Limit: limit, MinWindow: 18, MaxWindow: 20}} {
+			b := NewBudget(bo)
+			for _, coding := range []string{Zstd, Brotli, Gzip, ""} {
+				for _, o := range []Options{{}, {ZstdLowMemory: true}, {ZstdWindow: 17}, {BrotliQuality: 3}, {BrotliQuality: 5, BrotliWindow: 17}} {
+					for range 2 {
+						for _, n := range sizes {
+							b.mu.Lock()
+							fit, last := b.menu(coding, o, n)
+							want, wantLast := b.menuOf(coding, o, n)
+							b.mu.Unlock()
+							if !slices.Equal(fit, want) || last != wantLast {
+								t.Fatalf("%+v %s %+v, %d bytes: %v %v, want %v %v", bo, coding, o, n, fit, last, want, wantLast)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	b := NewBudget(BudgetOptions{Limit: 64 << 20})
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.menu(Zstd, Options{}, 230<<10)
+	if n := testing.AllocsPerRun(100, func() { b.menu(Zstd, Options{}, 230<<10) }); n != 0 {
+		t.Fatalf("%v allocations", n)
+	}
+}
