@@ -51,6 +51,42 @@ func TestCountDeletesKeepsTheClientsInterfaces(t *testing.T) {
 	}
 }
 
+// TestDetachSnapshotsWhenDue: a database attached only between passes still
+// gets a snapshot, and no second one before the interval.
+func TestDetachSnapshotsWhenDue(t *testing.T) {
+	t.Parallel()
+	m := newManager(t)
+	path := filepath.Join(t.TempDir(), "app.db")
+	db, detach := replicated(t, m, "app", path)
+	writeAndWaitLevel0(t, m, db, "app", 2)
+	if n := countLevel(t, m, "app", litestream.SnapshotLevel); n != 0 {
+		t.Fatalf("snapshots = %d before detach, want none", n)
+	}
+	shutdown(t, db, detach)
+	first := snapshotTimes(t, m, "app")
+	if len(first) != 1 {
+		t.Fatalf("snapshots = %d after detach, want 1", len(first))
+	}
+
+	db = openApp(t, m, path)
+	again, err := m.Attach(bg, "app", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, db, `INSERT INTO notes (body) VALUES ('second visit')`)
+	shutdown(t, db, again)
+	if got := snapshotTimes(t, m, "app"); len(got) != 1 || !got[0].Equal(first[0]) {
+		t.Errorf("snapshots = %v after a second detach, want only %v", got, first)
+	}
+	out := filepath.Join(t.TempDir(), "restored.db")
+	if err := m.Restore(bg, "app", out); err != nil {
+		t.Fatal(err)
+	}
+	if got := bodies(t, out); len(got) != 4 {
+		t.Errorf("restored rows = %v, want 4", got)
+	}
+}
+
 // TestMaintenancePrunesANamedDetachedReplica: a name that is not attached
 // loses its history older than the window and gets no snapshot.
 func TestMaintenancePrunesANamedDetachedReplica(t *testing.T) {

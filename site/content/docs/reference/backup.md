@@ -171,7 +171,7 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 
 Attach starts replicating the database at dbPath under name. It returns once the first sync has reached the replica, since until then a final sync does nothing. dbPath must exist and name must not be attached already.
 
-Call detach once, before the application's last checkpoint and close: it is the final sync. A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
+Call detach once, before the application's last checkpoint and close: it is the final sync. A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. After the sync, detach writes a snapshot when the newest is older than the snapshot interval, so that a database attached only between maintenance passes still gets snapshots, and its WAL segments a floor to be pruned at; a failed snapshot is logged, not returned. The stop timeout must cover it too. On a disabled Manager detach does nothing.
 
 #### func (*Manager) Collector {#Manager.Collector}
 

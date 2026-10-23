@@ -453,7 +453,12 @@ func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, e
 //
 // Call detach once, before the application's last checkpoint and close: it is
 // the final sync. A cancelled context gets a fresh one for it, bounded by
-// Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
+// Litestream's shutdown sync timeout. After the sync, detach writes a
+// snapshot when the newest is older than the snapshot interval, so that a
+// database attached only between maintenance passes still gets snapshots,
+// and its WAL segments a floor to be pruned at; a failed snapshot is logged,
+// not returned. The stop timeout must cover it too. On a disabled Manager
+// detach does nothing.
 func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(context.Context) error, err error) {
 	if !m.enabled {
 		return func(context.Context) error { return nil }, nil
@@ -529,6 +534,11 @@ func (m *Manager) detach(ctx context.Context, name string, a *attachedDB) error 
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), litestream.DefaultShutdownSyncTimeout)
 		defer cancel()
+	}
+	if err := a.db.SyncAndWait(ctx); err == nil {
+		if _, err := m.snapshotIfDue(ctx, name, a.db, time.Now()); err != nil {
+			m.log.Warn("backup: no snapshot at detach; the next detach or attached pass takes one", "replica", name, "error", err)
+		}
 	}
 	if err := a.db.Close(ctx); err != nil {
 		return fmt.Errorf("backup: final sync of %s: %w", name, err)

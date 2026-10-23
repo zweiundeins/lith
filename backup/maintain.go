@@ -306,27 +306,9 @@ func (m *Manager) logMaintenance(results map[string]error, failing map[string]in
 func (m *Manager) maintain(ctx context.Context, name string, a *attachedDB, now time.Time) error {
 	db := a.db
 	client := db.Replica.Client
-	snaps, err := listSnapshots(ctx, client)
+	snaps, err := m.snapshotIfDue(ctx, name, db, now)
 	if err != nil {
-		return fmt.Errorf("backup: maintain %s: %w", name, err)
-	}
-	if len(snaps) == 0 || now.Sub(snaps[len(snaps)-1].createdAt) >= m.snapshotInterval {
-		pos, err := db.Pos()
-		if err != nil {
-			return fmt.Errorf("backup: maintain %s: %w", name, err)
-		}
-		// A snapshot is named by its position, so one at a position already
-		// snapshotted would replace that snapshot and move its time forward.
-		if !slices.ContainsFunc(snaps, func(s snapMeta) bool { return s.maxTXID == pos.TXID }) {
-			info, err := db.Snapshot(ctx)
-			if err != nil {
-				return fmt.Errorf("backup: snapshot %s: %w", name, err)
-			}
-			if info != nil {
-				snaps = slices.DeleteFunc(snaps, func(s snapMeta) bool { return s.maxTXID == info.MaxTXID })
-				snaps = append(snaps, snapMeta{createdAt: info.CreatedAt, maxTXID: info.MaxTXID, info: info})
-			}
-		}
+		return err
 	}
 	before := a.deletes.n.Load()
 	defer func() {
@@ -358,6 +340,36 @@ func (m *Manager) maintain(ctx context.Context, name string, a *attachedDB, now 
 	m.maintenance[name] = r
 	m.mu.Unlock()
 	return nil
+}
+
+// snapshotIfDue writes a full snapshot of db when the newest is older than
+// the snapshot interval at now, and returns the snapshots, oldest first.
+func (m *Manager) snapshotIfDue(ctx context.Context, name string, db *litestream.DB, now time.Time) ([]snapMeta, error) {
+	snaps, err := listSnapshots(ctx, db.Replica.Client)
+	if err != nil {
+		return nil, fmt.Errorf("backup: maintain %s: %w", name, err)
+	}
+	if len(snaps) > 0 && now.Sub(snaps[len(snaps)-1].createdAt) < m.snapshotInterval {
+		return snaps, nil
+	}
+	pos, err := db.Pos()
+	if err != nil {
+		return nil, fmt.Errorf("backup: maintain %s: %w", name, err)
+	}
+	// A snapshot is named by its position, so one at a position already
+	// snapshotted would replace that snapshot and move its time forward.
+	if slices.ContainsFunc(snaps, func(s snapMeta) bool { return s.maxTXID == pos.TXID }) {
+		return snaps, nil
+	}
+	info, err := db.Snapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("backup: snapshot %s: %w", name, err)
+	}
+	if info != nil {
+		snaps = slices.DeleteFunc(snaps, func(s snapMeta) bool { return s.maxTXID == info.MaxTXID })
+		snaps = append(snaps, snapMeta{createdAt: info.CreatedAt, maxTXID: info.MaxTXID, info: info})
+	}
+	return snaps, nil
 }
 
 // maintainDetached prunes a replica that is not attached by maintain's rule,
