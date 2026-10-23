@@ -23,8 +23,9 @@ import (
 // rewrites the next event as the new one.
 //
 // backlog is a stream of 90,000 events, 40,000 of them older than Since
-// and not compacted yet: each command appends an event and compacts 10,
-// while Since moves on by an event.
+// and not compacted yet (more for more than 4,000 commands, 10 for each):
+// each command appends an event and compacts 10, while Since moves on by
+// an event.
 //
 //	go test ./events -run '^$' -bench Compact -benchtime 2000x
 func BenchmarkCompact(b *testing.B) {
@@ -43,7 +44,11 @@ func BenchmarkCompact(b *testing.B) {
 		}, 1)
 	})
 	b.Run("backlog", func(b *testing.B) {
-		const stream, old = 90_000, 40_000
+		// Each command compacts 10 and moves Since by one, so the backlog
+		// shrinks by 9 a command: it holds 10 for each, or a -benchtime in
+		// seconds runs past it.
+		old := max(40_000, 10*b.N)
+		stream := old + 50_000
 		w, st, t0 := compactBench(b, stream)
 		runCompact(b, w, st, t0, stream, func(k int) events.Retention {
 			return events.Retention{Since: time.UnixMilli(t0 + int64(old+k)), Limit: 10}
