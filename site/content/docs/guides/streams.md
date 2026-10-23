@@ -100,10 +100,12 @@ So memory caps the streams: the budget books what each tab holds and turns away 
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
 		Ack:       ackEvent(tab),
-		Build:     r.Header.Get("Page-Build"),
+		Build:     page.Build,
 		Page:      r.Header.Get("Page-Path"),
-		Dirty:     r.Header.Get("Page-Dirty") == "true",
-		Refresh:   s.refresh,
+		Dirty:     page.Dirty,
+		Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+			return s.refresh(ctx, rq, page.Assets)
+		},
 	}
 ```
 
@@ -138,16 +140,18 @@ const slowLink = `((c, n) => c ? c.saveData || ['slow-2g', '2g', '3g'].includes(
 
 // openStream opens the tab's stream on the element with id "stream". On a
 // slow link, measured as the page starts, it sends Save-Data: on
-// (edge.SlowLink). The URL stays the same, so a stream opened again aborts
-// the old request. retry 'error' retries network errors and every answer
-// from 400 to 599 and never gives up, which carries the page through a
-// restart; a 204 or a 3xx stops it, and a stream the server ends stays
-// closed: on a deploy the server ends it with sse.Reconnect, which runs
-// this again. It marks the page out of sync until the tab view's first
-// frame. Its headers report the page's build, assets version, path and
-// whether the person typed, for a refresh after a deploy (web.refresh); a
-// retry repeats those of its first request.
-const openStream = `($_synced = false, @get('/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Assets': $_assets, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty), ...($_slow ? {'Save-Data': 'on'} : {})}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))`
+// (edge.SlowLink). Datastar cancels by the URL written here, without the
+// signals, so a stream opened again aborts the old request. retry 'error'
+// retries network errors and every answer from 400 to 599 and never gives
+// up, which carries the page through a restart; a 204 or a 3xx stops it,
+// and a stream the server ends stays closed: on a deploy the server ends
+// it with sse.Reconnect, which runs this again. It marks the page out of
+// sync until the tab view's first frame. For a refresh after a deploy
+// (web.refresh) it reports the page's build, assets version and whether
+// the person typed as signals, which Datastar reads afresh for every
+// reopen, a retry or the tab shown again, where it repeats the first
+// request's headers; the path, which never changes, goes in a header.
+const openStream = `($_synced = false, @get('/stream?tab=' + $_tab, {headers: {'Page-Path': location.pathname + location.search, ...($_slow ? {'Save-Data': 'on'} : {})}, filterSignals: {include: /^_(build|assets|dirty)$/, exclude: /(?!)/}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))`
 ```
 
 The measurement is a Datastar expression, so it needs no script beyond the CSP's `'unsafe-eval'`, which Datastar needs anyway. It runs in `data-signals`, not in the stream's `data-init`, which runs again on every reconnect.
@@ -157,7 +161,8 @@ The measurement is a Datastar expression, so it needs no script beyond the CSP's
 ```go source=template/internal/web/server.go
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
-	if !validID(tab) {
+	var page pageState
+	if !validID(tab) || sse.ReadSignals(w, r, &page) != nil {
 		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
@@ -169,10 +174,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
 		Ack:       ackEvent(tab),
-		Build:     r.Header.Get("Page-Build"),
+		Build:     page.Build,
 		Page:      r.Header.Get("Page-Path"),
-		Dirty:     r.Header.Get("Page-Dirty") == "true",
-		Refresh:   s.refresh,
+		Dirty:     page.Dirty,
+		Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+			return s.refresh(ctx, rq, page.Assets)
+		},
 	}
 	if err := s.hub.Serve(w, r, spec); err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)
@@ -432,10 +439,12 @@ The stream handler uses it as the stream's `Spec.ID`, and gives the stream its `
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
 		Ack:       ackEvent(tab),
-		Build:     r.Header.Get("Page-Build"),
+		Build:     page.Build,
 		Page:      r.Header.Get("Page-Path"),
-		Dirty:     r.Header.Get("Page-Dirty") == "true",
-		Refresh:   s.refresh,
+		Dirty:     page.Dirty,
+		Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+			return s.refresh(ctx, rq, page.Assets)
+		},
 	}
 ```
 

@@ -97,13 +97,22 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
+// pageState is what the stream's request reports in its signals, for a
+// refresh after a deploy: the build that rendered the page, and whether
+// the person typed (openStream).
+type pageState struct {
+	Build string `json:"_build"`
+	Dirty bool   `json:"_dirty"`
+}
+
 // stream sends the tab its views: the board and who is on it, the tab's
 // own region, the session's preferences, and the panel the tab's row says
 // is open, so a page that reconnects after a deploy gets its panel back.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	tab := r.URL.Query().Get("tab")
-	if err != nil || !validID(tab) {
+	var page pageState
+	if err != nil || !validID(tab) || sse.ReadSignals(w, r, &page) != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -121,7 +130,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	err = s.hub.Serve(w, r, live.Spec{
 		ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
-		Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Dirty: r.Header.Get("Page-Dirty") == "true",
+		Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 		Refresh: s.refresh,
 	})
 	if err != nil {

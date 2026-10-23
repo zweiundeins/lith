@@ -8,7 +8,8 @@ import (
 )
 
 // The page's Datastar expressions. Its signals start with _, so they stay
-// in the browser: an action sends only its payload.
+// in the browser: an action sends only its payload, and the stream only
+// the signals openStream names.
 
 // StreamID is the element whose data-init opens the tab's stream: on a
 // deploy, the stream's last event (live.Spec.Reconnect) replaces it with
@@ -37,12 +38,14 @@ func signals(tab, build string, p board.Prefs) string {
 // the tab view's first frame. retry 'error' retries network errors and
 // every answer from 400 to 599 without end, which carries the page
 // through a restart; a 204 or a 3xx stops it, and a stream the server
-// ended stays closed. Its headers report the page's build, path and
-// whether the person typed, for a refresh (Server.refresh); headers, so
-// that the URL stays the same and a stream opened again aborts the old
-// request.
+// ended stays closed. For a refresh (Server.refresh) it reports the
+// page's build and whether the person typed as signals, which Datastar
+// reads afresh for every reopen, a retry or the tab shown again, where
+// it repeats the first request's headers; the path, which never changes,
+// goes in a header. Datastar cancels by the URL written here, without the
+// signals, so a stream opened again still aborts the old request.
 func openStream(b int64) string {
-	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty)}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
+	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {headers: {'Page-Path': location.pathname + location.search}, filterSignals: {include: /^_(build|dirty)$/, exclude: /(?!)/}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
 }
 
 // typed marks the page dirty: a refresh asks for a reload instead.

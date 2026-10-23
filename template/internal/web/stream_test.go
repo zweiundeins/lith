@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -129,8 +130,15 @@ func TestRefresh(t *testing.T) {
 		t.Fatalf("the page lacks its build and assets:\n%s", page)
 	}
 	assets := string(m[1])
+	if !strings.Contains(string(page), `filterSignals: {include: /^_(build|assets|dirty)$/, exclude: /(?!)/}`) {
+		t.Fatalf("the stream does not report the page's build, assets and typing:\n%s", page)
+	}
 	open := func(tab, build, assets string, dirty bool) <-chan string {
-		return listen(t, c, base+"/stream?tab="+tab, http.Header{"Page-Build": {build}, "Page-Assets": {assets}, "Page-Path": {"/"}, "Page-Dirty": {strconv.FormatBool(dirty)}})
+		signals, err := json.Marshal(map[string]any{"_build": build, "_assets": assets, "_dirty": dirty})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return listen(t, c, base+"/stream?tab="+tab+"&datastar="+url.QueryEscape(string(signals)), http.Header{"Page-Path": {"/"}})
 	}
 
 	events := open("tab1", "old", assets, false)

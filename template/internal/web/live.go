@@ -102,13 +102,13 @@ func Stopping(live.Spec) [][]byte {
 // #ops and the signals stay outside it. When the person has typed into the
 // form, or the page's scripts and stylesheet changed, it asks for a reload
 // instead: a morph would take what was typed, or leave new markup with the
-// old stylesheet.
-func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+// old stylesheet. assets is the assets version the page reported.
+func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest, assets string) ([][]byte, error) {
 	var msg string
 	switch {
 	case rq.Dirty:
 		msg = views.UpdateTyped
-	case rq.Request.Header.Get("Page-Assets") != s.assets:
+	case assets != s.assets:
 		msg = views.UpdateAssets
 	}
 	if msg != "" {

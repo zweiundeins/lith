@@ -133,6 +133,15 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
+// pageState is what the stream's request reports in its signals, for a
+// refresh after a deploy (views.openStream): the build and the assets
+// version that rendered the page, and whether the person typed.
+type pageState struct {
+	Build  string `json:"_build"`
+	Assets string `json:"_assets"`
+	Dirty  bool   `json:"_dirty"`
+}
+
 // stream sends the tab its views: the shared entries, then its own state.
 // A tab on a slow link gets each view's frames about four times a second.
 // The stream sends every frame until /pace paces it. It counts under the
@@ -141,7 +150,8 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 // is refreshed first (refresh).
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
-	if !validID(tab) {
+	var page pageState
+	if !validID(tab) || sse.ReadSignals(w, r, &page) != nil {
 		w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 		return
 	}
@@ -153,10 +163,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		Reconnect: "stream",
 		Slow:      edge.SlowLink(r),
 		Ack:       ackEvent(tab),
-		Build:     r.Header.Get("Page-Build"),
+		Build:     page.Build,
 		Page:      r.Header.Get("Page-Path"),
-		Dirty:     r.Header.Get("Page-Dirty") == "true",
-		Refresh:   s.refresh,
+		Dirty:     page.Dirty,
+		Refresh: func(ctx context.Context, rq live.RefreshRequest) ([][]byte, error) {
+			return s.refresh(ctx, rq, page.Assets)
+		},
 	}
 	if err := s.hub.Serve(w, r, spec); err != nil {
 		s.log.Debug("stream ended", "tab", tab, "err", err)

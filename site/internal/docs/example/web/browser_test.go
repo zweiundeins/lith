@@ -212,6 +212,66 @@ func TestRefreshAfterDeploy(t *testing.T) {
 	}
 }
 
+// synced waits until the page's stream is open again and its tab view has
+// spoken, and fails unless the hub counts refreshes and one stream.
+func synced(t *testing.T, s server, p *browser.Page, refreshes int64) {
+	t.Helper()
+	p.Wait(t, `document.getElementById('synced-probe').textContent === 'true'`, 20*time.Second)
+	if st := s.hub.Stats(); st.Refreshes != refreshes || st.Streams != 1 {
+		t.Fatalf("%d refreshes, %d streams; want %d and 1", st.Refreshes, st.Streams, refreshes)
+	}
+}
+
+// TestRefreshAfterReopen reopens the stream of a refreshed page in the
+// ways that run no data-init: the tab hidden and shown again, and a retry
+// after the connection broke. Datastar keeps a @get's headers from its
+// first request then, but reads the signals afresh, so the page reports
+// the running build and is not refreshed again, with one stream open. A
+// page of a former build where the person typed reports that too, and
+// gets the notice, not the morph.
+func TestRefreshAfterReopen(t *testing.T) {
+	s := startWith(t, nil)
+	p := open(t, s)
+	p.Eval(t, `(document.querySelector('main').insertAdjacentHTML('beforeend', '<span id="synced-probe" data-text="$_synced"></span>'), true)`, nil)
+	staleBuild(t, p)
+	reconnect(t, p)
+	p.Wait(t, `!document.getElementById('stale') && document.getElementById('build-probe').textContent === 'now'`, 10*time.Second)
+	synced(t, s, p, 1)
+	for range 2 {
+		visible(t, p, false, true)
+		closed(t, s)
+		visible(t, p, true, true)
+		synced(t, s, p, 1)
+	}
+	s.block.Store(true)
+	s.srv.CloseClientConnections() // the stream breaks; its retries get 503
+	closed(t, s)
+	p.Wait(t, `document.getElementById('synced-probe').textContent === 'false'`, 5*time.Second)
+	s.block.Store(false)
+	synced(t, s, p, 1)
+
+	p.Eval(t, `(() => {
+		const input = document.querySelector('form input')
+		input.value = 'Draft'
+		input.dispatchEvent(new Event('input', {bubbles: true}))
+		return true
+	})()`, nil)
+	staleBuild(t, p)
+	visible(t, p, false, true)
+	closed(t, s)
+	visible(t, p, true, true)
+	p.Wait(t, `document.getElementById('update').textContent.includes('This board has a new version.') && document.getElementById('build-probe').textContent === 'now'`, 10*time.Second)
+	synced(t, s, p, 2)
+	var ok bool
+	p.Eval(t, `!!document.getElementById('stale') && document.querySelector('form input').value === 'Draft'`, &ok)
+	if !ok {
+		t.Fatal("the reopen morphed the page the person typed into")
+	}
+	if errs := scriptErrors(p); len(errs) > 0 {
+		t.Errorf("page errors: %v", errs)
+	}
+}
+
 // TestReconnectWhileInFlight reconnects the stream while the op's request
 // still waits in the writer: its first frame lacks the ack, and nothing is
 // decided yet, so the op stays pending until its ack, and one card comes

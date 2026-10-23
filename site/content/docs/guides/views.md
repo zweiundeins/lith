@@ -307,7 +307,7 @@ if state.Panel != 0 {
 }
 err = s.hub.Serve(w, r, live.Spec{
 	ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
-	Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Dirty: r.Header.Get("Page-Dirty") == "true",
+	Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 	Refresh: s.refresh,
 })
 ```

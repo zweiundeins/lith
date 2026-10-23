@@ -284,7 +284,7 @@ The stream opens from an element with an id, with Datastar's `retry: 'error'`:
 
 ```go source=site/internal/docs/example/web/expr.go
 func openStream(b int64) string {
-	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {headers: {'Page-Build': $_build, 'Page-Path': location.pathname + location.search, 'Page-Dirty': String($_dirty)}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
+	return "($_synced = false, @get('/boards/" + strconv.FormatInt(b, 10) + "/stream?tab=' + $_tab, {headers: {'Page-Path': location.pathname + location.search}, filterSignals: {include: /^_(build|dirty)$/, exclude: /(?!)/}, retry: 'error', retryMaxCount: Infinity, retryMaxWait: 10000}))"
 }
 ```
 
@@ -300,15 +300,30 @@ The stream's `Spec.Reconnect` names that element. When the server stops for a de
 
 A stream that reconnects after a deploy renders its views afresh, but the rest of the page is still the HTML the old process rendered: a heading, a form's labels, a list that no view renders. A reader of a blog keeps the old list of posts until they reload. `live.Spec.Refresh` brings such a page up to date as its stream opens.
 
-**What the page reports.** The page starts with the build that rendered it in `$_build`, from `hub.Build()`. That is `live.Options.Build`, by default the binary's VCS revision, with `+dirty` for a build from a modified tree; a binary built without VCS information has none, and refresh stays off until the app sets one, such as the version it links in (the template sets its `-X main.version`). `$_dirty` turns true on input in the form and false when the form is sent. The stream's request sends both and the page's own path, `location.pathname + location.search`, in headers, as `openStream` above shows. Headers keep the stream's URL the same, so a stream opened again still aborts the old request. A retry repeats the headers of its first request. The stream handler passes them on:
+**What the page reports.** The page starts with the build that rendered it in `$_build`, from `hub.Build()`. That is `live.Options.Build`, by default the binary's VCS revision, with `+dirty` for a build from a modified tree; a binary built without VCS information has none, and refresh stays off until the app sets one, such as the version it links in (the template sets its `-X main.version`). `$_dirty` turns true on input in the form and false when the form is sent. The stream's request sends both as signals, in its `datastar` query parameter, and the page's own path, `location.pathname + location.search`, which never changes for a page, in a header, as `openStream` above shows. Datastar leaves signals that start with `_` out of a request unless `filterSignals` names them, and an `include` alone does not do: the default `exclude` still drops every `_` signal, so `openStream` sets `exclude: /(?!)/`, which matches nothing.
+
+Signals, not headers. Datastar 1.0.4 builds a `@get`'s headers once, as the expression runs, and when it opens the stream again by itself, a retry after a broken connection or a hidden tab shown again, it sends those headers but reads the signals afresh. A build in a header stays the one the page reported first, though lith patched `$_build` meanwhile, so a hidden tab shown again after a deploy is refreshed every time; and a typed flag in a header stays false after the person typed, so their page is morphed. Datastar cancels a request by its method and the URL the expression names, before it adds the signals, so a stream opened again still aborts the old request; the hub ends a stream that a newer one with its `ID` replaces, too.
+
+The stream handler reads the signals with `sse.ReadSignals(w, r, &page)`, which reads a GET's from its query parameter, into:
+
+```go source=site/internal/docs/example/web/server.go
+type pageState struct {
+	Build string `json:"_build"`
+	Dirty bool   `json:"_dirty"`
+}
+```
+
+and passes them on:
 
 ```go source=site/internal/docs/example/web/server.go
 	err = s.hub.Serve(w, r, live.Spec{
 		ID: streamID(sid, tab), Views: views, WriteTick: tailor(), Reconnect: StreamID,
-		Build: r.Header.Get("Page-Build"), Page: r.Header.Get("Page-Path"), Dirty: r.Header.Get("Page-Dirty") == "true",
+		Build: page.Build, Page: r.Header.Get("Page-Path"), Dirty: page.Dirty,
 		Refresh: s.refresh,
 	})
 ```
+
+**Which build.** The default `Options.Build` is the same for every local build of a modified tree (the revision with `+dirty`), so a page loaded from one local build never refreshes on the next. An app can set `Build` to something that follows the content instead, such as a hash over every page's ETag: then a deploy that changes no page keeps the build, and its tabs get nothing at all.
 
 **When it runs.** When `Spec.Refresh` is set and `Spec.Build` is not empty and differs from `hub.Build()`. A page loaded from the running build reports that build, and nothing happens. Otherwise lith calls `Refresh` and writes its events as the stream's first write, before the views' first frames. After those frames it patches the build signal (`live.Options.BuildSignal`, `_build` by default) to the running build in a signal patch of its own, never inside the morphed markup, so the next reconnect refreshes nothing. It patches the signal too when `Refresh` returns nil.
 
@@ -349,28 +364,28 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte,
 **What a refresh may morph.** A container the app names, such as `#content` or `<main id="main">`, never `<body>`:
 
 - The stream's element (`Spec.Reconnect`) stays outside it. A morph of it would run its `data-init` again and open a second stream. lith skips a refresh whose events hold an element with that id, logs it at warn and counts it (`Stats.RefreshesGuarded`). The page's signals and `#ops` stay outside too.
-- Live views inside the container are fine: their first frames follow the refresh and win. The board's lanes, its presence and the tab's outcome render afresh twice, once in the refresh and once in their views' frames.
+- Live views inside the container are fine: their first frames follow the refresh and win. The board's lanes, its presence and the tab's outcome render afresh twice, once in the refresh and once in their views' frames. A live region the refresh renders as a placeholder shows it for an instant before its frame follows, which does no harm.
 - Signals declared in the refreshed markup use Datastar's `__ifmissing` (`data-signals:x__ifmissing`), so they add a signal the new build needs and leave the page's own values alone. A plain `data-signals` would overwrite them, the tab id and the pending ops among them.
 - Elements with `data-init` or `data-on-intersect` inside the container keep stable ids and unchanged attributes, since a morph that leaves an element's attributes as they are runs nothing again; or they sit inside a live view, or carry `data-ignore-morph`. Stateful custom elements likewise. An attribute a signal drives keeps its value through the morph with `data-preserve-attr`, as the form's `readonly` and `aria-busy` do.
 - A page with input the person typed (`Dirty`) gets a notice that asks for a reload, not a morph.
-- A page whose scripts or stylesheets changed gets the notice too: a morph would put new markup under the old hashed CSS, or call modules the page never loaded. The template's page reports its assets version in a `Page-Assets` header, and its `Refresh` compares it:
+- A page whose scripts or stylesheets changed gets the notice too: a morph would put new markup under the old hashed CSS, or call modules the page never loaded. The template's page reports its assets version in the signal `$_assets`, which its stream handler hands to its `Refresh`, and that compares it:
 
 ```go source=template/internal/web/live.go
 	switch {
 	case rq.Dirty:
 		msg = views.UpdateTyped
-	case rq.Request.Header.Get("Page-Assets") != s.assets:
+	case assets != s.assets:
 		msg = views.UpdateAssets
 	}
 ```
 
-**A page the deploy did not change.** `Refresh` returns nil when the page is current, such as when the page reported an ETag in a header of its own that matches the one the running build computes for it. A deploy that did not touch a page then costs its tabs only that check (`Stats.RefreshesUnchanged`), and the build signal is patched all the same.
+**A page the deploy did not change.** `Refresh` returns nil when the page is current, such as when the page reports its ETag in a signal of its own, which a refresh patches with the new content, and it matches the one the running build computes for it. A deploy that did not touch a page then costs its tabs only that check (`Stats.RefreshesUnchanged`), and the build signal is patched all the same.
 
 **Pages without a stream.** A refresh needs a stream. An app that wants it on every page opens a stream on every page, with `Reconnect` and no views or only the tab's own: an idle stream that hibernates costs little ([Hibernation](/docs/guides/streams#hibernation)).
 
 **After a deploy, all at once.** Every open tab reconnects within a few seconds of a deploy, and each one that a former build rendered calls `Refresh`. At most `Options.RefreshConcurrency` refreshes run at once, the hub's render `Workers` by default, each under `RenderTimeout`. A refresh that fails, runs past `RenderTimeout`, or finds no slot within `live.RefreshWait` (1 s) is skipped and logged, and the stream goes on without it. Such a stream leaves the build signal as it was, so the page asks again on its next reconnect. prom exports the counts as `<namespace>_live_refreshes_total`, `_refreshes_unchanged_total` and `_refreshes_skipped_total{reason}`, with the reasons `error`, `timeout`, `busy` and `stream_element`.
 
-`TestRefreshAfterDeploy` (`site/internal/docs/example/web`) loads a board, makes it a page of an old build and reconnects its stream in headless Chromium: `#content` is rendered afresh, the page keeps one stream and `$_build` becomes the running build. With a title typed, the page gets the notice and keeps the title.
+`TestRefreshAfterDeploy` (`site/internal/docs/example/web`) loads a board, makes it a page of an old build and reconnects its stream in headless Chromium: `#content` is rendered afresh, the page keeps one stream and `$_build` becomes the running build. With a title typed, the page gets the notice and keeps the title. `TestRefreshAfterReopen` then hides and shows the refreshed tab twice and breaks its connection: the page reports the running build, is not refreshed again and keeps one stream; a page of an old build where the person typed gets the notice when it shows again, not the morph.
 
 ## What an action's answer carries
 
@@ -390,7 +405,7 @@ The page that posts it follows the signal with `data-effect="$_goto && location.
 
 Datastar sends a request's signals, or the `payload` it names, as the `datastar` query parameter for `@get` and `@delete`, and as a JSON body for every other verb. A lith page picks the verb by what the request does:
 
-- `@get` opens the stream, and makes reads whose signals are all `_` and stay in the browser: the tab's id travels in the address. Datastar closes a `@get` while the tab is hidden and opens it again when the tab shows.
+- `@get` opens the stream, and makes reads whose signals are all `_` and stay in the browser, but for the few a `filterSignals` names, such as the build the stream reports: the tab's id travels in the address. Datastar closes a `@get` while the tab is hidden and opens it again when the tab shows.
 - `@query`, the HTTP QUERY method, makes a read that sends real signals in its body: a search, a filter, a measurement. It writes nothing, like a GET, and `edge.Compress` compresses its answer as it does a GET's. A `@query` stays open in a hidden tab, so one that opens a stream sets `openWhenHidden: false`.
 - `@post` sends a command.
 
