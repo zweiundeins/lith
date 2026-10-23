@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/writer"
 
 	"github.com/zweiundeins/lith/site/internal/demo"
@@ -39,7 +40,7 @@ func mount(k *demo.Kit) {
 			w.WriteHeader(http.StatusBadRequest) // no page of ours sends it
 			return
 		}
-		cmd := Start{Viewer: v, Op: body.Op, Settings: Settings{body.Producers, body.Sync}, At: time.Now(), Joined: r.wake}
+		cmd := Start{Viewer: v, Op: body.Op, Settings: Settings{body.Producers, body.Sync}, At: time.Now(), Client: edge.ClientKey(req), Joined: r.wake}
 		// A retried request (a flaky network) starts one race.
 		k.Act(w, req, v, demo.Ack{"ack": body.Op}, writer.Once(Slug+":"+v.Session+":"+body.Op, cmd))
 	})

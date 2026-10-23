@@ -27,6 +27,11 @@ const (
 	Kept     = 100                    // races the sweep keeps
 	Charted  = 12                     // races whose samples the sweep keeps
 	Stale    = 15 * time.Minute       // a race in line this long is dropped
+	// PerAddress is how many races of one client address may be in line
+	// or on the track: a client mints a session with every request that
+	// sends no cookie, so one race per session alone let one address fill
+	// the line. Two leave a turn to a second visitor behind the address.
+	PerAddress = 2
 	// A session starts a race once in ten seconds, after two at once; it
 	// has one in line at most anyway.
 	startEvery = 10 * time.Second

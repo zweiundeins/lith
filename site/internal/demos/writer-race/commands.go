@@ -24,13 +24,16 @@ type TabState struct {
 }
 
 // Start puts a race in line for the viewer's session, unless the session
-// has one in line or on the track already, or the line is full, and
-// records the outcome in the tab's state.
+// has one in line or on the track already, its client address has
+// PerAddress, or the line is full, and records the outcome in the tab's
+// state.
 type Start struct {
 	Viewer demo.Viewer
 	Op     string
 	Settings
 	At time.Time
+	// Client is the client's address (edge.ClientKey); "" counts none.
+	Client string
 	// Joined runs once a race joined the line and the batch committed: it
 	// wakes the runner.
 	Joined func()
@@ -58,6 +61,17 @@ func (c Start) Apply(tx *writer.Tx) error {
 		// The tab follows the session's race from now on.
 		state.Race, state.Again = mine, true
 	default:
+		if c.Client != "" {
+			var theirs int
+			if err := tx.QueryRow(`SELECT count(*) FROM writer_race_races WHERE client = ? AND state IN ('queued', 'running')`,
+				c.Client).Scan(&theirs); err != nil {
+				return err
+			}
+			if theirs >= PerAddress {
+				state.Refusal = fmt.Sprintf("%d races from your network are on their way already. Try again once one has run.", theirs)
+				break
+			}
+		}
 		var waiting int
 		if err := tx.QueryRow(`SELECT count(*) FROM writer_race_races WHERE state = 'queued'`).Scan(&waiting); err != nil {
 			return err
@@ -66,8 +80,8 @@ func (c Start) Apply(tx *writer.Tx) error {
 			state.Refusal = fmt.Sprintf("%d races wait already. Try again in a minute.", waiting)
 			break
 		}
-		res, err := tx.Exec(`INSERT INTO writer_race_races (sid, producers, sync, state, queued_at) VALUES (?, ?, ?, 'queued', ?)`,
-			c.Viewer.Session, c.Producers, c.Sync, c.At.UnixMilli())
+		res, err := tx.Exec(`INSERT INTO writer_race_races (sid, client, producers, sync, state, queued_at) VALUES (?, ?, ?, ?, 'queued', ?)`,
+			c.Viewer.Session, c.Client, c.Producers, c.Sync, c.At.UnixMilli())
 		if err != nil {
 			return err
 		}

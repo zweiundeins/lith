@@ -119,6 +119,41 @@ func TestStart(t *testing.T) {
 	}
 }
 
+// TestStartPerAddress: one address with a new session for every start, as
+// a client that sends no cookie has, puts PerAddress races in line and no
+// more, while another address still gets in; once one of them has run,
+// the address gets a turn again.
+func TestStartPerAddress(t *testing.T) {
+	e := demotest.Open(t, Demo)
+	at := time.UnixMilli(1_800_000_000_000)
+	from := func(addr string, i int) demo.Viewer {
+		v := demo.Viewer{Session: fmt.Sprint(addr, "-s", i), Tab: fmt.Sprint(addr, "-t", i)}
+		cmd := startCmd(v, "op", 1, "NORMAL", at)
+		cmd.Client = addr
+		e.Do(t, cmd)
+		return v
+	}
+	for i := range PerAddress {
+		if o := tab(t, e, from("198.51.100.7", i)); o.Race.ID == 0 || o.State.Refusal != "" {
+			t.Fatalf("start %d of the address: %+v", i, o)
+		}
+	}
+	over := from("198.51.100.7", PerAddress)
+	if o := tab(t, e, over); o.Race.ID != 0 || !strings.Contains(o.State.Refusal, "from your network") {
+		t.Fatalf("a start over PerAddress: %+v", o)
+	}
+	if o := tab(t, e, from("203.0.113.9", 0)); o.Race.ID == 0 {
+		t.Fatalf("another address: %+v", o)
+	}
+	e.Do(t, writer.Func(func(tx *writer.Tx) error {
+		_, err := tx.Exec(`UPDATE writer_race_races SET state = 'done' WHERE id = 1`)
+		return err
+	}))
+	if o := tab(t, e, from("198.51.100.7", PerAddress+1)); o.Race.ID == 0 {
+		t.Fatalf("after a race of the address ran: %+v", o)
+	}
+}
+
 // TestLifecycle walks a race through its states on the site's writer: it
 // waits Dwell in line, runs, takes samples, and ends with its numbers.
 func TestLifecycle(t *testing.T) {
