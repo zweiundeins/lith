@@ -84,7 +84,8 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    body ends one that does not arrive too; it leaves streams alone. An
    upload's handler wraps its body in `edge.Upload` before the first read
    and checks its error and `edge.TooLarge`; never set a read deadline
-   after the body's end.
+   after the body's end (clearing it is harmless). An app's own response
+   wrapper needs `Unwrap() http.ResponseWriter` for `edge.Upload`.
 8. **Reads go through the transaction you are given**: the worker's in a
    view, `db.View` for a GET document. A render's ctx carries its
    transaction, so a store that calls `db.View(ctx, fn)` from a render joins

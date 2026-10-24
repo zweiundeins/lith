@@ -238,7 +238,9 @@ any session that learns it push a notice with an ack it picks.
     op id and appends `<i data-op-key=key data-init="@post(path, {headers:
     {'Tab-Id', 'Op-Key', 'Op-Id'}, payload, requestCancellation:
     'disabled'})">` to it. The tab and op in headers let the handler check
-    its rate limit and notify before it reads the body. Headers are safe
+    its rate limit and notify before it reads the body; the handler reads
+    them from the headers only (a copy in the payload may stay for tests
+    and tools that post plain JSON, unread). Headers are safe
     here (each op's `<i>` runs its data-init once, with that op's values,
     and a retry should repeat them), not on the stream, whose reopens
     would repeat stale ones. The element lets the request outlive

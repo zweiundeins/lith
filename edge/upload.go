@@ -64,13 +64,15 @@ type UploadLimits struct {
 // It works with ParseMultipartForm, MultipartReader and plain reads, over
 // HTTP/1.1 and HTTP/2. Call it before the first Read. It sets the
 // deadlines through http.ResponseController, so w must unwrap to the
-// server's writer (lith's Compress and LogRequests do). When one cannot be
-// set, such as with httptest's recorder, err says so, wrapping
+// server's writer (lith's Compress and LogRequests do; an app's own
+// wrapper needs an Unwrap method returning the writer it wraps). When one
+// cannot be set, such as with httptest's recorder, err says so, wrapping
 // http.ErrNotSupported, and the body, still capped at Max, is usable
-// without it. It never touches the read deadline after the body's end or a
-// failed read: over HTTP/1.1 Go's server then watches the connection for
-// a client that leaves, and a read deadline set on it would cancel the
-// request's context when it passed. A write deadline has no such effect.
+// without it. It sets no read deadline after the body's end or a failed
+// read: over HTTP/1.1 Go's server then watches the connection for a client
+// that leaves, and a read deadline set on it would cancel the request's
+// context when it passed. Clearing it (the zero time, as ReadSignals does)
+// is harmless. A write deadline has no such effect.
 func Upload(w http.ResponseWriter, r *http.Request, l UploadLimits) (io.ReadCloser, error) {
 	l.Max = orDefault(l.Max, UploadMax)
 	l.MinRate = orDefault(l.MinRate, UploadMinRate)

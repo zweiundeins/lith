@@ -237,7 +237,7 @@ if !s.limit.Allow(edge.ClientKey(r), 1, time.Now()) {
 }
 ```
 
-The check needs only the tab and the op, and the page sends them in the `Tab-Id`, `Op-Key` and `Op-Id` headers ([Op ids and the pending state](/docs/guides/pages#op-ids-and-the-pending-state)), so `decode` turns a request away, and sends its notice, before it reads or decodes the body.
+The check needs only the tab and the op, and the page sends them in the `Tab-Id`, `Op-Key` and `Op-Id` headers ([Op ids and the pending state](/docs/guides/pages#op-ids-and-the-pending-state)), so `decode` turns a request away, and sends its notice, before it reads or decodes the body. The handler takes the tab and the op from the headers only. A copy in the payload may stay, for tests and tools that post plain JSON, but the handler doesn't read it, so the two can never disagree.
 
 A limit that a person can reach by using the app as intended is a rule of the product, not a rate limit. Model it as a command that counts in a table and refuses, a quota: "You have used this month's 20 scans." The person then reads it next to where they acted, and it survives a reload.
 
