@@ -12,7 +12,7 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 - `live`: the build signal follows the first render of every view, with or without a frame: since v0.5.1 a view whose `Render` returned nil, or failed, held it back for good, and every reconnect refreshed the page again. A frame dropped as stale goes out when the next render repeats it.
 - Docs and skill: a handler reads the tab and op from the `Tab-Id` and `Op-Id` headers only (a payload copy may stay, unread); an app's own response wrapper needs `Unwrap() http.ResponseWriter` for `edge.Upload`; clearing a read deadline after the body's end is harmless, only setting one is not.
-- Docs and skill, patterns from a co-editing layer: a bound per stream for `events.Compact`, kept as an index row; frames that carry every change since the tab's ack, so a dropped frame loses nothing.
+- Docs and skill, patterns from a co-editing layer: a bound per stream for `events.Compact`, kept as an index row; frames that carry every change since the tab's ack, so a dropped frame loses nothing; high-rate commits outside the tab's `Act`, idempotent by a reference the page makes, without `Once` rows.
 
 ## v0.5.1 (2026-10-23)
 

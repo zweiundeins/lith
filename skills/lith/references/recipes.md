@@ -389,6 +389,16 @@ err := s.w.Do(r.Context(), op) // the same *writer.Refusal on every retry
 After `Do`, `op.Result()` holds the first run's result (the card's id) and
 `op.Replayed()` tells a retry. `writer.PruneOnce` forgets old keys of both.
 
+High-rate edits a page's code makes, several a second per tab (an editor's
+keystroke commits), skip `Act` and `Once`: at 100 a second, `Once` would add
+8.6 million `lith_ops` rows a day, and `Act` rewrites the tab's row each
+time. The command is idempotent by a reference the page makes (a random id,
+or client id plus sequence), stored with the change and looked for among
+what it stored since the page's base: found, it succeeds without writing. A
+refusal goes into the tab's own editing row (the one with its ack) with the
+reference, and the view renders it. Everything a person clicks stays in
+`Act` with `Once`.
+
 ## In-process listeners
 
 `tx.Publish(v)` hands a value to the writer's subscribers once the batch

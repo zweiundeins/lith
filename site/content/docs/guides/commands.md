@@ -345,6 +345,15 @@ The op runs inside `Act` like every action, so a name that fails `CreateBoard`'s
 
 Both tables grow with every action. `writer.PruneOnce(24 * time.Hour)` forgets the keys older than a day; send it from the hourly sweep ([Migrations, jobs and imports](/docs/guides/migrations-and-jobs#sweeps)).
 
+### Commits outside the tab's Act
+
+`Act` and `Once` fit what a person decides: a click, a form sent. An editor that commits each burst of typing sends several commits a second per tab, and under `Act` and `Once` each would rewrite the tab's row and add a row to `lith_ops`: at 100 commits a second across the app, 8.6 million rows a day before `PruneOnce` forgets them. Such a commit is a command of its own, handed to `Do` without either:
+
+- It is idempotent by a reference the page makes, a random id per commit or the tab's client id with a sequence number, which the command stores with the change. Before it applies, it looks for the reference in what it stored already, such as the commits since the version the page built on, and succeeds without writing when it finds it. A resent commit applies once, and nothing but the data records it.
+- A refusal goes into a row of its own for the tab, the one that holds the tab's ack ([Views](/docs/guides/views#frames-that-carry-every-change-since-the-tabs-ack)), with the reference it refused. The tab's view renders it from there, so the person still reads why on the stream, and the next frame confirms the accepted commits by their references.
+
+Keep `Act` and `Once` for what a person clicks. Commit outside them when a tab sends several a second, made by the page's code rather than by a decision.
+
 ## Work after the commit
 
 A command never waits for the network: every command queued behind it waits while it runs. Mail, webhooks and calls to other services happen after the commit, outside the writer. `tx.AfterCommit(fn)` runs `fn` on the writer's goroutine once the batch has committed, before `Do` returns, and drops it if the command fails. `fn` must not block either.
