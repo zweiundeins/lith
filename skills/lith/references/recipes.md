@@ -399,6 +399,12 @@ refusal goes into the tab's own editing row (the one with its ack) with the
 reference, and the view renders it. Everything a person clicks stays in
 `Act` with `Once`.
 
+Such a commit answers one byte the page's code acts on at once (applied,
+rebase or reload, refused): `ApplyResult` returns it, the handler calls
+`Validate`, then `w.DoValue(ctx, cmd.ApplyResult)`, and maps the byte to a
+status (204, 409, 422) or sends it as the body. No person reads it, so SKILL.md's
+rule 5 holds: the refusal's message still comes on the stream from the tab's row.
+
 ## In-process listeners
 
 `tx.Publish(v)` hands a value to the writer's subscribers once the batch

@@ -425,7 +425,7 @@ The hub skips a refresh that found no slot rather than run it after the first fr
 
 ## What an action's answer carries
 
-An action answers 204 with no body. What it changed reaches the page on the stream, as it reaches every other page, in the next tick. An answer that patched elements would race the next frame, which renders the same region from the database and overwrites it. A message for the person, a validation error among them, is an outcome in the tab's row or a notice on its stream, never part of the answer ([Commands](/docs/guides/commands#outcomes-notices-and-the-pages-own-words)).
+An action answers 204 with no body. What it changed reaches the page on the stream, as it reaches every other page, in the next tick. An answer that patched elements would race the next frame, which renders the same region from the database and overwrites it. A message for the person, a validation error among them, is an outcome in the tab's row or a notice on its stream, never part of the answer ([Commands](/docs/guides/commands#outcomes-notices-and-the-pages-own-words)). A high-rate action that the page's code makes, such as an editor's commit, may answer one byte that code reads ([Commands](/docs/guides/commands#a-one-byte-answer-for-the-pages-code)).
 
 An answer may patch a signal for a navigation, which concerns that tab alone and has no region to render into. Creating a board sends the page to the new board, and a retry must send it to the same one:
 

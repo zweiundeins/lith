@@ -354,6 +354,10 @@ Both tables grow with every action. `writer.PruneOnce(24 * time.Hour)` forgets t
 
 Keep `Act` and `Once` for what a person clicks. Commit outside them when a tab sends several a second, made by the page's code rather than by a decision.
 
+### A one-byte answer for the page's code
+
+The editor's code must know at once what became of a commit, to send the next one, rebase, or stop: applied, made on a version too old to rebase, or refused. Waiting for the frame would hold back every commit after it. The command returns the answer as one byte from `ApplyResult` (`writer.ResultCommand`), the handler runs it with `w.DoValue(ctx, cmd.ApplyResult)` after calling its `Validate`, which `DoValue` skips, and answers a status for each byte (204, 409, 422), or the byte itself as the body. The page's code reads it, and no person sees it. That keeps the rule of [the handler's answer](#the-handlers-answer): what a person reads, the refusal's message or why the editor stopped, still comes on the stream, from the tab's row.
+
 ## Work after the commit
 
 A command never waits for the network: every command queued behind it waits while it runs. Mail, webhooks and calls to other services happen after the commit, outside the writer. `tx.AfterCommit(fn)` runs `fn` on the writer's goroutine once the batch has committed, before `Do` returns, and drops it if the command fails. `fn` must not block either.
