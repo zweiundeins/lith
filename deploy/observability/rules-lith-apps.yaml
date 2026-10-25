@@ -67,7 +67,7 @@ groups:
                 refId: C
                 type: threshold
           noDataState: OK
-          execErrState: Alerting
+          execErrState: KeepLast
           for: 5m
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }} answers more than 2% of its requests with a 5xx'
@@ -118,7 +118,7 @@ groups:
                 refId: C
                 type: threshold
           noDataState: OK
-          execErrState: Alerting
+          execErrState: KeepLast
           for: 10m
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }} has had more than one tick in ten take longer than the tick, for 10 minutes'
@@ -169,7 +169,7 @@ groups:
                 refId: C
                 type: threshold
           noDataState: OK
-          execErrState: Alerting
+          execErrState: KeepLast
           for: 10m
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }} drops more than 5% of its frames for 10 minutes'
@@ -220,7 +220,7 @@ groups:
                 refId: C
                 type: threshold
           noDataState: OK
-          execErrState: Alerting
+          execErrState: KeepLast
           for: 0s
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }} has had more than 3 commands fail in 10 minutes'
@@ -271,7 +271,7 @@ groups:
                 refId: C
                 type: threshold
           noDataState: OK
-          execErrState: Alerting
+          execErrState: KeepLast
           for: 0s
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }} has turned streams away for want of memory in the last 10 minutes'
@@ -323,7 +323,7 @@ groups:
                 refId: C
                 type: threshold
           noDataState: OK
-          execErrState: Alerting
+          execErrState: KeepLast
           for: 1m
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }}: the projector {{ $labels.projector }} has parked on an event that kept failing'
@@ -380,7 +380,7 @@ groups:
                 refId: C
                 type: threshold
           noDataState: OK
-          execErrState: Alerting
+          execErrState: KeepLast
           for: 10m
           annotations:
             summary: '{{ $labels.app }}{{ with $labels.slot }} ({{ . }}){{ end }}: the projector {{ $labels.projector }} has been more than 1,000 positions behind its stream for 10 minutes'
