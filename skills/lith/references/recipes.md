@@ -117,6 +117,13 @@ A file named `*.min.js` or `*.min.css`, or one that minifying shrinks by
 less than a twentieth, goes out as written: a vendored build keeps the
 bytes its integrity hash pins.
 
+JavaScript that a Go module ships for its browser side needs no vendor
+command: the app's esbuild script aliases the module's folder, found with
+`go list -m -f '{{.Dir}}' <module>` (the version in go.mod, or a `replace`
+checkout), so the JS always matches the Go code. Alias the peer packages it
+shares with the app (ProseMirror's, say) to the app's own `node_modules`
+and pin the same versions, or they are bundled twice and `instanceof` breaks.
+
 ## A command
 
 A command is a value with `Apply`. Checks that read before they write go
