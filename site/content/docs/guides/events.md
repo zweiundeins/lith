@@ -360,6 +360,22 @@ Rewriting a stored event is the one deliberate exception to events never changin
 
 Positions stay in order, so reads as of a position stay right from the newest snapshot on. `events.Bounds` returns it as the kind's first position, and from there `StateAt`, `LoadUntil`, a replay of the log and a history table read what they read before; `StateAt` refuses a position before a stream's snapshot, whose state there is gone. A stream keeps one snapshot at most, so the snapshots that stay are bounded by the number of streams, and a later `Compact` rewrites only the streams that lost events since. It refuses a stream whose first events `Prune` took, as it cannot fold that stream's state.
 
+### A bound per stream, kept as an index row
+
+`Compact` cuts a kind at one position, the first event stored at or after `Since`. Some apps need a bound per stream: a co-edited document may fold only the commits that one of its saved versions holds, so each document has its own oldest commit that must stay. Scanning every stream for it on each sweep grows with the streams. Keep the bound in a small table instead, one row per stream that has events past its bound:
+
+```sql
+CREATE TABLE uncut (
+    kind TEXT NOT NULL,
+    id   TEXT NOT NULL,
+    at   INTEGER NOT NULL,  -- the stream's oldest event that must stay, Unix ms
+    PRIMARY KEY (kind, id)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX uncut_at ON uncut (kind, at);
+```
+
+The command that appends to a stream inserts its row with the event's time when there is none (`INSERT OR IGNORE`), so the row keeps the oldest. The command that moves a stream's bound, saving a version say, deletes the row and inserts the first event past the new bound, read from `lith_events` by the stream and its version, if there is one. The sweep reads `SELECT min(at) FROM uncut WHERE kind = ?`, one step down the index, and passes it as `Since`, or a fixed age when that is earlier: every event at or after the oldest bound stays, in every stream. Give `Compact` a `Limit` and send it again while it deletes events. `Compact` remembers where its lookup of `Since` ended, so while the bound only moves on, a call reads neither the events a `Limit` left nor those the streams keep. A stream whose bound never moves holds every other one back, so the app moves it on a schedule as well, such as a version every few minutes of editing.
+
 ## The tables
 
 The first command that needs them creates four tables, as `writer.Once` creates `lith_ops`:

@@ -1345,6 +1345,15 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   stored event. Rebuilds make the same tables; as-of reads stay right from
   `Bounds`' first position (the newest snapshot) on. Positions are
   `AUTOINCREMENT` and never reused.
+- A bound per stream for `Compact` (each document's oldest commit that no
+  saved version holds): a table `(kind, id, at)`, primary key `(kind, id)`,
+  index on `(kind, at)`. Appending inserts the stream's row if none
+  (`INSERT OR IGNORE`, the event's time); moving the bound deletes it and
+  inserts the first event past the bound from `lith_events`. The sweep
+  passes `SELECT min(at) FROM uncut WHERE kind = ?` (one index step, no scan
+  per stream) as `Since`, with a `Limit`, again while it deletes. Compact's
+  marks keep each call short while the bound only moves on. Move every
+  stream's bound on a schedule: one that never moves holds all back.
 
 ## Backups
 
