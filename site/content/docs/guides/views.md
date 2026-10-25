@@ -439,6 +439,12 @@ A stream that sends only what changed costs less CPU to compress and less work f
 
 `live.Cache` keeps rendered fragments by a key that stands for their content, such as a card's id and version, so a render copies the cards that did not change instead of rendering them again. It is bounded in bytes and admits a fragment by how often its key comes back.
 
+## Frames that carry every change since the tab's ack
+
+A frame that holds a region as it is now can be lost: the next one holds all of it. A view whose frame carries changes for the page to apply cannot, such as the steps of a co-edited document that the page's editor applies to its own copy: a frame lost would be a change lost. And frames are dropped on purpose. A stream that falls behind gets only the newest frame of each view ([Ticks](/docs/concepts/ticks#the-newest-frame-wins)), a slow stream about four a second ([Streams](/docs/guides/streams#slow-links)), a paced stream only as many as the page acknowledges ([Streams](/docs/guides/streams#pacing-a-stream-by-the-page)), and `newest-frame.js` applies only the newest frame of each view among those that arrived together.
+
+So such a view renders every change since the version the tab last acknowledged, never only the latest change. The page posts the version it applied, a command writes it into the tab's row (with `w.Send`, as the next ack replaces it), and the tab's view reads the ack from the row and renders the changes after it, each with its version. The page applies those it does not hold yet, in order, and waits at a gap for the next frame. A frame skipped loses nothing, since the next one repeats what it held. Cap the list, at a few hundred changes, and when the tab's ack is older than the oldest change the server still holds, render a state that has the page load the region afresh.
+
 ## The heartbeat and the page's watchdog
 
 A stream that has been silent for `Options.Heartbeat`, 20 s by default, sends a comment, so proxies keep the connection open. The page never sees a comment. With `Options.HeartbeatSignal` set, the heartbeat patches that signal instead, every 20 s, frames or not, with a number that grows:

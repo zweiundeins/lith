@@ -625,6 +625,15 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
   not the default, since at CPU 6x it held the page to 4 frames a second,
   0.37 s behind, where no fix was 0.10 s (performance.md, the streams
   guide).
+- A view whose frame carries changes the page applies (a co-edited
+  document's steps), not a region as it is now: render every change since
+  the version the tab acknowledged, never only the latest. The hub, a slow
+  or paced stream and `newest-frame.js` all drop frames on purpose. The
+  page posts its ack, a command stores it in the tab's row (`w.Send`), the
+  tab's view renders the changes after it with their versions; the page
+  applies what it lacks, in order, and waits at a gap. Cap the list (a few
+  hundred) and render a "load afresh" state when the ack is older than
+  what the server keeps.
 
 ## Views in a shared database, per person
 
