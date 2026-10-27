@@ -162,8 +162,6 @@ func verifyWithRetries(ctx context.Context, v verifier, log *slog.Logger, names 
 		run.attempts[name] = 1
 		if err := results[name]; err != nil {
 			first[name], last[name] = err, err
-		} else {
-			log.Info("backup: restore verified", "replica", name)
 		}
 	}
 	dropPurged := func() {

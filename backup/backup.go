@@ -358,16 +358,7 @@ func (m *Manager) RestoreAt(ctx context.Context, name, out string, at time.Time)
 }
 
 func (m *Manager) restore(ctx context.Context, name, out string, at time.Time, check litestream.IntegrityCheckMode) error {
-	opt := litestream.NewRestoreOptions()
-	opt.OutputPath = out
-	opt.Timestamp = at
-	opt.IntegrityCheck = check
-	// No litestream.DB here: NewDB registers metric series per path, and these
-	// paths are often temporary.
-	err := litestream.NewReplicaWithClient(nil, m.newClient(name)).Restore(ctx, opt)
-	if errors.Is(err, litestream.ErrNoSnapshots) || errors.Is(err, litestream.ErrTxNotAvailable) {
-		return ErrNothingToRestore
-	}
+	_, err := m.restoreTo(ctx, m.newClient(name), out, at, check)
 	return err
 }
 
@@ -684,9 +675,17 @@ func (m *Manager) VerifyRestore(ctx context.Context, name string) error {
 		return err
 	}
 	mark := m.purgeMark()
-	err := m.verifyRestore(ctx, name)
-	if err != nil && errors.Is(ctx.Err(), context.Canceled) {
+	start := time.Now()
+	st, err := m.verifyRestore(ctx, name)
+	took := time.Since(start).Round(time.Millisecond)
+	switch {
+	case err == nil:
+		m.log.Info("backup: restore verified", "replica", name, "took", took, "bytes", st.bytes, "files", st.files)
+	case errors.Is(ctx.Err(), context.Canceled):
+		m.log.Warn("backup: restore verification cut off", "replica", name, "took", took, "error", err)
 		return err
+	default:
+		m.log.Warn("backup: restore verification failed", "replica", name, "took", took, "error", err)
 	}
 	m.mu.Lock()
 	if m.purges[name] <= mark {
@@ -698,13 +697,14 @@ func (m *Manager) VerifyRestore(ctx context.Context, name string) error {
 	return err
 }
 
-func (m *Manager) verifyRestore(ctx context.Context, name string) error {
+func (m *Manager) verifyRestore(ctx context.Context, name string) (restoreStats, error) {
 	tmp, err := os.MkdirTemp("", "lith-backup-verify-")
 	if err != nil {
-		return fmt.Errorf("backup: verify %s: %w", name, err)
+		return restoreStats{}, fmt.Errorf("backup: verify %s: %w", name, err)
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	return wrap(m.restore(ctx, name, filepath.Join(tmp, "verify.db"), time.Time{}, litestream.IntegrityCheckFull), "verify", name)
+	st, err := m.restoreTo(ctx, m.newClient(name), filepath.Join(tmp, "verify.db"), time.Time{}, litestream.IntegrityCheckFull)
+	return st, wrap(err, "verify", name)
 }
 
 // VerifyAll runs VerifyRestore on every attached replica, and stops when ctx
