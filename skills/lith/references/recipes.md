@@ -1415,7 +1415,15 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   server, drop `RunVerifyLoop` there and call `m.VerifyOnce(ctx,
   VerifyOptions{Names: ...})` from an `app verify` command under a systemd
   timer with `MemoryMax=` and `TMPDIR` on disk (not tmpfs); it returns the
-  failures' errors, so the unit fails.
+  failures' errors, so the unit fails. The server's verify metrics and its
+  `OnFail` then go quiet: move those alerts to the unit, or keep it in
+  process where tenants are small (Libretto: 11.6 MB at most, under 45 MB
+  of temp files, ~100 goroutines).
+- A replica with Litestream v0.3 generations restores through Litestream's
+  own restore (newer format wins). A restore to a moment after a gap in the
+  WAL segments fails rather than return the older state. A killed
+  restore's `.<file>-restore-*` (or `lith-backup-verify-*` in `TMPDIR`)
+  goes with the next restore beside it after 6 h untouched.
 - Both loops cover attached replicas. Tenants attached on demand: pass the
   account list as `VerifyOptions.Names` (a `Names` error is one `OnFail`
   failure with an empty `Name`) and as `MaintenanceOptions.Names`. The

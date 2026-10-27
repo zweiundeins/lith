@@ -144,6 +144,12 @@ When the newest snapshot is older than a day, `Attach` writes one in the backgro
 
 A restore, and so a verification, reads the newest snapshot and every WAL segment written after it. Under steady writes that is a small file for every second with a commit since the snapshot, which comes once a day by default (`Config.SnapshotInterval`): tens of thousands by the evening. The manager downloads them with four connections and merges them 32 at a time, in a directory beside the restored file, so a restore holds a few connections and a few dozen open files however many there are. It needs disk for the files it reads and the restored database, and memory for little more than SQLite's integrity check. Litestream's own restore opens every file at once, one connection each, until it is done; the manager used it up to `backup/v0.3.0`, and a replica with thousands of segments after its snapshot held thousands of connections and hundreds of MiB for the length of the restore. A shorter `SnapshotInterval`, such as six hours, keeps the number of segments down, and the restore's time with it.
 
+A replica that still holds generations from Litestream v0.3 goes through Litestream's own restore, as before: it compares them with the LTX files and restores whichever has the newer backup, or the better snapshot for a moment. Those restores keep Litestream's cost.
+
+A restore to a moment fails when the replica has a gap before it, a WAL segment missing between the plan's last file and one created before the moment, rather than restoring the older state before the gap; a restore of the latest state always did. A process killed during a restore leaves its working directory, `.<file>-restore-<n>` beside the output, or `lith-backup-verify-<n>` in `TMPDIR` for a verification. The next restore beside it removes such a directory once it has been untouched for six hours, and never one that a restore of the same process is using.
+
+How much a verification in the server costs depends on that count of files. Libretto, an app with a database per account, verifies in process: its largest tenant is 11.6 MB, and a verification peaks under 45 MB of temporary files and about 100 goroutines. trips writes all day into one database, and by the evening its restore reads thousands of segments: that one runs out of process.
+
 Every verification logs its outcome: `backup: restore verified` (info) with the replica, the time it took, the restored database's bytes and the number of files; `backup: restore verification failed` (warning) with the error; `backup: restore verification cut off` (warning) when its context ended, such as a stop in the middle of it. The loop's lines about retries and the run's failures come on top. The first run comes ten minutes after the start (`VerifyOptions.FirstDelay`). A server that is deployed often, or busy for a while after it starts, can wait longer; a stop cuts the run off, and the next start schedules it again.
 
 ### Verifying out of process
@@ -173,7 +179,7 @@ func verify() error {
 }
 ```
 
-`VerifyOnce` is one run of the loop: it restores each name, retries the failures after each of `Retries`, calls `OnFail` once with those that failed every attempt and returns their errors, or nil. The command exits non-zero, so the unit fails, and a failed unit is the alert. The command only reads the bucket, so it runs beside the replicating server. The server's `Status` and metrics show no verification then; the unit's state and its log do.
+`VerifyOnce` is one run of the loop: it restores each name, retries the failures after each of `Retries`, calls `OnFail` once with those that failed every attempt and returns their errors, or nil. The command exits non-zero, so the unit fails, and a failed unit is the alert. The command only reads the bucket, so it runs beside the replicating server. The server's `Status` and its `app_backup_replica_verify_ok`, `app_backup_replica_last_verify_timestamp_seconds`, `app_backup_replica_verify_attempts` and `app_backup_replica_verify_retried_total` then stay as they were at the start, and `OnFail` runs in the command, not in the server: an app that alerts on those metrics or in its server's `OnFail` moves the alert to the unit, or keeps the verification in process.
 
 ```ini title=/etc/systemd/system/app-verify.service
 [Unit]

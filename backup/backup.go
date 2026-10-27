@@ -27,7 +27,10 @@
 // per second of writes. It downloads them with 4 connections and merges
 // them 32 at a time, in a directory beside its output, so what it holds
 // does not grow with their number; it needs disk for them and the restored
-// file. VerifyRestore logs every outcome, also a restore cut off. To keep a
+// file. A killed restore's directory goes with the next restore beside it
+// once untouched for six hours. A replica with Litestream v0.3 generations
+// restores through Litestream's own restore, which picks the newer format.
+// VerifyRestore logs every outcome, also a restore cut off. To keep a
 // restore out of the server's memory, run VerifyOnce from a command that a
 // timer starts, with a memory limit of its own, in place of RunVerifyLoop.
 //
