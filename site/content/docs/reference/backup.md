@@ -297,7 +297,9 @@ RunMaintenanceLoop maintains the attached replicas every opt.Interval and, when 
 func (m *Manager) RunVerifyLoop(ctx context.Context, opt VerifyOptions)
 ```
 
-RunVerifyLoop verifies every attached replica, or opt.Names, until ctx is done: the first run after at most ten minutes, then one every opt.Interval from the start of the one before. The replicas a run finds failing are verified again after each of opt.Retries, and those that never pass go to opt.OnFail, once per run. When ctx ends during a run, the run reports nothing.
+RunVerifyLoop verifies every attached replica, or opt.Names, until ctx is done: the first run after opt.FirstDelay, then one every opt.Interval from the start of the one before. The replicas a run finds failing are verified again after each of opt.Retries, and those that never pass go to opt.OnFail, once per run. When ctx ends during a run, the run reports nothing to OnFail; VerifyRestore logs the replica it cut off.
+
+A restore runs in the calling process. To keep its memory and I/O out of the server, run VerifyOnce from a command of its own instead, under a timer with its own memory limit, and leave this loop off.
 
 #### func (*Manager) Status {#Manager.Status}
 
@@ -314,6 +316,14 @@ func (m *Manager) VerifyAll(ctx context.Context) map[string]error
 ```
 
 VerifyAll runs VerifyRestore on every attached replica, and stops when ctx is done.
+
+#### func (*Manager) VerifyOnce {#Manager.VerifyOnce}
+
+```go
+func (m *Manager) VerifyOnce(ctx context.Context, opt VerifyOptions) error
+```
+
+VerifyOnce is one run of RunVerifyLoop, for a command that a timer starts: it verifies every attached replica, or opt.Names (a command attaches nothing, so set it), retries the failed ones after each of opt.Retries, calls opt.OnFail once with those that never passed, and returns their errors joined, or nil when every replica passed. It returns ctx's error when ctx ends first. Status in the command's process shows the results; a server's Status does not.
 
 #### func (*Manager) VerifyRestore {#Manager.VerifyRestore}
 
@@ -416,6 +426,11 @@ type VerifyOptions struct {
 	// Interval is the time from one run's start to the next one's; zero means
 	// DefaultVerifyInterval.
 	Interval time.Duration
+
+	// FirstDelay is the wait from RunVerifyLoop's start to its first run;
+	// zero means ten minutes, and it is never longer than Interval. Give a
+	// server that restarts often, or is busy after a start, a longer one.
+	FirstDelay time.Duration
 
 	// Retries are the waits before each retry of the replicas still failing,
 	// each from the end of the attempt before. Nil means 10 and 20 minutes,

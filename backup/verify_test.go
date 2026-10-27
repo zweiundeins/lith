@@ -322,6 +322,57 @@ func TestVerifyLoopFirstRun(t *testing.T) {
 	})
 }
 
+func TestVerifyLoopFirstDelay(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		t0 := time.Now()
+		v := newFakeVerifier(nil, "a")
+		go runVerifyLoop(ctx, v, quiet, VerifyOptions{FirstDelay: time.Hour}, func(verifyRun) {})
+		time.Sleep(2 * time.Hour)
+		synctest.Wait()
+		if len(v.alls) != 1 || v.alls[0].Sub(t0) != time.Hour {
+			t.Errorf("runs at %v, want the first after FirstDelay", v.alls)
+		}
+	})
+}
+
+// TestVerifyOnce: one run with its retries, for a command a timer starts.
+func TestVerifyOnce(t *testing.T) {
+	t.Parallel()
+	m := newManager(t)
+	path := filepath.Join(t.TempDir(), "app.db")
+	db, detach := replicated(t, m, "app", path)
+	shutdown(t, db, detach)
+
+	var reported []VerifyFailure
+	opt := VerifyOptions{
+		Names:   func(context.Context) ([]string, error) { return []string{"app", "never"}, nil },
+		Retries: []time.Duration{},
+		OnFail:  func(f []VerifyFailure, _ time.Duration) { reported = f },
+	}
+	err := m.VerifyOnce(bg, opt)
+	if !errors.Is(err, ErrNothingToRestore) || len(reported) != 1 || reported[0].Name != "never" {
+		t.Errorf("VerifyOnce = %v, reported %+v; want only never failing", err, reported)
+	}
+	opt.Names = func(context.Context) ([]string, error) { return []string{"app"}, nil }
+	if err := m.VerifyOnce(bg, opt); err != nil {
+		t.Errorf("VerifyOnce of a good replica = %v", err)
+	}
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+	if err := m.VerifyOnce(ctx, opt); !errors.Is(err, context.Canceled) {
+		t.Errorf("VerifyOnce with a cancelled context = %v", err)
+	}
+	disabled, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := disabled.VerifyOnce(bg, opt); !errors.Is(err, ErrDisabled) {
+		t.Errorf("VerifyOnce on a disabled Manager = %v", err)
+	}
+}
+
 func TestVerifyLoopVerifiesNames(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
