@@ -8,12 +8,16 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.2 (2026-10-27)
 
-- `live`: the build signal follows the first render of every view, with or without a frame: since v0.5.1 a view whose `Render` returned nil, or failed, held it back for good, and every reconnect refreshed the page again. A frame dropped as stale goes out when the next render repeats it.
-- `backup` (tag `backup/v0.3.1`): a restore downloads the replica's files with 4 connections and merges them 32 at a time on disk. Litestream's restore, used until `backup/v0.3.0`, opened every WAL segment since the snapshot at once, one connection each, so a verification of a busy replica held thousands of connections and hundreds of MiB in the server. A replica with Litestream v0.3 generations still restores through Litestream's restore, which picks the newer format. A restore to a moment after a gap in the WAL segments fails instead of returning the older state; a killed restore's working directory is removed by the next restore beside it after six hours. Each verification logs its outcome (`restore verified` with time, bytes and files; failed; cut off). New: `VerifyOptions.FirstDelay`, and `VerifyOnce` for a command under a systemd timer with a memory limit of its own (the backups guide has the units; the server's verify metrics and `OnFail` then move to the unit).
-- Docs and skill: a handler reads the tab and op from the `Tab-Id` and `Op-Id` headers only (a payload copy may stay, unread); an app's own response wrapper needs `Unwrap() http.ResponseWriter` for `edge.Upload`; clearing a read deadline after the body's end is harmless, only setting one is not.
-- Docs and skill, patterns from a co-editing layer: a bound per stream for `events.Compact`, kept as an index row; frames that carry every change since the tab's ack, so a dropped frame loses nothing; high-rate commits outside the tab's `Act`, idempotent by a reference the page makes, without `Once` rows; a one-byte answer from the command's result for the page's code, not for a person; JavaScript shipped inside a Go module, bundled from `go list -m -f '{{.Dir}}'` with its peer packages aliased to the app's own.
+A fix for v0.5.1's build signal, a restore that holds a few connections instead of one per file, and docs. What to change in an app:
+
+- `backup`: nothing is required. An app whose restore check makes the server heavy can run it out of process with `VerifyOnce` under a systemd timer (the backups guide has the units); the server's verify metrics and `OnFail` then move to that unit.
+
+- `live`: the build signal follows the first render of every view, with or without a frame. Since v0.5.1 a view whose `Render` returned nil, or failed, held it back for good, and every reconnect refreshed the page again. A frame dropped as stale goes out when the next render repeats it.
+- `backup` (tag `backup/v0.3.1`): a restore downloads the replica's files with 4 connections and merges them 32 at a time on disk. Litestream's restore opened every WAL segment since the snapshot at once, one connection each, so a verification of a busy replica held thousands of connections and hundreds of MiB in the server. Replicas with Litestream v0.3 generations still restore through Litestream. A restore to a moment after a gap in the WAL segments fails instead of returning the older state; a killed restore's working directory is removed by a later restore. Each verification logs its outcome. New: `VerifyOptions.FirstDelay` and `VerifyOnce`.
+- Docs and skill: the tab and op come from the `Tab-Id` and `Op-Id` headers only; an app's own response wrapper needs `Unwrap` for `edge.Upload`; clearing a read deadline after the body's end is harmless. Patterns from a co-editing layer: a per-stream bound for `events.Compact` kept as an index row, frames that carry every change since the tab's ack, high-rate commits outside `Act`, a one-byte answer for the page's code, and JavaScript shipped inside a Go module.
+- Deploy: lith's alert rules keep their last state when an evaluation errors, so a failing Grafana no longer fires every app's alerts.
 
 ## v0.5.1 (2026-10-23)
 
