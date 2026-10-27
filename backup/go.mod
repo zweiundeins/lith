@@ -11,6 +11,7 @@ require (
 	github.com/aws/smithy-go v1.28.5
 	github.com/benbjohnson/litestream v0.5.17
 	github.com/johannesboyne/gofakes3 v1.2.0
+	github.com/pierrec/lz4/v4 v4.1.33
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/superfly/ltx v0.5.3
@@ -42,7 +43,6 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
-	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/prometheus/common v0.72.1 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/psanford/sqlite3vfs v0.0.0-20260519004904-f9180fa2acc9 // indirect

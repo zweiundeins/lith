@@ -706,11 +706,12 @@ func (m *Manager) VerifyRestore(ctx context.Context, name string) error {
 }
 
 func (m *Manager) verifyRestore(ctx context.Context, name string) (restoreStats, error) {
+	sweepStale(os.TempDir(), "lith-backup-verify-*")
 	tmp, err := os.MkdirTemp("", "lith-backup-verify-")
 	if err != nil {
 		return restoreStats{}, fmt.Errorf("backup: verify %s: %w", name, err)
 	}
-	defer func() { _ = os.RemoveAll(tmp) }()
+	defer inUse(tmp)()
 	st, err := m.restoreTo(ctx, m.newClient(name), filepath.Join(tmp, "verify.db"), time.Time{}, litestream.IntegrityCheckFull)
 	return st, wrap(err, "verify", name)
 }

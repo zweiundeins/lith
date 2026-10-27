@@ -45,11 +45,26 @@ func (m *Manager) restoreTo(ctx context.Context, client litestream.ReplicaClient
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return st, err
 	}
+	// A replica that still has v0.3.x generations goes through litestream's
+	// own restore, which compares them with the LTX files and picks one.
+	if v3, ok := client.(litestream.ReplicaClientV3); ok {
+		r := litestream.NewReplicaWithClient(nil, client)
+		_, updated, err := r.TimeBoundsV3(ctx, v3)
+		if err != nil {
+			return st, fmt.Errorf("get v0.3.x time bounds: %w", err)
+		}
+		if !updated.IsZero() {
+			return restoreLitestream(ctx, r, out, at, check)
+		}
+	}
 	plan, err := litestream.CalcRestorePlan(ctx, client, 0, at, m.log)
 	if errors.Is(err, litestream.ErrNoSnapshots) || errors.Is(err, litestream.ErrTxNotAvailable) {
 		return st, ErrNothingToRestore
 	} else if err != nil {
 		return st, fmt.Errorf("cannot calc restore plan: %w", err)
+	}
+	if err := checkGap(ctx, client, plan[len(plan)-1].MaxTXID, at); err != nil {
+		return st, err
 	}
 	st.files = len(plan)
 	for _, info := range plan {
@@ -62,11 +77,12 @@ func (m *Manager) restoreTo(ctx context.Context, client litestream.ReplicaClient
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return st, fmt.Errorf("create parent directory: %w", err)
 	}
+	sweepStale(dir, ".*-restore-*")
 	spool, err := os.MkdirTemp(dir, "."+filepath.Base(out)+"-restore-")
 	if err != nil {
 		return st, err
 	}
-	defer func() { _ = os.RemoveAll(spool) }()
+	defer inUse(spool)()
 	r := &restorer{client: client, spool: spool}
 
 	// The first file, the snapshot, stays as it is: the WAL segments after it
@@ -76,6 +92,8 @@ func (m *Manager) restoreTo(ctx context.Context, client litestream.ReplicaClient
 		return st, err
 	}
 	var rest []string
+	// A merge and the decode run to their end once started: ctx is checked
+	// between them.
 	for i := 1; i < len(plan); i += restoreFanIn {
 		group, err := r.fetch(ctx, plan[i:min(i+restoreFanIn, len(plan))])
 		if err != nil {
@@ -90,6 +108,9 @@ func (m *Manager) restoreTo(ctx context.Context, client litestream.ReplicaClient
 	for len(rest) > restoreFanIn-1 {
 		var next []string
 		for i := 0; i < len(rest); i += restoreFanIn {
+			if err := ctx.Err(); err != nil {
+				return st, err
+			}
 			merged, err := r.merge(ctx, rest[i:min(i+restoreFanIn, len(rest))])
 			if err != nil {
 				return st, err
@@ -99,6 +120,9 @@ func (m *Manager) restoreTo(ctx context.Context, client litestream.ReplicaClient
 		rest = next
 	}
 
+	if err := ctx.Err(); err != nil {
+		return st, err
+	}
 	tmp := out + ".tmp"
 	defer func() { _ = os.Remove(tmp) }()
 	if err := r.decode(ctx, append(first, rest...), tmp); err != nil {
@@ -123,6 +147,87 @@ func (m *Manager) restoreTo(ctx context.Context, client litestream.ReplicaClient
 		st.bytes = fi.Size()
 	}
 	return st, nil
+}
+
+// restoreLitestream is litestream's own restore, for a replica with v0.3.x
+// generations. It opens every LTX file of its plan at once.
+func restoreLitestream(ctx context.Context, r *litestream.Replica, out string, at time.Time, check litestream.IntegrityCheckMode) (restoreStats, error) {
+	opt := litestream.NewRestoreOptions()
+	opt.OutputPath = out
+	opt.Timestamp = at
+	opt.IntegrityCheck = check
+	var st restoreStats
+	err := r.Restore(ctx, opt)
+	if errors.Is(err, litestream.ErrNoSnapshots) || errors.Is(err, litestream.ErrTxNotAvailable) {
+		return st, ErrNothingToRestore
+	} else if err != nil {
+		return st, err
+	}
+	if fi, err := os.Stat(out); err == nil {
+		st.bytes = fi.Size()
+	}
+	return st, nil
+}
+
+// checkGap fails when the replica holds a file that starts after a gap
+// past the plan's end, maxTXID, and was created before at (any time when
+// at is zero): the plan stops at the gap, and the restore would be older
+// than asked for. CalcRestorePlan checks this only for the latest state.
+// Times are the listing's (S3's LastModified), as for RestoreWindow.
+func checkGap(ctx context.Context, client litestream.ReplicaClient, maxTXID ltx.TXID, at time.Time) error {
+	for level := 0; level < litestream.SnapshotLevel; level++ {
+		itr, err := client.LTXFiles(ctx, level, maxTXID+1, false)
+		if err != nil {
+			return fmt.Errorf("check the restore plan: %w", err)
+		}
+		var gap *ltx.FileInfo
+		for itr.Next() {
+			info := itr.Item()
+			if info.MinTXID > maxTXID+1 && (at.IsZero() || info.CreatedAt.Before(at)) {
+				gap = info
+				break
+			}
+		}
+		if err := errors.Join(itr.Err(), itr.Close()); err != nil {
+			return fmt.Errorf("check the restore plan: %w", err)
+		}
+		if gap != nil {
+			return fmt.Errorf("non-contiguous ltx files: have up to %s but level %d has %s from %s, before the target",
+				maxTXID, level, ltx.FormatFilename(gap.MinTXID, gap.MaxTXID), gap.CreatedAt.Format(time.RFC3339))
+		}
+	}
+	return nil
+}
+
+// staleRestoreAge is how long a restore's working directory goes untouched
+// before another restore beside it takes it for one a killed process left.
+const staleRestoreAge = 6 * time.Hour
+
+// restoring holds the working directories of this process's restores.
+var restoring sync.Map
+
+func inUse(dir string) (done func()) {
+	restoring.Store(dir, true)
+	return func() {
+		_ = os.RemoveAll(dir)
+		restoring.Delete(dir)
+	}
+}
+
+// sweepStale removes the directories in dir that match pattern, are not in
+// use by this process and were not changed for staleRestoreAge.
+func sweepStale(dir, pattern string) {
+	paths, _ := filepath.Glob(filepath.Join(dir, pattern))
+	for _, p := range paths {
+		if _, busy := restoring.Load(p); busy {
+			continue
+		}
+		fi, err := os.Lstat(p)
+		if err != nil || !fi.IsDir() || time.Since(fi.ModTime()) < staleRestoreAge {
+			continue
+		}
+		_ = os.RemoveAll(p)
+	}
 }
 
 // restorer holds the working files of one restore.

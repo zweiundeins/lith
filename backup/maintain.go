@@ -121,7 +121,8 @@ func (c *deleteCounter) DeleteLTXFiles(ctx context.Context, a []*ltx.FileInfo) e
 }
 
 // deleteCounterV3 is a deleteCounter over a client that also reads v0.3
-// backups, which a restore looks for with a type assertion.
+// backups, so that it keeps the ReplicaClientV3 methods litestream looks
+// for with a type assertion.
 type deleteCounterV3 struct {
 	*deleteCounter
 	v3 litestream.ReplicaClientV3
