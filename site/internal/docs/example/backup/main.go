@@ -20,10 +20,35 @@ import (
 )
 
 func main() {
-	if err := run("data/app.db"); err != nil {
+	start := run
+	if len(os.Args) > 1 && os.Args[1] == "verify" {
+		start = func(string) error { return verify() }
+	}
+	if err := start("data/app.db"); err != nil {
 		slog.Error("app", "err", err)
 		os.Exit(1)
 	}
+}
+
+// verify is "app verify": one verification run for a systemd timer, so
+// that the restore's memory and connections are not the server's. It
+// exits non-zero when a replica fails every attempt.
+func verify() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cfg, err := backup.ConfigFromEnv("BACKUP_")
+	if err != nil {
+		return err
+	}
+	m, err := backup.New(cfg)
+	if err != nil {
+		return err
+	}
+	// Nothing is attached here: name the replicas, or the account list.
+	return m.VerifyOnce(ctx, backup.VerifyOptions{
+		Names:   func(context.Context) ([]string, error) { return []string{"app"}, nil },
+		Retries: []time.Duration{10 * time.Minute},
+	})
 }
 
 func run(path string) error {

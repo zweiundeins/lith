@@ -1404,6 +1404,18 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   `<ns>_backup_replica_verify_retried_total{replica}`, not in an alert.
   For incidents that last hours, stretch `Retries` toward the interval
   (`30m, 2h, 6h` against 24h).
+- A restore reads the newest snapshot and every WAL segment since (a file
+  per second of writes, a day's worth with the default
+  `SnapshotInterval`): it downloads them with 4 connections and merges 32
+  at a time on disk beside its output, so connections and memory stay
+  flat; it needs disk for the files and the restored database. Each
+  verification logs `backup: restore verified` (took, bytes, files),
+  `... failed` or `... cut off`. The first loop run waits
+  `VerifyOptions.FirstDelay` (10 min). To keep the restore out of the
+  server, drop `RunVerifyLoop` there and call `m.VerifyOnce(ctx,
+  VerifyOptions{Names: ...})` from an `app verify` command under a systemd
+  timer with `MemoryMax=` and `TMPDIR` on disk (not tmpfs); it returns the
+  failures' errors, so the unit fails.
 - Both loops cover attached replicas. Tenants attached on demand: pass the
   account list as `VerifyOptions.Names` (a `Names` error is one `OnFail`
   failure with an empty `Name`) and as `MaintenanceOptions.Names`. The

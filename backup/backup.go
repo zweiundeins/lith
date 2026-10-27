@@ -23,6 +23,14 @@
 // itself, so RunVerifyLoop retries a failed verification before it reports,
 // and reports once per run: alert on its OnFail, not on each failure.
 //
+// A restore reads the newest snapshot and every WAL segment since, a file
+// per second of writes. It downloads them with 4 connections and merges
+// them 32 at a time, in a directory beside its output, so what it holds
+// does not grow with their number; it needs disk for them and the restored
+// file. VerifyRestore logs every outcome, also a restore cut off. To keep a
+// restore out of the server's memory, run VerifyOnce from a command that a
+// timer starts, with a memory limit of its own, in place of RunVerifyLoop.
+//
 // Both loops cover the attached replicas. An app that attaches its tenants
 // on demand passes its account list as VerifyOptions.Names, so every tenant
 // is verified, and as MaintenanceOptions.Names, so every tenant's history

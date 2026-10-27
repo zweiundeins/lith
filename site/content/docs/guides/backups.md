@@ -140,6 +140,74 @@ When the newest snapshot is older than a day, `Attach` writes one in the backgro
 
 `m.Collector("app")` exports `app_backup_enabled`, the last sync and the last verification of each replica, its snapshot's time and its size. Register it even when the manager is disabled: `app_backup_enabled 0` is the alert for a process that backs up nothing. `app_backup_replica_verify_retried_total{replica}` counts the runs in which a replica failed and then passed on a retry, and `app_backup_replica_verify_attempts{replica}` is the number of verifications in the last run: worth a panel, since a replica that keeps needing retries points at the provider, but not an alert. `app_backup_replica_maintenance_passes_total{replica}` and `app_backup_replica_pruned_objects_total{replica}` count the maintenance of each attached replica; the passes over replicas that were not attached add to `app_backup_detached_maintenance_passes_total`, `app_backup_detached_maintenance_failures_total` and `app_backup_detached_pruned_objects_total`, without a label, so that a list of thousands of tenants adds no series. The pruned counts are approximate: a delete that fails in part counts nothing, and a key already gone counts. `app_backup_detached_last_pass_timestamp_seconds` is when the last pass over the names ended; a failed `Names` leaves it where it was, so older than two days it is the alert for a loop that does not run or a list that keeps failing: `time() - app_backup_detached_last_pass_timestamp_seconds > 2 * 86400 and app_backup_detached_last_pass_timestamp_seconds > 0`, since it reads 0 until the first pass ends, about ten minutes after the start. A pass in which every name failed still sets it; the failures counter and the error log show that one.
 
+## What a verification costs
+
+A restore, and so a verification, reads the newest snapshot and every WAL segment written after it. Under steady writes that is a small file for every second with a commit since the snapshot, which comes once a day by default (`Config.SnapshotInterval`): tens of thousands by the evening. The manager downloads them with four connections and merges them 32 at a time, in a directory beside the restored file, so a restore holds a few connections and a few dozen open files however many there are. It needs disk for the files it reads and the restored database, and memory for little more than SQLite's integrity check. Litestream's own restore opens every file at once, one connection each, until it is done; the manager used it up to `backup/v0.3.0`, and a replica with thousands of segments after its snapshot held thousands of connections and hundreds of MiB for the length of the restore. A shorter `SnapshotInterval`, such as six hours, keeps the number of segments down, and the restore's time with it.
+
+Every verification logs its outcome: `backup: restore verified` (info) with the replica, the time it took, the restored database's bytes and the number of files; `backup: restore verification failed` (warning) with the error; `backup: restore verification cut off` (warning) when its context ended, such as a stop in the middle of it. The loop's lines about retries and the run's failures come on top. The first run comes ten minutes after the start (`VerifyOptions.FirstDelay`). A server that is deployed often, or busy for a while after it starts, can wait longer; a stop cuts the run off, and the next start schedules it again.
+
+### Verifying out of process
+
+The restore runs in the process that calls it, with the server's memory limit and inside its stop timeout. To keep it apart, leave `RunVerifyLoop` out of the server and run `VerifyOnce` from a command of the app's own binary, which a systemd timer starts with a memory limit of its own:
+
+```go source=site/internal/docs/example/backup/main.go
+// verify is "app verify": one verification run for a systemd timer, so
+// that the restore's memory and connections are not the server's. It
+// exits non-zero when a replica fails every attempt.
+func verify() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cfg, err := backup.ConfigFromEnv("BACKUP_")
+	if err != nil {
+		return err
+	}
+	m, err := backup.New(cfg)
+	if err != nil {
+		return err
+	}
+	// Nothing is attached here: name the replicas, or the account list.
+	return m.VerifyOnce(ctx, backup.VerifyOptions{
+		Names:   func(context.Context) ([]string, error) { return []string{"app"}, nil },
+		Retries: []time.Duration{10 * time.Minute},
+	})
+}
+```
+
+`VerifyOnce` is one run of the loop: it restores each name, retries the failures after each of `Retries`, calls `OnFail` once with those that failed every attempt and returns their errors, or nil. The command exits non-zero, so the unit fails, and a failed unit is the alert. The command only reads the bucket, so it runs beside the replicating server. The server's `Status` and metrics show no verification then; the unit's state and its log do.
+
+```ini title=/etc/systemd/system/app-verify.service
+[Unit]
+Description=app: restore the replicas and check them
+
+[Service]
+Type=oneshot
+User=app
+EnvironmentFile=/etc/app/env
+ExecStart=/opt/app/app verify
+# A tmpfs /tmp would count the restored file against MemoryMax.
+Environment=TMPDIR=/var/lib/app/tmp
+MemoryMax=512M
+MemorySwapMax=0
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h
+```
+
+```ini title=/etc/systemd/system/app-verify.timer
+[Unit]
+Description=app: verify the replicas daily
+
+[Timer]
+OnCalendar=*-*-* 04:30
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`TMPDIR` must exist and have room for the restore. Enable the timer with `systemctl enable --now app-verify.timer`, and alert on the failed unit (`OnFailure=` or the host's alert on failed units).
+
 ## Restoring to a moment
 
 `m.RestoreAt(ctx, name, out, at)` writes the replica as of `at` to a new file; any moment inside the retention window is reachable, not only snapshots. `m.RestoreWindow` reports the earliest and the latest moment a restore can reach, and `m.RestoreTimeline` lists every restore point, snapshots first, for a picker that shows where history has gaps. Restore to a new file, check it, then swap it in while the app is stopped: for one database per account, `Deny`, `Evict`, swap, `Allow` ([One database per account](/docs/guides/tenants#erasing-an-account)).
