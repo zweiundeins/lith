@@ -39,6 +39,9 @@ func (m *Manager) Collector(namespace string) prometheus.Collector {
 		maintPasses:    desc("replica_maintenance_passes_total", "Maintenance passes that completed on the replica while it was attached.", "replica"),
 		maintPruned:    desc("replica_pruned_objects_total", "Objects the maintenance passes pruned from the replica while it was attached, approximately.", "replica"),
 		maintSkipped:   desc("replica_maintenance_skipped_total", "Maintenance passes that found the replica busy and left it to the next.", "replica"),
+		localFiles:     desc("replica_local_l0_files", "WAL segments (L0 files) in the directory beside the database at the last trim; one stays until uploaded and LocalL0Retention old.", "replica"),
+		localBytes:     desc("replica_local_l0_bytes", "Bytes of the WAL segments in the directory beside the database at the last trim.", "replica"),
+		localRemoved:   desc("replica_local_l0_removed_total", "Uploaded WAL segments removed from the directory beside the database since Attach.", "replica"),
 		detPasses:      desc("detached_maintenance_passes_total", "Maintenance passes that completed on replicas not attached at the time, from MaintenanceOptions.Names."),
 		detFailures:    desc("detached_maintenance_failures_total", "Maintenance passes that failed on replicas not attached at the time."),
 		detPruned:      desc("detached_pruned_objects_total", "Objects the maintenance passes pruned from replicas not attached at the time, approximately."),
@@ -52,11 +55,12 @@ type collector struct {
 	lastSync, lastVerify, verifyOK, lastSnapshot, replicaObjects, replicaBytes *prometheus.Desc
 	verifyAttempts, verifyRetried                                              *prometheus.Desc
 	maintPasses, maintPruned, maintSkipped                                     *prometheus.Desc
+	localFiles, localBytes, localRemoved                                       *prometheus.Desc
 	detPasses, detFailures, detPruned, detLastPass                             *prometheus.Desc
 }
 
 func (c *collector) Describe(ch chan<- *prometheus.Desc) {
-	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried, c.maintPasses, c.maintPruned, c.maintSkipped, c.detPasses, c.detFailures, c.detPruned, c.detLastPass} {
+	for _, d := range []*prometheus.Desc{c.enabled, c.replicas, c.retention, c.lastSync, c.lastVerify, c.verifyOK, c.lastSnapshot, c.replicaObjects, c.replicaBytes, c.verifyAttempts, c.verifyRetried, c.maintPasses, c.maintPruned, c.maintSkipped, c.localFiles, c.localBytes, c.localRemoved, c.detPasses, c.detFailures, c.detPruned, c.detLastPass} {
 		ch <- d
 	}
 }
@@ -84,6 +88,9 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		counter(c.maintPasses, s.MaintenancePasses, s.Name)
 		counter(c.maintPruned, s.PrunedObjects, s.Name)
 		counter(c.maintSkipped, s.MaintenanceSkipped, s.Name)
+		gauge(c.localFiles, float64(s.LocalL0Files), s.Name)
+		gauge(c.localBytes, float64(s.LocalL0Bytes), s.Name)
+		counter(c.localRemoved, s.LocalL0Removed, s.Name)
 	}
 	c.m.mu.Lock()
 	det := c.m.detachedMaint

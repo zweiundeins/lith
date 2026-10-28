@@ -41,6 +41,14 @@
 // attached gets no snapshot, since nothing changed while it was not; Attach
 // writes one in the background when it is due.
 //
+// Litestream writes each WAL segment to the directory beside the database
+// (MetaPath) before the replica uploads it. An attached replica removes the
+// uploaded ones from there every 15 s once they are Config.LocalL0Retention
+// old (5 minutes), and keeps the newest, so that directory holds minutes of
+// writes. A segment the replica has not uploaded stays: a replica that
+// cannot reach its storage keeps every write since, on the server's disk.
+// Watch <namespace>_backup_replica_local_l0_bytes.
+//
 // Stop in this order: drain HTTP and the writer, so every accepted write is
 // in the file; call detach, the final sync, with a live context (the
 // signal's context is already cancelled); then checkpoint and close the
@@ -94,6 +102,10 @@ const (
 	DefaultMaintenanceInterval = time.Hour
 	DefaultVerifyInterval      = 24 * time.Hour
 	DefaultSnapshotTimeout     = 10 * time.Minute
+
+	// DefaultLocalL0Retention is Litestream's own: how long a WAL segment
+	// stays in the local directory after it reached the replica.
+	DefaultLocalL0Retention = litestream.DefaultL0Retention
 )
 
 var (
@@ -131,14 +143,21 @@ type Config struct {
 	// when one is due; zero means DefaultSnapshotTimeout.
 	SnapshotTimeout time.Duration
 
+	// LocalL0Retention is how long a WAL segment stays in the directory
+	// beside the database (MetaPath) once it has reached the replica; zero
+	// means DefaultLocalL0Retention. A segment not uploaded yet stays, and so
+	// does the newest, which Litestream reads.
+	LocalL0Retention time.Duration
+
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
 
 // ConfigFromEnv reads a Config from the environment variables prefix plus
 // BUCKET, ENDPOINT, REGION, ACCESS_KEY_ID, SECRET_ACCESS_KEY,
-// FORCE_PATH_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT_INTERVAL and
-// SNAPSHOT_TIMEOUT (durations such as 720h). With prefix "BACKUP_" the bucket is BACKUP_BUCKET.
+// FORCE_PATH_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT_INTERVAL,
+// SNAPSHOT_TIMEOUT and LOCAL_L0_RETENTION (durations such as 720h). With
+// prefix "BACKUP_" the bucket is BACKUP_BUCKET.
 func ConfigFromEnv(prefix string) (Config, error) {
 	env := func(k string) string { return os.Getenv(prefix + k) }
 	cfg := Config{
@@ -159,7 +178,7 @@ func ConfigFromEnv(prefix string) (Config, error) {
 	for _, d := range []struct {
 		key string
 		dst *time.Duration
-	}{{"RETENTION", &cfg.RetentionWindow}, {"SNAPSHOT_INTERVAL", &cfg.SnapshotInterval}, {"SNAPSHOT_TIMEOUT", &cfg.SnapshotTimeout}} {
+	}{{"RETENTION", &cfg.RetentionWindow}, {"SNAPSHOT_INTERVAL", &cfg.SnapshotInterval}, {"SNAPSHOT_TIMEOUT", &cfg.SnapshotTimeout}, {"LOCAL_L0_RETENTION", &cfg.LocalL0Retention}} {
 		if v := env(d.key); v != "" {
 			if *d.dst, err = time.ParseDuration(v); err != nil {
 				return Config{}, fmt.Errorf("backup: %s%s: %w", prefix, d.key, err)
@@ -177,6 +196,9 @@ type Manager struct {
 	retentionWindow  time.Duration
 	snapshotInterval time.Duration
 	snapshotTimeout  time.Duration
+	localL0Retention time.Duration
+	localL0Interval  time.Duration
+	tuneDB           func(*litestream.DB) // tests: shorter sync intervals
 	log              *slog.Logger
 	newClient        func(name string) litestream.ReplicaClient
 	mpu              *multipartClient
@@ -206,6 +228,8 @@ type attachedDB struct {
 	work         context.Context
 	stopWork     context.CancelFunc
 	snapshotDone chan struct{}
+
+	local localL0 // the WAL segments in the directory beside the database
 }
 
 type verifyResult struct {
@@ -222,8 +246,8 @@ func New(cfg Config) (*Manager, error) {
 	switch {
 	case cfg.Bucket != "" && cfg.Dir != "":
 		return nil, errors.New("backup: set Bucket or Dir, not both")
-	case cfg.RetentionWindow < 0 || cfg.SnapshotInterval < 0 || cfg.SnapshotTimeout < 0:
-		return nil, errors.New("backup: negative retention window, snapshot interval or snapshot timeout")
+	case cfg.RetentionWindow < 0 || cfg.SnapshotInterval < 0 || cfg.SnapshotTimeout < 0 || cfg.LocalL0Retention < 0:
+		return nil, errors.New("backup: negative retention window, snapshot interval, snapshot timeout or local L0 retention")
 	case checkPrefix(cfg.Prefix) != nil:
 		return nil, checkPrefix(cfg.Prefix)
 	}
@@ -233,6 +257,8 @@ func New(cfg Config) (*Manager, error) {
 		retentionWindow:  orDefault(cfg.RetentionWindow, DefaultRetentionWindow),
 		snapshotInterval: orDefault(cfg.SnapshotInterval, DefaultSnapshotInterval),
 		snapshotTimeout:  orDefault(cfg.SnapshotTimeout, DefaultSnapshotTimeout),
+		localL0Retention: orDefault(cfg.LocalL0Retention, DefaultLocalL0Retention),
+		localL0Interval:  litestream.DefaultL0RetentionCheckInterval,
 		log:              cfg.Logger,
 		reserved:         map[string]bool{},
 		attached:         map[string]*attachedDB{},
@@ -530,6 +556,9 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 	db.SetLogger(m.log.With("replica", name))
 	client, deletes := countDeletes(m.newClient(name))
 	db.Replica = litestream.NewReplicaWithClient(db, client)
+	if m.tuneDB != nil {
+		m.tuneDB(db)
+	}
 	if err := db.Open(); err != nil {
 		return nil, fmt.Errorf("backup: attach %s: %w", name, err)
 	}
@@ -540,6 +569,7 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 	}
 
 	a := &attachedDB{db: db, deletes: deletes, snapshotDone: make(chan struct{})}
+	a.local.done = make(chan struct{})
 	a.work, a.stopWork = context.WithCancel(context.Background())
 	m.mu.Lock()
 	delete(m.reserved, name)
@@ -547,6 +577,7 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 	committed = true
 	m.mu.Unlock()
 	go m.snapshotAfterAttach(name, a)
+	go m.trimLocalL0Loop(name, a)
 
 	var once sync.Once
 	var derr error
@@ -597,6 +628,7 @@ func (m *Manager) detach(ctx context.Context, name string, a *attachedDB) error 
 
 	a.stopWork()
 	<-a.snapshotDone
+	<-a.local.done
 	a.maint.Lock()
 	defer a.maint.Unlock()
 	a.detached = true
@@ -644,6 +676,14 @@ type ReplicaStatus struct {
 	// snapshot after Attach, or the pruning of names not attached) and left
 	// it to the next; such a pass neither ends nor adds to a failure streak.
 	MaintenanceSkipped int
+
+	// The WAL segments in the directory beside the database at the last
+	// trim, which runs every 15 s, and the ones the trims removed since
+	// Attach. A count that keeps growing means the replica falls behind:
+	// a segment stays until it is uploaded.
+	LocalL0Files   int
+	LocalL0Bytes   int64
+	LocalL0Removed int
 }
 
 // Status reports every attached replica, sorted by name. It reads no
@@ -654,6 +694,7 @@ func (m *Manager) Status() []ReplicaStatus {
 	out := make([]ReplicaStatus, 0, len(m.attached))
 	for name, a := range m.attached {
 		s := ReplicaStatus{Name: name, Path: a.db.Path(), LastSyncAt: a.db.LastSuccessfulSyncAt()}
+		s.LocalL0Files, s.LocalL0Bytes, s.LocalL0Removed = a.local.stats()
 		if pos, err := a.db.Pos(); err == nil && !pos.IsZero() {
 			s.TXID = pos.TXID.String()
 		}

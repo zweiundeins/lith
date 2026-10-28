@@ -8,6 +8,10 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `backup` (tag `backup/v0.3.2`): an attached replica removes the WAL segments it has uploaded from the directory beside the database (`.<file>-litestream/ltx/0`) every 15 s, once they are `Config.LocalL0Retention` old (5 minutes, `LOCAL_L0_RETENTION` with `ConfigFromEnv`), and keeps the newest. Litestream deletes them only after compacting them into L1, which the Manager does not run, so up to `backup/v0.3.1` they were never removed: a busy database wrote gigabytes a day of them until its disk was full. The first pass runs at `Attach` and clears an existing backlog. A segment not uploaded stays. New metrics: `replica_local_l0_files`, `replica_local_l0_bytes` and `replica_local_l0_removed_total`.
+
 ## v0.5.2 (2026-10-27)
 
 A fix for v0.5.1's build signal, a restore that holds a few connections instead of one per file, and docs. What to change in an app:

@@ -1419,6 +1419,17 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   `OnFail` then go quiet: move those alerts to the unit, or keep it in
   process where tenants are small (Libretto: 11.6 MB at most, under 45 MB
   of temp files, ~100 goroutines).
+- Litestream stages every WAL segment in `.<file>-litestream/ltx/0` beside
+  the database and deletes it only after an L1 compaction, which the
+  manager doesn't run: up to `backup/v0.3.1` nothing removed them (trips:
+  7.4 GB, 13,790 files against a 349 MB database, disk full, SQLite down).
+  Since `backup/v0.3.2` an attached replica removes the uploaded ones
+  every 15 s once `Config.LocalL0Retention` old (5 min,
+  `<prefix>LOCAL_L0_RETENTION`), oldest first, never the newest; the
+  first pass runs at `Attach`. Unuploaded segments stay, so a provider
+  outage still grows the directory: alert on
+  `<ns>_backup_replica_local_l0_bytes{replica}` (also `_local_l0_files`,
+  `_local_l0_removed_total`) or on the disk.
 - A replica with Litestream v0.3 generations restores through Litestream's
   own restore (newer format wins). A restore to a moment after a gap in the
   WAL segments fails rather than return the older state. A killed

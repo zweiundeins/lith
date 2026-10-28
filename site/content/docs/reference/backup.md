@@ -24,6 +24,8 @@ A restore reads the newest snapshot and every WAL segment since, a file per seco
 
 Both loops cover the attached replicas. An app that attaches its tenants on demand passes its account list as VerifyOptions.Names, so every tenant is verified, and as MaintenanceOptions.Names, so every tenant's history older than the retention window is pruned, attached or not. A tenant not attached gets no snapshot, since nothing changed while it was not; Attach writes one in the background when it is due.
 
+Litestream writes each WAL segment to the directory beside the database (MetaPath) before the replica uploads it. An attached replica removes the uploaded ones from there every 15 s once they are Config.LocalL0Retention old (5 minutes), and keeps the newest, so that directory holds minutes of writes. A segment the replica has not uploaded stays: a replica that cannot reach its storage keeps every write since, on the server's disk. Watch \<namespace>\_backup\_replica\_local\_l0\_bytes.
+
 Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
 
 Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time. Pruning relies on it: with one replicating process the positions in a replica only grow, so the pruning of a replica not attached is safe beside an Attach of it. A second writer, or a prefix and name reused for another database, resets the positions, and then any pruning is unsafe, attached or not.
@@ -39,6 +41,10 @@ const (
 	DefaultMaintenanceInterval = time.Hour
 	DefaultVerifyInterval      = 24 * time.Hour
 	DefaultSnapshotTimeout     = 10 * time.Minute
+
+	// DefaultLocalL0Retention is Litestream's own: how long a WAL segment
+	// stays in the local directory after it reached the replica.
+	DefaultLocalL0Retention = litestream.DefaultL0Retention
 )
 ```
 
@@ -107,6 +113,12 @@ type Config struct {
 	// when one is due; zero means DefaultSnapshotTimeout.
 	SnapshotTimeout time.Duration
 
+	// LocalL0Retention is how long a WAL segment stays in the directory
+	// beside the database (MetaPath) once it has reached the replica; zero
+	// means DefaultLocalL0Retention. A segment not uploaded yet stays, and so
+	// does the newest, which Litestream reads.
+	LocalL0Retention time.Duration
+
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -120,7 +132,7 @@ Config says where replicas go: set Bucket for S3, or Dir for a local directory (
 func ConfigFromEnv(prefix string) (Config, error)
 ```
 
-ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT\_INTERVAL and SNAPSHOT\_TIMEOUT (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
+ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT\_INTERVAL, SNAPSHOT\_TIMEOUT and LOCAL\_L0\_RETENTION (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
 
 ### type MaintenanceOptions {#MaintenanceOptions}
 
@@ -377,6 +389,14 @@ type ReplicaStatus struct {
 	// snapshot after Attach, or the pruning of names not attached) and left
 	// it to the next; such a pass neither ends nor adds to a failure streak.
 	MaintenanceSkipped int
+
+	// The WAL segments in the directory beside the database at the last
+	// trim, which runs every 15 s, and the ones the trims removed since
+	// Attach. A count that keeps growing means the replica falls behind:
+	// a segment stays until it is uploaded.
+	LocalL0Files   int
+	LocalL0Bytes   int64
+	LocalL0Removed int
 }
 ```
 
