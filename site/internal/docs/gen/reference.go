@@ -45,7 +45,7 @@ var PackageMeta = map[string]Meta{
 	"backup":            {"lith/backup: Litestream replication to S3", "Reference for lith/backup: replicate SQLite databases to S3-compatible storage with Litestream, embedded in the process, in a module of its own."},
 	"prom":              {"lith/prom: Prometheus metrics for a lith app", "Reference for lith/prom: export the writer's commands, the live hub's ticks, renders and frames, the stream budget and the event store to Prometheus."},
 	"dbmetrics/prom":    {"lith/dbmetrics/prom: statement timings in Prometheus", "Reference for lith/dbmetrics/prom: a dbmetrics Observer that records query and exec durations and slow statements as Prometheus histograms and counters."},
-	"minify":            {"lith/minify: JavaScript and CSS minified at startup", "Reference for lith/minify: minify an app's JavaScript and CSS with tdewolff/minify as edge.Static reads them, before they are hashed and precompressed."},
+	"minify":            {"lith/minify: JavaScript and CSS minified at startup", "Reference for lith/minify: minify JavaScript with esbuild and CSS with tdewolff/minify as edge.Static reads them, before they are hashed and precompressed."},
 }
 
 // indexMeta and changelogMeta are the reference's index's and the
@@ -104,7 +104,7 @@ These pages are generated from the Go doc comments of lith's packages, at the co
 		b.WriteString(r + "\n")
 	}
 	b.WriteString(`
-` + "`backup`, `prom`, `dbmetrics/prom` and `minify`" + ` are modules of their own, so that an app without them never pulls in their dependencies: Litestream and the AWS SDK for ` + "`backup`" + `, the Prometheus client for ` + "`prom` and `dbmetrics/prom`" + `, tdewolff/minify for ` + "`minify`" + `. The rest are packages of the module ` + "`" + Module + "`" + `, imported one by one.
+` + "`backup`, `prom`, `dbmetrics/prom` and `minify`" + ` are modules of their own, so that an app without them never pulls in their dependencies: Litestream and the AWS SDK for ` + "`backup`" + `, the Prometheus client for ` + "`prom` and `dbmetrics/prom`" + `, esbuild and tdewolff/minify for ` + "`minify`" + `. The rest are packages of the module ` + "`" + Module + "`" + `, imported one by one.
 `)
 	return b.Bytes()
 }

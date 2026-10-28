@@ -116,7 +116,7 @@ func TestModule(t *testing.T) {
 	if a, b := taggedText(written), taggedText(minified); len(a) != 2 || !slices.Equal(a, b) {
 		t.Errorf("tagged templates' text:\n%q\nminified:\n%q", a, b)
 	}
-	for _, kept := range []string{`"./side-effect.js"`, `import*as datastar from"datastar"`, `export default class Widget`} {
+	for _, kept := range []string{`"./side-effect.js"`, `export*as dep from"./dep.js"`, `export default class`} {
 		if !bytes.Contains(out, []byte(kept)) {
 			t.Errorf("no %s in\n%s", kept, out)
 		}
@@ -238,7 +238,7 @@ func TestDataURIs(t *testing.T) {
 
 func TestMediaTypes(t *testing.T) {
 	for _, mt := range []string{"text/javascript; charset=utf-8", "application/javascript", "Text/JavaScript"} {
-		if out, err := minify.Bytes(mt, []byte("const a = 1 ;")); err != nil || string(out) != "const a=1" {
+		if out, err := minify.Bytes(mt, []byte("const a = 1 ;")); err != nil || string(out) != "const a=1;" {
 			t.Errorf("%s: %q, %v", mt, out, err)
 		}
 	}
@@ -253,9 +253,28 @@ func TestMediaTypes(t *testing.T) {
 	}
 }
 
+// TestScripts: a classic script's top-level names are globals, which keep
+// their names, and esbuild writes no syntax newer than ES2020 of its own.
+func TestScripts(t *testing.T) {
+	in := "function helper(longArgument) { return longArgument * 2 }\nvar count = 0\nlet seen\nseen || (seen = helper(count))\n"
+	out, err := minify.Bytes("text/javascript", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{"function helper(", "var count=0", "let seen"} {
+		if !bytes.Contains(out, []byte(kept)) {
+			t.Errorf("no %s in\n%s", kept, out)
+		}
+	}
+	if bytes.Contains(out, []byte("longArgument")) || bytes.Contains(out, []byte("||=")) {
+		t.Errorf("a local name kept its length, or ||= (ES2021) came in:\n%s", out)
+	}
+}
+
 // TestRealFiles minifies the scripts and stylesheets the template and the
-// site serve: each comes out smaller and still parses, and node, where it
-// is installed, takes every script it took as written.
+// site serve, and two Starbase v0.6.0 components that tdewolff broke: each
+// comes out smaller and still parses, and node, where it is installed,
+// takes every script it took as written.
 func TestRealFiles(t *testing.T) {
 	files := map[string][]byte{}
 	plugin, err := fs.ReadFile(live.Scripts, live.NewestFrame)
@@ -263,7 +282,7 @@ func TestRealFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	files["live/"+live.NewestFrame] = plugin
-	for _, dir := range []string{"../template/internal/web/static", "../site/internal/web/static"} {
+	for _, dir := range []string{"../template/internal/web/static", "../site/internal/web/static", "testdata"} {
 		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".js") && !strings.HasSuffix(path, ".css") {
 				return err
@@ -334,15 +353,26 @@ func parseJS(t *testing.T, b []byte) *js.AST {
 	return ast
 }
 
-// moduleNames lists what a module imports and exports, in order.
+// moduleNames lists what a module imports and exports, by the names other
+// modules see, in order; local bindings may be renamed.
 func moduleNames(ast *js.AST) []string {
 	var names []string
 	for _, stmt := range ast.List {
 		switch s := stmt.(type) {
 		case *js.ImportStmt:
-			names = append(names, "import "+string(s.Default)+" from "+strings.Trim(string(s.Module), `'"`))
+			from := strings.Trim(string(s.Module), `'"`)
+			if len(s.Default) > 0 {
+				names = append(names, "import default from "+from)
+			}
 			for _, a := range s.List {
-				names = append(names, "  "+string(a.Name)+" as "+string(a.Binding))
+				imported := a.Name
+				if len(imported) == 0 {
+					imported = a.Binding
+				}
+				names = append(names, "import "+string(imported)+" from "+from)
+			}
+			if len(s.Default) == 0 && len(s.List) == 0 {
+				names = append(names, "import "+from)
 			}
 		case *js.ExportStmt:
 			e := "export"
@@ -354,18 +384,24 @@ func moduleNames(ast *js.AST) []string {
 			}
 			switch d := s.Decl.(type) {
 			case *js.FuncDecl:
-				e += " function " + name(d.Name)
+				e += " function"
+				if !s.Default {
+					e += " " + name(d.Name)
+				}
 			case *js.ClassDecl:
-				e += " class " + name(d.Name)
+				e += " class"
+				if !s.Default {
+					e += " " + name(d.Name)
+				}
 			case *js.VarDecl:
 				for _, b := range d.List {
 					e += " " + d.TokenType.String() + " " + name(b.Binding)
 				}
 			}
-			names = append(names, e)
 			for _, a := range s.List {
-				names = append(names, "  "+string(a.Name)+" as "+string(a.Binding))
+				e += " " + string(a.Binding)
 			}
+			names = append(names, e)
 		}
 	}
 	return names

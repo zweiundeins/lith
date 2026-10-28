@@ -24,6 +24,6 @@ These pages are generated from the Go doc comments of lith's packages, at the co
 | [backup](/docs/reference/backup) | Replicates SQLite databases to S3-compatible storage with Litestream, embedded in the process. |
 | [prom](/docs/reference/prom) | Exports a lith app's numbers to Prometheus: the writer's batches and commands, the live hub's ticks, renders and frames, what the streams hold of the memory budget, and the event store's appends and projectors. |
 | [dbmetrics/prom](/docs/reference/dbmetrics-prom) | Records dbmetrics observations in Prometheus. |
-| [minify](/docs/reference/minify) | Minifies JavaScript and CSS for edge.Static, with tdewolff/minify. |
+| [minify](/docs/reference/minify) | Minifies JavaScript and CSS for edge.Static: JavaScript with esbuild, CSS with tdewolff/minify. |
 
-`backup`, `prom`, `dbmetrics/prom` and `minify` are modules of their own, so that an app without them never pulls in their dependencies: Litestream and the AWS SDK for `backup`, the Prometheus client for `prom` and `dbmetrics/prom`, tdewolff/minify for `minify`. The rest are packages of the module `github.com/zweiundeins/lith`, imported one by one.
+`backup`, `prom`, `dbmetrics/prom` and `minify` are modules of their own, so that an app without them never pulls in their dependencies: Litestream and the AWS SDK for `backup`, the Prometheus client for `prom` and `dbmetrics/prom`, esbuild and tdewolff/minify for `minify`. The rest are packages of the module `github.com/zweiundeins/lith`, imported one by one.
