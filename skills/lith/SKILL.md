@@ -123,7 +123,7 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
 | `edge` | sessions cookie, CSRF, client IP (`TrustedProxies` for the log line at start), slow links (`SlowLink`, `NetworkHints`), CSP nonce, compression (`Cache-Control: no-transform` opts a page out: one with a user's secret beside reflected input, against BREACH), precompressed static files (minified with `Minify`, `Warmed` for readiness), rate limiters (bucket, fixed or sliding window), health |
 | `backup` | Litestream: restore if missing, attach, snapshots, daily verify (nested module) |
 | `prom` | Prometheus collector for `writer.Stats`, `live.Hub.Stats`, the stream budget and the event store's and runner's stats: `<ns>_writer_*`, `<ns>_live_*`, `<ns>_sse_budget_*`, `<ns>_events_*` (nested module) |
-| `minify` | `minify.Bytes` for `edge.Minify`: JavaScript and CSS minified with tdewolff/minify before `edge.Static` hashes and precompresses them (nested module) |
+| `minify` | `minify.Bytes` for `edge.Minify`: JavaScript minified with esbuild and CSS with tdewolff/minify before `edge.Static` hashes and precompresses them (nested module) |
 | `tenant` | one database file per account: refcounted pool with LRU eviction |
 | `dbmetrics` | query timing and slow-query log |
 | `loadtest` | writer and render loop under load, in process |
