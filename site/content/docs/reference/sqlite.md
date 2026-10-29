@@ -154,11 +154,14 @@ n, err := db.ViewValue(ctx, func(tx *sql.Tx) (n int, err error) {
 
 ```go
 type Options struct {
-	// Synchronous is "NORMAL" (the default) or "FULL". NORMAL syncs the WAL
+	// Synchronous is "NORMAL" (the default), "FULL" or "OFF". NORMAL syncs the WAL
 	// only at checkpoints: a power loss or kernel crash can undo the commits
 	// since, up to about 35 s of them with Linux's default writeback; a
 	// crash of the process loses none. FULL syncs every commit, one fsync
-	// per batch. ReadOnly needs neither.
+	// per batch. "OFF" syncs nothing at all: a crash of the process can
+	// still lose nothing, but a power loss or kernel crash can corrupt the
+	// file, so it is for databases that die with the process, such as
+	// tests and scratch files. ReadOnly needs none of them.
 	Synchronous string
 	// ReadOnly opens an existing database for reading only, for a CLI or
 	// a check of a backup. Open then never creates the file or its

@@ -44,7 +44,7 @@ func pragma(t *testing.T, c interface {
 
 func TestSynchronous(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "x.db")
-	for _, s := range []string{"OFF", "EXTRA"} {
+	for _, s := range []string{"EXTRA", "0"} {
 		if _, err := Open(context.Background(), path, Options{Synchronous: s}); err == nil || !strings.Contains(err.Error(), "Synchronous") {
 			t.Errorf("Synchronous %q: %v", s, err)
 		}
@@ -52,7 +52,7 @@ func TestSynchronous(t *testing.T) {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a refused Open created the file: %v", err)
 	}
-	for s, want := range map[string]string{"": "1", "normal": "1", "FULL": "2"} {
+	for s, want := range map[string]string{"": "1", "normal": "1", "FULL": "2", "off": "0"} {
 		d, err := Open(context.Background(), filepath.Join(t.TempDir(), "s.db"), Options{Synchronous: s})
 		if err != nil {
 			t.Fatalf("Synchronous %q: %v", s, err)

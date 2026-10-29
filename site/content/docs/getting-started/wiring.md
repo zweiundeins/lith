@@ -20,7 +20,7 @@ db, err := sqlite.Open(ctx, "data/app.db", sqlite.Options{
 
 `sqlite.Open` opens one write connection and a pool of read connections on the same file, in WAL mode. The readers open the file read-only (`mode=ro`) and are `query_only` besides, so a statement that turns `query_only` off first still cannot write it; one can still `ATTACH` another file, which neither covers, so SQL texts come from constants and values are bound. It applies the migrations numbered above the database's `user_version`, each in a transaction of its own, and refuses a database that is newer than its newest file. `db.W` belongs to the writer and the migrations; everything else reads through `db.R`.
 
-`synchronous` is NORMAL unless you set it: SQLite syncs its log only at checkpoints, so a power loss or a kernel crash can undo up to about 35 seconds of commits, while a crash of the process loses none. With `Synchronous: "FULL"` every batch waits for its own fsync.
+`synchronous` is NORMAL unless you set it: SQLite syncs its log only at checkpoints, so a power loss or a kernel crash can undo up to about 35 seconds of commits, while a crash of the process loses none. With `Synchronous: "FULL"` every batch waits for its own fsync. `Synchronous: "OFF"` syncs nothing, so a power loss can corrupt the file: it is for databases that die with the process, such as a test's, where it saves the time a slow disk spends in fsync.
 
 ## The writer and the hub
 
