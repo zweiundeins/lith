@@ -2,10 +2,15 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.3 (2026-10-29)
 
-- `backup` (tag `backup/v0.3.2`): an attached replica removes the WAL segments it has uploaded from the directory beside the database (`.<file>-litestream/ltx/0`) every 15 s, once they are `Config.LocalL0Retention` old (5 minutes, `LOCAL_L0_RETENTION` with `ConfigFromEnv`), and keeps the newest. Litestream deletes them only after compacting them into L1, which the Manager does not run, so up to `backup/v0.3.1` they were never removed: a busy database wrote gigabytes a day of them until its disk was full. The first pass runs at `Attach` and clears an existing backlog. A segment not uploaded stays. New metrics: `replica_local_l0_files`, `replica_local_l0_bytes` and `replica_local_l0_removed_total`.
+JavaScript minified with esbuild, a backup that no longer fills the disk, and `Synchronous: "OFF"` for tests. What to change in an app:
+
+- `minify`: nothing; `minify.Bytes` keeps its API. Scripts minified before may now come out a little different, and one size larger on a 68 KB build costs about 4 ms more at startup. A workaround that served scripts unminified because of tdewolff's bug can go.
+- `sqlite`: set `Synchronous: "OFF"` for test databases, only under `testing.Testing()`.
+
 - `minify`: JavaScript is minified with esbuild instead of tdewolff/minify, whose JavaScript minifier dropped side effects after `void` of a logical expression (tdewolff/minify#1057), which broke Starbase's sb-busy and sb-virtual-scroll. CSS stays with tdewolff.
+- `backup` (tag `backup/v0.3.2`, released on 2026-10-28): an attached replica removes the WAL segments it has uploaded from its local directory every 15 s once they are `Config.LocalL0Retention` old (5 minutes) and keeps the newest. Litestream deletes them only after compacting them into L1, which the Manager does not run, so a busy database filled its disk. New metrics: `replica_local_l0_files`, `replica_local_l0_bytes` and `replica_local_l0_removed_total`.
 - `sqlite`: `Options.Synchronous` takes `"OFF"`, no fsync at all, for databases that die with the process, such as tests on a slow disk.
 
 ## v0.5.2 (2026-10-27)
