@@ -12,7 +12,7 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 JavaScript minified with esbuild, a backup that no longer fills the disk, and `Synchronous: "OFF"` for tests. What to change in an app:
 
-- `minify`: nothing; `minify.Bytes` keeps its API. Scripts minified before may now come out a little different, and one size larger on a 68 KB build costs about 4 ms more at startup. A workaround that served scripts unminified because of tdewolff's bug can go.
+- `minify`: nothing; `minify.Bytes` keeps its API. Scripts minified before may now come out a little different, and minifying a 68 KB build takes about 4 ms more at startup. A workaround that served scripts unminified because of tdewolff's bug can go.
 - `sqlite`: set `Synchronous: "OFF"` for test databases, only under `testing.Testing()`.
 
 - `minify`: JavaScript is minified with esbuild instead of tdewolff/minify, whose JavaScript minifier dropped side effects after `void` of a logical expression (tdewolff/minify#1057), which broke Starbase's sb-busy and sb-virtual-scroll. CSS stays with tdewolff.

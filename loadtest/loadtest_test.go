@@ -148,7 +148,7 @@ func TestConfigErrors(t *testing.T) {
 		"producers, no rate":   func(c *Config) { c.Producers = 1; c.Command = func(int, int64) writer.Command { return nil } },
 		"negative rate":        func(c *Config) { c.Rate = -1 },
 		"negative streams":     func(c *Config) { c.Streams = -1 },
-		"no synchronous value": func(c *Config) { c.SQLite.Synchronous = "OFF" },
+		"no synchronous value": func(c *Config) { c.SQLite.Synchronous = "EXTRA" },
 	} {
 		c := ok
 		mod(&c)
