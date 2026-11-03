@@ -8,7 +8,9 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.4 (2026-11-03)
+
+The Datastar build by an exported name, and proxies that aren't on loopback.
 
 - `template`: `Datastar()` returns the vendored Datastar build and `DatastarVersion` names it (`1.0.4+starbase.c6a6589`), so an app serves it with `edge.Static.Add` instead of reading a path inside `template.FS`.
 - `edge`: `BehindProxies(proxies, h)` believes the proxy headers from peers in a list of prefixes too, for a proxy on another host or a container bridge, and walks `X-Forwarded-For` past every address in them; `ParseProxies` reads the list and `TrustedProxies` names it. The template's `-trusted-proxies` (`APP_TRUSTED_PROXIES`) is empty by default. Every address in the list can name any client: list only your own proxies.
