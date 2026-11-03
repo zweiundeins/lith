@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -77,6 +78,11 @@ func serve(ctx context.Context, args []string) error {
 	secure := f.Bool("secure", false, "served over HTTPS: a __Host- cookie and HSTS")
 	dev := f.Bool("dev", false, "development: serve the static files as written, not minified")
 	debugLog := f.Bool("debug", false, "log at debug level")
+	var proxies []netip.Prefix
+	f.Func("trusted-proxies", "believe X-Forwarded-For from these addresses and CIDRs too, comma-separated: proxies on another host or a container bridge, never a network others share", func(s string) (err error) {
+		proxies, err = edge.ParseProxies(s)
+		return err
+	})
 	if err := parse(f, args); err != nil {
 		return err
 	}
@@ -154,7 +160,7 @@ func serve(ctx context.Context, args []string) error {
 	mux.Handle("/", h) // probes skip the edge: no cookie, no log line
 
 	srv := &http.Server{
-		Handler:           mux,
+		Handler:           edge.BehindProxies(proxies, mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		IdleTimeout:       2 * time.Minute,
@@ -193,7 +199,7 @@ func serve(ctx context.Context, args []string) error {
 		}()
 	}
 	log.Info("serving", "addr", *addr, "metrics", maddr, "db", *dbPath, "version", buildVersion(),
-		"proxy_headers_from", edge.TrustedProxies(ln.Addr()))
+		"proxy_headers_from", edge.TrustedProxies(ln.Addr(), proxies...))
 	select {
 	case err = <-served:
 	case <-ctx.Done():

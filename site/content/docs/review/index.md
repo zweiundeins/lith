@@ -168,6 +168,8 @@ rg -n 'r\.Header\.Get\("X-(Real-IP|Forwarded-For)"\)' --type go
 
 The proxy must set `X-Forwarded-For`: Caddy's `reverse_proxy` does by default, nginx with `$proxy_add_x_forwarded_for`. Caddy passes on an `X-Real-IP` the client sent unless the site block sets it, so a check that believes `X-Real-IP` first can be dodged. The template's Caddy block replaces both ([The request edge](/docs/guides/edge#client-addresses)).
 
+A proxy on another host or a container bridge is believed only through `edge.BehindProxies`, around the server's handler. Check its list (the template's `-trusted-proxies`): every address in it can name any client, so it holds the app's own proxies and nothing that other machines or containers share.
+
 ### A limit keyed by the session alone
 
 `edge.Sessions` accepts any well-formed session id and mints one for a request without a cookie, so a client that sends no cookie is a new session with every request. A limit by session alone is one it steps around; each needs a limit by the client's address (`edge.ClientKey(r)`) before it on the same route, as the template's `/pace` and `/ack` have.

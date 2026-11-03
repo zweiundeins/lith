@@ -40,7 +40,7 @@ The server has no `WriteTimeout`: each write to a stream has a deadline of its o
 
 ```go source=template/cmd/app/main.go
 srv := &http.Server{
-	Handler:           mux,
+	Handler:           edge.BehindProxies(proxies, mux),
 	ReadHeaderTimeout: 10 * time.Second,
 	ReadTimeout:       15 * time.Second,
 	IdleTimeout:       2 * time.Minute,
@@ -114,7 +114,11 @@ header_up X-Real-IP {http.request.remote.host}
 
 `edge.ClientKey(r)` is the address as a rate-limit key: an IPv6 client counts by its /64, since one subscriber holds a whole /64 and could rotate through it.
 
-Whoever can connect to the app's listener from loopback or through its socket can name any address. On a loopback port that is every local user of the host, another app's compromised service user too. The template listens on a Unix socket of mode 0660 in a directory of mode 0750, both of the app's group, which Caddy's user joins, so only Caddy gets in ([Deploying](/docs/guides/deploying#caddy)). A proxy that connects from another address, such as a container bridge, is not believed at all: every client then counts as the proxy, and one abuser spends the limit of all. `edge.TrustedProxies(ln.Addr())` says which case a listener is, and the template logs it at start as `proxy_headers_from`.
+Whoever can connect to the app's listener from loopback or through its socket can name any address. On a loopback port that is every local user of the host, another app's compromised service user too. The template listens on a Unix socket of mode 0660 in a directory of mode 0750, both of the app's group, which Caddy's user joins, so only Caddy gets in ([Deploying](/docs/guides/deploying#caddy)). A proxy that connects from another address, such as a container bridge, is not believed by default: every client then counts as the proxy, and one abuser spends the limit of all. `edge.TrustedProxies(ln.Addr())` says which case a listener is, and the template logs it at start as `proxy_headers_from`.
+
+`edge.BehindProxies(proxies, h)` believes the headers from peers in a list of prefixes too, such as a proxy on another host or podman's bridge. It goes around the server's handler, before the sessions and the limiters, and keeps no state of its own: it resolves the address once and puts it in the request's context, where `ClientIP` and `ClientKey` find it. It walks `X-Forwarded-For` from its end, past every address inside the prefixes, since each proxy of a chain appends the address it got the request from, and the client is the first address outside them. An address that does not parse ends the walk at the last address it reached, the peer if none, and `X-Real-IP` counts only without `X-Forwarded-For`, as from loopback. A peer outside the prefixes, loopback and Unix sockets aside, is untouched and its headers ignored. `edge.ParseProxies` reads the list, `10.88.0.0/16, 192.0.2.7`, a bare address as a /32 or /128, and fails on an entry that is neither. Pass the prefixes to `TrustedProxies` as well, so the line at start names them. The template takes them from `-trusted-proxies` (`APP_TRUSTED_PROXIES`), empty by default, and wraps the server's handler ([The chain](#the-chain)).
+
+Every address in the list can name any client, to dodge a limit or to spend someone else's, as a local user can over loopback. List only your own proxies' addresses, never a whole network that other machines or containers share with them.
 
 ## Slow links
 

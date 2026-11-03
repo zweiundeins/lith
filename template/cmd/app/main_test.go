@@ -468,3 +468,13 @@ func TestParseEnvironment(t *testing.T) {
 		t.Errorf("-streams %d, -client-streams %d; want 60 and 4", *streams, *clientStreams)
 	}
 }
+
+// TestTrustedProxies: a list with an entry that is no address or CIDR stops
+// serve before it opens anything.
+func TestTrustedProxies(t *testing.T) {
+	t.Setenv("APP_TRUSTED_PROXIES", "10.88.0.0/16, proxy.local")
+	err := serve(context.Background(), []string{"-db", filepath.Join(t.TempDir(), "app.db")})
+	if err == nil || !strings.Contains(err.Error(), `"proxy.local"`) {
+		t.Errorf("serve: %v", err)
+	}
+}

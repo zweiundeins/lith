@@ -110,7 +110,10 @@ pattern matches.
   set X-Forwarded-For (Caddy's `reverse_proxy` does by default, nginx with
   `$proxy_add_x_forwarded_for`). Caddy passes on an X-Real-IP the client sent
   unless the site block sets it, so a check that believes X-Real-IP first can
-  be dodged.
+  be dodged. A proxy on another host or a container bridge counts only
+  through `edge.BehindProxies` around the server's handler (the template's
+  `-trusted-proxies`): every address in its list can name any client, so it
+  lists the app's own proxies and nothing others share.
 - `rg -n '\.Allow\((edge\.SessionID|sid\b|v\.Session)' --type go`: a
   session id is no limiter key on its own. A client mints a new one with
   every request that sends no cookie, so each limit by session needs a limit

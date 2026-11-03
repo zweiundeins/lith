@@ -5,6 +5,7 @@
 // Where each piece comes from:
 //
 //	ClientIP, ClientKey  starbase: proxy headers count only from loopback or a Unix socket, X-Forwarded-For before X-Real-IP
+//	BehindProxies        gofluence: proxies on other hosts or a container bridge, by prefix, X-Forwarded-For walked past them
 //	Sessions             starbase's cookie-only session, hyperlith's __Host-sid, 256-bit tokens
 //	CSRF                 Go's CrossOriginProtection rules, strict on missing headers like hyperlith and starbase, kanban's Datastar-Request check
 //	SecurityHeaders, CSP starbase's per-request nonce and sources, hyperlith's policy as data, kanban's other headers

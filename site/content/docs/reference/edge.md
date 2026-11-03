@@ -14,6 +14,7 @@ Where each piece comes from:
 
 ```text
 ClientIP, ClientKey  starbase: proxy headers count only from loopback or a Unix socket, X-Forwarded-For before X-Real-IP
+BehindProxies        gofluence: proxies on other hosts or a container bridge, by prefix, X-Forwarded-For walked past them
 Sessions             starbase's cookie-only session, hyperlith's __Host-sid, 256-bit tokens
 CSRF                 Go's CrossOriginProtection rules, strict on missing headers like hyperlith and starbase, kanban's Datastar-Request check
 SecurityHeaders, CSP starbase's per-request nonce and sources, hyperlith's policy as data, kanban's other headers
@@ -85,6 +86,14 @@ NonceSource stands for the request's 'nonce-...' source among a directive's sour
 
 ## Functions
 
+### func BehindProxies {#BehindProxies}
+
+```go
+func BehindProxies(proxies []netip.Prefix, next http.Handler) http.Handler
+```
+
+BehindProxies believes X-Forwarded-For and X-Real-IP from peers in proxies too, as ClientIP does from loopback and Unix sockets, for a proxy on another host or a container bridge. It goes around the server's handler, before anything that reads ClientIP or ClientKey. For a request from such a peer, or from loopback or a Unix socket, it walks X-Forwarded-For from its end, past every address inside proxies, and the client is the first address outside them: each proxy of a chain appends the address it got the request from. An address that does not parse ends the walk, and so does the header's start: the client is then the last address the walk reached, the peer if none. X-Real-IP counts only without X-Forwarded-For. A request from any other peer passes untouched, and ClientIP ignores its headers. Every address in proxies can name any client, to dodge a limit or to spend someone else's: list your own proxies only. With no proxies, BehindProxies returns next.
+
 ### func BrotliLen {#BrotliLen}
 
 ```go
@@ -99,7 +108,7 @@ BrotliLen is the length of b under brotli -11, as Precompress compresses it, mea
 func ClientIP(r *http.Request) netip.Addr
 ```
 
-ClientIP returns the address of the client that sent r. A peer on loopback or a Unix socket is the local reverse proxy, which names the client as the last address of X-Forwarded-For. The proxy must set that header: Caddy's reverse\_proxy does by default, nginx with proxy\_set\_header X-Forwarded-For $proxy\_add\_x\_forwarded\_for. X-Real-IP counts only when there is no X-Forwarded-For: a proxy may pass on an X-Real-IP the client sent, as Caddy does unless the site block sets it. From any other peer both headers are ignored: a client can send them itself, to dodge its rate limit or to spend someone else's. When the proxy names no address that parses, the address is the peer's, invalid for a Unix socket.
+ClientIP returns the address of the client that sent r. A peer on loopback or a Unix socket is the local reverse proxy, which names the client as the last address of X-Forwarded-For. The proxy must set that header: Caddy's reverse\_proxy does by default, nginx with proxy\_set\_header X-Forwarded-For $proxy\_add\_x\_forwarded\_for. X-Real-IP counts only when there is no X-Forwarded-For: a proxy may pass on an X-Real-IP the client sent, as Caddy does unless the site block sets it. From any other peer both headers are ignored: a client can send them itself, to dodge its rate limit or to spend someone else's. When the proxy names no address that parses, the address is the peer's, invalid for a Unix socket. Behind proxies on other addresses, BehindProxies resolves the address, and ClientIP returns what it found.
 
 ### func ClientKey {#ClientKey}
 
@@ -150,6 +159,14 @@ func Nonce(ctx context.Context) string
 ```
 
 Nonce returns the CSP nonce SecurityHeaders put in ctx, or "" when its policy has none. An inline script carries it as \<script nonce="...">.
+
+### func ParseProxies {#ParseProxies}
+
+```go
+func ParseProxies(list string) ([]netip.Prefix, error)
+```
+
+ParseProxies reads a comma-separated list of addresses and prefixes, such as "10.0.0.0/8, 192.0.2.7, fd00::/8", for BehindProxies. A bare address is a /32 or a /128, an IPv4-mapped one an IPv4 address. An empty list is none.
 
 ### func Precompress {#Precompress}
 
@@ -212,10 +229,10 @@ TooLarge reports whether err comes from a body over its limit: an \*http.MaxByte
 ### func TrustedProxies {#TrustedProxies}
 
 ```go
-func TrustedProxies(addr net.Addr) string
+func TrustedProxies(addr net.Addr, proxies ...netip.Prefix) string
 ```
 
-TrustedProxies says, for a log line at start, whose X-Forwarded-For and X-Real-IP ClientIP believes on a server that listens at addr (a listener's Addr). ClientIP believes peers on loopback and on a Unix socket: every local user who can connect to them can name any client address, and so dodge a per-address limit or spend someone else's. A socket whose mode lets only the proxy's group in (0660, the app's group holding the proxy's user) narrows that to the proxy. A proxy on another host, or on a container bridge, is not believed: every client then counts as the proxy's address, and one abuser spends the limit of all.
+TrustedProxies says, for a log line at start, whose X-Forwarded-For and X-Real-IP ClientIP believes on a server that listens at addr (a listener's Addr), with proxies the prefixes given to BehindProxies. ClientIP believes peers on loopback and on a Unix socket: every local user who can connect to them can name any client address, and so dodge a per-address limit or spend someone else's. A socket whose mode lets only the proxy's group in (0660, the app's group holding the proxy's user) narrows that to the proxy. A proxy on another host, or on a container bridge, is believed only inside proxies: without them, every client counts as the proxy's address, and one abuser spends the limit of all.
 
 ### func Upload {#Upload}
 
