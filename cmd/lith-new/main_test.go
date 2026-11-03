@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha512"
+	"encoding/base64"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -273,5 +275,25 @@ func TestOwnModules(t *testing.T) {
 		if a, b := version(tmpl), version(site); a == "" || a != b {
 			t.Errorf("%s: the template requires %q, the site %q", moduleAt(dir), a, b)
 		}
+	}
+}
+
+// TestDatastar reads the build through template.Datastar, so a move of the
+// file fails here and not in an app at startup, and checks that
+// DatastarVersion and VERSION's integrity hash describe those bytes.
+func TestDatastar(t *testing.T) {
+	js := template.Datastar()
+	release, commit, _ := strings.Cut(template.DatastarVersion, "+starbase.")
+	if !bytes.HasPrefix(js, []byte("// Datastar v"+release+" + Rocket")) {
+		t.Errorf("template.Datastar() starts with %q, want Datastar v%s", js[:min(len(js), 60)], release)
+	}
+	version, err := fs.ReadFile(template.FS, "internal/web/static/vendor/VERSION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha512.Sum384(js)
+	integrity := "sha384-" + base64.StdEncoding.EncodeToString(sum[:])
+	if commit == "" || !bytes.Contains(version, []byte("at commit "+commit)) || !bytes.Contains(version, []byte(integrity)) {
+		t.Errorf("VERSION should name commit %q and %s:\n%s", commit, integrity, version)
 	}
 }
