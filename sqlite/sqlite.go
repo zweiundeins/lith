@@ -72,6 +72,21 @@ type Options struct {
 	// GET documents and every other read share the rest: size it as the
 	// hub's Workers plus the reads that run at once besides the hub.
 	Readers int
+	// IdleReaders bounds the read connections that stay open idle (default:
+	// all of them, Readers; negative: none). A connection that comes back
+	// when that many sit idle closes at once. Readers stays the most that
+	// open: a burst opens up to Readers, and each one above IdleReaders
+	// closes as the burst ends, costing the next burst a reopen (about
+	// 0.5 ms with 40 tables, 1.3 ms with 120). A reader holds its page
+	// cache and schema while open (336 to 762 KiB measured), so a process
+	// with many databases sets it low, usually with ReaderIdleTime.
+	IdleReaders int
+	// ReaderIdleTime closes a read connection that has sat idle this long
+	// (default: never). It is the other half of IdleReaders, for bursts that
+	// come and go: unlike IdleReaders, nothing closes during the burst, and
+	// the pool empties when the database goes quiet, down to none. Its next
+	// read then opens a connection again.
+	ReaderIdleTime time.Duration
 	// CacheKiB is the page cache of each connection (default 32000). Readers
 	// and the hub's Workers grow with GOMAXPROCS, and so does the cache they
 	// can hold: 36 readers on a 32-core desktop may hold over 1 GiB. That
@@ -133,6 +148,9 @@ func (o Options) withDefaults() (Options, error) {
 	}
 	if o.Readers <= 0 {
 		o.Readers = max(8, runtime.GOMAXPROCS(0)+4)
+	}
+	if o.IdleReaders == 0 {
+		o.IdleReaders = o.Readers
 	}
 	if o.CacheKiB <= 0 {
 		o.CacheKiB = 32000
@@ -211,9 +229,9 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	r, err := openReaders(opts, dsn(path, rp, ro))
 	if err == nil {
 		r.SetMaxOpenConns(opts.Readers)
-		r.SetMaxIdleConns(opts.Readers)
+		r.SetMaxIdleConns(opts.IdleReaders)
 		r.SetConnMaxLifetime(0)
-		r.SetConnMaxIdleTime(0)
+		r.SetConnMaxIdleTime(opts.ReaderIdleTime)
 		if file, err = mainFile(ctx, r); err != nil {
 			r.Close()
 			err = fmt.Errorf("sqlite: open %s: %w", path, err)
