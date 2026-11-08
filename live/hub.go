@@ -8,8 +8,9 @@
 // dirty, starts a tick at once after a quiet spell, and runs at most one
 // tick per Options.Tick. In a tick the dirty views go onto one queue that
 // the render workers drain. Each worker holds a connection of the read
-// pool and renders all its views of the tick in one read transaction.
-// When every worker is done, the new frames go out.
+// pool (Options.ReleaseAfter gives it back once the hub has gone quiet)
+// and renders all its views of the tick in one read transaction. When
+// every worker is done, the new frames go out.
 //
 // A view renders in one read transaction, so it agrees with itself. Views
 // rendered by different workers can see different commits when one lands
@@ -75,13 +76,24 @@ import (
 // Options configure a Hub. The zero value of every field but Read
 // selects its default.
 type Options struct {
-	// Read is the read pool. Each worker holds one of its connections for
-	// the hub's lifetime, and everything else that reads (GET documents)
-	// shares the rest: the pool needs Workers connections plus the reads
-	// that run at once besides the hub. sqlite.Options.Readers' default,
-	// GOMAXPROCS + 4 and at least 8, leaves at least four beside the
-	// default Workers. Without Read, views render with a nil transaction.
+	// Read is the read pool. Each worker holds one of its connections,
+	// for the hub's lifetime unless ReleaseAfter gives it back, and
+	// everything else that reads (GET documents) shares the rest: the pool
+	// needs Workers connections plus the reads that run at once besides the
+	// hub. sqlite.Options.Readers' default, GOMAXPROCS + 4 and at least 8,
+	// leaves at least four beside the default Workers. Without Read, views
+	// render with a nil transaction.
 	Read *sql.DB
+	// ReleaseAfter gives the workers' connections back to Read after the
+	// hub has rendered nothing for this long (default: never, each worker
+	// keeps its connection for the hub's lifetime). The next tick takes one
+	// per worker it needs from the pool, waiting up to RenderTimeout for
+	// it (a tick that waits longer renders nothing and comes again), and
+	// prepares its statements again, about 1 ms for a few statements after
+	// a quiet spell. For a process with many hubs or few connections, where
+	// a hub at rest should hold none: with sqlite.Options.IdleReaders low,
+	// it frees the connection's memory as well.
+	ReleaseAfter time.Duration
 	// Tick is the shortest time from one tick to the next (default 50ms).
 	Tick time.Duration
 	// Workers is the number of render workers (default GOMAXPROCS).
@@ -286,6 +298,7 @@ type Hub struct {
 	read          *sql.DB
 	tick          time.Duration
 	workers       int
+	releaseAfter  time.Duration
 	maxStreams    int
 	maxPerClient  int // 0: no cap
 	pendingFor    time.Duration
@@ -501,6 +514,7 @@ func New(o Options) *Hub {
 		read:          o.Read,
 		tick:          o.Tick,
 		workers:       o.Workers,
+		releaseAfter:  max(0, o.ReleaseAfter),
 		maxStreams:    o.MaxStreams,
 		maxPerClient:  max(0, o.MaxStreamsPerClient),
 		pendingFor:    o.PendingWatch,

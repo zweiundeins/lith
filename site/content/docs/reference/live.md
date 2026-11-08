@@ -8,7 +8,7 @@ order: 5
 
 Import path `github.com/zweiundeins/lith/live`. Generated from the doc comments in [live/](https://github.com/zweiundeins/lith/tree/main/live).
 
-A View is a part of a page. Views with the same key are one view, which renders once for every stream that watches it. A commit marks views dirty through their topics (Changed, wired to the writer's OnCommit). The hub renders dirty views in ticks: its loop sleeps while nothing is dirty, starts a tick at once after a quiet spell, and runs at most one tick per Options.Tick. In a tick the dirty views go onto one queue that the render workers drain. Each worker holds a connection of the read pool and renders all its views of the tick in one read transaction. When every worker is done, the new frames go out.
+A View is a part of a page. Views with the same key are one view, which renders once for every stream that watches it. A commit marks views dirty through their topics (Changed, wired to the writer's OnCommit). The hub renders dirty views in ticks: its loop sleeps while nothing is dirty, starts a tick at once after a quiet spell, and runs at most one tick per Options.Tick. In a tick the dirty views go onto one queue that the render workers drain. Each worker holds a connection of the read pool (Options.ReleaseAfter gives it back once the hub has gone quiet) and renders all its views of the tick in one read transaction. When every worker is done, the new frames go out.
 
 A view renders in one read transaction, so it agrees with itself. Views rendered by different workers can see different commits when one lands during the tick; that commit marks its views dirty, and the next tick brings them together. What must always agree belongs in one view.
 
@@ -415,13 +415,24 @@ Watchers are the IDs of the streams watching the view, each once, in the order t
 
 ```go
 type Options struct {
-	// Read is the read pool. Each worker holds one of its connections for
-	// the hub's lifetime, and everything else that reads (GET documents)
-	// shares the rest: the pool needs Workers connections plus the reads
-	// that run at once besides the hub. sqlite.Options.Readers' default,
-	// GOMAXPROCS + 4 and at least 8, leaves at least four beside the
-	// default Workers. Without Read, views render with a nil transaction.
+	// Read is the read pool. Each worker holds one of its connections,
+	// for the hub's lifetime unless ReleaseAfter gives it back, and
+	// everything else that reads (GET documents) shares the rest: the pool
+	// needs Workers connections plus the reads that run at once besides the
+	// hub. sqlite.Options.Readers' default, GOMAXPROCS + 4 and at least 8,
+	// leaves at least four beside the default Workers. Without Read, views
+	// render with a nil transaction.
 	Read *sql.DB
+	// ReleaseAfter gives the workers' connections back to Read after the
+	// hub has rendered nothing for this long (default: never, each worker
+	// keeps its connection for the hub's lifetime). The next tick takes one
+	// per worker it needs from the pool, waiting up to RenderTimeout for
+	// it (a tick that waits longer renders nothing and comes again), and
+	// prepares its statements again, about 1 ms for a few statements after
+	// a quiet spell. For a process with many hubs or few connections, where
+	// a hub at rest should hold none: with sqlite.Options.IdleReaders low,
+	// it frees the connection's memory as well.
+	ReleaseAfter time.Duration
 	// Tick is the shortest time from one tick to the next (default 50ms).
 	Tick time.Duration
 	// Workers is the number of render workers (default GOMAXPROCS).

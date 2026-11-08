@@ -76,12 +76,23 @@ func (h *Hub) loop(ctx context.Context, ws []*worker) {
 	timer.Stop()
 	t := &tick{ctx: ctx}
 	var last time.Time
+	releasing := h.releaseAfter > 0 && h.read != nil
+	held, quiet := releasing, time.Now() // the workers hold connections; when the hub last rendered
 	for {
 		h.mu.Lock()
 		next := h.due(time.Now())
 		idle := len(h.dirty) == 0
 		h.mu.Unlock()
 		if idle {
+			if held {
+				at := quiet.Add(h.releaseAfter)
+				if !time.Now().Before(at) {
+					h.releaseConns(ws)
+					held = false
+				} else if next.IsZero() || at.Before(next) {
+					next = at
+				}
+			}
 			var due <-chan time.Time
 			if !next.IsZero() {
 				timer.Reset(time.Until(next))
@@ -107,11 +118,24 @@ func (h *Hub) loop(ctx context.Context, ws []*worker) {
 		}
 		last = time.Now()
 		if h.run(t, ws, last) {
+			held, quiet = releasing, last
 			d := time.Since(last)
 			h.measure(d)
 			if h.onTick != nil {
 				h.onTick(d)
 			}
+		}
+	}
+}
+
+// releaseConns gives the workers' connections back to the pool, between
+// ticks. A worker's next tick takes one again.
+func (h *Hub) releaseConns(ws []*worker) {
+	for _, w := range ws {
+		if w.conn != nil {
+			w.closeStmts()
+			w.conn.Close()
+			w.conn = nil
 		}
 	}
 }
@@ -402,7 +426,7 @@ func (w *worker) render(t *tick) {
 	ctx := context.WithValue(t.ctx, renderKey{}, st)
 	var tx *sql.Tx
 	var q *reads
-	if w.conn != nil {
+	if w.h.read != nil {
 		var err error
 		if tx, err = w.begin(t.ctx); err != nil {
 			if t.ctx.Err() == nil {
@@ -449,6 +473,11 @@ func (w *worker) render(t *tick) {
 // begin starts the tick's read transaction. When that fails, the worker
 // trades its connection for a fresh one from the pool and tries again.
 func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
+	if w.conn == nil {
+		if err := w.acquire(ctx); err != nil {
+			return nil, err
+		}
+	}
 	ro := &sql.TxOptions{ReadOnly: true}
 	tx, err := w.conn.BeginTx(ctx, ro)
 	if err == nil || ctx.Err() != nil {
@@ -457,12 +486,25 @@ func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
 	w.closeStmts()
 	// The pool discards a connection on ErrBadConn; Close would keep it.
 	w.conn.Raw(func(any) error { return driver.ErrBadConn })
-	c, err2 := w.h.read.Conn(ctx)
-	if err2 != nil {
+	w.conn = nil
+	if err2 := w.acquire(ctx); err2 != nil {
 		return nil, errors.Join(err, err2)
 	}
+	return w.conn.BeginTx(ctx, ro)
+}
+
+// acquire takes a connection from the pool, waiting at most a Render's
+// time for one, so that a pool busy with reads holds up the tick only that
+// long: the worker then takes no views, and the next tick tries again.
+func (w *worker) acquire(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, w.h.renderTimeout)
+	defer cancel()
+	c, err := w.h.read.Conn(ctx)
+	if err != nil {
+		return err
+	}
 	w.conn = c
-	return c.BeginTx(ctx, ro)
+	return nil
 }
 
 // limit ends the ctx of each Render a worker runs once the render
