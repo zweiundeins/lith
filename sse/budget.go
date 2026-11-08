@@ -153,7 +153,7 @@ func NewBudget(o BudgetOptions) *Budget {
 	switch {
 	case o.Limit == 0:
 		var l int64
-		l, from = memoryLimit()
+		l, from = MemoryLimit()
 		o.Limit = l / 2
 	case o.Limit < 0:
 		from = ""
@@ -883,11 +883,15 @@ func (b *Budget) promote() {
 	})
 }
 
-// memoryLimit is the process's memory limit in bytes, and where it comes
-// from: GOMEMLIMIT (or debug.SetMemoryLimit) when set, else the cgroup's
-// memory.max or memory.high, whichever is lower, else half the machine's
-// memory, or 0 and "" when none is known.
-func memoryLimit() (int64, string) {
+// MemoryLimit is the process's memory limit in bytes, the one a Budget
+// takes half of, and where it comes from: GOMEMLIMIT (or
+// debug.SetMemoryLimit) when set ("GOMEMLIMIT"), else the cgroup's
+// memory.max or memory.high, whichever is lower ("cgroup"), else half the
+// machine's memory ("machine"), or 0 and "" when none is known. An app can
+// size GOMEMLIMIT and BudgetOptions.Limit from it: lith never changes the
+// limit itself, and once the app has set GOMEMLIMIT, MemoryLimit reports
+// that.
+func MemoryLimit() (limit int64, from string) {
 	if l := debug.SetMemoryLimit(-1); l > 0 && l < math.MaxInt64 {
 		return l, "GOMEMLIMIT"
 	}

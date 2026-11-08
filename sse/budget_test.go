@@ -1245,7 +1245,7 @@ func TestMemoryLimit(t *testing.T) {
 
 	old := debug.SetMemoryLimit(1 << 30)
 	defer debug.SetMemoryLimit(old)
-	if got, from := memoryLimit(); got != 1<<30 || from != "GOMEMLIMIT" {
+	if got, from := MemoryLimit(); got != 1<<30 || from != "GOMEMLIMIT" {
 		t.Fatalf("with GOMEMLIMIT: %d from %q", got, from)
 	}
 	if st := NewBudget(BudgetOptions{}).Stats(); st.Limit != 512<<20 || st.From != "GOMEMLIMIT" {

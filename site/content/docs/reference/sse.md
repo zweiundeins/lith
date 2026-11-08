@@ -76,6 +76,14 @@ func Comment(text string) []byte
 
 Comment formats an SSE comment, which the page ignores (a heartbeat).
 
+### func MemoryLimit {#MemoryLimit}
+
+```go
+func MemoryLimit() (limit int64, from string)
+```
+
+MemoryLimit is the process's memory limit in bytes, the one a Budget takes half of, and where it comes from: GOMEMLIMIT (or debug.SetMemoryLimit) when set ("GOMEMLIMIT"), else the cgroup's memory.max or memory.high, whichever is lower ("cgroup"), else half the machine's memory ("machine"), or 0 and "" when none is known. An app can size GOMEMLIMIT and BudgetOptions.Limit from it: lith never changes the limit itself, and once the app has set GOMEMLIMIT, MemoryLimit reports that.
+
 ### func Negotiate {#Negotiate}
 
 ```go
