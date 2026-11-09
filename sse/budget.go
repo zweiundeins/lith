@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -30,8 +31,9 @@ type BudgetOptions struct {
 	// their encoders, 32 KiB per stream for the rest of it (its state, its
 	// goroutines' stacks, its connection's buffers in net/http), and what
 	// Hold books, such as the frames a live hub keeps for its views. Zero
-	// takes half the process's memory limit: GOMEMLIMIT, else the cgroup's
-	// memory.max or memory.high, whichever is lower. The other half is for
+	// takes half the process's memory limit as MemoryLimit finds it:
+	// GOMEMLIMIT, else the cgroup's memory.max or memory.high. The other
+	// half is for
 	// the rest of the app and for the garbage that renders and compression
 	// leave between two collections. A process without a memory limit
 	// takes half the machine's memory as its limit (Linux's MemTotal), so
@@ -885,12 +887,15 @@ func (b *Budget) promote() {
 
 // MemoryLimit is the process's memory limit in bytes, the one a Budget
 // takes half of, and where it comes from: GOMEMLIMIT (or
-// debug.SetMemoryLimit) when set ("GOMEMLIMIT"), else the cgroup's
-// memory.max or memory.high, whichever is lower ("cgroup"), else half the
-// machine's memory ("machine"), or 0 and "" when none is known. An app can
-// size GOMEMLIMIT and BudgetOptions.Limit from it: lith never changes the
-// limit itself, and once the app has set GOMEMLIMIT, MemoryLimit reports
-// that.
+// debug.SetMemoryLimit) when set ("GOMEMLIMIT"), else its cgroup's limit
+// ("cgroup"), else half the machine's memory ("machine"), or 0 and "" when
+// none is known, as outside Linux. The cgroup's limit is, in cgroup v2,
+// the lower of memory.max and memory.high of the process's own group, or
+// when that group sets neither, the lowest of those of the groups above
+// it; in cgroup v1, the lowest memory.limit_in_bytes from its group up. An
+// app can size GOMEMLIMIT and BudgetOptions.Limit from it: lith never
+// changes the limit itself, and once the app has set GOMEMLIMIT,
+// MemoryLimit reports that.
 func MemoryLimit() (limit int64, from string) {
 	if l := debug.SetMemoryLimit(-1); l > 0 && l < math.MaxInt64 {
 		return l, "GOMEMLIMIT"
@@ -929,30 +934,81 @@ func machineMemory(meminfo string) int64 {
 	return 0
 }
 
-// cgroupLimit reads the memory limit of the process's cgroup (v2), 0 for
-// none.
+// cgroupLimit reads the memory limit of the process's cgroup, as
+// MemoryLimit describes it, from self (/proc/self/cgroup) and the
+// hierarchies mounted at root; 0 for none. Walking up finds a limit set on
+// a slice, and on a container's group that a runtime mounts as the root
+// while self names its path on the host.
 func cgroupLimit(self, root string) int64 {
 	b, err := os.ReadFile(self)
 	if err != nil {
 		return 0
 	}
+	var unified, v1 string
+	var isUnified, isV1 bool
 	for line := range strings.Lines(string(b)) {
-		path, ok := strings.CutPrefix(strings.TrimSpace(line), "0::")
-		if !ok {
-			continue
+		f := strings.SplitN(strings.TrimSpace(line), ":", 3)
+		switch {
+		case len(f) < 3:
+		case f[0] == "0" && f[1] == "":
+			if !isUnified {
+				unified, isUnified = f[2], true
+			}
+		case slices.Contains(strings.Split(f[1], ","), "memory"):
+			v1, isV1 = f[2], true
+		}
+	}
+	v2 := []string{"memory.max", "memory.high"}
+	if isUnified {
+		if l := lowestLimit(filepath.Join(root, unified), math.MaxInt64, v2); l > 0 {
+			return l
 		}
 		var limit int64
-		for _, f := range []string{"memory.max", "memory.high"} {
-			b, err := os.ReadFile(filepath.Join(root, path, f))
-			if err != nil {
-				continue
-			}
-			n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
-			if err == nil && n > 0 && (limit == 0 || n < limit) {
-				limit = n
-			}
+		for dir := path.Clean("/" + unified); dir != "/"; {
+			dir = path.Dir(dir)
+			limit = lower(limit, lowestLimit(filepath.Join(root, dir), math.MaxInt64, v2))
 		}
-		return limit
+		if limit > 0 {
+			return limit
+		}
 	}
-	return 0
+	if !isV1 {
+		return 0
+	}
+	var limit int64
+	for dir := path.Clean("/" + v1); ; dir = path.Dir(dir) {
+		limit = lower(limit, lowestLimit(filepath.Join(root, "memory", dir), v1Unlimited-1, []string{"memory.limit_in_bytes"}))
+		if dir == "/" {
+			return limit
+		}
+	}
+}
+
+// v1Unlimited and above is what cgroup v1 reports for no limit: the most
+// pages it counts, in bytes.
+const v1Unlimited = 1 << 62
+
+// lowestLimit is the lowest number in dir's files that is above 0 and at
+// most ceiling, 0 for none. "max" and a missing file are none.
+func lowestLimit(dir string, ceiling int64, files []string) int64 {
+	var limit int64
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(dir, f))
+		if err != nil {
+			continue
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		if err == nil && n > 0 && n <= ceiling {
+			limit = lower(limit, n)
+		}
+	}
+	return limit
+}
+
+// lower is the lower of two limits, 0 being none.
+func lower(a, b int64) int64 {
+	if a == 0 || b > 0 && b < a {
+		return b
+	}
+	return a
 }

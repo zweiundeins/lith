@@ -1259,6 +1259,121 @@ func TestMemoryLimit(t *testing.T) {
 	}
 }
 
+// A limit on a group above the process's own bounds it as well, and so
+// does cgroup v1's; a limit of the process's own group stays the one
+// taken, as before, even under a lower one above it.
+func TestCgroupLimit(t *testing.T) {
+	const unlimitedV1 = "9223372036854771712\n"
+	for _, c := range []struct {
+		name  string
+		self  string
+		files map[string]string
+		want  int64
+	}{
+		{"a parent's memory.max", "0::/app.slice/app.service\n", map[string]string{
+			"app.slice/memory.max":              "1073741824\n",
+			"app.slice/memory.high":             "max\n",
+			"app.slice/app.service/memory.max":  "max\n",
+			"app.slice/app.service/memory.high": "max\n",
+		}, 1 << 30},
+		{"the lowest above", "0::/a.slice/b.slice/app.service\n", map[string]string{
+			"a.slice/memory.max":          "2147483648\n",
+			"a.slice/b.slice/memory.max":  "max\n",
+			"a.slice/b.slice/memory.high": "1610612736\n",
+		}, 1536 << 20},
+		{"its own group's under a lower parent", "0::/app.slice/app.service\n", map[string]string{
+			"app.slice/memory.max":             "268435456\n",
+			"app.slice/app.service/memory.max": "1073741824\n",
+		}, 1 << 30},
+		{"a namespace's root", "0::/\n", map[string]string{
+			"memory.max":  "38654705664\n",
+			"memory.high": "max\n",
+		}, 38654705664},
+		{"a container's group mounted as the root", "0::/system.slice/docker-abc.scope\n", map[string]string{
+			"memory.max": "536870912\n",
+		}, 512 << 20},
+		{"no limit anywhere", "0::/user.slice/session.scope\n", map[string]string{
+			"user.slice/memory.max":               "max\n",
+			"user.slice/session.scope/memory.max": "max\n",
+		}, 0},
+		{"v1", "12:memory:/docker/abc\n", map[string]string{
+			"memory/docker/abc/memory.limit_in_bytes": "536870912\n",
+		}, 512 << 20},
+		{"v1, a parent's", "12:memory:/docker/abc\n", map[string]string{
+			"memory/memory.limit_in_bytes":            unlimitedV1,
+			"memory/docker/memory.limit_in_bytes":     "268435456\n",
+			"memory/docker/abc/memory.limit_in_bytes": "536870912\n",
+		}, 256 << 20},
+		{"v1, a container's group mounted as the root", "12:memory:/docker/abc\n", map[string]string{
+			"memory/memory.limit_in_bytes": "268435456\n",
+		}, 256 << 20},
+		{"v1 without a limit", "12:memory:/user.slice\n", map[string]string{
+			"memory/memory.limit_in_bytes":            unlimitedV1,
+			"memory/user.slice/memory.limit_in_bytes": unlimitedV1,
+		}, 0},
+		{"hybrid, memory on v1", "12:memory:/user.slice/x.service\n4:cpu,cpuacct:/user.slice/x.service\n0::/user.slice/x.service\n", map[string]string{
+			"unified/user.slice/x.service/cgroup.procs":         "",
+			"memory/user.slice/x.service/memory.limit_in_bytes": "805306368\n",
+		}, 768 << 20},
+		{"v1 with memory beside another controller", "7:cpu,memory:/batch\n", map[string]string{
+			"memory/batch/memory.limit_in_bytes": "134217728\n",
+		}, 128 << 20},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			self := filepath.Join(dir, "cgroup")
+			if err := os.WriteFile(self, []byte(c.self), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			root := filepath.Join(dir, "fs")
+			for name, body := range c.files {
+				p := filepath.Join(root, name)
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := cgroupLimit(self, root)
+			if got != c.want {
+				t.Errorf("%d, want %d", got, c.want)
+			}
+			if old := v054CgroupLimit(self, root); old > 0 && got != old {
+				t.Errorf("%d where v0.5.4 found %d", got, old)
+			}
+		})
+	}
+}
+
+// v054CgroupLimit is cgroupLimit as v0.5.4 had it: the process's own
+// group in cgroup v2, nothing else.
+func v054CgroupLimit(self, root string) int64 {
+	b, err := os.ReadFile(self)
+	if err != nil {
+		return 0
+	}
+	for line := range strings.Lines(string(b)) {
+		path, ok := strings.CutPrefix(strings.TrimSpace(line), "0::")
+		if !ok {
+			continue
+		}
+		var limit int64
+		for _, f := range []string{"memory.max", "memory.high"} {
+			b, err := os.ReadFile(filepath.Join(root, path, f))
+			if err != nil {
+				continue
+			}
+			n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+			if err == nil && n > 0 && (limit == 0 || n < limit) {
+				limit = n
+			}
+		}
+		return limit
+	}
+	return 0
+}
+
 // A process without GOMEMLIMIT or a cgroup limit takes half the machine's
 // memory as its limit, so the streams' budget is a quarter of it rather
 // than none.

@@ -82,7 +82,7 @@ Comment formats an SSE comment, which the page ignores (a heartbeat).
 func MemoryLimit() (limit int64, from string)
 ```
 
-MemoryLimit is the process's memory limit in bytes, the one a Budget takes half of, and where it comes from: GOMEMLIMIT (or debug.SetMemoryLimit) when set ("GOMEMLIMIT"), else the cgroup's memory.max or memory.high, whichever is lower ("cgroup"), else half the machine's memory ("machine"), or 0 and "" when none is known. An app can size GOMEMLIMIT and BudgetOptions.Limit from it: lith never changes the limit itself, and once the app has set GOMEMLIMIT, MemoryLimit reports that.
+MemoryLimit is the process's memory limit in bytes, the one a Budget takes half of, and where it comes from: GOMEMLIMIT (or debug.SetMemoryLimit) when set ("GOMEMLIMIT"), else its cgroup's limit ("cgroup"), else half the machine's memory ("machine"), or 0 and "" when none is known, as outside Linux. The cgroup's limit is, in cgroup v2, the lower of memory.max and memory.high of the process's own group, or when that group sets neither, the lowest of those of the groups above it; in cgroup v1, the lowest memory.limit\_in\_bytes from its group up. An app can size GOMEMLIMIT and BudgetOptions.Limit from it: lith never changes the limit itself, and once the app has set GOMEMLIMIT, MemoryLimit reports that.
 
 ### func Negotiate {#Negotiate}
 
@@ -196,8 +196,9 @@ type BudgetOptions struct {
 	// their encoders, 32 KiB per stream for the rest of it (its state, its
 	// goroutines' stacks, its connection's buffers in net/http), and what
 	// Hold books, such as the frames a live hub keeps for its views. Zero
-	// takes half the process's memory limit: GOMEMLIMIT, else the cgroup's
-	// memory.max or memory.high, whichever is lower. The other half is for
+	// takes half the process's memory limit as MemoryLimit finds it:
+	// GOMEMLIMIT, else the cgroup's memory.max or memory.high. The other
+	// half is for
 	// the rest of the app and for the garbage that renders and compression
 	// leave between two collections. A process without a memory limit
 	// takes half the machine's memory as its limit (Linux's MemTotal), so
