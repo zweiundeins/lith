@@ -180,26 +180,35 @@ type Options struct {
 	// connection's pragmas (foreign_keys) must set them back: the writer
 	// takes the connection over.
 	Migrate func(ctx context.Context, w *sql.DB) error
-	// Readers is the size of the read pool (default GOMAXPROCS + 4, at
-	// least 8). A live hub's render workers each hold one of its
-	// connections for the hub's life, GOMAXPROCS of them by default, and
-	// GET documents and every other read share the rest: size it as the
-	// hub's Workers plus the reads that run at once besides the hub.
+	// Readers is the most read connections open at once (default
+	// GOMAXPROCS + 4, at least 8). A live hub's render workers each hold
+	// one of them, GOMAXPROCS by default, for the hub's life unless
+	// live.Options.ReleaseAfter gives them back, and GET documents and
+	// every other read share the rest: size it as the hub's Workers plus
+	// the reads that run at once besides the hub.
 	Readers int
-	// IdleReaders bounds the read connections that stay open idle (default:
-	// all of them, Readers; negative: none). A connection that comes back
-	// when that many sit idle closes at once. Readers stays the most that
-	// open: a burst opens up to Readers, and each one above IdleReaders
-	// closes as the burst ends, costing the next burst a reopen (about
-	// 0.5 ms with 40 tables, 1.3 ms with 120). A reader holds its page
-	// cache and schema while open (336 to 762 KiB measured), so a process
-	// with many databases sets it low, usually with ReaderIdleTime.
+	// IdleReaders bounds the read connections that stay open idle (default
+	// and at most Readers; negative: none). A connection that comes back
+	// while that many sit idle closes at once, during a burst too, on the
+	// goroutine that gives it back, and a read that finds none idle opens
+	// one. So a value below the reads that run at once reopens connections
+	// as they come, and a negative one opens a connection for every read
+	// on R outside a transaction or a Conn. A reopen parses the schema,
+	// about 0.15 to 0.6 ms with 40 tables and 0.3 to 1.6 ms with 120 by
+	// their columns and indexes, and the reads after it prepare their
+	// statements again. An open reader holds its page cache, schema and
+	// cached statements, about 0.2 to 1 MiB measured once warmed, most of
+	// it statements when its cache is full. To let an idle database close
+	// every reader, set ReaderIdleTime and leave IdleReaders at its
+	// default, or at 1 or more.
 	IdleReaders int
 	// ReaderIdleTime closes a read connection that has sat idle this long
 	// (default: never). It is the other half of IdleReaders, for bursts that
-	// come and go: unlike IdleReaders, nothing closes during the burst, and
-	// the pool empties when the database goes quiet, down to none. Its next
-	// read then opens a connection again.
+	// come and go: nothing closes during the burst, and the pool empties
+	// when the database goes quiet, down to none; its next read then opens
+	// a connection again. database/sql closes them from a goroutine of its
+	// own per pool, which runs while the pool has a connection open, in use
+	// or idle, and wakes at most once a second.
 	ReaderIdleTime time.Duration
 	// CacheKiB is the page cache of each connection (default 32000). Readers
 	// and the hub's Workers grow with GOMAXPROCS, and so does the cache they

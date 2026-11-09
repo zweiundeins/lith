@@ -55,12 +55,32 @@ func TestIdleReaders(t *testing.T) {
 }
 
 // Readers that close take their statements with them: statements in use
-// when the pool trims them, and the ones a new connection prepares.
+// when the pool trims them, and the ones a new connection prepares. Half
+// the readers hold a connection until all of them do, so the pool opens
+// eight however many goroutines run at once.
 func TestIdleReadersUnderLoad(t *testing.T) {
 	d := open(t, Options{Readers: 8, IdleReaders: 1, Statements: 4, Migrations: oneRow})
-	var wg sync.WaitGroup
-	for range 16 {
+	ctx := context.Background()
+	var held, wg sync.WaitGroup
+	held.Add(8)
+	all := make(chan struct{})
+	for g := range 16 {
 		wg.Go(func() {
+			if g < 8 {
+				c, err := d.R.Conn(ctx)
+				if err != nil {
+					t.Error(err)
+					held.Done()
+					return
+				}
+				var n int
+				if err := c.QueryRowContext(ctx, `SELECT count(*) FROM t`).Scan(&n); err != nil || n != 1 {
+					t.Errorf("%d rows, %v", n, err)
+				}
+				held.Done()
+				<-all
+				c.Close()
+			}
 			for range 50 {
 				var n int
 				if err := d.R.QueryRow(`SELECT count(*) FROM t`).Scan(&n); err != nil || n != 1 {
@@ -70,6 +90,8 @@ func TestIdleReadersUnderLoad(t *testing.T) {
 			}
 		})
 	}
+	held.Wait()
+	close(all)
 	wg.Wait()
 	// The pool opens connections for waiters on a goroutine of its own, which
 	// may still be under way when the last reader returns its connection.
@@ -80,10 +102,25 @@ func TestIdleReadersUnderLoad(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if st := d.R.Stats(); st.MaxIdleClosed == 0 {
+	if st := d.R.Stats(); st.MaxIdleClosed < 7 {
 		t.Errorf("after the load: %+v", st)
 	}
 	count(t, d)
+}
+
+// Options reports IdleReaders as the pool keeps them: no more than
+// Readers.
+func TestIdleReadersOptions(t *testing.T) {
+	for _, c := range []struct{ readers, idle, want int }{{2, 0, 2}, {2, 1, 1}, {2, 10, 2}, {2, -1, -1}} {
+		d := open(t, Options{Readers: c.readers, IdleReaders: c.idle, Migrations: oneRow})
+		if got := d.Options().IdleReaders; got != c.want {
+			t.Errorf("Readers %d, IdleReaders %d: Options reports %d, want %d", c.readers, c.idle, got, c.want)
+		}
+		burst(t, d, c.readers)
+		if st := d.R.Stats(); st.Idle != max(0, c.want) {
+			t.Errorf("Readers %d, IdleReaders %d: %d idle after a burst, want %d", c.readers, c.idle, st.Idle, max(0, c.want))
+		}
+	}
 }
 
 // ReaderIdleTime closes what sits idle, and leaves the burst's connections
