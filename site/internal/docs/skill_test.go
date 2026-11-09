@@ -87,10 +87,11 @@ func TestSkill(t *testing.T) {
 			"Measuring a change":                     "/docs/guides/load-testing",
 		},
 		"performance.md": {
-			"Writer":      "/docs/performance/writer",
-			"Streams":     "/docs/performance/encoders",
-			"Render loop": "/docs/performance/render-loop",
-			"Measuring":   "/docs/guides/load-testing",
+			"Writer":                        "/docs/performance/writer",
+			"Streams":                       "/docs/performance/encoders",
+			"Render loop":                   "/docs/performance/render-loop",
+			"Measuring":                     "/docs/guides/load-testing",
+			"Many databases in one process": "/docs/guides/tenants#many-databases-in-one-process",
 		},
 	} {
 		headings := sectionHeadings(read(file))

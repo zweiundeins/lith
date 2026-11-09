@@ -144,3 +144,29 @@ A restore runs the same way: `Deny`, `Evict`, put the restored file in place, th
 ## Sizing the pool
 
 `maxOpen` is a soft cap: `Get` never waits for a free slot, so pinned accounts can exceed it. Each open account holds a write connection, its readers with their page caches, and a writer goroutine: at the settings above, up to 2,000 KiB of page cache for each of three connections. `pool.Stats()` reports the accounts open, pinned and opening, the cap, and the opens and evictions since start. `Pinned` close to `MaxOpen` is the state to alert on: nothing is left to evict, and every account that opens grows the pool past its cap.
+
+## Many databases in one process
+
+The memory of an open database is mostly its connections, and a process with hundreds of them adds up fast. Past `Readers` and `CacheKiB`, the options below are off by default; a process with one database doesn't need them.
+
+- `sqlite.Options.Readers` is the most read connections a database opens, for a burst. An open reader holds its page cache, schema and cached statements: about 0.2 to 1 MiB once warmed, most of it statements when its cache is full. `ReaderIdleTime` closes a reader that has sat idle that long, down to none, and leaves a burst its connections until then; database/sql runs one goroutine per pool for it while the pool has a connection open.
+- `IdleReaders` bounds how many readers stay open idle. A connection that comes back while that many sit idle closes at once, during a burst too. Set `ReaderIdleTime` first and keep `IdleReaders` at its default or at 1 or more: `IdleReaders: -1` opens a connection for every read on `R` outside a transaction. A reopen parses the schema, about 0.15 to 0.6 ms with 40 tables and 0.3 to 1.6 ms with 120 by their columns and indexes, and the reads after it prepare their statements again.
+- What closing readers gives back depends on how many were open at once: modernc keeps part of that memory for the next connections. With 300 accounts whose two readers had all been open together, `ReaderIdleTime` left about 600 KiB more per account than `IdleReaders: -1`.
+- `CacheKiB` is per connection, the write connection included, and a full cache takes about 1.9 times the setting in memory, since each 4 KiB page sits in an 8 KiB slot of modernc's allocator: 2,000 KiB across 3 connections is up to about 11 MiB per account. A file that `MmapBytes` covers reads through the mapping, so a small page cache costs little read speed.
+- With a hub per database, each worker holds a read connection for the hub's life by default. `live.Options.ReleaseAfter` gives them back once the hub has rendered nothing for that long, and its next tick with work takes only the ones it renders with: `Readers: 2` then is plenty for a hub with one worker, since at rest it holds none. The pool closes a connection it gets back only with `ReaderIdleTime` set or `IdleReaders` negative; otherwise it stays open idle. When the pool has none to give, the hub logs one warning for the whole wait, and the frames, the notices that wait for them and a new stream's first frames come with the first connection that frees.
+- `live.Options.Hibernate` gives an idle stream's encoder back. A stream asleep holds 32 KiB, and with a budget's `Refuse` the smallest window its frame needs.
+- Hubs are not linked: one that gets no `SSE.Budget` makes its own, half the memory limit each, and its own `SSE.Compress` semaphore. Share one `sse.Budget` and one semaphore between them, with `Options.SSE`, so the process's streams stay within one limit and one cap on compression.
+
+Libretto, an app with a database per account, measured these at 256 accounts with `Readers: 2` and `ReaderIdleTime` and `ReleaseAfter` at a minute. The process held 154 MiB less at rest, about 0.6 MiB per account and all of it off the Go heap. The saving is gone while the accounts are active. The first update after idle came about 60 to 120 ms later, at p50 and p95 on 2 CPUs, for the reopen and its statements. Hubs that wake together pay their reopens together: 60 hubs woken at once got their last first frame out after about 0.2 s on 20 cores, against 0.06 s with their connections kept.
+
+`GOMEMLIMIT` covers the memory the Go runtime manages. modernc's SQLite allocates its page caches, statements and schema from a C heap of its own, mapped directly, outside what the Go runtime counts. Size `GOMEMLIMIT` as the unit's `MemoryHigh` minus that off-heap part, so the Go heap and SQLite together stay under the limit. Take the off-heap part from what your accounts measure: the worst case, every connection's cache full at 1.9 times `CacheKiB`, can exceed the limit at a few hundred accounts. `sse.MemoryLimit` reports the limit to start from and where it came from; lith never sets it. An app that derives the limit leaves `GOMEMLIMIT` out of its unit, since `MemoryLimit` reports a limit already set instead of the cgroup's:
+
+```go
+limit, from := sse.MemoryLimit()
+if from == "cgroup" && limit > 2*offHeap { // offHeap: what your accounts measure
+	debug.SetMemoryLimit(limit - offHeap)
+}
+budget := sse.NewBudget(sse.BudgetOptions{}) // half of the limit the runtime has now
+```
+
+Outside Linux `MemoryLimit` returns 0 and `""`, and with `GOMEMLIMIT` set it returns that and `"GOMEMLIMIT"`: the example then leaves the limit alone, and the budget takes half of what the runtime has.

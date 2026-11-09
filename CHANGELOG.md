@@ -2,6 +2,14 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+Memory for apps with many databases and hubs in one process. The options are opt-in, and Libretto measured no change from v0.5.4 with them off. One default changes: the streams' budget on a host whose memory limit sits above the process's cgroup or in cgroup v1. Nothing to change in an app.
+
+- `sqlite`: `Options.IdleReaders` and `ReaderIdleTime` bound the read connections that stay open idle, down to none, while `Readers` stays the most that open. A warmed reader holds about 0.2 to 1 MiB.
+- `live`: `Options.ReleaseAfter` gives the workers' read connections back when the hub has gone quiet, and its next tick with work takes the ones it renders with. With both, at 256 tenants and `Readers: 2`, Libretto held 154 MiB less at rest (0.6 MiB per tenant, all off the Go heap), a saving that is gone under activity, and its first update after idle came 60 to 120 ms later (p50 and p95, 2 CPUs).
+- `sse`: `MemoryLimit` reports the limit a budget takes half of and where it came from. Where the process's own cgroup sets none, it now reads the groups above it and cgroup v1, so such a host's default budget is half of that limit instead of a quarter of the machine. The tenants guide has the sizing for many databases, GOMEMLIMIT among it.
+
 ## v0.5.4 (2026-11-03)
 
 The Datastar build by an exported name, and proxies that aren't on loopback.

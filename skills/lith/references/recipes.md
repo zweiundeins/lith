@@ -55,9 +55,10 @@ Several commits can share one call, with the union of their topics, made
 after the last of them.
 
 The read pool's default size, GOMAXPROCS + 4 and at least 8, is the hub's
-render workers (GOMAXPROCS, each holding a connection for good) plus four or
-more for GET documents and other reads. Set `Readers` higher when more reads
-run at once besides the hub.
+render workers (GOMAXPROCS, each holding a connection for good unless
+`live.Options.ReleaseAfter` gives it back) plus four or more for GET
+documents and other reads. Set `Readers` higher when more reads run at once
+besides the hub.
 
 A project with its own migration runner (a `schema_migrations` table, a list
 of versions in Go) passes it in `Migrate` instead of `Migrations`: Open calls

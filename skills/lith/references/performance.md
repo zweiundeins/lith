@@ -288,6 +288,46 @@ and one per stream for `/ack`.
   renders of each view watched now (`RendersByKey`), so a test or a load run
   sees both without wrapping the driver.
 
+## Many databases in one process
+
+- `sqlite.Options.Readers` is the most read connections a database opens,
+  for a burst. `ReaderIdleTime` closes what sat idle that long, down to none,
+  with one database/sql goroutine per pool while a connection is open.
+  `IdleReaders` bounds what stays open idle: one above it closes on return,
+  during a burst too, and -1 opens a connection for every read on `R`. Both
+  default to keeping every reader open for good. Set `ReaderIdleTime`, with
+  `IdleReaders` at its default or at 1 or more.
+- An open reader holds its page cache, schema and cached statements: about
+  0.2 to 1 MiB once warmed (synthetic schemas of 40 and 120 tables, 2026-11).
+  A reopen costs about 0.15 to 0.6 ms at 40 tables and 0.3 to 1.6 ms at 120,
+  by their columns and indexes, plus preparing its statements again. What
+  closing readers gives back depends on how many were open at once: modernc
+  keeps part of it for the next connections.
+- `CacheKiB` is per connection, the write connection included. A full cache
+  takes about 1.9 times the setting in memory (an 8 KiB slot per 4 KiB page).
+- A hub's workers hold their connection until `live.Options.ReleaseAfter`
+  gives it back (off by default); its next tick with work takes the ones it
+  renders with. A pool of two serves one worker and a GET at once. The pool
+  closes a connection it gets back only with `ReaderIdleTime` set or
+  `IdleReaders` negative. A pool with none to give delays the frames, their
+  notices and a new stream's first frames until a connection frees.
+- Libretto, 256 tenants, `Readers: 2`, `ReaderIdleTime` and `ReleaseAfter` at
+  a minute (2026-11): 154 MiB less at rest, 0.6 MiB per tenant and all off the
+  Go heap; gone under activity. The first update after idle comes 60 to 120
+  ms later (p50, p95, 2 CPUs), and hubs that wake together pay their reopens
+  together.
+- `Options.SSE.Budget` and `Options.SSE.Compress` are per hub unless shared:
+  pass the same ones to every hub so the process has one limit and one cap on
+  compression.
+- `GOMEMLIMIT` covers what the Go runtime manages, not modernc's C heap
+  (mapped directly). Size it as `MemoryHigh` minus the off-heap part, measured
+  per account (every connection's cache full at 1.9 times `CacheKiB` is the
+  worst case). `sse.MemoryLimit` reports the limit to start from and where
+  it came from: set `debug.SetMemoryLimit(limit - offHeap)` only when it says
+  `"cgroup"` and the limit is over twice the off-heap part, and leave
+  `GOMEMLIMIT` out of the unit. It returns 0 and `""` outside Linux, and lith
+  never sets the limit.
+
 ## Measuring
 
 - In process first: `lith/loadtest` drives the writer and the render loop
