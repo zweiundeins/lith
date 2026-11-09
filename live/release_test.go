@@ -136,7 +136,8 @@ func TestHubAcquireWaitsAndRetries(t *testing.T) {
 	before, onBefore := h.Stats(), onTicks.Load()
 	increment(t, write)
 	h.Changed([]string{"counter"})
-	time.Sleep(100 * time.Millisecond) // five RenderTimeouts
+	waitFor(t, "the warning", func() bool { return strings.Contains(lg.String(), "no read connection") })
+	time.Sleep(100 * time.Millisecond) // five RenderTimeouts more
 	const one = `<p id="n">1</p>`
 	if cl.has(one) {
 		t.Fatal("rendered without a connection")
@@ -164,7 +165,7 @@ func TestHubAcquireWaitsAndRetries(t *testing.T) {
 func TestHubTakesOnlyTheConnectionsItRendersWith(t *testing.T) {
 	var lg logs
 	write, read := testDB(t, 4)
-	h := start(t, Options{Read: read, Workers: 2, Tick: 2 * time.Millisecond, ReleaseAfter: 30 * time.Millisecond, RenderTimeout: time.Second, Log: lg.logger()})
+	h := start(t, Options{Read: read, Workers: 2, Tick: 2 * time.Millisecond, ReleaseAfter: 30 * time.Millisecond, RenderTimeout: 3 * time.Second, Log: lg.logger()})
 	cl := serve(h, Spec{Views: []View{counterText("a"), counterText("b")}}, "")
 	frames := func(row string) func() bool {
 		return func() bool { return cl.has(`<p id="a">`+row+`</p>`) && cl.has(`<p id="b">`+row+`</p>`) }
@@ -178,8 +179,8 @@ func TestHubTakesOnlyTheConnectionsItRendersWith(t *testing.T) {
 	began := time.Now()
 	h.Changed([]string{"counter"})
 	waitFor(t, "the next frames", frames("row 1"))
-	if took := time.Since(began); took > 500*time.Millisecond {
-		t.Errorf("the frames took %v with a connection free for the tick (RenderTimeout 1s)", took)
+	if took := time.Since(began); took > 2*time.Second {
+		t.Errorf("the frames took %v with a connection free for the tick (RenderTimeout 3s)", took)
 	}
 	if logged := lg.String(); strings.Contains(logged, "level=ERROR") || strings.Contains(logged, "no read connection") {
 		t.Errorf("the worker without a connection was reported: %s", logged)

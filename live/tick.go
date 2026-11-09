@@ -185,7 +185,7 @@ type offer struct {
 }
 
 // run renders the dirty views and publishes their frames. It reports
-// whether there was anything to render.
+// whether it had anything to render and a connection to render it with.
 func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	h.mu.Lock()
 	h.due(start)
