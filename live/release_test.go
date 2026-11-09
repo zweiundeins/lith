@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -185,6 +186,36 @@ func TestHubTakesOnlyTheConnectionsItRendersWith(t *testing.T) {
 	}
 }
 
+// A stream that opens on a released hub while the pool is busy waits for the
+// connection, past RenderTimeout, and opens with its first frame.
+func TestServeWaitsForAReadConnection(t *testing.T) {
+	_, read := testDB(t, 1)
+	const timeout = 20 * time.Millisecond
+	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond, ReleaseAfter: 20 * time.Millisecond, RenderTimeout: timeout})
+	first := serve(h, Spec{Views: []View{counterText("n")}}, "")
+	waitFor(t, "the first frame", func() bool { return first.has(`<p id="n">row 0</p>`) })
+	waitFor(t, "the connection given back", func() bool { return read.Stats().InUse == 0 })
+
+	give := takeConns(t, read, 1)
+	defer give()
+	var fc *flushClock
+	cl := serveThrough(h, Spec{Views: []View{counterText("m")}}, "", func(c *client) http.ResponseWriter {
+		fc = &flushClock{client: c}
+		return fc
+	})
+	time.Sleep(5 * timeout)
+	if fc.at.Load() != 0 {
+		t.Fatal("the headers went out before the connection came back")
+	}
+	freed := time.Now()
+	give()
+	waitFor(t, "the response", func() bool { return fc.at.Load() != 0 })
+	if at := time.Unix(0, fc.at.Load()); at.Before(freed) {
+		t.Fatalf("the headers went out %v before the connection came back", freed.Sub(at))
+	}
+	waitFor(t, "the first frame", func() bool { return cl.has(`<p id="m">row 0</p>`) })
+}
+
 // Without ReleaseAfter, a worker whose connection went bad waits for a new
 // one as long as it takes: RenderTimeout bounds a Render, not that wait, and
 // the tick renders without logging anything.
@@ -238,4 +269,16 @@ func takeConns(t *testing.T, read *sql.DB, n int) func() {
 			c.Close()
 		}
 	})
+}
+
+// flushClock records when Serve first flushed the response, which sse.Open
+// does once it has sent the headers.
+type flushClock struct {
+	*client
+	at atomic.Int64
+}
+
+func (f *flushClock) FlushError() error {
+	f.at.CompareAndSwap(0, time.Now().UnixNano())
+	return nil
 }

@@ -38,11 +38,13 @@ type heldNote struct {
 // out after their frames, so a frame of that commit never overwrites it:
 // in the same write as the frames of the tick it waited for, or in a later
 // write when that tick brought the stream none. A render that no worker
-// took holds it one tick more, once. A render that fails holds it no
-// longer: the notice goes out without that view's frame, since the view
-// renders again only when a commit touches its topics, which a database
-// that fails may not see for a while. It can still come first when the stream lags so far that the view
-// defers that render (Stats.RendersDeferred). With none pending, it goes
+// took holds it one tick more, once, and for as long as the hub finds no
+// read connection for the render (Options.ReleaseAfter). A render that
+// fails holds it no longer: the notice goes out without that view's
+// frame, since the view renders again only when a commit touches its
+// topics, which a database that fails may not see for a while. It can
+// still come first when the stream lags so far that the view defers that
+// render (Stats.RendersDeferred). With none pending, it goes
 // with the stream's next write. Like a frame, it waits while the stream
 // holds its frames back: up to 250 ms with Spec.Slow, and while a paced
 // stream's window is full, up to AckTimeout.
@@ -177,7 +179,9 @@ func (h *Hub) lagging(s *stream) bool {
 // release hands the streams the notices that waited for the tick numbered
 // seq, which has published; publish has given those of the streams that
 // got frames already, in the same write. A stream with a view that no
-// worker took keeps them one tick more, once. Hub.mu is held.
+// worker took keeps them one tick more, once; while the workers find no
+// read connection, for as many ticks as that takes, since the frame comes
+// when one frees. Hub.mu is held.
 func (h *Hub) release(seq uint64) {
 	h.finished = seq
 	for s := range h.holding {
@@ -185,7 +189,11 @@ func (h *Hub) release(seq uint64) {
 		s.mu.Lock()
 		if lagging {
 			for i, o := range s.held {
-				if o.after <= seq && !o.bumped {
+				switch {
+				case o.after > seq:
+				case h.starving:
+					s.held[i].after = h.started + 1
+				case !o.bumped:
 					s.held[i].after, s.held[i].bumped = h.started+1, true
 				}
 			}

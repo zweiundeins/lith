@@ -86,13 +86,16 @@ type Options struct {
 	Read *sql.DB
 	// ReleaseAfter gives the workers' connections back to Read after the
 	// hub has rendered nothing for this long (default: never, each worker
-	// keeps its connection for the hub's lifetime). The next tick takes one
-	// per worker it needs from the pool, waiting up to RenderTimeout for
-	// it (a tick that waits longer renders nothing and comes again), and
-	// prepares its statements again, about 1 ms for a few statements after
-	// a quiet spell. For a process with many hubs or few connections, where
-	// a hub at rest should hold none: with sqlite.Options.IdleReaders low,
-	// it frees the connection's memory as well.
+	// keeps its connection for the hub's lifetime). The next tick with work
+	// takes only the connections it renders with, and prepares its
+	// statements again. When the pool has none to give within RenderTimeout,
+	// the hub logs one warning for the whole wait, the tick leaves its views
+	// to the next one and counts as no tick, and a notice or a new stream's
+	// first frames wait for the frame that comes with the first connection
+	// the pool gives back. For a process with many hubs or few connections,
+	// where a hub at rest should hold none. With sqlite.Options.ReaderIdleTime
+	// set, or IdleReaders negative, the pool closes the connection as well
+	// and frees its memory; a positive IdleReaders keeps it open idle.
 	ReleaseAfter time.Duration
 	// Tick is the shortest time from one tick to the next (default 50ms).
 	Tick time.Duration

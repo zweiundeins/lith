@@ -328,6 +328,36 @@ func TestNotifyAfterAFailedRender(t *testing.T) {
 	}
 }
 
+// A notice on a hub that waits for a read connection (Options.ReleaseAfter)
+// waits for its commit's frame as long as the pool stays busy: the frame
+// comes with a connection, not with a clock, and so does the notice.
+func TestNotifyWaitsForAReadConnection(t *testing.T) {
+	const timeout = 20 * time.Millisecond
+	write, read := testDB(t, 1)
+	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond, ReleaseAfter: 20 * time.Millisecond, RenderTimeout: timeout})
+	cl := serve(h, Spec{ID: "tab", Views: []View{counterText("outcome")}}, "")
+	frame, row1 := `<p id="outcome">row 0</p>`, `<p id="outcome">row 1</p>`
+	waitFor(t, "the first frame", func() bool { return cl.has(frame) })
+	waitFor(t, "the connection given back", func() bool { return read.Stats().InUse == 0 })
+
+	give := takeConns(t, read, 1) // a read that lasts past several RenderTimeouts
+	defer give()
+	increment(t, write)
+	h.Changed([]string{"counter"})
+	h.Notify("tab", "notice", notice("the write failed"))
+	const out = `<p id="outcome">the write failed</p>`
+	time.Sleep(6 * timeout)
+	if cl.has(out) {
+		t.Fatalf("the notice went out while the pool was busy, ahead of its frame: %q", cl.patches())
+	}
+	give()
+	waitFor(t, "the notice", func() bool { return cl.has(out) })
+	got := cl.patches()
+	if f, n := slices.Index(got, row1), slices.Index(got, out); f < 0 || f > n {
+		t.Fatalf("the notice went out before its commit's frame: %q", got)
+	}
+}
+
 // Notices that wait when the hub stops, held for a render or queued, go
 // out before the events of Options.Stopping.
 func TestNotifyWhenTheHubStops(t *testing.T) {

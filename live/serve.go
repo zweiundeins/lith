@@ -439,9 +439,10 @@ func (h *Hub) detach(s *stream, refused bool, spec []View) {
 
 // first waits for the first frames of the views s watches, so that Open
 // knows the length of its first write: until each view has offered one,
-// or published closes, or a heartbeat has passed. A hub that does not run
-// renders nothing, and it does not wait. It returns the length of the
-// frames offered by then.
+// or published closes, or a heartbeat has passed. A tick that found no
+// read connection for them doesn't count: it waits for the tick that does.
+// A hub that does not run renders nothing, and it does not wait. It
+// returns the length of the frames offered by then.
 func (h *Hub) first(ctx context.Context, s *stream, published <-chan struct{}) int {
 	if n, all := s.offered(); all || !h.running.Load() {
 		return n
@@ -456,6 +457,10 @@ func (h *Hub) first(ctx context.Context, s *stream, published <-chan struct{}) i
 			}
 			continue
 		case <-published:
+			if next := h.tickFor(s); next != nil {
+				published = next
+				continue
+			}
 		case <-timeout.C:
 		case <-ctx.Done():
 			return 0
@@ -463,6 +468,26 @@ func (h *Hub) first(ctx context.Context, s *stream, published <-chan struct{}) i
 		n, _ := s.offered()
 		return n
 	}
+}
+
+// tickFor is the channel of the tick that renders what the last tick left
+// of s's views for want of a read connection, nil when it left none.
+func (h *Hub) tickFor(s *stream) <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.starving {
+		return nil
+	}
+	var next <-chan struct{}
+	for _, w := range s.watches {
+		switch {
+		case w.v.dirty:
+			return h.next // the next tick renders it
+		case w.v.rendering:
+			next = h.publishing
+		}
+	}
+	return next
 }
 
 // offered adds up the length of the frames offered to s and not sent yet,

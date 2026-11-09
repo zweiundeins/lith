@@ -319,7 +319,7 @@ func (h *Hub) Notify(streamID, key string, frame any) bool
 
 Notify sends a notice to the open stream with this ID: frame goes out once and the hub forgets it. It is written as a view's frame is, under key: through Spec.WriteTick or Spec.Write, or as \[]byte events. A notice tells the person what no command decided and no view can render from the database: the writer failed, a rate limit turned an action away. Put the op id of the action it answers in it, as the tab's view does for an outcome, so that the page's pending state ends.
 
-A notice waits for the renders pending for the stream's views when Notify is called, such as those of the commit just before it, and goes out after their frames, so a frame of that commit never overwrites it: in the same write as the frames of the tick it waited for, or in a later write when that tick brought the stream none. A render that no worker took holds it one tick more, once. A render that fails holds it no longer: the notice goes out without that view's frame, since the view renders again only when a commit touches its topics, which a database that fails may not see for a while. It can still come first when the stream lags so far that the view defers that render (Stats.RendersDeferred). With none pending, it goes with the stream's next write. Like a frame, it waits while the stream holds its frames back: up to 250 ms with Spec.Slow, and while a paced stream's window is full, up to AckTimeout.
+A notice waits for the renders pending for the stream's views when Notify is called, such as those of the commit just before it, and goes out after their frames, so a frame of that commit never overwrites it: in the same write as the frames of the tick it waited for, or in a later write when that tick brought the stream none. A render that no worker took holds it one tick more, once, and for as long as the hub finds no read connection for the render (Options.ReleaseAfter). A render that fails holds it no longer: the notice goes out without that view's frame, since the view renders again only when a commit touches its topics, which a database that fails may not see for a while. It can still come first when the stream lags so far that the view defers that render (Stats.RendersDeferred). With none pending, it goes with the stream's next write. Like a frame, it waits while the stream holds its frames back: up to 250 ms with Spec.Slow, and while a paced stream's window is full, up to AckTimeout.
 
 A stream keeps one notice per key: a Notify with the key of a notice that has not gone out yet replaces it, in its place, and the last one wins. Key notices as the page acks its ops. A page that acks per op key, with one op pending per key, gives each key's notices that key. A page that acks per op id keys each notice by the op id, or a later notice would drop an earlier op's, which then stays pending until the stream reconnects; MaxNotices bounds those keys. A stream keeps MaxNotices waiting at most: one with a new key beyond them drops the oldest, queued before held. Notify reports whether such a stream is open; when none is, it does nothing and keeps nothing, so an ID a client made up costs nothing.
 
@@ -425,13 +425,16 @@ type Options struct {
 	Read *sql.DB
 	// ReleaseAfter gives the workers' connections back to Read after the
 	// hub has rendered nothing for this long (default: never, each worker
-	// keeps its connection for the hub's lifetime). The next tick takes one
-	// per worker it needs from the pool, waiting up to RenderTimeout for
-	// it (a tick that waits longer renders nothing and comes again), and
-	// prepares its statements again, about 1 ms for a few statements after
-	// a quiet spell. For a process with many hubs or few connections, where
-	// a hub at rest should hold none: with sqlite.Options.IdleReaders low,
-	// it frees the connection's memory as well.
+	// keeps its connection for the hub's lifetime). The next tick with work
+	// takes only the connections it renders with, and prepares its
+	// statements again. When the pool has none to give within RenderTimeout,
+	// the hub logs one warning for the whole wait, the tick leaves its views
+	// to the next one and counts as no tick, and a notice or a new stream's
+	// first frames wait for the frame that comes with the first connection
+	// the pool gives back. For a process with many hubs or few connections,
+	// where a hub at rest should hold none. With sqlite.Options.ReaderIdleTime
+	// set, or IdleReaders negative, the pool closes the connection as well
+	// and frees its memory; a positive IdleReaders keeps it open idle.
 	ReleaseAfter time.Duration
 	// Tick is the shortest time from one tick to the next (default 50ms).
 	Tick time.Duration
