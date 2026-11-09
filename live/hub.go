@@ -346,6 +346,10 @@ type Hub struct {
 	sweepAt time.Time                // when pending is next swept
 	asked   map[string]time.Time     // stream IDs asked to open again for a better tier, and when
 	next    chan struct{}            // closed once the next tick that renders views has published its frames
+	// publishing is the channel of the tick under way, or of the last one;
+	// starving: the last tick found no read connection for its views.
+	publishing chan struct{}
+	starving   bool
 	// The ticks that rendered views, numbered as they start and as they
 	// have published, and the streams with notices that wait for one.
 	started, finished uint64

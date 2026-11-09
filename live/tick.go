@@ -169,6 +169,13 @@ type tick struct {
 
 	streams []*stream // the streams with offers (stream.offers), in the order of their first
 	seq     uint64    // the tick's number among those that render (Hub.started)
+
+	// acq is the ctx a worker takes a connection with: ctx, or on a tick
+	// with a worker that holds none, one that drained ends when the last
+	// view is taken, since the tick then needs no other connection.
+	acq     context.Context
+	drained context.CancelFunc
+	starved atomic.Bool // a worker's acquire ran out of time
 }
 
 // offer is a new frame for one stream's watch.
@@ -203,6 +210,7 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	var published chan struct{}
 	if len(t.views) > 0 {
 		published, h.next = h.next, make(chan struct{})
+		h.publishing = published
 		h.started++
 		t.seq = h.started
 	}
@@ -217,20 +225,32 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 	t.deps = slices.Grow(t.deps[:0], len(t.views))[:len(t.views)]
 	t.next.Store(0)
 	k := min(len(ws), len(t.views))
+	t.acq, t.drained = t.ctx, nil
+	t.starved.Store(false)
+	if h.read != nil && slices.ContainsFunc(ws[:k], func(w *worker) bool { return w.conn == nil }) {
+		t.acq, t.drained = context.WithCancel(t.ctx)
+	}
 	t.wg.Add(k)
 	for _, w := range ws[:k] {
 		w.start <- t
 	}
 	t.wg.Wait()
-	h.ticks.Add(1)
-	h.publish(t)
+	if t.drained != nil {
+		t.drained()
+	}
+	// No worker got a connection in time: the views wait for the next tick.
+	starved := t.starved.Load() && int(t.next.Load()) < len(t.views)
+	if !starved {
+		h.ticks.Add(1)
+	}
+	h.publish(t, starved)
 	close(published)
 	clear(t.views)
 	clear(t.frames)
 	clear(t.errs)
 	clear(t.sums)
 	clear(t.deps)
-	return true
+	return !starved
 }
 
 // waiting reports whether every watch of v has a frame waiting (Hub.mu held).
@@ -277,11 +297,15 @@ func (h *Hub) resume(taken []offer) {
 // stream gets all of its offers of the tick at once, so the views that
 // changed together go out together. Views that no worker took from the
 // queue are dirty again, for the next tick, and so is a view without a
-// frame for a stream that started watching it during the tick.
-func (h *Hub) publish(t *tick) {
+// frame for a stream that started watching it during the tick. starved
+// says no worker found a connection in time; the first such tick of a
+// spell logs it.
+func (h *Hub) publish(t *tick, starved bool) {
 	taken := min(int(t.next.Load()), len(t.views))
 	var booked int64
 	h.mu.Lock()
+	warn := starved && !h.starving
+	h.starving = starved
 	for i, v := range t.views[:taken] {
 		if d := t.deps[i]; d.changed && !v.dead && h.redepend(v, d.topics, d.seq) {
 			h.mark(v)
@@ -364,6 +388,9 @@ func (h *Hub) publish(t *tick) {
 	if t.ctx.Err() != nil {
 		return
 	}
+	if warn {
+		h.log.Warn("live: no read connection within RenderTimeout; the views wait for one", "timeout", h.renderTimeout)
+	}
 	for i, err := range t.errs {
 		if err != nil {
 			h.log.Error("live: render", "view", t.views[i].key, "err", err)
@@ -398,8 +425,9 @@ func (h *Hub) reowe(stale []offer) {
 }
 
 // worker renders views from the tick's queue, all in one read
-// transaction per tick, on a connection it holds for its lifetime. A
-// worker whose transaction does not begin takes no view from the queue.
+// transaction per tick, on a connection it holds for its lifetime or until
+// Options.ReleaseAfter gives it back. A worker whose transaction does not
+// begin takes no view from the queue.
 type worker struct {
 	h     *Hub
 	conn  *sql.Conn
@@ -428,8 +456,13 @@ func (w *worker) render(t *tick) {
 	var q *reads
 	if w.h.read != nil {
 		var err error
-		if tx, err = w.begin(t.ctx); err != nil {
-			if t.ctx.Err() == nil {
+		if tx, err = w.begin(t); err != nil {
+			switch {
+			case t.acq.Err() != nil:
+				// The hub stops, or the other workers took every view.
+			case errors.Is(err, context.DeadlineExceeded):
+				t.starved.Store(true)
+			default:
 				w.h.log.Error("live: beginning a read transaction", "err", err)
 			}
 			return
@@ -444,6 +477,9 @@ func (w *worker) render(t *tick) {
 		i := int(t.next.Add(1)) - 1
 		if i >= len(t.views) {
 			break
+		}
+		if i == len(t.views)-1 && t.drained != nil {
+			t.drained()
 		}
 		v := t.views[i]
 		st.size.Store(int64(v.size))
@@ -472,33 +508,38 @@ func (w *worker) render(t *tick) {
 
 // begin starts the tick's read transaction. When that fails, the worker
 // trades its connection for a fresh one from the pool and tries again.
-func (w *worker) begin(ctx context.Context) (*sql.Tx, error) {
+func (w *worker) begin(t *tick) (*sql.Tx, error) {
 	if w.conn == nil {
-		if err := w.acquire(ctx); err != nil {
+		if err := w.acquire(t.acq); err != nil {
 			return nil, err
 		}
 	}
 	ro := &sql.TxOptions{ReadOnly: true}
-	tx, err := w.conn.BeginTx(ctx, ro)
-	if err == nil || ctx.Err() != nil {
+	tx, err := w.conn.BeginTx(t.ctx, ro)
+	if err == nil || t.ctx.Err() != nil {
 		return tx, err
 	}
 	w.closeStmts()
 	// The pool discards a connection on ErrBadConn; Close would keep it.
 	w.conn.Raw(func(any) error { return driver.ErrBadConn })
 	w.conn = nil
-	if err2 := w.acquire(ctx); err2 != nil {
+	if err2 := w.acquire(t.acq); err2 != nil {
 		return nil, errors.Join(err, err2)
 	}
-	return w.conn.BeginTx(ctx, ro)
+	return w.conn.BeginTx(t.ctx, ro)
 }
 
-// acquire takes a connection from the pool, waiting at most a Render's
-// time for one, so that a pool busy with reads holds up the tick only that
-// long: the worker then takes no views, and the next tick tries again.
+// acquire takes a connection from the pool. With Options.ReleaseAfter it
+// waits at most RenderTimeout, so that a pool busy with reads holds up the
+// tick only that long: the worker then takes no views, and the next tick
+// tries again. Without it a connection went bad, and the wait is the
+// pool's, as long as it takes.
 func (w *worker) acquire(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, w.h.renderTimeout)
-	defer cancel()
+	if w.h.releaseAfter > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, w.h.renderTimeout)
+		defer cancel()
+	}
 	c, err := w.h.read.Conn(ctx)
 	if err != nil {
 		return err

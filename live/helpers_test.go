@@ -109,13 +109,15 @@ func (c countingConn) ExecContext(ctx context.Context, q string, args []driver.N
 
 // fakeDB is a read pool for views that do not query. A transaction
 // begins unless the pool is down or its connection is the broken one,
-// and a connection opens unless the pool is down or has opened maxOpen.
+// and a connection opens unless the pool is down or has opened maxOpen;
+// while gate is set, it waits for gate to close first.
 type fakeDB struct {
 	*sql.DB
 	broken  int64 // which connection, counted in the order they open; 0: none
 	maxOpen int64 // 0: no limit
 	down    atomic.Bool
 	opened  atomic.Int64
+	gate    atomic.Pointer[chan struct{}]
 }
 
 func newFakeDB(t *testing.T, pool int, broken, maxOpen int64) *fakeDB {
@@ -128,7 +130,14 @@ func newFakeDB(t *testing.T, pool int, broken, maxOpen int64) *fakeDB {
 
 type fakeConnector struct{ d *fakeDB }
 
-func (c fakeConnector) Connect(context.Context) (driver.Conn, error) {
+func (c fakeConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	if g := c.d.gate.Load(); g != nil {
+		select {
+		case <-*g:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	if c.d.down.Load() || c.d.maxOpen > 0 && c.d.opened.Load() >= c.d.maxOpen {
 		return nil, errors.New("fake: cannot connect")
 	}

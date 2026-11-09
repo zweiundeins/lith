@@ -2,7 +2,12 @@ package live
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,7 +21,8 @@ func inUse(t *testing.T, stats func() int, n int, what string) {
 
 // A hub at rest gives its workers' connections back, its next change renders
 // on connections taken again, with statements prepared again, on a pool of
-// one or two.
+// one or two, and with two workers on a pool of three (a smaller pool caps
+// them at one).
 func TestHubReleasesItsConnections(t *testing.T) {
 	for _, c := range []struct {
 		name          string
@@ -24,22 +30,38 @@ func TestHubReleasesItsConnections(t *testing.T) {
 	}{
 		{"pool of 1", 1, 1},
 		{"pool of 2", 2, 1},
-		{"pool of 2, two workers", 2, 2},
+		{"pool of 3, two workers", 3, 2},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			var lg logs
 			write, read := testDB(t, c.pool)
-			h := start(t, Options{Read: read, Workers: c.workers, Tick: 2 * time.Millisecond, ReleaseAfter: 30 * time.Millisecond})
+			h := start(t, Options{Read: read, Workers: c.workers, Tick: 2 * time.Millisecond, ReleaseAfter: 30 * time.Millisecond, Log: lg.logger()})
 			used := func() int { return read.Stats().InUse }
 			var renders atomic.Int64
-			cl := serve(h, Spec{Views: []View{counterView("n", &renders)}}, "")
-			waitFor(t, "the first frame", func() bool { return cl.has(`<p id="n">0</p>`) })
+			keys := []string{"n"}
+			if c.workers > 1 {
+				keys = append(keys, "m") // one view per worker, so each gets the tick
+			}
+			var views []View
+			for _, k := range keys {
+				views = append(views, counterView(k, &renders))
+			}
+			cl := serve(h, Spec{Views: views}, "")
+			frames := func(i int) func() bool {
+				return func() bool {
+					return !slices.ContainsFunc(keys, func(k string) bool { return !cl.has(fmt.Sprintf(`<p id="%s">%d</p>`, k, i)) })
+				}
+			}
+			waitFor(t, "the first frames", frames(0))
 			inUse(t, used, 0, "the connections given back")
+			if c.workers > 1 && strings.Contains(lg.String(), "too few connections") {
+				t.Fatalf("the pool capped the workers: %s", lg.String())
+			}
 
 			for i := 1; i <= 5; i++ {
 				increment(t, write)
 				h.Changed([]string{"counter"})
-				want := fmt.Sprintf(`<p id="n">%d</p>`, i)
-				waitFor(t, "the next frame", func() bool { return cl.has(want) })
+				waitFor(t, "the next frames", frames(i))
 				// While the hub renders, GET-like reads still find the pool.
 				var n int
 				if err := read.QueryRow(`select n from counter where name = 'a'`).Scan(&n); err != nil {
@@ -94,28 +116,126 @@ func TestHubKeepsConnectionsWhileBusy(t *testing.T) {
 	}
 }
 
-// With the pool's only connection taken, a tick that needs one waits up to
-// RenderTimeout and comes again; it renders once the pool has one to give.
+// With the pool's only connection taken, a tick waits up to RenderTimeout
+// for one and leaves its views to the next tick. That logs one warning for
+// the whole wait, and neither an error nor a tick or an overrun; the views
+// render once the pool has a connection to give.
 func TestHubAcquireWaitsAndRetries(t *testing.T) {
+	var lg logs
+	var onTicks atomic.Int64
 	write, read := testDB(t, 1)
-	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond, ReleaseAfter: 20 * time.Millisecond, RenderTimeout: 20 * time.Millisecond})
+	h := start(t, Options{Read: read, Workers: 1, Tick: 2 * time.Millisecond, ReleaseAfter: 20 * time.Millisecond, RenderTimeout: 20 * time.Millisecond, Log: lg.logger(),
+		OnTick: func(time.Duration) { onTicks.Add(1) }})
 	var renders atomic.Int64
 	cl := serve(h, Spec{Views: []View{counterView("n", &renders)}}, "")
 	waitFor(t, "the first frame", func() bool { return cl.has(`<p id="n">0</p>`) })
 	waitFor(t, "the connection given back", func() bool { return read.Stats().InUse == 0 })
 
-	ctx := context.Background()
-	c, err := read.Conn(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	give := takeConns(t, read, 1)
+	before, onBefore := h.Stats(), onTicks.Load()
 	increment(t, write)
 	h.Changed([]string{"counter"})
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // five RenderTimeouts
 	const one = `<p id="n">1</p>`
 	if cl.has(one) {
 		t.Fatal("rendered without a connection")
 	}
-	c.Close()
+	if st := h.Stats(); st.Ticks != before.Ticks || st.Overruns != before.Overruns {
+		t.Errorf("a tick without a connection counted: ticks %d to %d, overruns %d to %d", before.Ticks, st.Ticks, before.Overruns, st.Overruns)
+	}
+	if n := onTicks.Load(); n != onBefore {
+		t.Errorf("OnTick ran %d times without a render", n-onBefore)
+	}
+	logged := lg.String()
+	if n := strings.Count(logged, "no read connection"); n != 1 {
+		t.Errorf("%d warnings while the pool was taken, want one: %s", n, logged)
+	}
+	if strings.Contains(logged, "level=ERROR") {
+		t.Errorf("an error logged for a busy pool: %s", logged)
+	}
+	give()
 	waitFor(t, "the render once the pool has a connection", func() bool { return cl.has(one) })
+}
+
+// With two workers and one connection free after a release, the worker that
+// gets it renders the tick, and the other one stops waiting for a connection
+// that the tick doesn't need.
+func TestHubTakesOnlyTheConnectionsItRendersWith(t *testing.T) {
+	var lg logs
+	write, read := testDB(t, 4)
+	h := start(t, Options{Read: read, Workers: 2, Tick: 2 * time.Millisecond, ReleaseAfter: 30 * time.Millisecond, RenderTimeout: time.Second, Log: lg.logger()})
+	cl := serve(h, Spec{Views: []View{counterText("a"), counterText("b")}}, "")
+	frames := func(row string) func() bool {
+		return func() bool { return cl.has(`<p id="a">`+row+`</p>`) && cl.has(`<p id="b">`+row+`</p>`) }
+	}
+	waitFor(t, "the first frames", frames("row 0"))
+	waitFor(t, "the connections given back", func() bool { return read.Stats().InUse == 0 })
+
+	give := takeConns(t, read, 3) // GET-like reads hold three of the four
+	defer give()
+	increment(t, write)
+	began := time.Now()
+	h.Changed([]string{"counter"})
+	waitFor(t, "the next frames", frames("row 1"))
+	if took := time.Since(began); took > 500*time.Millisecond {
+		t.Errorf("the frames took %v with a connection free for the tick (RenderTimeout 1s)", took)
+	}
+	if logged := lg.String(); strings.Contains(logged, "level=ERROR") || strings.Contains(logged, "no read connection") {
+		t.Errorf("the worker without a connection was reported: %s", logged)
+	}
+}
+
+// Without ReleaseAfter, a worker whose connection went bad waits for a new
+// one as long as it takes: RenderTimeout bounds a Render, not that wait, and
+// the tick renders without logging anything.
+func TestWorkerWaitsForAFreshConnection(t *testing.T) {
+	var lg logs
+	db := newFakeDB(t, 2, 1, 0)
+	h := start(t, Options{Read: db.DB, Workers: 1, Tick: 2 * time.Millisecond, RenderTimeout: 20 * time.Millisecond, Log: lg.logger()})
+	waitFor(t, "the worker's connection", func() bool { return db.opened.Load() == 1 })
+	gate := make(chan struct{})
+	db.gate.Store(&gate) // the pool opens no connection until the gate opens
+	cl := serve(h, Spec{Views: slowViews(1)}, "")
+	time.Sleep(100 * time.Millisecond) // five RenderTimeouts
+	const frame = `<p id="v0">v0</p>`
+	if cl.has(frame) {
+		t.Fatal("rendered without a connection")
+	}
+	if logged := lg.String(); strings.Contains(logged, "level=ERROR") || strings.Contains(logged, "no read connection") {
+		t.Errorf("the wait for a connection was reported: %s", logged)
+	}
+	close(gate)
+	waitFor(t, "the view", func() bool { return cl.has(frame) })
+	if n := h.Stats().Ticks; n != 1 {
+		t.Errorf("the view took %d ticks", n)
+	}
+}
+
+// counterText is a view of the counter under key, rendered as "row N".
+func counterText(key string) View {
+	return text(key, []string{"counter"}, func(ctx context.Context, tx *sql.Tx) (string, error) {
+		n, err := count(ctx, tx)
+		return "row " + strconv.Itoa(n), err
+	})
+}
+
+// takeConns takes n connections of the pool and returns a func that gives
+// them back; it may be called twice.
+func takeConns(t *testing.T, read *sql.DB, n int) func() {
+	t.Helper()
+	var cs []*sql.Conn
+	for range n {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		c, err := read.Conn(ctx)
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs = append(cs, c)
+	}
+	return sync.OnceFunc(func() {
+		for _, c := range cs {
+			c.Close()
+		}
+	})
 }

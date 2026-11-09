@@ -215,6 +215,53 @@ func TestTickAllocs(t *testing.T) {
 	}
 }
 
+// A tick on a read pool whose workers hold their connections costs the
+// same with Options.ReleaseAfter as without it: only a tick after a
+// release does anything more.
+func TestTickAllocsReleaseAfter(t *testing.T) {
+	if raceEnabled || testing.Short() {
+		t.Skip("allocations differ under the race detector")
+	}
+	allocs := func(releaseAfter time.Duration) float64 {
+		db := newFakeDB(t, 4, 0, 0)
+		var gen int
+		h, ws, ss := benchHub(t, 20, fourTopics(func(j int) string { return "t:" + strconv.Itoa(j) }), func(int) func(context.Context, *sql.Tx) (any, error) {
+			return func(context.Context, *sql.Tx) (any, error) { return strconv.AppendInt(nil, int64(gen), 10), nil }
+		})
+		h.read, h.releaseAfter = db.DB, releaseAfter
+		for _, w := range ws {
+			c, err := db.Conn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.conn = c
+			t.Cleanup(func() { c.Close() })
+		}
+		tk := &tick{ctx: context.Background()}
+		tick := func() {
+			gen++
+			h.mu.Lock()
+			for _, v := range h.views {
+				h.mark(v)
+			}
+			h.mu.Unlock()
+			h.run(tk, ws, time.Now())
+			take(ss)
+		}
+		tick()
+		tick()
+		if tk.drained != nil {
+			t.Error("a tick whose workers hold their connections made a ctx for taking one")
+		}
+		return testing.AllocsPerRun(50, tick)
+	}
+	off, on := allocs(0), allocs(time.Hour)
+	if on > off+0.5 {
+		t.Fatalf("%.1f allocations a tick with ReleaseAfter, %.1f without", on, off)
+	}
+	t.Logf("%.1f allocations a tick with ReleaseAfter, %.1f without", on, off)
+}
+
 // TestVersionMemory measures what the versions of the topics changed last
 // hold on the heap, the topics' names of 16 bytes included, with both
 // generations full:
