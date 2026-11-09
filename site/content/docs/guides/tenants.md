@@ -169,4 +169,4 @@ if from == "cgroup" && limit > 2*offHeap { // offHeap: what your accounts measur
 budget := sse.NewBudget(sse.BudgetOptions{}) // half of the limit the runtime has now
 ```
 
-Outside Linux `MemoryLimit` returns 0 and `""`, and with `GOMEMLIMIT` set it returns that and `"GOMEMLIMIT"`: the example then leaves the limit alone, and the budget takes half of what the runtime has.
+Outside Linux `MemoryLimit` returns 0 and `""`, and the budget only counts. With `GOMEMLIMIT` already set it returns that and `"GOMEMLIMIT"`, and the budget takes half of it. In both cases the example leaves the limit alone.
