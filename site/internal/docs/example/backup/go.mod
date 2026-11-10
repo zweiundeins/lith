@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/prometheus/client_golang v1.25.0
-	github.com/zweiundeins/lith v0.5.4
+	github.com/zweiundeins/lith v0.5.5
 	github.com/zweiundeins/lith/backup v0.0.0-00010101000000-000000000000
 )
 
