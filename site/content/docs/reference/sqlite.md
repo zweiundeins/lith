@@ -75,7 +75,13 @@ const (
 	// again, sees an unchanged database as unchanged instead of copying all
 	// of it as a new snapshot. The -wal and -shm files then stay beside a
 	// closed database, the WAL at the size it last reached: code that
-	// deletes or replaces the database file removes them with it.
+	// deletes or replaces the database file removes them with it. The next
+	// open counts every frame since the WAL last started over as not yet
+	// checkpointed, and readers read those pages into their page caches
+	// instead of through the memory map, until a write after the next
+	// checkpoint. lith/backup's detach starts the WAL over before the
+	// close, so it keeps one frame; a replicator in another process leaves
+	// the frames since its last checkpoint.
 	CheckpointExternal
 )
 ```
