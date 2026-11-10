@@ -4,18 +4,20 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 ## Unreleased
 
-Memory for apps with many databases and hubs in one process, and replicas that a restart no longer uploads again. The options are opt-in, and Libretto measured no change from v0.5.4 with them off. Two defaults change: the streams' budget on a host whose memory limit sits above the process's cgroup or in cgroup v1, and the files a database opened with `sqlite.CheckpointExternal` leaves when it closes. What to change in an app:
+Memory for many databases in one process, and replicas that no longer upload again after a restart. The new options are opt-in. What to check in an app:
 
-- `backup`: after detach, close the database without the `PRAGMA wal_checkpoint(TRUNCATE)` the docs had; with it, every Attach still uploads the whole database. Code that deletes or replaces a database opened with `CheckpointExternal` removes its `-wal` and `-shm` too.
+- `backup`: after detach, close the database without `PRAGMA wal_checkpoint(TRUNCATE)`; with it, every Attach still uploads the whole database. A database opened with `sqlite.CheckpointExternal` now keeps its `-wal` and `-shm` when it closes, so code that deletes or replaces one removes those too.
+- `sse`: where the process's own cgroup sets no memory limit, the default budget now takes the limit from the groups above it or from cgroup v1, not from the machine's memory.
+- Datastar is Starbase's build of v1.0.5 (`1.0.5+starbase.818f366`). Its `retryMaxCount` counts every retry in a request's life, so a stream without `retryMaxCount: Infinity` gives up at its tenth dropped connection.
 
-- `sqlite`: `Options.IdleReaders` and `ReaderIdleTime` bound the read connections that stay open idle, down to none, while `Readers` stays the most that open. A warmed reader holds about 0.2 to 1 MiB.
-- `live`: `Options.ReleaseAfter` gives the workers' read connections back when the hub has gone quiet, and its next tick with work takes the ones it renders with. With it and `ReaderIdleTime` at a minute, `Readers: 2` and 256 tenants, Libretto held 154 MiB less at rest (0.6 MiB per tenant, all off the Go heap), a saving that is gone under activity, and its first update after idle came 60 to 120 ms later (p50 and p95, 2 CPUs).
-- `sse`: `MemoryLimit` reports the limit a budget takes half of and where it came from. Where the process's own cgroup sets none, it now reads the groups above it and cgroup v1, so such a host's default budget is half of that limit instead of a quarter of the machine. The tenants guide has the sizing for many databases, GOMEMLIMIT among it.
-- `sqlite`: a database opened with `CheckpointExternal` keeps its WAL when it closes (`SQLITE_FCNTL_PERSIST_WAL`): its `-wal` and `-shm` now stay beside the closed file, the WAL at the size it last reached. Litestream, attached again, then finds an unchanged database where its last sync left it, where before every Attach after a close uploaded all of it as a new file: at every restart, and in Libretto at every open of an account.
-- `live`: `Options.HibernateFirst` makes a stream's first rest before it hibernates shorter than `Hibernate`, so that the streams of a deploy, which all reconnect at once, hand their encoders on to each other. At 200 ms Libretto's peak anonymous memory after a restart fell from 1,004 to 854 MiB with 240 connected accounts and from 1,703 to 1,450 MiB with 500. A stream whose next frame comes after that first rest sends it once without the history of the frames before.
-- `tenant`: `Pool.Peek(key)` returns a key's value, pinned, only if it is open: it never opens the key or waits for it, and a denied key returns its reason. For reads that should not open an account, such as a public page of a dormant one.
-- `backup` (tag `backup/v0.3.3`): Litestream v0.5.18, whose restore after a crash under `synchronous=NORMAL` no longer returns stale rows. Until a fix upstream it keeps about 155 KiB of Go heap per attached database, the encoder of its last LTX file. A restore removes a `-wal` and `-shm` left beside its output, which SQLite would replay into the restored file.
-- `template`: `Datastar()` returns Starbase's build of Datastar v1.0.5 (`DatastarVersion` is `1.0.5+starbase.818f366`), and an app that serves it gets it when built again with this lith. In 1.0.5 `retryMaxCount` counts every retry in a request's life, so a stream opened without `retryMaxCount: Infinity` gives up at its tenth dropped connection.
+New:
+
+- `sqlite`: `Options.IdleReaders` and `ReaderIdleTime` close idle read connections, down to none.
+- `live`: `Options.ReleaseAfter` gives a quiet hub's read connections back. With it and `ReaderIdleTime` at a minute, Libretto held 0.6 MiB less per idle tenant, and the first update after idle came 60 to 120 ms later.
+- `live`: `Options.HibernateFirst` shortens a stream's first rest, so the streams of a deploy share encoders: peak memory fell from 1,703 to 1,450 MiB at 500 tenants.
+- `tenant`: `Pool.Peek` returns a key's value only if it is open, without opening it or waiting.
+- `sse`: `MemoryLimit` reports the limit a budget takes half of, and where it came from.
+- `backup` (`backup/v0.3.3`): Litestream v0.5.18, whose restore after a crash no longer returns stale rows; until an upstream fix it keeps about 155 KiB per attached database. A restore removes a `-wal` and `-shm` left beside its output.
 
 ## v0.5.4 (2026-11-03)
 
