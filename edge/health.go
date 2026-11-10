@@ -35,11 +35,18 @@ func Health(version string) http.Handler {
 type Ready struct {
 	// Timeout bounds all checks together, 2 seconds when zero.
 	Timeout time.Duration
-	// Log gets each failure with its error, slog.Default() when nil.
+	// Log gets a line when a check starts to fail, with its error, and one
+	// when the probe passes, the first time or again: once a spell, not
+	// once a probe. A failure goes out at Info until a probe has passed,
+	// as while the static files compress at startup, and at Warn from
+	// then on. slog.Default() when nil.
 	Log *slog.Logger
 
-	mu     sync.Mutex
-	checks []readyCheck
+	mu      sync.Mutex
+	checks  []readyCheck
+	failing []bool    // by check: it failed the last probe, and that was logged
+	down    time.Time // the first failed probe since one passed
+	up      bool      // a probe has passed
 }
 
 type readyCheck struct {
@@ -91,13 +98,12 @@ wait:
 	}
 
 	var failed []string
-	log := cmp.Or(rd.Log, slog.Default())
 	for i, err := range errs {
 		if err != nil {
 			failed = append(failed, checks[i].name)
-			log.LogAttrs(r.Context(), slog.LevelWarn, "not ready", slog.String("check", checks[i].name), slog.Any("err", err))
 		}
 	}
+	rd.report(r.Context(), checks, errs)
 	h := w.Header()
 	h.Set("Content-Type", "text/plain; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
@@ -107,4 +113,41 @@ wait:
 		return
 	}
 	w.Write([]byte("ready\n"))
+}
+
+// report logs what a probe changed: each check that started to fail, and
+// a probe that passes after one that failed, or for the first time.
+func (rd *Ready) report(ctx context.Context, checks []readyCheck, errs []error) {
+	log := cmp.Or(rd.Log, slog.Default())
+	rd.mu.Lock()
+	defer rd.mu.Unlock()
+	level := slog.LevelInfo
+	if rd.up {
+		level = slog.LevelWarn
+	}
+	if n := len(errs) - len(rd.failing); n > 0 {
+		rd.failing = append(rd.failing, make([]bool, n)...)
+	}
+	passed := true
+	for i, err := range errs {
+		if err == nil {
+			rd.failing[i] = false
+			continue
+		}
+		passed = false
+		if !rd.failing[i] {
+			rd.failing[i] = true
+			log.LogAttrs(ctx, level, "not ready", slog.String("check", checks[i].name), slog.Any("err", err))
+		}
+	}
+	switch {
+	case !passed && rd.down.IsZero():
+		rd.down = time.Now()
+	case passed && !rd.down.IsZero():
+		log.LogAttrs(ctx, slog.LevelInfo, "ready", slog.Duration("after", time.Since(rd.down)))
+		rd.down, rd.up = time.Time{}, true
+	case passed && !rd.up:
+		log.LogAttrs(ctx, slog.LevelInfo, "ready")
+		rd.up = true
+	}
 }

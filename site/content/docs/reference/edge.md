@@ -376,7 +376,11 @@ Len is the number of buckets held.
 type Ready struct {
 	// Timeout bounds all checks together, 2 seconds when zero.
 	Timeout time.Duration
-	// Log gets each failure with its error, slog.Default() when nil.
+	// Log gets a line when a check starts to fail, with its error, and one
+	// when the probe passes, the first time or again: once a spell, not
+	// once a probe. A failure goes out at Info until a probe has passed,
+	// as while the static files compress at startup, and at Warn from
+	// then on. slog.Default() when nil.
 	Log *slog.Logger
 
 }

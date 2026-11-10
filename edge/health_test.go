@@ -59,3 +59,53 @@ func TestReady(t *testing.T) {
 		t.Error("a passing check was logged")
 	}
 }
+
+// Ready logs a check once when it starts to fail, at Info until a probe
+// has passed, as while the static files compress at startup, and at Warn
+// after; and once when the probe passes, the first time or again.
+func TestReadyLogsOncePerSpell(t *testing.T) {
+	var logs bytes.Buffer
+	rd := &Ready{Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	var static, database error
+	rd.Add("database", func(context.Context) error { return database })
+	rd.Add("static", func(context.Context) error { return static })
+	step := func(name string, probes int, want ...string) {
+		t.Helper()
+		logs.Reset()
+		for range probes {
+			rd.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/readyz", nil))
+		}
+		lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+		if logs.Len() == 0 {
+			lines = nil
+		}
+		ok := len(lines) == len(want)
+		for i := 0; ok && i < len(want); i++ {
+			ok = strings.Contains(lines[i], want[i])
+		}
+		if !ok {
+			t.Errorf("%s: logged\n%s\nwant one line each with %q", name, logs.String(), want)
+		}
+	}
+
+	static = errors.New("compressing the static files")
+	step("startup", 5, `level=INFO msg="not ready" check=static err="compressing the static files"`)
+	static = nil
+	step("compressed", 3, "level=INFO msg=ready after=")
+	database = errors.New("disk I/O error")
+	step("database down", 4, `level=WARN msg="not ready" check=database err="disk I/O error"`)
+	static = errors.New("compressing the static files")
+	step("static too", 2, `level=WARN msg="not ready" check=static`)
+	database = nil
+	step("database back", 2)
+	static = nil
+	step("all back", 2, "level=INFO msg=ready after=")
+
+	first := &Ready{Log: rd.Log}
+	first.Add("database", func(context.Context) error { return nil })
+	rd = first
+	step("ready at once", 3, "level=INFO msg=ready")
+	if strings.Contains(logs.String(), "after=") {
+		t.Errorf("a first pass names a spell: %s", logs.String())
+	}
+}

@@ -238,6 +238,8 @@ ready.Add("database", func(ctx context.Context) error {
 
 A check must not queue behind the writer: a command waits for every batch ahead of it, which turns a busy writer into a failed probe. Read from the read pool, or look at state in memory, as this site does for its writer and hub. `edge.Static.Warmed` is such a check: it passes once the static files are compressed, those `NewStatic` read, on two goroutines from the start, and those `Add` gave it before then, such as the Datastar build; until then a request for a file not compressed yet waits for it. Once it has passed it stays passed, so an `Add` while the app serves takes no instance out of rotation. The template and this site register it as `static`.
 
+`Ready` logs a check once when it starts to fail, with its error, and once when the probe passes, the first time or again, with how long it failed: one line a spell, not one a probe. Until a probe has passed, as while the static files compress at startup, a failure goes out at Info; from then on at Warn, since an instance that was ready has dropped out of rotation.
+
 ## Errors and logs
 
 `edge.Recover(log, h)` turns a panic into a 500, logged with its stack; when the answer has begun, it aborts the connection instead, so the client can tell that the answer is incomplete. `edge.LogRequests(log, h)` logs a line per request as it ends: method, path, status, bytes, duration and client, at Error for a 5xx and at Info otherwise. A handler whose requests come several times a second from one page calls `edge.Quiet(r)`, and their lines go out at Debug unless they fail: the cursor party's moves do, 15 a second from every pointer.
