@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/benbjohnson/litestream"
-	_ "modernc.org/sqlite"
+	msqlite "modernc.org/sqlite"
 )
 
 var bg = context.Background()
@@ -30,7 +30,10 @@ func newManager(t *testing.T) *Manager {
 	return m
 }
 
-// openApp opens path the way the package doc tells applications to.
+// openApp opens path the way the package doc tells applications to: while
+// the Manager replicates, its connection leaves the checkpoints to
+// Litestream and keeps the WAL past its close, as sqlite.CheckpointExternal
+// does.
 func openApp(t *testing.T, m *Manager, path string) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", fmt.Sprintf(
@@ -40,6 +43,20 @@ func openApp(t *testing.T, m *Manager, path string) *sql.DB {
 		t.Fatal(err)
 	}
 	db.SetMaxOpenConns(1)
+	if m.Enabled() {
+		c, err := db.Conn(bg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.Raw(func(dc any) error {
+			_, err := dc.(msqlite.FileControl).FileControlPersistWAL("main", 1)
+			return err
+		})
+		c.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := db.Ping(); err != nil {
 		t.Fatal(err)
 	}
@@ -49,9 +66,6 @@ func openApp(t *testing.T, m *Manager, path string) *sql.DB {
 // closeApp is the last step of a shutdown, after detach.
 func closeApp(t *testing.T, db *sql.DB) {
 	t.Helper()
-	if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		t.Error(err)
-	}
 	if err := db.Close(); err != nil {
 		t.Error(err)
 	}

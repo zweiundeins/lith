@@ -71,8 +71,9 @@ func run(path string) error {
 	if err := m.RestoreIfMissing(ctx, "app", path); err != nil {
 		return err
 	}
-	// 2. Litestream checkpoints at positions it has replicated. Without it
-	// the writer does, or the WAL would grow without end.
+	// 2. Litestream checkpoints at positions it has replicated, and the
+	// database keeps its WAL when it closes. Without Litestream the writer
+	// checkpoints, or the WAL would grow without end.
 	checkpoint := sqlite.CheckpointWriter
 	if m.Enabled() {
 		checkpoint = sqlite.CheckpointExternal
@@ -117,15 +118,12 @@ func run(path string) error {
 
 	// Stop in this order: the requests and the writer, so every accepted
 	// write is in the file; the final sync, on a context that is still
-	// alive; then a checkpoint, and the database closes.
+	// alive; then the database closes, without a checkpoint of its own.
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	srv.Shutdown(sctx)
 	stopJobs()
 	err = w.Close()
 	err = errors.Join(err, detach(context.Background()))
-	if _, e := db.W.ExecContext(sctx, "PRAGMA wal_checkpoint(TRUNCATE)"); e != nil {
-		err = errors.Join(err, e)
-	}
 	return errors.Join(err, db.Close())
 }

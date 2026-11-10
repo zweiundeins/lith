@@ -15,6 +15,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/superfly/ltx v0.5.3
+	github.com/zweiundeins/lith v0.5.4
 	modernc.org/sqlite v1.60.1
 )
 
@@ -59,3 +60,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
+
+replace github.com/zweiundeins/lith => ../

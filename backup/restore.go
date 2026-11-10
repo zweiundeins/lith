@@ -45,6 +45,12 @@ func (m *Manager) restoreTo(ctx context.Context, client litestream.ReplicaClient
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return st, err
 	}
+	// Left by a database removed from out, such as one that kept its WAL.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err := os.Remove(out + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return st, err
+		}
+	}
 	// A replica that still has v0.3.x generations goes through litestream's
 	// own restore, which compares them with the LTX files and picks one.
 	if v3, ok := client.(litestream.ReplicaClientV3); ok {

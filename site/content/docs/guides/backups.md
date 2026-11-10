@@ -70,8 +70,9 @@ The order of a start and of a stop matters, so the board app's wiring is a progr
 if err := m.RestoreIfMissing(ctx, "app", path); err != nil {
 	return err
 }
-// 2. Litestream checkpoints at positions it has replicated. Without it
-// the writer does, or the WAL would grow without end.
+// 2. Litestream checkpoints at positions it has replicated, and the
+// database keeps its WAL when it closes. Without Litestream the writer
+// checkpoints, or the WAL would grow without end.
 checkpoint := sqlite.CheckpointWriter
 if m.Enabled() {
 	checkpoint = sqlite.CheckpointExternal
@@ -93,7 +94,7 @@ if err != nil {
 ```
 
 1. `RestoreIfMissing` runs before the database opens: opening creates an empty file, and a restore that finds a file does nothing. On a fresh disk it restores the replica's latest state; with nothing replicated yet, it does nothing.
-2. With Litestream attached, the database opens with `sqlite.CheckpointExternal`: Litestream checkpoints at positions it has copied. One owner for checkpoints; without Litestream the writer has them.
+2. With Litestream attached, the database opens with `sqlite.CheckpointExternal`: Litestream checkpoints at positions it has copied. One owner for checkpoints; without Litestream the writer has them. `CheckpointExternal` also keeps the WAL when the database closes, and the `-wal` and `-shm` files stay beside it: remove them with the database when you delete or replace it.
 3. `Attach` starts replicating and returns once the first sync has reached the replica.
 
 The configuration comes from the environment, `BACKUP_BUCKET`, `BACKUP_REGION`, `BACKUP_ACCESS_KEY_ID` and the rest, with `backup.ConfigFromEnv("BACKUP_")`. Two loops run once per process: maintenance takes a snapshot each day and prunes history older than the retention window, and verification restores each replica to a temporary file every day and runs `PRAGMA integrity_check` on it:
@@ -130,11 +131,10 @@ srv.Shutdown(sctx)
 stopJobs()
 err = w.Close()
 err = errors.Join(err, detach(context.Background()))
-if _, e := db.W.ExecContext(sctx, "PRAGMA wal_checkpoint(TRUNCATE)"); e != nil {
-	err = errors.Join(err, e)
-}
 return errors.Join(err, db.Close())
 ```
+
+The database closes without a checkpoint of its own. Its close checkpoints the WAL and keeps the file, so the next start's `Attach` finds the database where the final sync left it, and a database that did not change uploads nothing. Up to v0.5.4 these docs ran `PRAGMA wal_checkpoint(TRUNCATE)` before the close, and the close removed the WAL: Litestream, attached again, could not tell the database had not changed and uploaded all of it as a new file at every start, and an app with a database per account at every open of an account. An app that keeps the checkpoint keeps that cost. `RestoreIfMissing`, and every other restore, removes a `-wal` and `-shm` it finds beside a missing database, which SQLite would otherwise replay into the restored file.
 
 When the newest snapshot is older than a day, `Attach` writes one in the background after the first sync, so a tenant attached only between maintenance passes still gets one. It is bounded by `Config.SnapshotTimeout` (10 minutes). Detach cancels it, and the hourly pass's work on that tenant too, then waits for them to stop before the final sync, so an eviction, a purge or a shutdown waits for a cancel to take hold, not for an upload, and on S3 for the abort of the upload it cut off, 10 s at most; a tenant detached before its snapshot is done gets one on its next attach. A pass that finds a tenant busy with that snapshot skips it until the next pass, counts it in `app_backup_replica_maintenance_skipped_total{replica}` and keeps the tenant's run of failed passes as it was. The unit's stop timeout (`TimeoutStopSec`) must cover the drain and the final sync: a process killed mid-sync leaves the replica behind the file. Only one process may replicate a database at a time, and Litestream opens the database with modernc's SQLite, which the app must use too: two SQLite builds in one process break each other's locks. lith uses modernc's.
 
@@ -222,7 +222,7 @@ WantedBy=timers.target
 
 ## Erasing an account
 
-An account erased for good also leaves its replica: detach it, then `m.PurgeReplica(ctx, name)` deletes everything replicated under its name, and `backup.MetaPath(path)` is the directory Litestream keeps beside the file, to delete with it.
+An account erased for good also leaves its replica: detach it, then `m.PurgeReplica(ctx, name)` deletes everything replicated under its name, and `backup.MetaPath(path)` is the directory Litestream keeps beside the file, to delete with it and with the file's `-wal` and `-shm`.
 
 An upload of 5 MiB or more goes to S3 in parts, and one that is cut off, such as a snapshot that detach cancels or one in a process that crashed, can leave its parts in the bucket: pages of the account's database that a listing of objects does not show. The S3 SDK's own abort runs with the context that was cancelled, so it fails. When a snapshot is cut off, by detach, a shutdown or its timeout, the manager lists the unfinished uploads under the replica's snapshot level and aborts them with a fresh context, best effort, before the name can be attached again, so a new snapshot of the name is never among them. `PurgeReplica` holds the name, lists every unfinished upload under it and aborts it before it deletes anything; when it cannot, the purge fails and a retry finds them again. A provider that does not implement the listing (`NotImplemented`) has nothing the manager can abort: the purge goes on and logs that once. The purge is the reliable fix. As a backstop, give the bucket a lifecycle rule `AbortIncompleteMultipartUpload` after a day where the provider supports it: AWS does, and so do several S3-compatible providers, but S3 layers on OpenStack Swift (Infomaniak's object storage is one) may not implement lifecycle rules at all. We could not confirm it for Infomaniak, so test it with `aws s3api put-bucket-lifecycle-configuration` before relying on it.
 

@@ -14,8 +14,10 @@
 //  2. Open the database. While the Manager is enabled its write connection
 //     sets PRAGMA wal_autocheckpoint=0 (see WALAutocheckpoint) and leaves
 //     checkpoints to Litestream, which makes them at positions it has
-//     replicated. Without Litestream the WAL would grow without bound, so
-//     keep SQLite's default then.
+//     replicated, and keeps the WAL past its last close
+//     (SQLITE_FCNTL_PERSIST_WAL). lith's sqlite.Open does both with
+//     sqlite.CheckpointExternal. Without Litestream the WAL would grow
+//     without bound, so keep SQLite's default then.
 //  3. Attach. It returns once the first sync has reached the replica.
 //
 // Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at
@@ -51,10 +53,15 @@
 //
 // Stop in this order: drain HTTP and the writer, so every accepted write is
 // in the file; call detach, the final sync, with a live context (the
-// signal's context is already cancelled); then checkpoint and close the
-// database. The process's stop timeout (systemd TimeoutStopSec) must cover
-// the drain and the final sync: killed mid-sync, the replica trails the
-// file.
+// signal's context is already cancelled); then close the database, without
+// a checkpoint of the application's own. The close checkpoints the WAL and
+// keeps it, so the next Attach finds the database where the final sync
+// left it and uploads nothing for a database that did not change. A WAL
+// deleted at the close, or emptied by PRAGMA wal_checkpoint(TRUNCATE) after
+// detach, leaves Litestream no way to tell, and the next Attach uploads the
+// whole database as a new LTX file. The process's stop timeout (systemd
+// TimeoutStopSec) must cover the drain and the final sync: killed mid-sync,
+// the replica trails the file.
 //
 // Litestream opens the database with modernc.org/sqlite, so the application
 // must use it too: two SQLite copies in one process break each other's locks.
@@ -340,7 +347,8 @@ func (m *Manager) WALAutocheckpoint() int {
 }
 
 // MetaPath is the directory Litestream keeps beside a replicated database
-// (".<file>-litestream"). Remove it with the database when erasing one.
+// (".<file>-litestream"). Remove it with the database, and the database's
+// -wal and -shm files, when erasing one.
 func MetaPath(dbPath string) string {
 	dir, f := filepath.Split(dbPath)
 	return filepath.Join(dir, "."+f+litestream.MetaDirSuffix)
@@ -350,6 +358,9 @@ func MetaPath(dbPath string) string {
 // there: a first boot on a fresh disk, or recovery after losing one. It does
 // nothing when the Manager is disabled, the file exists, or nothing was ever
 // replicated under name. A restore that fails quick_check is removed again.
+// Like every restore, it first removes a -wal or -shm file left beside the
+// missing database, which SQLite would otherwise replay into the restored
+// file.
 func (m *Manager) RestoreIfMissing(ctx context.Context, name, dbPath string) error {
 	if !m.enabled {
 		return nil
@@ -514,10 +525,11 @@ func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, e
 // once the first sync has reached the replica, since until then a final sync
 // does nothing. dbPath must exist and name must not be attached already.
 //
-// Call detach once, before the application's last checkpoint and close: it is
-// the final sync. A cancelled context gets a fresh one for it, bounded by
-// Litestream's shutdown sync timeout. On a disabled Manager detach does
-// nothing.
+// Call detach once, before the application closes the database: it is the
+// final sync. Close the database after it without a checkpoint of your own
+// (see the package doc). A cancelled context gets a fresh one for it,
+// bounded by Litestream's shutdown sync timeout. On a disabled Manager
+// detach does nothing.
 //
 // When the newest snapshot is older than the snapshot interval, Attach
 // writes one in the background after the first sync, bounded by

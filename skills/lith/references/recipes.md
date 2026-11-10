@@ -1395,7 +1395,10 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
 - With Litestream: the nested module `github.com/zweiundeins/lith/backup`
   restores a missing file before `sqlite.Open`, attaches, verifies a restore
   daily; open the database with `sqlite.CheckpointExternal` so Litestream
-  owns the checkpoints.
+  owns the checkpoints. Stop: writer, detach, then `db.Close()` with no
+  `wal_checkpoint(TRUNCATE)`: the close keeps the WAL, so an unchanged
+  database uploads nothing at its next Attach. Delete `-wal` and `-shm`
+  with the file.
 - A provider incident fails every replica's verification at once, and
   usually passes. `RunVerifyLoop(ctx, backup.VerifyOptions{OnFail: ...})`
   retries the failed replicas 10 and 30 minutes later and calls `OnFail`

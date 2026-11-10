@@ -15,7 +15,7 @@ A Manager replicates every database attached to it, each under a name: its key p
 Start each database in this order:
 
  1. RestoreIfMissing, before the database is opened. Opening creates an empty file, and a restore that finds a file does nothing.
- 2. Open the database. While the Manager is enabled its write connection sets PRAGMA wal\_autocheckpoint=0 (see WALAutocheckpoint) and leaves checkpoints to Litestream, which makes them at positions it has replicated. Without Litestream the WAL would grow without bound, so keep SQLite's default then.
+ 2. Open the database. While the Manager is enabled its write connection sets PRAGMA wal\_autocheckpoint=0 (see WALAutocheckpoint) and leaves checkpoints to Litestream, which makes them at positions it has replicated, and keeps the WAL past its last close (SQLITE\_FCNTL\_PERSIST\_WAL). lith's sqlite.Open does both with sqlite.CheckpointExternal. Without Litestream the WAL would grow without bound, so keep SQLite's default then.
  3. Attach. It returns once the first sync has reached the replica.
 
 Run RunMaintenanceLoop and RunVerifyLoop once per process. An incident at the storage provider fails every replica at once and usually passes by itself, so RunVerifyLoop retries a failed verification before it reports, and reports once per run: alert on its OnFail, not on each failure.
@@ -26,7 +26,7 @@ Both loops cover the attached replicas. An app that attaches its tenants on dema
 
 Litestream writes each WAL segment to the directory beside the database (MetaPath) before the replica uploads it. An attached replica removes the uploaded ones from there every 15 s once they are Config.LocalL0Retention old (5 minutes), and keeps the newest, so that directory holds minutes of writes. A segment the replica has not uploaded stays: a replica that cannot reach its storage keeps every write since, on the server's disk. Watch \<namespace>\_backup\_replica\_local\_l0\_bytes.
 
-Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then checkpoint and close the database. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
+Stop in this order: drain HTTP and the writer, so every accepted write is in the file; call detach, the final sync, with a live context (the signal's context is already cancelled); then close the database, without a checkpoint of the application's own. The close checkpoints the WAL and keeps it, so the next Attach finds the database where the final sync left it and uploads nothing for a database that did not change. A WAL deleted at the close, or emptied by PRAGMA wal\_checkpoint(TRUNCATE) after detach, leaves Litestream no way to tell, and the next Attach uploads the whole database as a new LTX file. The process's stop timeout (systemd TimeoutStopSec) must cover the drain and the final sync: killed mid-sync, the replica trails the file.
 
 Litestream opens the database with modernc.org/sqlite, so the application must use it too: two SQLite copies in one process break each other's locks. Only one process may replicate a database at a time. Pruning relies on it: with one replicating process the positions in a replica only grow, so the pruning of a replica not attached is safe beside an Attach of it. A second writer, or a prefix and name reused for another database, resets the positions, and then any pruning is unsafe, attached or not.
 
@@ -84,7 +84,7 @@ var (
 func MetaPath(dbPath string) string
 ```
 
-MetaPath is the directory Litestream keeps beside a replicated database (".\<file>-litestream"). Remove it with the database when erasing one.
+MetaPath is the directory Litestream keeps beside a replicated database (".\<file>-litestream"). Remove it with the database, and the database's -wal and -shm files, when erasing one.
 
 ## Types
 
@@ -213,7 +213,7 @@ func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(
 
 Attach starts replicating the database at dbPath under name. It returns once the first sync has reached the replica, since until then a final sync does nothing. dbPath must exist and name must not be attached already.
 
-Call detach once, before the application's last checkpoint and close: it is the final sync. A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
+Call detach once, before the application closes the database: it is the final sync. Close the database after it without a checkpoint of your own (see the package doc). A cancelled context gets a fresh one for it, bounded by Litestream's shutdown sync timeout. On a disabled Manager detach does nothing.
 
 When the newest snapshot is older than the snapshot interval, Attach writes one in the background after the first sync, bounded by Config.SnapshotTimeout, so that a database attached only between maintenance passes still gets snapshots, and its WAL segments a floor to be pruned at. detach cancels it and waits for it to stop before the final sync, on S3 with the abort of the upload it cut off (10 s at most); a database detached before its snapshot is done gets one on its next Attach.
 
@@ -273,7 +273,7 @@ RestoreAt writes the replica under name as of at (zero for the latest) to out, w
 func (m *Manager) RestoreIfMissing(ctx context.Context, name, dbPath string) error
 ```
 
-RestoreIfMissing restores the replica under name to dbPath when no file is there: a first boot on a fresh disk, or recovery after losing one. It does nothing when the Manager is disabled, the file exists, or nothing was ever replicated under name. A restore that fails quick\_check is removed again.
+RestoreIfMissing restores the replica under name to dbPath when no file is there: a first boot on a fresh disk, or recovery after losing one. It does nothing when the Manager is disabled, the file exists, or nothing was ever replicated under name. A restore that fails quick\_check is removed again. Like every restore, it first removes a -wal or -shm file left beside the missing database, which SQLite would otherwise replay into the restored file.
 
 #### func (*Manager) RestoreTimeline {#Manager.RestoreTimeline}
 
