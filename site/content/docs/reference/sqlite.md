@@ -69,7 +69,13 @@ const (
 	// connection; the writer checkpoints between batches instead.
 	CheckpointWriter
 	// CheckpointExternal turns them off and leaves checkpoints to another
-	// process, such as Litestream.
+	// process, such as Litestream. The write connection also keeps the WAL
+	// past its last close (SQLITE_FCNTL_PERSIST_WAL): the close checkpoints
+	// it but leaves the file and its header, so that Litestream, attached
+	// again, sees an unchanged database as unchanged instead of copying all
+	// of it as a new snapshot. The -wal and -shm files then stay beside a
+	// closed database, the WAL at the size it last reached: code that
+	// deletes or replaces the database file removes them with it.
 	CheckpointExternal
 )
 ```

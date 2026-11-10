@@ -478,6 +478,103 @@ func TestPathIsEscaped(t *testing.T) {
 	}
 }
 
+// Under CheckpointExternal the last close checkpoints the WAL but keeps
+// the file and its header, as Litestream needs to see an unchanged database
+// as unchanged when it attaches again: through a wrapping driver too, and
+// from a write connection that database/sql opened in place of a bad one.
+// The other modes delete the WAL.
+func TestCheckpointExternalKeepsTheWAL(t *testing.T) {
+	ctx := context.Background()
+	wrapped := fmt.Sprintf("sqlite-keepwal-%d", registrations.Add(1))
+	if err := dbmetrics.Register(wrapped, "sqlite", dbmetrics.Options{SlowThreshold: -1}); err != nil {
+		t.Fatal(err)
+	}
+	header := func(t *testing.T, path string) []byte {
+		t.Helper()
+		b, err := os.ReadFile(path + "-wal")
+		if err != nil {
+			t.Fatalf("the WAL after the close: %v", err)
+		}
+		if len(b) < 32 {
+			t.Fatalf("a WAL of %d bytes", len(b))
+		}
+		return b[:32]
+	}
+	for _, tc := range []struct {
+		name    string
+		opts    Options
+		keep    bool
+		replace bool
+	}{
+		{"external", Options{Checkpoint: CheckpointExternal}, true, false},
+		{"external through a wrapping driver", Options{Checkpoint: CheckpointExternal, Driver: wrapped}, true, false},
+		{"external after a bad connection", Options{Checkpoint: CheckpointExternal}, true, true},
+		{"writer", Options{Checkpoint: CheckpointWriter}, false, false},
+		{"auto", Options{}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "keep.db")
+			d, err := Open(ctx, path, tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := d.W.Exec("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1), (2)"); err != nil {
+				t.Fatal(err)
+			}
+			if tc.replace {
+				// modernc reports an interrupted connection bad, and database/sql
+				// closes it and opens another for the next statement.
+				c, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+				var n int
+				err := d.W.QueryRowContext(c, "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM c").Scan(&n)
+				cancel()
+				if err == nil {
+					t.Fatal("an endless query ended")
+				}
+				if open := d.W.Stats().OpenConnections; open != 0 {
+					t.Fatalf("%d write connections open after the interrupt, want the bad one closed", open)
+				}
+				if _, err := d.W.Exec("INSERT INTO t VALUES (3)"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var rows int
+			if err := d.W.QueryRow("SELECT count(*) FROM t").Scan(&rows); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if !tc.keep {
+				if _, err := os.Stat(path + "-wal"); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("the WAL after the close: %v, want it removed", err)
+				}
+				return
+			}
+			first := header(t, path)
+
+			// Opened again and closed without a write, the WAL keeps its header.
+			d, err = Open(ctx, path, tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var n int
+			if err := d.View(ctx, func(tx *sql.Tx) error { return tx.QueryRow("SELECT count(*) FROM t").Scan(&n) }); err != nil {
+				t.Fatal(err)
+			}
+			if n != rows {
+				t.Fatalf("%d rows after the reopen, want %d", n, rows)
+			}
+			if err := d.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if again := header(t, path); string(again) != string(first) {
+				t.Fatalf("the WAL's header changed over a reopen without writes:\n%x\n%x", first, again)
+			}
+		})
+	}
+}
+
 func TestMemoryDatabaseRefused(t *testing.T) {
 	if _, err := Open(context.Background(), ":memory:", Options{Synchronous: "NORMAL"}); err == nil {
 		t.Fatal("opened an in-memory database: the pools would not share it")

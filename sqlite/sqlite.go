@@ -8,8 +8,10 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"net/url"
@@ -20,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	msqlite "modernc.org/sqlite"
 )
 
 // Checkpoint says who copies the WAL back into the database file.
@@ -34,7 +36,13 @@ const (
 	// connection; the writer checkpoints between batches instead.
 	CheckpointWriter
 	// CheckpointExternal turns them off and leaves checkpoints to another
-	// process, such as Litestream.
+	// process, such as Litestream. The write connection also keeps the WAL
+	// past its last close (SQLITE_FCNTL_PERSIST_WAL): the close checkpoints
+	// it but leaves the file and its header, so that Litestream, attached
+	// again, sees an unchanged database as unchanged instead of copying all
+	// of it as a new snapshot. The -wal and -shm files then stay beside a
+	// closed database, the WAL at the size it last reached: code that
+	// deletes or replaces the database file removes them with it.
 	CheckpointExternal
 )
 
@@ -278,9 +286,19 @@ func openWriter(ctx context.Context, path string, opts Options, pragmas []string
 	if opts.Checkpoint != CheckpointAuto {
 		wp = append(wp, "wal_autocheckpoint(0)")
 	}
-	w, err := sql.Open(opts.Driver, dsn(path, wp, url.Values{"_txlock": {"immediate"}}))
-	if err != nil {
-		return nil, err
+	wdsn := dsn(path, wp, url.Values{"_txlock": {"immediate"}})
+	var w *sql.DB
+	if opts.Checkpoint == CheckpointExternal {
+		c, err := connector(opts.Driver, wdsn)
+		if err != nil {
+			return nil, err
+		}
+		w = sql.OpenDB(keepWAL{c})
+	} else {
+		var err error
+		if w, err = sql.Open(opts.Driver, wdsn); err != nil {
+			return nil, err
+		}
 	}
 	w.SetMaxOpenConns(1)
 	w.SetMaxIdleConns(1)
@@ -308,6 +326,49 @@ func openWriter(ctx context.Context, path string, opts Options, pragmas []string
 		}
 	}
 	return w, nil
+}
+
+// keepWAL opens the write connections of CheckpointExternal, each with
+// SQLITE_FCNTL_PERSIST_WAL set: also one that database/sql opens in place
+// of a connection the driver reported bad.
+type keepWAL struct{ base driver.Connector }
+
+func (c keepWAL) Connect(ctx context.Context) (driver.Conn, error) {
+	dc, err := c.base.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := persistWAL(dc); err != nil {
+		dc.Close()
+		return nil, fmt.Errorf("sqlite: keep the WAL (CheckpointExternal): %w", err)
+	}
+	return dc, nil
+}
+
+func (c keepWAL) Driver() driver.Driver { return c.base.Driver() }
+
+// Close is called by sql.DB.Close.
+func (c keepWAL) Close() error {
+	if cl, ok := c.base.(io.Closer); ok {
+		return cl.Close()
+	}
+	return nil
+}
+
+// persistWAL sets SQLITE_FCNTL_PERSIST_WAL on dc, or on the connection a
+// wrapping driver's Unwraps to.
+func persistWAL(dc driver.Conn) error {
+	for {
+		if fc, ok := dc.(msqlite.FileControl); ok {
+			_, err := fc.FileControlPersistWAL("main", 1)
+			return err
+		}
+		u, ok := dc.(interface{ Unwrap() driver.Conn })
+		if !ok {
+			return fmt.Errorf("%T has no FileControl", dc)
+		}
+		dc = u.Unwrap()
+	}
 }
 
 // Options returns the options Open used, defaults filled in.
