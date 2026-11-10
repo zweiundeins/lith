@@ -140,7 +140,7 @@ To add a component: put its slug in `pins.json` (or move `catalog` to a newer sn
 
 - A value attribute the server sends again wins over the user's edit only when it changed (server wins); to clear, send an empty value, never drop the attribute.
 - `data-bind` on a component writes only to a signal that exists: declare it with `data-signals` first, and bind with `__prop` (`data-bind:_x__prop.value`).
-- Elements with ids that hold Rocket components and move or repeat crash Datastar 1.0.4's morph; 1.0.5, which the site vendors in Starbase's build, fixes it, so keyed elements are safe here.
+- Elements with ids that hold Rocket components and move or repeat crash Datastar 1.0.4's morph; 1.0.5, which the site serves in Starbase's build (lith's `datastar` package), fixes it, so keyed elements are safe here.
 - Attributes a signal drives (`data-attr:x`) need `data-preserve-attr="x"`, or the next morph resets them.
 - A component's stream opens with `retry: 'error'` from an element with an id, like the page's, if it has one of its own.
 

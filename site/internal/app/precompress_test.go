@@ -22,7 +22,7 @@ import (
 // that are compressed already must come as they are.
 func TestPrecompressed(t *testing.T) {
 	_, base := apptest.Start(t)
-	paths := []string{"/static/site.css", "/static/art/logo.svg", "/sitemap.xml", "/robots.txt", "/favicon.ico", "/apple-touch-icon.png", "/og.png"}
+	paths := []string{"/static/site.css", "/static/art/logo.svg", "/static/vendor/datastar-rocket.js", "/sitemap.xml", "/robots.txt", "/favicon.ico", "/apple-touch-icon.png", "/og.png"}
 	err := fs.WalkDir(web.StaticFiles(), ".", func(name string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			paths = append(paths, "/static/"+name)

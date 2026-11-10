@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/datastar"
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sqlite"
@@ -216,14 +216,11 @@ func startWith(t *testing.T, limit *edge.Limiter) server {
 	h := http.Handler(site.Routes())
 	h = edge.Sessions{}.Handler(h)
 	h = edge.CSRF{Datastar: []string{"POST /cmd/"}}.Handler(h)
-	datastar, err := os.ReadFile("../../../web/static/vendor/datastar-rocket.js")
-	if err != nil {
-		t.Fatal(err)
-	}
+	js := datastar.Datastar()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /static/datastar.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript")
-		w.Write(datastar)
+		w.Write(js)
 	})
 	block := new(atomic.Bool)
 	hooks := new(sync.Map)

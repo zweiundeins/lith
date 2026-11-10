@@ -103,7 +103,8 @@ look there before changing the behaviour.
   Such a form gets `novalidate` and checks its fields in the expression.
 - Keyed elements that contain Rocket components crash Datastar 1.0.4's morph
   (`Maximum call stack`, upstream #1209). 1.0.5 has the fix, and so has
-  Starbase's build of it, which the template vendors. [starbase, kanban]
+  Starbase's build of it, which lith ships (`lith/datastar`) and the
+  template serves. [starbase, kanban]
 - Expressions on many repeated elements cost compile time and markup per
   frame (200 cards times a few expressions). Put the behaviour on the
   container and delegate. [kanban]

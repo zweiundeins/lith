@@ -6,7 +6,8 @@ package template
 
 import (
 	"embed"
-	"io/fs"
+
+	"github.com/zweiundeins/lith/datastar"
 )
 
 // FS holds the template's files. go.mod.tmpl becomes the project's go.mod;
@@ -17,24 +18,13 @@ import (
 //go:embed all:*
 var FS embed.FS
 
-// DatastarVersion names the build that Datastar returns: Datastar v1.0.5
-// with Rocket and the patches in Starbase's patches/rocket, as Starbase's
-// commit 818f366 vendors it. VERSION beside the file has its integrity hash.
-const DatastarVersion = "1.0.5+starbase.818f366"
-
-// Datastar returns the Datastar build the template vendors, for an app that
-// serves the same file without naming a path inside FS:
+// DatastarVersion is datastar.Version.
 //
-//	static.Add("vendor/datastar-rocket.js", template.Datastar())
-//	url := static.URL("vendor/datastar-rocket.js")
-//
-// lith's newest-frame.js is live's: live.Scripts and live.NewestFrame.
-func Datastar() []byte {
-	b, err := fs.ReadFile(FS, datastarPath)
-	if err != nil {
-		panic(err) // lith's tests read it, so a release has it
-	}
-	return b
-}
+// Deprecated: Use datastar.Version.
+const DatastarVersion = datastar.Version
 
-const datastarPath = "internal/web/static/vendor/datastar-rocket.js"
+// Datastar returns datastar.Datastar(), the build the template serves. An
+// app that calls it embeds the build, not FS.
+//
+// Deprecated: Use datastar.Datastar.
+func Datastar() []byte { return datastar.Datastar() }

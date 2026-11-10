@@ -18,6 +18,7 @@ These pages are generated from the Go doc comments of lith's packages, at the co
 | [live](/docs/reference/live) | Renders views from the database and streams them to pages: view = f(state). |
 | [sse](/docs/reference/sse) | Writes Datastar server-sent events through a compressor of its own per stream. |
 | [edge](/docs/reference/edge) | What the apps do at the request edge, before a handler runs and after it has written. |
+| [datastar](/docs/reference/datastar) | Holds the Datastar build that lith's template and site serve: Starbase's patched build of Datastar with Rocket, one minified ES module. |
 | [tenant](/docs/reference/tenant) | Keeps one open value per key, usually a SQLite database per account. |
 | [dbmetrics](/docs/reference/dbmetrics) | Times the statements a database/sql driver runs and logs the slow ones. |
 | [loadtest](/docs/reference/loadtest) | Measures a project's views and commands under load, in process: a writer and a live hub on one database, streams without a network, and producers that send commands on a fixed schedule. |

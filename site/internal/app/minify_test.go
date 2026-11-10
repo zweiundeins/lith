@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zweiundeins/lith/datastar"
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 
@@ -28,9 +29,9 @@ var (
 // TestMinified loads the scripts and stylesheets of a page in production
 // and in development. In production the site's own go out minified, and
 // the vendored builds byte for byte as their integrity says, lith's
-// newest-frame.js among them; in development every file goes out as
-// written. With -v it lists the sizes,
-// raw and under brotli -11.
+// Datastar build and newest-frame.js among them; in development every file
+// goes out as written. With -v it lists the sizes, raw and under brotli
+// -11.
 func TestMinified(t *testing.T) {
 	prod, prodPage := pageAssets(t, false)
 	dev, devPage := pageAssets(t, true)
@@ -51,7 +52,7 @@ func TestMinified(t *testing.T) {
 		}
 	}
 	plugin, _ := fs.ReadFile(live.Scripts, live.NewestFrame)
-	written := map[string][]byte{"lith/" + live.NewestFrame: plugin}
+	written := map[string][]byte{"lith/" + live.NewestFrame: plugin, "vendor/datastar-rocket.js": datastar.Datastar()}
 	var total [4]int
 	for _, name := range slices.Sorted(maps.Keys(prod)) {
 		p, d := prod[name], dev[name]

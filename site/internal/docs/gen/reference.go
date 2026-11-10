@@ -23,7 +23,7 @@ const refDir = Docs + "/reference"
 
 // Packages are the packages of the reference, by their directory under
 // the root, in the order of its navigation.
-var Packages = []string{"sqlite", "writer", "events", "events/eventstest", "live", "sse", "edge", "tenant", "dbmetrics", "loadtest", "backup", "prom", "dbmetrics/prom", "minify"}
+var Packages = []string{"sqlite", "writer", "events", "events/eventstest", "live", "sse", "edge", "datastar", "tenant", "dbmetrics", "loadtest", "backup", "prom", "dbmetrics/prom", "minify"}
 
 // Meta is what a generated page shows in search results and shares: the
 // head's title and its meta description.
@@ -39,6 +39,7 @@ var PackageMeta = map[string]Meta{
 	"live":              {"lith/live: views rendered once a tick, streamed", "Reference for lith/live: views keyed by topics, rendered once per tick in a read transaction, and streamed to every page that watches them."},
 	"sse":               {"lith/sse: Datastar events, compressed per stream", "Reference for lith/sse: Datastar's server-sent events, formatted once and compressed per stream with zstd, brotli or gzip within a memory budget."},
 	"edge":              {"lith/edge: sessions, CSRF, compression, static files", "Reference for lith/edge: sessions, CSRF checks, a CSP with a nonce, client addresses, rate limits, compression and precompressed static files."},
+	"datastar":          {"lith/datastar: the Datastar build the template serves", "Reference for lith/datastar: Starbase's patched Datastar build with Rocket, which the template serves, in a package that embeds nothing else."},
 	"tenant":            {"lith/tenant: one open SQLite database per account", "Reference for lith/tenant: a pool that keeps one open value per key, usually a SQLite database per account, refcounted and closed at a soft cap."},
 	"dbmetrics":         {"lith/dbmetrics: statement timings and slow queries", "Reference for lith/dbmetrics: wrap a database/sql driver to time every query and exec, and log the slow ones with their SQL but never their arguments."},
 	"loadtest":          {"lith/loadtest: an app's views and commands under load", "Reference for lith/loadtest: measure an app's views and commands in process, with a writer, a live hub, and streams that need no network."},

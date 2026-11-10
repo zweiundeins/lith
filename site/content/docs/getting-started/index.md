@@ -39,7 +39,7 @@ The template is a guestbook that uses each rule once: a command, a shared view, 
 | `cmd/guestbook` | the binary: `serve` (the default), `backup` and `--version`, and the wiring |
 | `internal/guestbook` | the example feature: commands in `commands.go`, queries in `queries.go` |
 | `internal/views` | templ components, and the Datastar expressions they use |
-| `internal/web` | routes, handlers, the live views, the static files and the vendored Datastar build |
+| `internal/web` | routes, handlers, the live views, and the static files, with lith's Datastar build |
 | `migrations` | `NNN_name.sql` files, applied in order at startup |
 | `deploy` | a systemd unit, a Caddy block, a deploy script with a health check and rollback, a backup timer |
 

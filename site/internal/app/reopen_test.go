@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/datastar"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/site/internal/browser"
 	"github.com/zweiundeins/lith/sse"
@@ -35,10 +34,7 @@ const reopenPage = `<!doctype html><title>reopen</title><link rel="icon" href="d
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestReopenForABetterTier
 func TestReopenForABetterTier(t *testing.T) {
-	datastar, err := os.ReadFile(filepath.Join("..", "web", "static", "vendor", "datastar-rocket.js"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	js := datastar.Datastar()
 	b := browser.Start(t)
 	budget := sse.NewBudget(sse.BudgetOptions{Limit: 8 << 20})
 	h := live.New(live.Options{Tick: 5 * time.Millisecond, SSE: sse.Options{Budget: budget}})
@@ -64,7 +60,7 @@ func TestReopenForABetterTier(t *testing.T) {
 	})
 	mux.HandleFunc("GET /datastar.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript")
-		w.Write(datastar)
+		w.Write(js)
 	})
 	mux.HandleFunc("GET /stream", func(w http.ResponseWriter, r *http.Request) {
 		opened.Add(1)

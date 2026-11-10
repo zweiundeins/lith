@@ -12,6 +12,7 @@
 //	live      topics, the tick, render workers, shared views, stream mailboxes
 //	sse       Datastar events and per-stream compression
 //	edge      request edge: sessions, CSRF, client IP, CSP, compression, limits
+//	datastar  the Datastar build the template serves
 //	loadtest  in-process load tests without HTTP
 //	tenant    one open value per key (a database per account), evicted at a soft cap
 //	dbmetrics statement timing and the slow-query log, reported to an Observer

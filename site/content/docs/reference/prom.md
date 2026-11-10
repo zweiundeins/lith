@@ -3,7 +3,7 @@ title: prom
 headline: lith/prom: Prometheus metrics for a lith app
 summary: Exports a lith app's numbers to Prometheus: the writer's batches and commands, the live hub's ticks, renders and frames, what the streams hold of the memory budget, and the event store's appends and projectors.
 description: Reference for lith/prom: export the writer's commands, the live hub's ticks, renders and frames, the stream budget and the event store to Prometheus.
-order: 12
+order: 13
 ---
 
 Import path `github.com/zweiundeins/lith/prom`, a module of its own: `go get github.com/zweiundeins/lith/prom`. Generated from the doc comments in [prom/](https://github.com/zweiundeins/lith/tree/main/prom).

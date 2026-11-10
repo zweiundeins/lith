@@ -7,10 +7,11 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/zweiundeins/lith/datastar"
 
 	"github.com/zweiundeins/lith/site/internal/starbase"
 )
@@ -20,7 +21,7 @@ const static = "../web/static"
 // TestVendored checks the vendored components against lock.json, without
 // the network: every file in the lock is there with its integrity, nothing
 // else is, every pinned component is in the lock, and the Datastar build
-// the snapshot pins is the one the site vendors.
+// the snapshot pins is lith's, which the site serves.
 func TestVendored(t *testing.T) {
 	fsys := os.DirFS(static)
 	set, err := starbase.Load(fsys)
@@ -81,12 +82,8 @@ func TestVendored(t *testing.T) {
 	for p := range want {
 		t.Errorf("%s is in lock.json but missing", p)
 	}
-	ds, err := os.ReadFile(filepath.Join(static, "vendor/datastar-rocket.js"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if integrity(ds) != set.Lock.Datastar.Integrity {
-		t.Errorf("the site vendors Datastar %s, the snapshot pins %s", integrity(ds), set.Lock.Datastar.Integrity)
+	if ds := integrity(datastar.Datastar()); ds != set.Lock.Datastar.Integrity {
+		t.Errorf("the site serves Datastar %s, the snapshot pins %s", ds, set.Lock.Datastar.Integrity)
 	}
 }
 

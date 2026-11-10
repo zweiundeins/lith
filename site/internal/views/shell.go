@@ -20,7 +20,7 @@ import (
 // Assets are the hashed URLs of the files every page loads.
 type Assets struct {
 	CSS         string // the stylesheet bundle
-	Datastar    Script // the vendored Datastar build
+	Datastar    Script // lith's Datastar build (lith/datastar)
 	Transitions string // transitions.js: view transitions and the display menu
 	NewestFrame string // lith's newest-frame.js (live.NewestFrame), for pages that stream
 	Font        string // Pixelify Sans, preloaded for the display text

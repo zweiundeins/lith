@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha512"
-	"encoding/base64"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -14,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/zweiundeins/lith/datastar"
 	"github.com/zweiundeins/lith/template"
 )
 
@@ -85,11 +84,6 @@ func TestWrite(t *testing.T) {
 			t.Errorf("%s was copied", gone)
 		}
 	}
-	vendored, _ := fs.ReadFile(template.FS, "internal/web/static/vendor/datastar-rocket.js")
-	if read(t, dir, "internal/web/static/vendor/datastar-rocket.js") != string(vendored) {
-		t.Error("the vendored Datastar build changed on the way")
-	}
-
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -278,22 +272,11 @@ func TestOwnModules(t *testing.T) {
 	}
 }
 
-// TestDatastar reads the build through template.Datastar, so a move of the
-// file fails here and not in an app at startup, and checks that
-// DatastarVersion and VERSION's integrity hash describe those bytes.
+// TestDatastar checks that template.Datastar and DatastarVersion, which
+// apps from before lith/datastar use, still name its build.
 func TestDatastar(t *testing.T) {
-	js := template.Datastar()
-	release, commit, _ := strings.Cut(template.DatastarVersion, "+starbase.")
-	if !bytes.HasPrefix(js, []byte("// Datastar v"+release+" + Rocket")) {
-		t.Errorf("template.Datastar() starts with %q, want Datastar v%s", js[:min(len(js), 60)], release)
-	}
-	version, err := fs.ReadFile(template.FS, "internal/web/static/vendor/VERSION")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha512.Sum384(js)
-	integrity := "sha384-" + base64.StdEncoding.EncodeToString(sum[:])
-	if commit == "" || !bytes.Contains(version, []byte("at commit "+commit)) || !bytes.Contains(version, []byte(integrity)) {
-		t.Errorf("VERSION should name commit %q and %s:\n%s", commit, integrity, version)
+	if !bytes.Equal(template.Datastar(), datastar.Datastar()) || template.DatastarVersion != datastar.Version {
+		t.Errorf("template.Datastar() is %d bytes of %s, datastar.Datastar() %d bytes of %s",
+			len(template.Datastar()), template.DatastarVersion, len(datastar.Datastar()), datastar.Version)
 	}
 }

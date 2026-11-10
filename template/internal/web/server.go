@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/zweiundeins/lith/datastar"
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/minify"
@@ -68,6 +69,7 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev b
 	if err != nil {
 		return nil, err
 	}
+	static.Add("vendor/datastar-rocket.js", datastar.Datastar())
 	// lith's newest-frame.js, which the page loads after Datastar.
 	js, err := fs.ReadFile(live.Scripts, live.NewestFrame)
 	if err != nil {

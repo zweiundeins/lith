@@ -1,8 +1,0 @@
-Starbase's patched Datastar build, the same file as lith's template
-(template/internal/web/static/vendor/datastar-rocket.js): Datastar v1.0.5 with
-Rocket and the two patches in Starbase's patches/rocket, from
-github.com/zweiundeins/starbase at commit 818f366c06b42faf0cd94994d2226c684f981ff4.
-Update: copy the template's file again and change this one.
-Datastar: MIT, github.com/starfederation/datastar.
-
-datastar-rocket.js	72609 bytes	sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+XptuiVQFLxvO

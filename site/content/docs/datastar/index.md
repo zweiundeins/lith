@@ -6,7 +6,7 @@ description: Datastar 1.0.5 behaviours that cost the lith projects time, in attr
 order: 4
 ---
 
-The template and this site vendor Starbase's patched build of Datastar 1.0.5, with Rocket. Most of what follows is plain Datastar behaviour that surprised someone; a few notes are about how a lith page uses it.
+The template and this site serve Starbase's patched build of Datastar 1.0.5, with Rocket, which lith ships in `github.com/zweiundeins/lith/datastar`. Most of what follows is plain Datastar behaviour that surprised someone; a few notes are about how a lith page uses it.
 
 ## Attributes
 
@@ -116,7 +116,7 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.5, wi
 
 **Cause.** Up to 1.0.4, Datastar's morph is not re-entrant, and a Rocket component renders while it is being connected. Elements with ids that hold Rocket components, and repeat or move, set off a morph inside a morph.
 
-**Fix.** Use Datastar 1.0.5 or later, where every morph keeps its own state and a nested one gives the outer one its state back ([#1209](https://github.com/starfederation/datastar/issues/1209)). The template and this site vendor Starbase's build of 1.0.5.
+**Fix.** Use Datastar 1.0.5 or later, where every morph keeps its own state and a nested one gives the outer one its state back ([#1209](https://github.com/starfederation/datastar/issues/1209)). The template and this site serve Starbase's build of 1.0.5.
 
 ### Expressions on many repeated elements cost every frame
 

@@ -7,7 +7,7 @@
 // internal/web/static/vendor/starbase/<slug>/ with lock.json, the list of
 // files and their integrity that the site loads them by and its tests
 // check. It refuses a snapshot whose Datastar build is not the one the site
-// vendors (internal/web/static/vendor/datastar-rocket.js).
+// serves, lith's (github.com/zweiundeins/lith/datastar).
 //
 //	go run ./cmd/vendor-starbase    (in site/; go tool task vendor-starbase)
 //
@@ -35,12 +35,11 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/zweiundeins/lith/datastar"
 )
 
-const (
-	dir      = "internal/web/static/vendor/starbase"
-	datastar = "internal/web/static/vendor/datastar-rocket.js"
-)
+const dir = "internal/web/static/vendor/starbase"
 
 // Pins is what to vendor, from which snapshot.
 type Pins struct {
@@ -124,15 +123,12 @@ func run() error {
 	}
 
 	lock := Lock{Base: pins.Base, Catalog: pins.Catalog}
-	own, err := os.ReadFile(datastar)
-	if err != nil {
-		return err
-	}
+	own := integrity(datastar.Datastar())
 	dsHash := versions["datastar"]
 	lock.Datastar.URL = base + "datastar@" + dsHash + "/datastar-rocket.js"
 	lock.Datastar.Integrity = files["datastar"]["datastar-rocket.js"]
-	if dsHash == "" || lock.Datastar.Integrity != integrity(own) {
-		return fmt.Errorf("the snapshot pins Datastar %s (%s), the site vendors %s: update %s first", lock.Datastar.URL, lock.Datastar.Integrity, integrity(own), datastar)
+	if dsHash == "" || lock.Datastar.Integrity != own {
+		return fmt.Errorf("the snapshot pins Datastar %s (%s), lith/datastar holds %s (%s): update lith's build first", lock.Datastar.URL, lock.Datastar.Integrity, datastar.Version, own)
 	}
 
 	out := map[string][]byte{}

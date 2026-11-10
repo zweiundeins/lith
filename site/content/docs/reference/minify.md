@@ -3,7 +3,7 @@ title: minify
 headline: lith/minify: JavaScript and CSS minified at startup
 summary: Minifies JavaScript and CSS for edge.Static: JavaScript with esbuild, CSS with tdewolff/minify.
 description: Reference for lith/minify: minify JavaScript with esbuild and CSS with tdewolff/minify as edge.Static reads them, before they are hashed and precompressed.
-order: 14
+order: 15
 ---
 
 Import path `github.com/zweiundeins/lith/minify`, a module of its own: `go get github.com/zweiundeins/lith/minify`. Generated from the doc comments in [minify/](https://github.com/zweiundeins/lith/tree/main/minify).

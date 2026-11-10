@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zweiundeins/lith/datastar"
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/sqlite"
@@ -220,8 +221,9 @@ func TestSlowLink(t *testing.T) {
 // TestNewestFrame checks that the page loads lith's newest-frame.js after
 // Datastar, with an import map that maps 'datastar' to Datastar's URL, and
 // turns it on on its body, which posts /pace when the plugin reports
-// that the page fell behind; the plugin, a minified build, goes out as
-// vendored, under its content's hash, immutable.
+// that the page fell behind; the plugin and lith's Datastar build, both
+// minified builds, go out as lith ships them, under their content's hash,
+// immutable.
 func TestNewestFrame(t *testing.T) {
 	base := start(t)
 	res, err := http.Get(base + "/")
@@ -239,16 +241,23 @@ func TestNewestFrame(t *testing.T) {
 	if err := json.Unmarshal([]byte(m[1]), &importMap); err != nil || importMap.Imports["datastar"] != m[2] {
 		t.Errorf("import map %s (%v), Datastar at %s", m[1], err, m[2])
 	}
-	res, err = http.Get(base + m[3])
-	if err != nil {
-		t.Fatal(err)
-	}
-	js, _ := io.ReadAll(res.Body)
-	res.Body.Close()
 	written, _ := fs.ReadFile(live.Scripts, live.NewestFrame)
-	if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/javascript") ||
-		!regexp.MustCompile(`name:\s*["']newest-frame["']`).Match(js) || string(js) != string(written) {
-		t.Errorf("%s: %d, %s, %s, %d bytes of %d\n%.200s", m[3], res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("Content-Type"), len(js), len(written), js)
+	if !regexp.MustCompile(`name:\s*["']newest-frame["']`).Match(written) {
+		t.Errorf("live.Scripts' %s is not the plugin", live.NewestFrame)
+	}
+	for _, f := range []struct {
+		url  string
+		want []byte
+	}{{m[2], datastar.Datastar()}, {m[3], written}} {
+		res, err := http.Get(base + f.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		js, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Cache-Control"), "immutable") || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/javascript") || !bytes.Equal(js, f.want) {
+			t.Errorf("%s: %d, %s, %s, %d bytes of %d\n%.200s", f.url, res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("Content-Type"), len(js), len(f.want), js)
+		}
 	}
 }
 

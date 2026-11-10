@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zweiundeins/lith/datastar"
 	"github.com/zweiundeins/lith/edge"
 	"github.com/zweiundeins/lith/live"
 	"github.com/zweiundeins/lith/minify"
@@ -24,7 +25,8 @@ import (
 var staticFiles embed.FS
 
 // StaticFiles are the files under static/, which the site serves under
-// /static/ besides the ones it makes (site.css, art/logo.svg).
+// /static/ besides the ones it makes (site.css, art/logo.svg) and lith's
+// (lith/newest-frame.js, vendor/datastar-rocket.js).
 func StaticFiles() fs.FS {
 	files, _ := fs.Sub(staticFiles, "static")
 	return files
@@ -62,8 +64,9 @@ var (
 var fontURL = regexp.MustCompile(`url\("\.\./fonts/([a-z0-9-]+\.woff2)"\)`)
 
 // loadStatic serves the files under static/ by their hashed names, and adds
-// what the site makes: the CSS bundle, lith's newest-frame.js and the logo
-// as a file. Scripts and stylesheets go out minified, except in development.
+// what the site makes: the CSS bundle, lith's newest-frame.js and Datastar
+// build, and the logo as a file. Scripts and stylesheets go out minified,
+// except in development.
 func (s *Server) loadStatic(list []demo.Demo) error {
 	files, err := fs.Sub(staticFiles, "static")
 	if err != nil {
@@ -86,6 +89,7 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 		return err
 	}
 	s.static.Add("lith/"+live.NewestFrame, plugin)
+	s.static.Add("vendor/datastar-rocket.js", datastar.Datastar())
 	s.static.Add("art/logo.svg", []byte(pixelart.Logo()))
 	if s.starbase, err = starbase.Load(files); err != nil {
 		return err

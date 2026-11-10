@@ -31,6 +31,7 @@ HTML with templ, and each app keeps its own pages and domain model.
 | [`live`](live) | topics mark views dirty; a tick feeds render workers that read one snapshot each and render each changed view once for all its viewers; topics form a tree by `:`, a view can declare what its Render read (`Depends`), and the hub numbers commits for caches (`Seq`, `Version`) |
 | [`sse`](sse) | Datastar events, formatted once and written to many streams, with zstd, brotli or gzip per stream and a deadline on every write; `ReadSignals` for any method; a memory budget that books what each stream holds, sizes its window from its frames, and can cap the streams by memory |
 | [`edge`](edge) | sessions, CSRF, client IP, CSP with a nonce, compression, precompressed static files, rate limiters, health checks |
+| [`datastar`](datastar) | the Datastar build the template serves, Starbase's patched Datastar with Rocket, in a package that embeds nothing else |
 | [`tenant`](tenant) | one open database per account, refcounted, evicted at a soft cap |
 | [`dbmetrics`](dbmetrics) | statement timing and a slow-query log through a wrapping driver |
 | [`loadtest`](loadtest) | the writer and the render loop under load, in process, without HTTP |
