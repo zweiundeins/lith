@@ -2,6 +2,22 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+The Datastar build in a package of its own, a version of an app's static files, a quieter readiness probe, and client addresses without a proxy. What to check in an app:
+
+- `template`: `Datastar()` and `DatastarVersion` are deprecated and forward to `lith/datastar`. An app that calls them no longer embeds the template's files: 180 KiB less.
+- `edge`: `Ready` logs a failing check once a spell, not on every probe, at Info until the first probe passes and at Warn after, and logs `ready` when it passes. An alert on its Warn lines no longer fires at a start.
+- `edge`: `Static.Warmed` also waits for the files `Add` gave before its first pass, such as a Datastar build, so the first ready probe can come a little later.
+- An app made from the template can serve Datastar with `static.Add("vendor/datastar-rocket.js", datastar.Datastar())` and delete `static/vendor`. An assets version from `Static.Version` differs from the hand-made one, so open pages ask for one reload after that deploy.
+
+New:
+
+- `datastar`: `Datastar()` returns the build the template serves, `Version` names it (`1.0.5+starbase.818f366`), and `Integrity` is its sha384 for an `integrity` attribute or an import map. The package embeds nothing else.
+- `edge`: `Static.Version(names...)` names the content of a set of files, for a page's assets version after a deploy.
+- `edge`: `NoProxies(h)` believes no peer's `X-Forwarded-For` or `X-Real-IP`, loopback and Unix sockets included, for an app that no proxy stands in front of. The default is unchanged.
+- The template and the site serve Datastar from `lith/datastar` instead of their copies, and the template takes its assets version from `Static.Version`.
+
 ## v0.5.5 (2026-11-10)
 
 Memory for many databases in one process, and replicas that no longer upload again after a restart. The new options are opt-in. What to check in an app:
