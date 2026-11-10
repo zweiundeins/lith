@@ -224,9 +224,17 @@ func TestPeekConcurrentWithGetEvictAndDeny(t *testing.T) {
 			}
 		})
 	}
+	// The peeks go on until the Gets and evictions are done.
+	done := make(chan struct{})
+	var peeks sync.WaitGroup
 	for range 6 {
-		wg.Go(func() {
-			for range 300 {
+		peeks.Go(func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
 				k := key()
 				v, release, ok, err := p.Peek(k)
 				switch {
@@ -239,6 +247,7 @@ func TestPeekConcurrentWithGetEvictAndDeny(t *testing.T) {
 					if v != nil || release != nil {
 						t.Errorf("Peek(%s) returned a value and a release with ok false", k)
 					}
+					time.Sleep(time.Duration(rand.IntN(50)) * time.Microsecond)
 					continue
 				}
 				hits.Add(1)
@@ -270,6 +279,8 @@ func TestPeekConcurrentWithGetEvictAndDeny(t *testing.T) {
 		}
 	})
 	wg.Wait()
+	close(done)
+	peeks.Wait()
 	if hits.Load() == 0 {
 		t.Error("Peek never found a key open")
 	}
