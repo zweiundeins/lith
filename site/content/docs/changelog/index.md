@@ -8,6 +8,10 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `backup`: detach has Litestream checkpoint the WAL and start it over before the final sync, so a database closed after it no longer brings the WAL's frames back at its next open, where its readers held those pages in their page caches (Libretto: 947 MiB off the Go heap at 128 accounts, against 478). Apps keep v0.5.5's stop, closing without a checkpoint after detach, and end their reads before detach: a read transaction open during it keeps the WAL from starting over.
+
 ## v0.5.5 (2026-11-10)
 
 Memory for many databases in one process, and replicas that no longer upload again after a restart. The new options are opt-in. What to check in an app:
