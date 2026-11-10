@@ -52,16 +52,24 @@
 // Watch <namespace>_backup_replica_local_l0_bytes.
 //
 // Stop in this order: drain HTTP and the writer, so every accepted write is
-// in the file; call detach, the final sync, with a live context (the
+// in the file, and end the reads; call detach with a live context (the
 // signal's context is already cancelled); then close the database, without
-// a checkpoint of the application's own. The close checkpoints the WAL and
-// keeps it, so the next Attach finds the database where the final sync
-// left it and uploads nothing for a database that did not change. A WAL
-// deleted at the close, or emptied by PRAGMA wal_checkpoint(TRUNCATE) after
-// detach, leaves Litestream no way to tell, and the next Attach uploads the
-// whole database as a new LTX file. The process's stop timeout (systemd
-// TimeoutStopSec) must cover the drain and the final sync: killed mid-sync,
-// the replica trails the file.
+// a checkpoint of the application's own. detach has Litestream checkpoint
+// the WAL and start it over, which Litestream records, then makes the final
+// sync. The close keeps that WAL of one frame, so the next Attach finds the
+// database where the final sync left it and uploads nothing for a database
+// that did not change, and the next open has no frames to read from the
+// WAL. A WAL deleted at the close, or emptied by PRAGMA
+// wal_checkpoint(TRUNCATE) after detach, leaves Litestream no way to tell,
+// and the next Attach uploads the whole database as a new LTX file. A WAL
+// closed with its frames, as a read transaction open during detach leaves
+// it, costs memory instead: SQLite's recovery at the next open counts every
+// frame since the WAL last started over as not yet checkpointed, and each
+// reader reads those pages into its page cache instead of through the
+// memory map, until a write after Litestream's next checkpoint. The
+// process's stop timeout (systemd TimeoutStopSec) must cover the drain, the
+// checkpoint and the final sync: killed mid-sync, the replica trails the
+// file.
 //
 // Litestream opens the database with modernc.org/sqlite, so the application
 // must use it too: two SQLite copies in one process break each other's locks.
@@ -99,6 +107,7 @@ import (
 	"github.com/benbjohnson/litestream"
 	"github.com/benbjohnson/litestream/file"
 	"github.com/benbjohnson/litestream/s3"
+	"github.com/superfly/ltx"
 )
 
 // Policy defaults. RetentionWindow is also the point-in-time recovery floor:
@@ -525,11 +534,13 @@ func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, e
 // once the first sync has reached the replica, since until then a final sync
 // does nothing. dbPath must exist and name must not be attached already.
 //
-// Call detach once, before the application closes the database: it is the
-// final sync. Close the database after it without a checkpoint of your own
-// (see the package doc). A cancelled context gets a fresh one for it,
-// bounded by Litestream's shutdown sync timeout. On a disabled Manager
-// detach does nothing.
+// Call detach once, before the application closes the database and after
+// its writes and reads have ended: it has Litestream checkpoint the WAL and
+// start it over, when it holds more than one frame, and makes the final
+// sync. Close the database after it without a checkpoint of your own (see
+// the package doc). A cancelled context gets a fresh one for it, bounded by
+// Litestream's shutdown sync timeout. On a disabled Manager detach does
+// nothing.
 //
 // When the newest snapshot is older than the snapshot interval, Attach
 // writes one in the background after the first sync, bounded by
@@ -655,10 +666,51 @@ func (m *Manager) detach(ctx context.Context, name string, a *attachedDB) error 
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), litestream.DefaultShutdownSyncTimeout)
 		defer cancel()
 	}
+	m.restartWAL(ctx, name, a.db)
 	if err := a.db.Close(ctx); err != nil {
 		return fmt.Errorf("backup: final sync of %s: %w", name, err)
 	}
 	return nil
+}
+
+// restartWAL has Litestream checkpoint the WAL and start it over before the
+// final sync (see the package doc); a failure is logged, not returned.
+func (m *Manager) restartWAL(ctx context.Context, name string, db *litestream.DB) {
+	err := db.Sync(ctx)
+	var frames int64
+	if err == nil {
+		frames, err = walFrames(db)
+	}
+	// Restarting a WAL of one frame makes Litestream write a whole snapshot.
+	if err == nil && frames > 1 {
+		err = db.Checkpoint(ctx, litestream.CheckpointModePassive)
+	}
+	if err != nil {
+		m.log.Warn("backup: checkpoint before the final sync failed; the next open reads the WAL's frames again", "replica", name, "error", err)
+	}
+}
+
+// walFrames counts the frames since the WAL last started over that
+// Litestream has synced, from the header of its newest LTX file.
+func walFrames(db *litestream.DB) (int64, error) {
+	minTXID, maxTXID, err := db.MaxLTX()
+	if err != nil || maxTXID == 0 {
+		return 0, err
+	}
+	f, err := os.Open(db.LTXPath(0, minTXID, maxTXID))
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	dec := ltx.NewDecoder(f)
+	if err := dec.DecodeHeader(); err != nil {
+		return 0, err
+	}
+	h := dec.Header()
+	if h.PageSize == 0 || h.WALOffset < litestream.WALHeaderSize {
+		return 0, nil
+	}
+	return (h.WALOffset + h.WALSize - litestream.WALHeaderSize) / (int64(h.PageSize) + litestream.WALFrameHeaderSize), nil
 }
 
 // ReplicaStatus is the state of one attached replica, read from memory.
