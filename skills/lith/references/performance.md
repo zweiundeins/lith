@@ -128,7 +128,10 @@ i5-13500 core, 2026-10-12:
   frames kept outside a hub. 150 tabs with a 230 KB view each need about 200
   MiB of budget with brotli, 140 MiB with zstd. Giving an idle stream's
   encoder back is opt-in: `live.Options.Hibernate` (zero, the default, never
-  does). bench/budget has the numbers.
+  does). `HibernateFirst` (such as 200 ms) shortens a stream's first rest,
+  so a deploy's reconnect herd hands encoders on instead of each holding
+  one; it costs one frame without history per connection. bench/budget has
+  the numbers.
 - Never hold a lock or a slot while writing to the network; give every write a
   deadline.
 
