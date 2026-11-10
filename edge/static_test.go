@@ -625,3 +625,37 @@ func TestStaticWarmed(t *testing.T) {
 		t.Fatalf("without files: %v", err)
 	}
 }
+
+// Warmed also waits for a file that Add gave Static before it passed, such
+// as an app's Datastar build, and once it has passed, an Add while Static
+// serves does not fail it.
+func TestStaticWarmedWaitsForAdd(t *testing.T) {
+	// New bytes on every run: the cache keeps each content compressed.
+	script := func() []byte {
+		var b bytes.Buffer
+		seed := time.Now().UnixNano()
+		for i := range 20000 {
+			fmt.Fprintf(&b, "console.log(%d, %d);\n", seed, i*i%7919)
+		}
+		return b.Bytes()
+	}
+	s, err := NewStatic(nil, "/static/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Add("vendor/datastar-rocket.js", script())
+	if s.Warmed(t.Context()) == nil {
+		t.Fatal("Warmed passed while an added file was being compressed")
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for s.Warmed(t.Context()) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the added file is still not compressed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	s.Add("late.js", script())
+	if err := s.Warmed(t.Context()); err != nil {
+		t.Errorf("an Add after Warmed passed fails it: %v", err)
+	}
+}

@@ -550,7 +550,7 @@ URL returns the hashed, immutable URL of the named file, or its plain URL when t
 func (s *Static) Warmed(context.Context) error
 ```
 
-Warmed returns nil once the files NewStatic read are compressed, and an error until then, for a readiness check (Ready.Add("static", s.Warmed)): until then, a request for a file not compressed yet waits for it.
+Warmed returns nil once the files NewStatic read are compressed, and those Add gave s before then, and an error until then, for a readiness check (Ready.Add("static", s.Warmed)): until then, a request for a file not compressed yet waits for it. Once it has passed, it passes for good, so an Add while s serves does not take the instance out of rotation.
 
 ### type StaticOption {#StaticOption}
 

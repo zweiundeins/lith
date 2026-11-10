@@ -231,7 +231,7 @@ ready.Add("database", func(ctx context.Context) error {
 })
 ```
 
-A check must not queue behind the writer: a command waits for every batch ahead of it, which turns a busy writer into a failed probe. Read from the read pool, or look at state in memory, as this site does for its writer and hub. `edge.Static.Warmed` is such a check: it passes once the static files are compressed, on two goroutines from the start, and until then a request for a file not compressed yet waits for it. The template and this site register it as `static`.
+A check must not queue behind the writer: a command waits for every batch ahead of it, which turns a busy writer into a failed probe. Read from the read pool, or look at state in memory, as this site does for its writer and hub. `edge.Static.Warmed` is such a check: it passes once the static files are compressed, those `NewStatic` read, on two goroutines from the start, and those `Add` gave it before then, such as the Datastar build; until then a request for a file not compressed yet waits for it. Once it has passed it stays passed, so an `Add` while the app serves takes no instance out of rotation. The template and this site register it as `static`.
 
 ## Errors and logs
 

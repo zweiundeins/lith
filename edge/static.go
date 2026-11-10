@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -39,6 +40,8 @@ type Static struct {
 	files  map[string]*staticFile // by name
 	hashed map[string]*staticFile // by hashed name
 	warmed chan struct{}          // closed once NewStatic's files are compressed
+	adding atomic.Int64           // files Add gave that are being compressed
+	ready  atomic.Bool            // Warmed has passed, and passes from then on
 }
 
 type staticFile struct {
@@ -141,17 +144,25 @@ func (s *Static) warm(files []*staticFile) {
 	wg.Wait()
 }
 
-// Warmed returns nil once the files NewStatic read are compressed, and an
-// error until then, for a readiness check (Ready.Add("static",
-// s.Warmed)): until then, a request for a file not compressed yet waits
-// for it.
+// Warmed returns nil once the files NewStatic read are compressed, and those
+// Add gave s before then, and an error until then, for a readiness check
+// (Ready.Add("static", s.Warmed)): until then, a request for a file not
+// compressed yet waits for it. Once it has passed, it passes for good, so
+// an Add while s serves does not take the instance out of rotation.
 func (s *Static) Warmed(context.Context) error {
+	if s.ready.Load() {
+		return nil
+	}
 	select {
 	case <-s.warmed:
-		return nil
 	default:
 		return errors.New("compressing the static files")
 	}
+	if s.adding.Load() > 0 {
+		return errors.New("compressing the static files")
+	}
+	s.ready.Store(true)
+	return nil
 }
 
 // Add serves data as the file name, in place of a file of that name. URL
@@ -172,7 +183,11 @@ func (s *Static) Add(name string, data []byte) {
 	s.files[name], s.hashed[f.hashed] = f, f
 	s.mu.Unlock()
 	if f.text {
-		go warm(f)
+		s.adding.Add(1)
+		go func() {
+			defer s.adding.Add(-1)
+			warm(f)
+		}()
 	}
 }
 
