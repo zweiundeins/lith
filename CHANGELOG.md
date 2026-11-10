@@ -2,7 +2,7 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.6 (2026-11-10)
 
 Closing a replicated database without a checkpoint costs no memory now, the Datastar build has a package of its own, and edge gains a version of static files, a quieter readiness probe and client addresses without a proxy. What to check in an app:
 
