@@ -570,6 +570,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 	}
 	var rest <-chan time.Time // fires when the stream should hibernate
 	var restTimer *time.Timer
+	restFor := h.firstRest // until the stream has hibernated once
 	if h.hibernate > 0 {
 		restTimer = time.NewTimer(h.hibernate)
 		defer restTimer.Stop()
@@ -776,7 +777,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 				idle.Reset(h.heartbeat)
 			}
 			if restTimer != nil {
-				restTimer.Reset(h.hibernate)
+				restTimer.Reset(restFor)
 			}
 		}
 
@@ -796,6 +797,7 @@ func (h *Hub) pump(ctx context.Context, s *stream, st *sse.Stream, lead [][]byte
 			if err := st.Hibernate(); err != nil {
 				return err
 			}
+			restFor = h.hibernate
 		case <-listen:
 			upgrade = st.Upgrade()
 		case <-upgrade:

@@ -506,6 +506,16 @@ type Options struct {
 	// before. Heartbeats go out without waking it. Zero, the default, never
 	// hibernates: every stream keeps its encoder while it is open.
 	Hibernate time.Duration
+	// HibernateFirst, if set, takes Hibernate's place until a stream has
+	// hibernated once: the stream hibernates at its first silence that long,
+	// usually right after its first frames, and every later rest is
+	// Hibernate. It is at most Hibernate and does nothing without it. When
+	// every tab reconnects at once, after a deploy, the streams then hand
+	// their encoders on to each other through the pool instead of each
+	// holding one for the full Hibernate; 200ms suits such a herd. It costs
+	// a stream whose next frame comes after that first rest one frame
+	// without history, once per connection.
+	HibernateFirst time.Duration
 	// RenderTimeout is how long a Render may take (default 2s): its ctx
 	// ends then, and a Render still running is logged. Nothing stops a
 	// Render that ignores its ctx. It holds up only its worker while the

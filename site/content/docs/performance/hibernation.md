@@ -50,6 +50,14 @@ Headless Chromium 154 (`TestChromiumDecodesFrames` in `sse`) decodes a zstd body
 
 A hibernating tab trades heap for bytes: the 30 s setting cuts the heap to a sixth and adds 45 KB an hour per tab. Where tabs stay open for hours and change rarely, a public site, a dashboard on a wall, that trade is cheap; this site hibernates after a minute. Where every open tab changes every few seconds, hibernation rarely starts, and costs nothing either.
 
+## The first rest
+
+A deploy reconnects every open tab within seconds, and each stream takes an encoder for its first frames. With `Hibernate` at 30 s, every one of them holds it until 30 s after its first frames, so the streams' memory peaks just as the new process opens everything else. `live.Options.HibernateFirst` gives a stream a shorter first rest: it hibernates at its first silence that long, usually right after its first frames, and every later rest is `Hibernate`. At 200 ms a stream gives its encoder back to the pool while the herd is still arriving, and a stream that connects after it takes that encoder instead of a new one.
+
+Libretto, with a database and a hub per account, measured a restart with one tab per account on its own binary in November 2026 (2 CPUs for Go, `GOMEMLIMIT` 900 MiB, on a 20-core machine, mean of two runs). With a first rest of 200 ms, the peak of anonymous memory fell from 1,004 to 854 MiB with 240 connected accounts, and from 1,703 to 1,450 MiB with 500. A first rest of 5 s saved nothing: the herd of 240 lasted 6 to 7 s, and an encoder helps only if it comes back while streams are still arriving. The bytes of the first frames did not change.
+
+The cost is one frame without history per connection. A stream whose next frame comes after its first rest, and before `Hibernate` would have run out, starts that frame on an encoder without the page's history: computed, not measured, at 3.8 to 10.9 KB for Libretto's frames against about 0.4 KB with it. The first rest falls on a stream's first silence of that length wherever it comes, so a busy stream can pay it once too. `HibernateFirst` is at most `Hibernate` and does nothing without it, and brotli and gzip streams never hibernate.
+
 ## Measuring again
 
 ```sh
