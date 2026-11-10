@@ -34,7 +34,7 @@ const reopenPage = `<!doctype html><title>reopen</title><link rel="icon" href="d
 //
 //	LITH_CHROME_NO_SANDBOX=1 go test ./internal/app -run TestReopenForABetterTier
 func TestReopenForABetterTier(t *testing.T) {
-	js := datastar.Datastar()
+	js := datastar.JS()
 	b := browser.Start(t)
 	budget := sse.NewBudget(sse.BudgetOptions{Limit: 8 << 20})
 	h := live.New(live.Options{Tick: 5 * time.Millisecond, SSE: sse.Options{Budget: budget}})

@@ -52,7 +52,7 @@ func TestMinified(t *testing.T) {
 		}
 	}
 	plugin, _ := fs.ReadFile(live.Scripts, live.NewestFrame)
-	written := map[string][]byte{"lith/" + live.NewestFrame: plugin, "vendor/datastar-rocket.js": datastar.Datastar()}
+	written := map[string][]byte{"lith/" + live.NewestFrame: plugin, "vendor/datastar-rocket.js": datastar.JS()}
 	var total [4]int
 	for _, name := range slices.Sorted(maps.Keys(prod)) {
 		p, d := prod[name], dev[name]

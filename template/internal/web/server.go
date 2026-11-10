@@ -67,7 +67,7 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev b
 	if err != nil {
 		return nil, err
 	}
-	static.Add("vendor/datastar-rocket.js", datastar.Datastar())
+	static.Add("vendor/datastar-rocket.js", datastar.JS())
 	// lith's newest-frame.js, which the page loads after Datastar.
 	js, err := fs.ReadFile(live.Scripts, live.NewestFrame)
 	if err != nil {

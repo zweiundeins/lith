@@ -11,7 +11,7 @@ Import path `github.com/zweiundeins/lith/datastar`. Generated from the doc comme
 It embeds that file and nothing else, so an app that serves the build gains its 72 KB:
 
 ```go
-static.Add("vendor/datastar-rocket.js", datastar.Datastar())
+static.Add("vendor/datastar-rocket.js", datastar.JS())
 url := static.URL("vendor/datastar-rocket.js")
 ```
 
@@ -29,14 +29,14 @@ Integrity is the build's subresource integrity, its SHA-384 as an integrity attr
 const Version = "1.0.5+starbase.818f366"
 ```
 
-Version names the build that Datastar returns: Datastar v1.0.5 with Rocket and the patches in Starbase's patches/rocket, as Starbase's commit 818f366 vendors it.
+Version names the build that JS returns: Datastar v1.0.5 with Rocket and the patches in Starbase's patches/rocket, as Starbase's commit 818f366 vendors it.
 
 ## Functions
 
-### func Datastar {#Datastar}
+### func JS {#JS}
 
 ```go
-func Datastar() []byte
+func JS() []byte
 ```
 
-Datastar returns the build, a copy of its own on every call.
+JS returns the build, a copy of its own on every call.

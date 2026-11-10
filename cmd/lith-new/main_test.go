@@ -275,8 +275,8 @@ func TestOwnModules(t *testing.T) {
 // TestDatastar checks that template.Datastar and DatastarVersion, which
 // apps from before lith/datastar use, still name its build.
 func TestDatastar(t *testing.T) {
-	if !bytes.Equal(template.Datastar(), datastar.Datastar()) || template.DatastarVersion != datastar.Version {
-		t.Errorf("template.Datastar() is %d bytes of %s, datastar.Datastar() %d bytes of %s",
-			len(template.Datastar()), template.DatastarVersion, len(datastar.Datastar()), datastar.Version)
+	if !bytes.Equal(template.Datastar(), datastar.JS()) || template.DatastarVersion != datastar.Version {
+		t.Errorf("template.Datastar() is %d bytes of %s, datastar.JS() %d bytes of %s",
+			len(template.Datastar()), template.DatastarVersion, len(datastar.JS()), datastar.Version)
 	}
 }

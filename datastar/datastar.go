@@ -3,7 +3,7 @@
 // module. It embeds that file and nothing else, so an app that serves the
 // build gains its 72 KB:
 //
-//	static.Add("vendor/datastar-rocket.js", datastar.Datastar())
+//	static.Add("vendor/datastar-rocket.js", datastar.JS())
 //	url := static.URL("vendor/datastar-rocket.js")
 //
 // A page that pins the build gives Integrity in the script's integrity
@@ -15,7 +15,7 @@ package datastar
 
 import _ "embed"
 
-// Version names the build that Datastar returns: Datastar v1.0.5 with
+// Version names the build that JS returns: Datastar v1.0.5 with
 // Rocket and the patches in Starbase's patches/rocket, as Starbase's
 // commit 818f366 vendors it.
 const Version = "1.0.5+starbase.818f366"
@@ -28,5 +28,5 @@ const Integrity = "sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+Xp
 //go:embed datastar-rocket.js
 var build string
 
-// Datastar returns the build, a copy of its own on every call.
-func Datastar() []byte { return []byte(build) }
+// JS returns the build, a copy of its own on every call.
+func JS() []byte { return []byte(build) }

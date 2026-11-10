@@ -216,7 +216,7 @@ func startWith(t *testing.T, limit *edge.Limiter) server {
 	h := http.Handler(site.Routes())
 	h = edge.Sessions{}.Handler(h)
 	h = edge.CSRF{Datastar: []string{"POST /cmd/"}}.Handler(h)
-	js := datastar.Datastar()
+	js := datastar.JS()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /static/datastar.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript")

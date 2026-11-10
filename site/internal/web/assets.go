@@ -89,7 +89,7 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 		return err
 	}
 	s.static.Add("lith/"+live.NewestFrame, plugin)
-	s.static.Add("vendor/datastar-rocket.js", datastar.Datastar())
+	s.static.Add("vendor/datastar-rocket.js", datastar.JS())
 	s.static.Add("art/logo.svg", []byte(pixelart.Logo()))
 	if s.starbase, err = starbase.Load(files); err != nil {
 		return err

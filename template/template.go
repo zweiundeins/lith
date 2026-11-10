@@ -23,8 +23,8 @@ var FS embed.FS
 // Deprecated: Use datastar.Version.
 const DatastarVersion = datastar.Version
 
-// Datastar returns datastar.Datastar(), the build the template serves. An
+// Datastar returns datastar.JS(), the build the template serves. An
 // app that calls it embeds the build, not FS.
 //
-// Deprecated: Use datastar.Datastar.
-func Datastar() []byte { return datastar.Datastar() }
+// Deprecated: Use datastar.JS.
+func Datastar() []byte { return datastar.JS() }

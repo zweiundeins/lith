@@ -248,7 +248,7 @@ func TestNewestFrame(t *testing.T) {
 	for _, f := range []struct {
 		url  string
 		want []byte
-	}{{m[2], datastar.Datastar()}, {m[3], written}} {
+	}{{m[2], datastar.JS()}, {m[3], written}} {
 		res, err := http.Get(base + f.url)
 		if err != nil {
 			t.Fatal(err)
