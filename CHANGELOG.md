@@ -4,7 +4,10 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 ## Unreleased
 
-- `backup`: detach has Litestream checkpoint the WAL and start it over before the final sync, so a database closed after it no longer brings the WAL's frames back at its next open, where its readers held those pages in their page caches (Libretto: 947 MiB off the Go heap at 128 accounts, against 478). Apps keep v0.5.5's stop, closing without a checkpoint after detach, and end their reads before detach: a read transaction open during it keeps the WAL from starting over.
+The write connection reads through the memory map, as the readers do. What to check in an app: the stop ends its reads, detaches and closes the database with no checkpoint of its own. An app that kept `PRAGMA wal_checkpoint(TRUNCATE)` after detach can drop it: the memory it saved was the writer's page cache, which stays small now, and the TRUNCATE makes every Attach upload the whole database.
+
+- `sqlite`: the write connection maps the file (`MmapBytes`), so what a migration or a command reads no longer stays in its page cache while the database is open; it keeps the pages it writes. At 128 of Libretto's accounts that cost 462 MiB.
+- `backup`: detach has Litestream checkpoint the WAL and start it over before the final sync, so the next open reads no frames from it. A read open during detach keeps the WAL from starting over, and detach logs a warning.
 
 ## v0.5.5 (2026-11-10)
 
