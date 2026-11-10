@@ -119,6 +119,14 @@ Hold a pin for one unit of work, a request or a render. An SSE stream that pins 
 
 ctx bounds the wait for another open or close of key; a cold open started by this call runs to completion. Gets that waited on an open that failed return its error rather than each trying again.
 
+#### func (*Pool[T]) Peek {#Pool.Peek}
+
+```go
+func (p *Pool[T]) Peek(key string) (val T, release func(), ok bool, err error)
+```
+
+Peek returns the value for key if it is open, pinned as Get pins it until release is called, and never opens it. It never waits either: a key being opened or closed is not open, nor is one never opened or evicted, and ok is then false. As with Get, a denied key returns its reason, even while its value stays open, and after Close every key returns ErrClosed: code that reads the file some other way when Peek finds nothing open must not do so for a key denied for a restore or an erasure. Releasing a pin of Peek counts as a use, as for Get: the value becomes the most recently released.
+
 #### func (*Pool[T]) Stats {#Pool.Stats}
 
 ```go

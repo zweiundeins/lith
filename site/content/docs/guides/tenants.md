@@ -84,6 +84,8 @@ func (a *Accounts) Do(ctx context.Context, key string, cmd writer.Command) error
 
 `pool.Get(ctx, key)` returns the value and a `release` function, for a pin that spans more than one call. Hold a pin for one unit of work, a request or a render: the pool evicts only accounts nobody holds.
 
+`pool.Peek(key)` pins the value only if the account is open, and never opens it or waits: an account being opened or closed counts as not open. A public page that only reads can use the open account when there is one, and read a dormant account's file through a read-only `sqlite.Open` of its own, once it has checked that the file's migrations are current, instead of opening the account and evicting another for a visitor. A denied key returns its reason rather than false, so such a read never touches a file that is being restored or erased.
+
 ## Views of an account
 
 One hub serves every account. It needs no read pool of its own, `live.Options.Read` stays nil, and each view reads from its account's file. A view pins its account for each render only:

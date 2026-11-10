@@ -117,13 +117,9 @@ func (p *Pool[T]) Get(ctx context.Context, key string) (val T, release func(), e
 		return val, nil, err
 	}
 	if e := p.entries[key]; e != nil {
-		if e.pins == 0 {
-			p.idle.Remove(e.elem)
-			e.elem = nil
-		}
-		e.pins++
+		release := p.pinLocked(e)
 		p.mu.Unlock()
-		return e.val, p.releaser(e), nil
+		return e.val, release, nil
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -176,6 +172,28 @@ func (p *Pool[T]) Get(ctx context.Context, key string) (val T, release func(), e
 	p.opens++
 	p.mu.Unlock()
 	return val, p.releaser(e), nil
+}
+
+// Peek returns the value for key if it is open, pinned as Get pins it until
+// release is called, and never opens it. It never waits either: a key
+// being opened or closed is not open, nor is one never opened or evicted,
+// and ok is then false. As with Get, a denied key returns its reason, even
+// while its value stays open, and after Close every key returns ErrClosed:
+// code that reads the file some other way when Peek finds nothing open
+// must not do so for a key denied for a restore or an erasure. Releasing a
+// pin of Peek counts as a use, as for Get: the value becomes the most
+// recently released.
+func (p *Pool[T]) Peek(key string) (val T, release func(), ok bool, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.refusalLocked(key); err != nil {
+		return val, nil, false, err
+	}
+	e := p.entries[key]
+	if e == nil {
+		return val, nil, false, nil
+	}
+	return e.val, p.pinLocked(e), true, nil
 }
 
 // Do runs fn with the value for key pinned for the length of the call.
@@ -393,6 +411,16 @@ func (p *Pool[T]) removeLocked(e *entry[T]) {
 func (p *Pool[T]) unbusyLocked(key string, f *flight) {
 	delete(p.busy, key)
 	close(f.done)
+}
+
+// pinLocked pins e and returns the release of that pin.
+func (p *Pool[T]) pinLocked(e *entry[T]) func() {
+	if e.pins == 0 {
+		p.idle.Remove(e.elem)
+		e.elem = nil
+	}
+	e.pins++
+	return p.releaser(e)
 }
 
 // releaser returns the release func for one pin on e. It is bound to e, not
