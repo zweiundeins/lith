@@ -63,13 +63,13 @@
 // wal_checkpoint(TRUNCATE) after detach, leaves Litestream no way to tell,
 // and the next Attach uploads the whole database as a new LTX file. A WAL
 // closed with its frames, as a read transaction open during detach leaves
-// it, costs memory instead: SQLite's recovery at the next open counts every
-// frame since the WAL last started over as not yet checkpointed, and each
-// reader reads those pages into its page cache instead of through the
-// memory map, until a write after Litestream's next checkpoint. The
-// process's stop timeout (systemd TimeoutStopSec) must cover the drain, the
-// checkpoint and the final sync: killed mid-sync, the replica trails the
-// file.
+// it (detach logs a warning then), costs memory instead: SQLite's recovery
+// at the next open counts every frame since the WAL last started over as
+// not yet checkpointed, and each reader reads those pages into its page
+// cache instead of through the memory map, until a write after Litestream's
+// next checkpoint. The process's stop timeout (systemd TimeoutStopSec) must
+// cover the drain, the checkpoint and the final sync: killed mid-sync, the
+// replica trails the file.
 //
 // Litestream opens the database with modernc.org/sqlite, so the application
 // must use it too: two SQLite copies in one process break each other's locks.
@@ -683,7 +683,12 @@ func (m *Manager) restartWAL(ctx context.Context, name string, db *litestream.DB
 	}
 	// Restarting a WAL of one frame makes Litestream write a whole snapshot.
 	if err == nil && frames > 1 {
-		err = db.Checkpoint(ctx, litestream.CheckpointModePassive)
+		if err = db.Checkpoint(ctx, litestream.CheckpointModePassive); err == nil {
+			frames, err = walFrames(db)
+		}
+		if err == nil && frames > 1 {
+			m.log.Warn("backup: the WAL did not start over before the final sync, as when a read is open; the next open reads its frames again", "replica", name, "frames", frames)
+		}
 	}
 	if err != nil {
 		m.log.Warn("backup: checkpoint before the final sync failed; the next open reads the WAL's frames again", "replica", name, "error", err)

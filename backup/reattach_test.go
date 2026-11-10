@@ -152,19 +152,27 @@ func TestRestoreIfMissingRemovesALeftoverWAL(t *testing.T) {
 // close, with no frames in its WAL to read: detach had Litestream checkpoint
 // and restart the WAL. A reader then reads the table through the memory map,
 // and its page cache stays small. Closed with that WAL still in place, as
-// v0.5.5's stop left it and as a close does without Litestream attached,
-// SQLite's recovery at the next open counts every frame as not yet
-// checkpointed, and the reader reads those pages into its page cache.
+// v0.5.5's stop left it, as a read open during detach leaves it (with a
+// warning) and as a close does without Litestream attached, SQLite's
+// recovery at the next open counts every frame as not yet checkpointed, and
+// the reader reads those pages into its page cache.
 func TestDetachLeavesNoWALFramesForTheNextOpen(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		attach bool
+		name     string
+		attach   bool
+		readOpen bool // a read transaction open during detach
+		restarts bool
 	}{
-		{"detached and closed", true},
-		{"closed without Litestream", false},
+		{"detached and closed", true, false, true},
+		{"detached with a read open", true, true, false},
+		{"closed without Litestream", false, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newManager(t)
+			msgs := &messages{prefix: "backup: the WAL did not start over"}
+			m, err := New(Config{Dir: t.TempDir(), Logger: slog.New(msgs)})
+			if err != nil {
+				t.Fatal(err)
+			}
 			path := filepath.Join(t.TempDir(), "app.db")
 			opts := sqlite.Options{Checkpoint: sqlite.CheckpointExternal, Readers: 1, CacheKiB: 2000}
 			db, err := sqlite.Open(bg, path, opts)
@@ -184,8 +192,24 @@ func TestDetachLeavesNoWALFramesForTheNextOpen(t *testing.T) {
 			}
 			// Rewrites every page of the table: about 420 frames.
 			mustExec(t, db.W, `UPDATE notes SET body = upper(body)`)
+			var read *sql.Tx
+			if tc.readOpen {
+				if read, err = db.R.BeginTx(bg, &sql.TxOptions{ReadOnly: true}); err != nil {
+					t.Fatal(err)
+				}
+				var n int
+				if err := read.QueryRow(`SELECT count(*) FROM notes`).Scan(&n); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := detach(bg); err != nil {
 				t.Fatal(err)
+			}
+			if read != nil {
+				read.Rollback()
+			}
+			if got, want := len(msgs.levels()), map[bool]int{false: 0, true: 1}[tc.readOpen]; got != want {
+				t.Errorf("%d warnings that the WAL did not start over, want %d", got, want)
 			}
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
@@ -212,7 +236,7 @@ func TestDetachLeavesNoWALFramesForTheNextOpen(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Logf("after the reopen: %d WAL frames, the reader's page cache %d KiB", frames, cache>>10)
-			if tc.attach {
+			if tc.restarts {
 				if frames > 1 || cache > 100<<10 {
 					t.Errorf("the reopened database had %d WAL frames and its reader cached %d KiB, want at most 1 and 100 KiB", frames, cache>>10)
 				}
