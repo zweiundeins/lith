@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/zweiundeins/lith/dbmetrics"
+	msqlite "modernc.org/sqlite"
 )
 
 func open(t *testing.T, opts Options) *DB {
@@ -74,6 +76,7 @@ func TestPragmas(t *testing.T) {
 		"busy_timeout": "5000",
 		"temp_store":   "2",
 		"cache_size":   "-32000",
+		"mmap_size":    "268435456",
 	}
 	for name, want := range common {
 		if got := pragma(t, d.W, name); got != want {
@@ -103,9 +106,6 @@ func TestPragmas(t *testing.T) {
 		if got := pragma(t, c, "query_only"); got != "1" {
 			t.Errorf("reader %d: query_only = %s", i, got)
 		}
-		if got := pragma(t, c, "mmap_size"); got != "268435456" {
-			t.Errorf("reader %d: mmap_size = %s", i, got)
-		}
 	}
 
 	auto := open(t, Options{})
@@ -115,6 +115,151 @@ func TestPragmas(t *testing.T) {
 	if got := pragma(t, auto.W, "synchronous"); got != "1" {
 		t.Errorf("synchronous = %s, want 1", got)
 	}
+
+	// The write connection maps the file like the readers, in every
+	// checkpoint mode and through a wrapping driver; a negative MmapBytes
+	// maps nothing on either.
+	wrapped := fmt.Sprintf("sqlite-pragmas-%d", registrations.Add(1))
+	if err := dbmetrics.Register(wrapped, "sqlite", dbmetrics.Options{SlowThreshold: -1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range []Options{
+		{Checkpoint: CheckpointAuto},
+		{Checkpoint: CheckpointExternal},
+		{Checkpoint: CheckpointExternal, Driver: wrapped, MmapBytes: 64 << 20},
+		{Checkpoint: CheckpointWriter, MmapBytes: -1},
+	} {
+		d := open(t, o)
+		want := map[int64]string{0: "268435456", 64 << 20: "67108864", -1: "0"}[o.MmapBytes]
+		for name, db := range map[string]*sql.DB{"writer": d.W, "reader": d.R} {
+			if got := pragma(t, db, "mmap_size"); got != want {
+				t.Errorf("Checkpoint %d, Driver %q, MmapBytes %d: the %s's mmap_size = %s, want %s", o.Checkpoint, o.Driver, o.MmapBytes, name, got, want)
+			}
+		}
+	}
+}
+
+// The write connection reads through the map like the readers, in every
+// checkpoint mode and through a wrapping driver: a write transaction's read
+// of a whole table, as a migration or a command's query makes one, leaves
+// its page cache with page 1 and the pages it writes. Without the map the
+// read fills the cache to CacheKiB, which stays full while the database is
+// open. The transaction's reads see its own writes, which commit and read
+// back after the writer checkpoints them into the file it maps.
+func TestWriterReadsThroughTheMap(t *testing.T) {
+	ctx := context.Background()
+	wrapped := fmt.Sprintf("sqlite-writer-map-%d", registrations.Add(1))
+	if err := dbmetrics.Register(wrapped, "sqlite", dbmetrics.Options{SlowThreshold: -1}); err != nil {
+		t.Fatal(err)
+	}
+	const cacheKiB = 1000
+	for _, tc := range []struct {
+		name   string
+		opts   Options
+		mapped bool
+	}{
+		{"auto", Options{Checkpoint: CheckpointAuto}, true},
+		{"writer", Options{Checkpoint: CheckpointWriter}, true},
+		{"external", Options{Checkpoint: CheckpointExternal}, true},
+		{"external through a wrapping driver", Options{Checkpoint: CheckpointExternal, Driver: wrapped}, true},
+		{"no map", Options{Checkpoint: CheckpointExternal, MmapBytes: -1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := tc.opts
+			opts.Synchronous, opts.Readers, opts.CacheKiB = "OFF", 1, cacheKiB
+			path := filepath.Join(t.TempDir(), "big.db")
+			d, err := Open(ctx, path, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// About 4.5 MB, over four times the cache, all of it in the file.
+			if _, err := d.W.Exec(`CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT);
+				WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20000)
+				INSERT INTO notes (body) SELECT printf('%.200c', 'a') FROM n;
+				PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Opened again, the write connection starts with an empty cache.
+			d, err = Open(ctx, path, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			c, err := d.W.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			tx, err := c.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rows, size, n int
+			if err := tx.QueryRow(`SELECT count(*), sum(length(body)) FROM notes`).Scan(&rows, &size); err != nil || rows != 20000 {
+				t.Fatalf("read %d rows: %v", rows, err)
+			}
+			if _, err := tx.Exec(`UPDATE notes SET body = 'changed' WHERE id = 10000;
+				INSERT INTO notes (body) VALUES ('added')`); err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.QueryRow(`SELECT count(*) FROM notes WHERE body IN ('changed', 'added')`).Scan(&n); err != nil || n != 2 {
+				t.Fatalf("the transaction read %d of its 2 writes back: %v", n, err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			cache := cacheUsed(t, c)
+			if err := d.R.QueryRow(`SELECT count(*) FROM notes WHERE body IN ('changed', 'added')`).Scan(&n); err != nil || n != 2 {
+				t.Fatalf("a reader found %d of the 2 writes: %v", n, err)
+			}
+			var check string
+			if _, err := c.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.QueryRowContext(ctx, `SELECT count(*) FROM notes WHERE body IN ('changed', 'added')`).Scan(&n); err != nil || n != 2 {
+				t.Fatalf("after the checkpoint the writer found %d of the 2 writes: %v", n, err)
+			}
+			if err := c.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&check); err != nil || check != "ok" {
+				t.Fatalf("integrity_check: %s, %v", check, err)
+			}
+			t.Logf("after reading %d KiB in a write transaction, the writer's page cache holds %d KiB", size>>10, cache>>10)
+			if tc.mapped && cache > cacheKiB<<10/10 {
+				t.Errorf("the writer's page cache holds %d KiB, want at most a tenth of its %d KiB", cache>>10, cacheKiB)
+			}
+			if !tc.mapped && cache < cacheKiB<<10*9/10 {
+				t.Errorf("without the map the writer's page cache holds %d KiB: the control no longer fills its %d KiB", cache>>10, cacheKiB)
+			}
+		})
+	}
+}
+
+// cacheUsed is SQLITE_DBSTATUS_CACHE_USED of the connection c holds: the
+// bytes of its page cache.
+func cacheUsed(t *testing.T, c *sql.Conn) int {
+	t.Helper()
+	var n int
+	err := c.Raw(func(dc any) error {
+		for {
+			if s, ok := dc.(msqlite.DBStatus); ok {
+				var err error
+				n, _, err = s.Status(msqlite.DBStatusCacheUsed, false)
+				return err
+			}
+			u, ok := dc.(interface{ Unwrap() driver.Conn })
+			if !ok {
+				return fmt.Errorf("%T has no DBStatus", dc)
+			}
+			dc = u.Unwrap()
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func TestReadPoolIsQueryOnlyAndKeepsItsConnections(t *testing.T) {

@@ -189,12 +189,12 @@ Topics in a hierarchy are such families already. A commit to `items:SWE:123` cou
 | --- | --- | --- |
 | `Readers` | GOMAXPROCS + 4, at least 8 | connections in `db.R` |
 | `CacheKiB` | 32000 | each connection's page cache, in KiB |
-| `MmapBytes` | 256 MiB | how much of the file each reader maps; negative for none |
+| `MmapBytes` | 256 MiB | how much of the file each connection maps, the write connection too; negative for none |
 | `BusyTimeout` | 5 s | how long a connection waits for a lock |
 
 The hub's render workers hold one read connection each for the hub's life, GOMAXPROCS of them by default, and everything else shares the rest: the default leaves four or more for GET documents, jobs and probes. Size `Readers` as the hub's `Workers` plus the reads that run at once beside it. When the pool has no more connections than the hub has workers, the hub logs a warning and runs one worker fewer than the pool has connections.
 
-The page cache is per connection: eight connections at the default may hold about 250 MB between them on a large database. This site runs two workers, six readers and 4,096 KiB a connection, for its small tables ([its unit's memory settings](/docs/guides/deploying#memory)).
+The page cache is per connection: eight connections at the default may hold about 250 MB between them on a database larger than `MmapBytes`, which they read past the map. This site runs two workers, six readers and 4,096 KiB a connection, for its small tables ([its unit's memory settings](/docs/guides/deploying#memory)).
 
 ## Reading a copy, or from a tool
 
