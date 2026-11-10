@@ -526,6 +526,11 @@ func (m *Manager) RestoreTimeline(ctx context.Context, name string) (Timeline, e
 // be pruned at. detach cancels it and waits for it to stop before the final
 // sync, on S3 with the abort of the upload it cut off (10 s at most); a
 // database detached before its snapshot is done gets one on its next Attach.
+//
+// Litestream v0.5.18 keeps the encoder of the last LTX file it wrote for
+// each attached database, about 155 KiB of Go heap, more while that file
+// is a whole large database, until a fix upstream: count it against
+// GOMEMLIMIT where hundreds of databases are attached.
 func (m *Manager) Attach(ctx context.Context, name, dbPath string) (detach func(context.Context) error, err error) {
 	if !m.enabled {
 		return func(context.Context) error { return nil }, nil

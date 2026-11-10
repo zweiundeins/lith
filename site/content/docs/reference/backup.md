@@ -217,6 +217,8 @@ Call detach once, before the application's last checkpoint and close: it is the 
 
 When the newest snapshot is older than the snapshot interval, Attach writes one in the background after the first sync, bounded by Config.SnapshotTimeout, so that a database attached only between maintenance passes still gets snapshots, and its WAL segments a floor to be pruned at. detach cancels it and waits for it to stop before the final sync, on S3 with the abort of the upload it cut off (10 s at most); a database detached before its snapshot is done gets one on its next Attach.
 
+Litestream v0.5.18 keeps the encoder of the last LTX file it wrote for each attached database, about 155 KiB of Go heap, more while that file is a whole large database, until a fix upstream: count it against GOMEMLIMIT where hundreds of databases are attached.
+
 #### func (*Manager) Collector {#Manager.Collector}
 
 ```go

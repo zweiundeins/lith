@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.23.14
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
 	github.com/aws/smithy-go v1.28.5
-	github.com/benbjohnson/litestream v0.5.17
+	github.com/benbjohnson/litestream v0.5.18
 	github.com/johannesboyne/gofakes3 v1.2.0
 	github.com/pierrec/lz4/v4 v4.1.33
 	github.com/prometheus/client_golang v1.25.0
