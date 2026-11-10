@@ -8,7 +8,7 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.5 (2026-11-10)
 
 Memory for many databases in one process, and replicas that no longer upload again after a restart. The new options are opt-in. What to check in an app:
 
