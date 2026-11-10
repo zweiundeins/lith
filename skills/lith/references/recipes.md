@@ -1401,8 +1401,11 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   close keeps that WAL of one frame: an unchanged database uploads
   nothing at its next Attach, and the next open reads nothing from the
   WAL. A WAL closed with its frames (a read open during detach, or
-  `backup/v0.3.3`'s detach) costs readers' page caches at the next open,
-  up to `CacheKiB` each. Delete `-wal` and `-shm` with the file.
+  `backup/v0.3.3`'s detach) is read into the page caches at the next
+  open, up to `CacheKiB` per connection. A TRUNCATE after detach saves
+  next to no memory: what it seemed to save was the writer's cache, which
+  stays small now that the writer maps the file. Delete `-wal` and `-shm`
+  with the file.
 - A provider incident fails every replica's verification at once, and
   usually passes. `RunVerifyLoop(ctx, backup.VerifyOptions{OnFail: ...})`
   retries the failed replicas 10 and 30 minutes later and calls `OnFail`

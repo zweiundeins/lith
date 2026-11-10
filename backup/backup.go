@@ -65,9 +65,10 @@
 // closed with its frames, as a read transaction open during detach leaves
 // it (detach logs a warning then), costs memory instead: SQLite's recovery
 // at the next open counts every frame since the WAL last started over as
-// not yet checkpointed, and each reader reads those pages into its page
-// cache instead of through the memory map, until a write after Litestream's
-// next checkpoint. The process's stop timeout (systemd TimeoutStopSec) must
+// not yet checkpointed, and a connection, the writer's too, reads those
+// pages from the WAL into its page cache instead of through the memory map,
+// and keeps them until another connection commits after Litestream's next
+// checkpoint. The process's stop timeout (systemd TimeoutStopSec) must
 // cover the drain, the checkpoint and the final sync: killed mid-sync, the
 // replica trails the file.
 //

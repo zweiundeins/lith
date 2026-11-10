@@ -308,6 +308,24 @@ and one per stream for `/ack`.
   keeps part of it for the next connections.
 - `CacheKiB` is per connection, the write connection included. A full cache
   takes about 1.9 times the setting in memory (an 8 KiB slot per 4 KiB page).
+  Every connection maps the file (`MmapBytes`), the writer too, and reads a
+  page inside the map from it, in a write transaction as well, unless the
+  WAL holds a copy not yet checkpointed. So a cache holds page 1, the WAL's
+  pages and the writer's own writes (Libretto probe, 2026-11: up to 103 KiB
+  a reader, 134 KiB a writer). `CacheKiB` times the connections is the
+  ceiling only for reads past the map: a file over `MmapBytes`, a negative
+  `MmapBytes`, a long WAL. Up to v0.5.5 the writer had no map, and what
+  migrations and commands read stayed in its cache while the database was
+  open, which cost 462 MiB at 128 Libretto tenants.
+- A cache empties at its connection's close and at its next transaction
+  after another connection's commit. modernc builds SQLite with
+  `SQLITE_ENABLE_MEMORY_MANAGEMENT`: one cache group per process, so a
+  connection with a full cache takes the least recently used page of any
+  connection. A restore verification's `integrity_check` takes the idle
+  connections' pages that way, which is why memory drops during a verify
+  pass. `PRAGMA shrink_memory` on any connection frees every unpinned page
+  in the process (about 50 ms at 128 full caches). `PRAGMA soft_heap_limit`
+  does nothing under modernc (`SQLITE_DEFAULT_MEMSTATUS=0`).
 - A hub's workers hold their connection until `live.Options.ReleaseAfter`
   gives it back (off by default); its next tick with work takes the ones it
   renders with. A pool of two serves one worker and a GET at once. The pool
@@ -325,8 +343,9 @@ and one per stream for `/ack`.
 - `GOMEMLIMIT` covers what the Go runtime manages, not modernc's C heap
   (mapped directly). Size it as `MemoryHigh` minus the off-heap part, measured
   per account (every connection's cache full at 1.9 times `CacheKiB` is the
-  worst case). `sse.MemoryLimit` reports the limit to start from and where
-  it came from: set `debug.SetMemoryLimit(limit - offHeap)` only when it says
+  worst case, which only reads past the map reach). `sse.MemoryLimit`
+  reports the limit to start from and where it came from: set
+  `debug.SetMemoryLimit(limit - offHeap)` only when it says
   `"cgroup"` and the limit is over twice the off-heap part, and leave
   `GOMEMLIMIT` out of the unit. It returns 0 and `""` outside Linux, and lith
   never sets the limit.
