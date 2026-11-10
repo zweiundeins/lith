@@ -117,8 +117,10 @@ func run(path string) error {
 	<-ctx.Done()
 
 	// Stop in this order: the requests and the writer, so every accepted
-	// write is in the file; the final sync, on a context that is still
-	// alive; then the database closes, without a checkpoint of its own.
+	// write is in the file and no read is open; detach, which starts the
+	// WAL over through Litestream and makes the final sync, on a context
+	// that is still alive; then the database closes, without a checkpoint
+	// of its own.
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	srv.Shutdown(sctx)

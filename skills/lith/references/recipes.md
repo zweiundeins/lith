@@ -1396,9 +1396,16 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
 - With Litestream: the nested module `github.com/zweiundeins/lith/backup`
   restores a missing file before `sqlite.Open`, attaches, verifies a restore
   daily; open the database with `sqlite.CheckpointExternal` so Litestream
-  owns the checkpoints. Stop: writer, detach, then `db.Close()` with no
-  `wal_checkpoint(TRUNCATE)`: the close keeps the WAL, so an unchanged
-  database uploads nothing at its next Attach. Delete `-wal` and `-shm`
+  owns the checkpoints. Stop: writer and reads (no read transaction
+  open), detach, then `db.Close()` with no `wal_checkpoint(TRUNCATE)`.
+  Detach has Litestream checkpoint the WAL and start it over, and the
+  close keeps that WAL of one frame: an unchanged database uploads
+  nothing at its next Attach, and the next open reads nothing from the
+  WAL. A WAL closed with its frames (a read open during detach, or
+  `backup/v0.3.3`'s detach) is read into the page caches at the next
+  open, up to `CacheKiB` per connection. A TRUNCATE after detach saves
+  next to no memory: what it seemed to save was the writer's cache, which
+  stays small now that the writer maps the file. Delete `-wal` and `-shm`
   with the file.
 - A provider incident fails every replica's verification at once, and
   usually passes. `RunVerifyLoop(ctx, backup.VerifyOptions{OnFail: ...})`

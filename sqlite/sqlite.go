@@ -42,7 +42,14 @@ const (
 	// again, sees an unchanged database as unchanged instead of copying all
 	// of it as a new snapshot. The -wal and -shm files then stay beside a
 	// closed database, the WAL at the size it last reached: code that
-	// deletes or replaces the database file removes them with it.
+	// deletes or replaces the database file removes them with it. The next
+	// open counts every frame since the WAL last started over as not yet
+	// checkpointed, and a connection, the write connection too, reads
+	// those pages from the WAL into its page cache instead of through the
+	// memory map, and keeps them until another connection commits after
+	// the next checkpoint. lith/backup's detach starts the WAL over before
+	// the close, so it keeps one frame; a replicator in another process
+	// leaves the frames since its last checkpoint.
 	CheckpointExternal
 )
 
@@ -112,8 +119,16 @@ type Options struct {
 	// MmapBytes covers go through the mapping, and a large cache per
 	// connection then buys little.
 	CacheKiB int
-	// MmapBytes is how much of the file each reader maps (default 256 MiB,
-	// negative: none).
+	// MmapBytes is how much of the file each connection maps, the write
+	// connection too (default 256 MiB, negative: none). A connection reads
+	// a page within it through the map, not into its page cache, unless
+	// the WAL holds a copy not yet checkpointed, in a write transaction
+	// too: a migration or a command's query that reads a whole table
+	// leaves the write connection's cache with the pages it wrote.
+	// CacheKiB then caps only the reads past the map. The price, which
+	// the readers have paid from the start: an I/O error on a mapped page
+	// reaches the process as SIGBUS, which crashes it, instead of failing
+	// the query with an error.
 	MmapBytes int64
 	// BusyTimeout is how long a connection waits for a lock (default 5s).
 	BusyTimeout time.Duration
@@ -222,6 +237,9 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		"temp_store(MEMORY)",
 		fmt.Sprintf("cache_size(%d)", -opts.CacheKiB),
 	}
+	if opts.MmapBytes > 0 {
+		common = append(common, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
+	}
 	var w *sql.DB
 	if opts.ReadOnly {
 		if _, err := os.Stat(path); err != nil {
@@ -239,9 +257,6 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	// handle's mode.
 	ro := url.Values{"mode": {"ro"}}
 	rp := append(slices.Clone(common), "query_only(1)")
-	if opts.MmapBytes > 0 {
-		rp = append(rp, fmt.Sprintf("mmap_size(%d)", opts.MmapBytes))
-	}
 	var file string
 	r, err := openReaders(opts, dsn(path, rp, ro))
 	if err == nil {
