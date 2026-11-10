@@ -8,11 +8,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -76,10 +74,9 @@ func New(db *sqlite.DB, w *writer.Writer, hub *live.Hub, log *slog.Logger, dev b
 		return nil, err
 	}
 	static.Add("lith/"+live.NewestFrame, js)
-	assets := sha256.Sum256([]byte(static.URL("style.css") + " " + static.URL("vendor/datastar-rocket.js") + " " + static.URL("lith/"+live.NewestFrame)))
 	return &Server{
 		db: db, w: w, hub: hub, log: log, static: static,
-		assets:    hex.EncodeToString(assets[:6]),
+		assets:    static.Version("style.css", "vendor/datastar-rocket.js", "lith/"+live.NewestFrame),
 		limit:     edge.NewLimiter(0.5, 5),  // per client address: five signatures at once, then one every two seconds
 		paceAddrs: edge.NewLimiter(4, 20),   // per client address: a few people's tabs
 		paces:     edge.NewLimiter(1, 5),    // per session: a page reports every 3 s at most

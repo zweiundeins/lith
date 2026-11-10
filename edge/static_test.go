@@ -180,6 +180,48 @@ func TestStaticURL(t *testing.T) {
 	}
 }
 
+// Version names the content of the files it is given, in any order, as
+// another process with the same files names it; it moves with a change to
+// one of them and not with a change to another file, and without names it
+// covers every file.
+func TestStaticVersion(t *testing.T) {
+	files := fstest.MapFS{
+		"style.css": {Data: []byte("body { color: navy }")},
+		"app.js":    {Data: []byte("console.log(1)")},
+		"logo.svg":  {Data: []byte("<svg/>")},
+	}
+	s, err := NewStatic(files, "/static/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, all := s.Version("style.css", "app.js"), s.Version()
+	if len(v) != 12 || !isHash(v) || v == all {
+		t.Fatalf("Version = %q, of every file %q", v, all)
+	}
+	if got := s.Version("app.js", "style.css", "app.js"); got != v {
+		t.Errorf("in another order: %s, want %s", got, v)
+	}
+	again, _ := NewStatic(files, "/static/")
+	if again.Version("style.css", "app.js") != v || again.Version() != all {
+		t.Error("another Static of the same files has another version")
+	}
+	if s.Version("style.css") == s.Version("app.js") || s.Version("gone.js") == s.Version("lost.js") || s.Version("style.css", "gone.js") == v {
+		t.Error("files, or names without a file, share a version")
+	}
+	s.Add("logo.svg", []byte("<svg></svg>"))
+	if s.Version("style.css", "app.js") != v || s.Version() == all {
+		t.Error("a change to logo.svg: the version of the others moved, or that of every file did not")
+	}
+	s.Add("app.js", []byte("console.log(2)"))
+	if s.Version("style.css", "app.js") == v {
+		t.Error("a change to app.js did not move the version")
+	}
+	long, _ := NewStatic(files, "/static/", StaticHashLen(20))
+	if got := long.Version(); len(got) != 20 || !strings.HasPrefix(got, all[:12]) {
+		t.Errorf("with StaticHashLen(20): %q", got)
+	}
+}
+
 func TestStaticPrefixWithoutSlash(t *testing.T) {
 	s, err := NewStatic(fstest.MapFS{"site.css": {Data: []byte(".card {}")}}, "/assets")
 	if err != nil {

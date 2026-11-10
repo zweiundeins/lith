@@ -757,8 +757,9 @@ that as the stream opens.
 
 The page starts with `_build` (from `hub.Build()`, which is
 `live.Options.Build`, by default the binary's VCS revision) and `_dirty`
-(true on input in a form, false on submit), and `_assets` (the hash of its
-scripts and stylesheets). Its stream reports them as signals and its own
+(true on input in a form, false on submit), and `_assets` (the version of
+its scripts and stylesheets: `static.Version("style.css", ...)`, from
+`edge.Static`). Its stream reports them as signals and its own
 path in a header. Not the other way round: Datastar 1.0.5 builds a `@get`'s
 headers once, and its own reopens (a retry, a hidden tab shown again)
 repeat them while they read the signals afresh, so a header build refreshes

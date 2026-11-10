@@ -384,7 +384,7 @@ func (s *Server) refresh(ctx context.Context, rq live.RefreshRequest) ([][]byte,
 - Signals declared in the refreshed markup use Datastar's `__ifmissing` (`data-signals:x__ifmissing`), so they add a signal the new build needs and leave the page's own values alone. A plain `data-signals` would overwrite them, the tab id and the pending ops among them.
 - Elements with `data-init` or `data-on-intersect` inside the container keep stable ids and unchanged attributes, since a morph that leaves an element's attributes as they are runs nothing again; or they sit inside a live view, or carry `data-ignore-morph`. Stateful custom elements likewise. An attribute a signal drives keeps its value through the morph with `data-preserve-attr`, as the form's `readonly` and `aria-busy` do.
 - A page with input the person typed (`Dirty`) gets a notice that asks for a reload, not a morph.
-- A page whose scripts or stylesheets changed gets the notice too: a morph would put new markup under the old hashed CSS, or call modules the page never loaded. The template's page reports its assets version in the signal `$_assets`, which its stream handler hands to its `Refresh`, and that compares it:
+- A page whose scripts or stylesheets changed gets the notice too: a morph would put new markup under the old hashed CSS, or call modules the page never loaded. The template takes its assets version from `edge.Static.Version`, over the files its page loads, `static.Version("style.css", "vendor/datastar-rocket.js", "lith/"+live.NewestFrame)`. The page reports it in the signal `$_assets`, which its stream handler hands to its `Refresh`, and that compares it:
 
 ```go source=template/internal/web/live.go
 	switch {

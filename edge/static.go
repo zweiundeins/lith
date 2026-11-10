@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"mime"
 	"net/http"
 	"path"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -233,6 +235,35 @@ func (s *Static) URL(name string) string {
 		return s.prefix + f.hashed
 	}
 	return s.prefix + name
+}
+
+// Version names the content of the named files together, or of every file
+// without names, in as many hex digits as URL puts in a name: it changes
+// when one of them does, whatever their order. A page that loaded the
+// scripts and stylesheet of one version needs a reload, not a refresh,
+// once the server's is another (live.Spec.Refresh), and a cache whose
+// entries come from those files can take it into its name. A name without
+// a file counts by its name alone. Add changes it, so take it after the
+// last Add.
+func (s *Static) Version(names ...string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(names) == 0 {
+		names = slices.Collect(maps.Keys(s.files))
+	} else {
+		names = slices.Clone(names)
+	}
+	slices.Sort(names)
+	h := sha256.New()
+	for _, name := range slices.Compact(names) {
+		var sum [32]byte
+		if f := s.files[name]; f != nil {
+			sum = f.sum
+		}
+		io.WriteString(h, name+"\x00")
+		h.Write(sum[:])
+	}
+	return hex.EncodeToString(h.Sum(nil))[:s.hashLen]
 }
 
 func (s *Static) ServeHTTP(w http.ResponseWriter, r *http.Request) {
