@@ -120,6 +120,8 @@ Whoever can connect to the app's listener from loopback or through its socket ca
 
 Every address in the list can name any client, to dodge a limit or to spend someone else's, as a local user can over loopback. List only your own proxies' addresses, never a whole network that other machines or containers share with them.
 
+An app that no proxy stands in front of, such as one that serves the internet on its own port or runs without the flag that says it is proxied, wraps the server's handler in `edge.NoProxies(h)` instead. `ClientIP` then believes the headers of no peer, loopback and Unix sockets included, and the client is the peer: without it, any process on the host can send `X-Forwarded-For` over loopback and name any address. The default stays as it is, since lith's deploy puts Caddy on the same host, where loopback and the socket are the proxy.
+
 ## Slow links
 
 `edge.SlowLink(r)` reports whether a request says its client is on a slow link: the `Save-Data: on` header, which a browser sends when its user asked to save data, and a lith page sends on its stream's request when it measured a slow link as it started or fell behind its stream later (`live.NewestFrame`); Chromium's client hints `ECT` (slow-2g, 2g or 3g), `RTT` (over 300 ms) and `Downlink` (under 0.8 Mbit/s); or the query parameter `net=slow`, which pages put in their stream's URL before they sent `Save-Data`, so that tabs still open from then keep their slow stream. Chromium sends those hints once a document asked for them with `Accept-CH`, whose value is `edge.NetworkHints`. A stream handler passes the answer to `live.Spec.Slow` ([Streams: slow links](/docs/guides/streams#slow-links)).

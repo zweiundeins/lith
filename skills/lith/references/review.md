@@ -113,7 +113,10 @@ pattern matches.
   be dodged. A proxy on another host or a container bridge counts only
   through `edge.BehindProxies` around the server's handler (the template's
   `-trusted-proxies`): every address in its list can name any client, so it
-  lists the app's own proxies and nothing others share.
+  lists the app's own proxies and nothing others share. An app that no proxy
+  stands in front of (its own public port, a "proxied" flag turned off) wraps
+  its handler in `edge.NoProxies`, or any local process names any client over
+  loopback; it replaces a hand-written filter that deletes the headers.
 - `rg -n '\.Allow\((edge\.SessionID|sid\b|v\.Session)' --type go`: a
   session id is no limiter key on its own. A client mints a new one with
   every request that sends no cookie, so each limit by session needs a limit

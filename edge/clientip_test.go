@@ -153,6 +153,44 @@ func TestBehindProxies(t *testing.T) {
 	}
 }
 
+// NoProxies believes the proxy headers of no peer, loopback and Unix
+// sockets included: the client is the peer.
+func TestNoProxies(t *testing.T) {
+	for _, c := range []struct {
+		name, remote, realIP string
+		xff                  []string
+		want, key            string
+	}{
+		{"loopback forging X-Forwarded-For", "127.0.0.1:4711", "", []string{"198.51.100.7"}, "127.0.0.1", "127.0.0.1"},
+		{"loopback forging X-Real-IP", "127.0.0.1:4711", "198.51.100.7", nil, "127.0.0.1", "127.0.0.1"},
+		{"IPv6 loopback forging both", "[::1]:4711", "198.51.100.7", []string{"192.0.2.1"}, "::1", "::/64"},
+		{"Unix socket forging X-Forwarded-For", "@", "", []string{"198.51.100.7"}, "invalid IP", "local"},
+		{"Unix socket forging X-Real-IP", "@", "198.51.100.7", nil, "invalid IP", "local"},
+		{"direct client forging both", "203.0.113.9:4711", "198.51.100.7", []string{"192.0.2.1"}, "203.0.113.9", "203.0.113.9"},
+		{"direct client", "203.0.113.9:4711", "", nil, "203.0.113.9", "203.0.113.9"},
+		{"IPv4-mapped IPv6", "[::ffff:203.0.113.9]:4711", "", []string{"198.51.100.7"}, "203.0.113.9", "203.0.113.9"},
+		{"IPv6 keyed by its /64", "[2001:db8:1:2:3:4:5:6]:4711", "", nil, "2001:db8:1:2:3:4:5:6", "2001:db8:1:2::/64"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/", nil)
+			r.RemoteAddr = c.remote
+			if c.realIP != "" {
+				r.Header.Set("X-Real-IP", c.realIP)
+			}
+			for _, v := range c.xff {
+				r.Header.Add("X-Forwarded-For", v)
+			}
+			var ip, key string
+			NoProxies(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ip, key = ClientIP(r).String(), ClientKey(r)
+			})).ServeHTTP(httptest.NewRecorder(), r)
+			if ip != c.want || key != c.key {
+				t.Errorf("ClientIP = %s, ClientKey = %s; want %s and %s", ip, key, c.want, c.key)
+			}
+		})
+	}
+}
+
 func TestParseProxies(t *testing.T) {
 	for _, c := range []struct{ list, want string }{
 		{"", "[]"},

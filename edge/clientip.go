@@ -21,7 +21,8 @@ import (
 // ignored: a client can send them itself, to dodge its rate limit or to spend
 // someone else's. When the proxy names no address that parses, the address is
 // the peer's, invalid for a Unix socket. Behind proxies on other addresses,
-// BehindProxies resolves the address, and ClientIP returns what it found.
+// BehindProxies resolves the address, and ClientIP returns what it found;
+// without a proxy, NoProxies has it return the peer's.
 func ClientIP(r *http.Request) netip.Addr {
 	if ip, ok := r.Context().Value(clientIPKey{}).(netip.Addr); ok {
 		return ip
@@ -54,6 +55,21 @@ func BehindProxies(proxies []netip.Prefix, next http.Handler) http.Handler {
 		if ip, ok := clientIP(r, proxies); ok {
 			r = r.WithContext(context.WithValue(r.Context(), clientIPKey{}, ip))
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// NoProxies believes X-Forwarded-For and X-Real-IP from no peer, loopback
+// and Unix sockets included, for a server that no proxy stands in front
+// of: ClientIP returns the peer's address, invalid for a Unix socket.
+// Without it, whoever connects over loopback, every local user and
+// process, can name any client address, to dodge a limit or to spend
+// someone else's. It goes around the server's handler in place of
+// BehindProxies, before anything that reads ClientIP or ClientKey, and
+// leaves the headers in the request.
+func NoProxies(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(context.WithValue(r.Context(), clientIPKey{}, parseAddr(r.RemoteAddr)))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -178,7 +194,7 @@ func parseAddr(s string) netip.Addr {
 // user) narrows that to the proxy. A proxy on another host, or on a
 // container bridge, is believed only inside proxies: without them, every
 // client counts as the proxy's address, and one abuser spends the limit
-// of all.
+// of all. Behind NoProxies, ClientIP believes no one, which needs no line.
 func TrustedProxies(addr net.Addr, proxies ...netip.Prefix) string {
 	var s string
 	switch a := addr.(type) {

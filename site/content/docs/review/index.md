@@ -170,6 +170,8 @@ The proxy must set `X-Forwarded-For`: Caddy's `reverse_proxy` does by default, n
 
 A proxy on another host or a container bridge is believed only through `edge.BehindProxies`, around the server's handler. Check its list (the template's `-trusted-proxies`): every address in it can name any client, so it holds the app's own proxies and nothing that other machines or containers share.
 
+An app that no proxy stands in front of, on its own public port or with a "proxied" flag turned off, wraps its handler in `edge.NoProxies`. Otherwise `ClientIP` still believes loopback, and any local process names any client. It replaces a hand-written filter that deletes the headers.
+
 ### A limit keyed by the session alone
 
 `edge.Sessions` accepts any well-formed session id and mints one for a request without a cookie, so a client that sends no cookie is a new session with every request. A limit by session alone is one it steps around; each needs a limit by the client's address (`edge.ClientKey(r)`) before it on the same route, as the template's `/pace` and `/ack` have.
