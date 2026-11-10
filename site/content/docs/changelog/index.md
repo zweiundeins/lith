@@ -21,6 +21,7 @@ Memory for apps with many databases and hubs in one process, and replicas that a
 - `live`: `Options.HibernateFirst` makes a stream's first rest before it hibernates shorter than `Hibernate`, so that the streams of a deploy, which all reconnect at once, hand their encoders on to each other. At 200 ms Libretto's peak anonymous memory after a restart fell from 1,004 to 854 MiB with 240 connected accounts and from 1,703 to 1,450 MiB with 500. A stream whose next frame comes after that first rest sends it once without the history of the frames before.
 - `tenant`: `Pool.Peek(key)` returns a key's value, pinned, only if it is open: it never opens the key or waits for it, and a denied key returns its reason. For reads that should not open an account, such as a public page of a dormant one.
 - `backup` (tag `backup/v0.3.3`): Litestream v0.5.18, whose restore after a crash under `synchronous=NORMAL` no longer returns stale rows. Until a fix upstream it keeps about 155 KiB of Go heap per attached database, the encoder of its last LTX file. A restore removes a `-wal` and `-shm` left beside its output, which SQLite would replay into the restored file.
+- `template`: `Datastar()` returns Starbase's build of Datastar v1.0.5 (`DatastarVersion` is `1.0.5+starbase.818f366`), and an app that serves it gets it when built again with this lith. In 1.0.5 `retryMaxCount` counts every retry in a request's life, so a stream opened without `retryMaxCount: Infinity` gives up at its tenth dropped connection.
 
 ## v0.5.4 (2026-11-03)
 

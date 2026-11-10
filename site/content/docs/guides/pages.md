@@ -118,7 +118,7 @@ Headers, so that the handler knows the tab and the op before it reads the body: 
 
 The request does not go out from the form or the button. It goes out from an element made for it, inside `#ops`, which names the op's key in `data-op-key`. `#ops` is hidden and sits outside every region a frame morphs, so no frame removes it. The form may sit in a dialog that closes, a menu that folds, a card that the next frame moves or removes: the request's events still reach `#ops`, which counts them and ends the op. A listener on the form would miss the end of a request whose form went away, keep counting it as in flight, and wait for ever.
 
-`requestCancellation: 'disabled'`: Datastar 1.0.4 cancels a request when another one goes out with the same method to the same URL, from anywhere on the page. Two cards moved at once both post to `/cmd/move`, and the second would abort the first.
+`requestCancellation: 'disabled'`: Datastar 1.0.5 cancels a request when another one goes out with the same method to the same URL, from anywhere on the page. Two cards moved at once both post to `/cmd/move`, and the second would abort the first.
 
 2. While an op of the key waits for its ack, what it came from is pending: the input is read-only and the button has `aria-busy`, for screen readers and for the stylesheet. A card's pending move fades the card, from the same signals:
 
@@ -193,7 +193,7 @@ During a blue/green deploy, a command can commit in the old process while it dra
 
 ### A form that posts an op
 
-A form whose action sends it with `contentType: 'form'` needs `novalidate`, with the expression checking the fields before it acts. Datastar 1.0.4 runs the browser's `checkValidity` on such a request after it has sent `started`, and when the check fails it ends the request without `finished`: the key would stay in flight for ever. The board's form sends a JSON payload instead, so the browser checks `required` and `maxlength` before the submit event, and no request starts.
+A form whose action sends it with `contentType: 'form'` needs `novalidate`, with the expression checking the fields before it acts. Datastar 1.0.5 runs the browser's `checkValidity` on such a request after it has sent `started`, and when the check fails it ends the request without `finished`: the key would stay in flight for ever. The board's form sends a JSON payload instead, so the browser checks `required` and `maxlength` before the submit event, and no request starts.
 
 ## Long operations
 
@@ -318,7 +318,7 @@ A stream that reconnects after a deploy renders its views afresh, but the rest o
 
 **What the page reports.** The page starts with the build that rendered it in `$_build`, from `hub.Build()`. That is `live.Options.Build`, by default the binary's VCS revision, with `+dirty` for a build from a modified tree; a binary built without VCS information has none, and refresh stays off until the app sets one, such as the version it links in (the template sets its `-X main.version`). `$_dirty` turns true on input in the form and false when the form is sent. The stream's request sends both as signals, in its `datastar` query parameter, and the page's own path, `location.pathname + location.search`, which never changes for a page, in a header, as `openStream` above shows. Datastar leaves signals that start with `_` out of a request unless `filterSignals` names them, and an `include` alone does not do: the default `exclude` still drops every `_` signal, so `openStream` sets `exclude: /(?!)/`, which matches nothing.
 
-Signals, not headers. Datastar 1.0.4 builds a `@get`'s headers once, as the expression runs, and when it opens the stream again by itself, a retry after a broken connection or a hidden tab shown again, it sends those headers but reads the signals afresh. A build in a header stays the one the page reported first, though lith patched `$_build` meanwhile, so a hidden tab shown again after a deploy is refreshed every time; and a typed flag in a header stays false after the person typed, so their page is morphed. Datastar cancels a request by its method and the URL the expression names, before it adds the signals, so a stream opened again still aborts the old request; the hub ends a stream that a newer one with its `ID` replaces, too.
+Signals, not headers. Datastar 1.0.5 builds a `@get`'s headers once, as the expression runs, and when it opens the stream again by itself, a retry after a broken connection or a hidden tab shown again, it sends those headers but reads the signals afresh. A build in a header stays the one the page reported first, though lith patched `$_build` meanwhile, so a hidden tab shown again after a deploy is refreshed every time; and a typed flag in a header stays false after the person typed, so their page is morphed. Datastar cancels a request by its method and the URL the expression names, before it adds the signals, so a stream opened again still aborts the old request; the hub ends a stream that a newer one with its `ID` replaces, too.
 
 The stream handler reads the signals with `sse.ReadSignals(w, r, &page)`, which reads a GET's from its query parameter, into:
 

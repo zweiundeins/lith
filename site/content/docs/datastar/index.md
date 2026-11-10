@@ -1,12 +1,12 @@
 ---
 title: Datastar notes
-headline: Datastar 1.0.4 notes: symptoms, causes and fixes
-summary: The Datastar behaviours that cost the lith projects time, each with what you see, why it happens, and what to do. Written against Datastar 1.0.4, the version the template and this site vendor.
-description: Datastar 1.0.4 behaviours that cost the lith projects time, in attributes, signals and morphs: what you see, why it happens, and what to do about it.
+headline: Datastar 1.0.5 notes: symptoms, causes and fixes
+summary: The Datastar behaviours that cost the lith projects time, each with what you see, why it happens, and what to do. Written against Datastar 1.0.5, the version the template and this site vendor.
+description: Datastar 1.0.5 behaviours that cost the lith projects time, in attributes, signals and morphs: what you see, why it happens, and what to do about it.
 order: 4
 ---
 
-The template and this site vendor Starbase's patched build of Datastar 1.0.4, with Rocket. Most of what follows is plain Datastar behaviour that surprised someone; a few notes are about how a lith page uses it.
+The template and this site vendor Starbase's patched build of Datastar 1.0.5, with Rocket. Most of what follows is plain Datastar behaviour that surprised someone; a few notes are about how a lith page uses it.
 
 ## Attributes
 
@@ -114,9 +114,9 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Symptom.** A frame throws `Maximum call stack size exceeded`, or a `moveBefore` error, and the page stops updating.
 
-**Cause.** Datastar 1.0.4's morph is not re-entrant, and a Rocket component renders while it is being connected. Elements with ids that hold Rocket components, and repeat or move, set off a morph inside a morph.
+**Cause.** Up to 1.0.4, Datastar's morph is not re-entrant, and a Rocket component renders while it is being connected. Elements with ids that hold Rocket components, and repeat or move, set off a morph inside a morph.
 
-**Fix.** Use Starbase's patched build, which the template and this site vendor, until a Datastar release carries the fix.
+**Fix.** Use Datastar 1.0.5 or later, where every morph keeps its own state and a nested one gives the outer one its state back ([#1209](https://github.com/starfederation/datastar/issues/1209)). The template and this site vendor Starbase's build of 1.0.5.
 
 ### Expressions on many repeated elements cost every frame
 
@@ -140,7 +140,7 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Symptom.** After a deploy, open pages stop updating. Nothing shows it; a reload fixes it.
 
-**Cause.** Datastar retries a request by its `retry` option. `'auto'`, the default, retries network errors only: it gives up at the proxy's 502 while no process listens, and never reopens a stream the server ended cleanly.
+**Cause.** Datastar retries a request by its `retry` option. `'auto'`, the default, retries network errors only: it gives up at the proxy's 502 while no process listens, and never reopens a stream the server ended cleanly. Since 1.0.5, `retryMaxCount` counts every retry in the request's life, not only those in a row: a stream with the default 10 gives up for good at its tenth dropped connection, however long each one lasted.
 
 **Fix.** Open streams with `retry: 'error', retryMaxCount: Infinity`. `'error'` also retries every answer from 400 to 599, so it carries the request through a restart, and asks again without end after a 400, a 401 or a 429, with `retrying` and `error` events each time. `'always'` reopens a stream even when the server ended it on purpose, and keeps a full server's 503s coming. An answer of 204, or a 3xx, stops every mode, which is how a server refuses a stream for good. A stream whose page must tell the person something, such as a session that ended, opens and renders it from a view. A tab that hides closes its `@get` stream, and opens it again when it shows, without `data-init` and without `retrying`: a page that must know when its stream connects again listens for `visibilitychange` as well ([Pages](/docs/guides/pages#op-ids-and-the-pending-state)).
 
@@ -172,7 +172,7 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Symptom.** After a deploy, a tab that was hidden is refreshed again every time it shows, though the first refresh patched `$_build`; or a page where the person typed is morphed instead of getting the notice.
 
-**Cause.** Datastar 1.0.4 builds a `@get`'s headers once, as the expression runs. When it opens the request again by itself, a retry after the connection broke or a hidden tab shown again, it sends those same headers, but builds the URL and its `datastar` signals parameter afresh. A value reported in a header stays the one of the first request.
+**Cause.** Datastar 1.0.5 builds a `@get`'s headers once, as the expression runs. When it opens the request again by itself, a retry after the connection broke or a hidden tab shown again, it sends those same headers, but builds the URL and its `datastar` signals parameter afresh. A value reported in a header stays the one of the first request.
 
 **Fix.** Report what changes (the build, whether the person typed, the assets version) as signals: `filterSignals: {include: /^_(build|dirty)$/, exclude: /(?!)/}`. The `exclude` is needed, since its default drops every `_` signal even when `include` names it. Read them with `sse.ReadSignals`, which reads a GET's query parameter. Only a value that never changes for the page, such as its path, may stay a header.
 
@@ -188,7 +188,7 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Symptom.** Of a quick series of actions, a drag that paints pixels or two cards moved at once, some never reach the server, and their ops stay pending.
 
-**Cause.** By default (`requestCancellation: 'auto'`), Datastar 1.0.4 cancels the request in flight with the same method to the same URL when another one starts, from any element of the page: the move of one card aborts the move of another.
+**Cause.** By default (`requestCancellation: 'auto'`), Datastar 1.0.5 cancels the request in flight with the same method to the same URL when another one starts, from any element of the page: the move of one card aborts the move of another.
 
 **Fix.** Actions that must all arrive set `requestCancellation: 'disabled'`, every action that carries an op among them. Give each an op id, so a retried one runs once ([Commands](/docs/guides/commands#op-ids-and-retries)).
 
@@ -196,7 +196,7 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Symptom.** Code that chains on an action, `@post(...).then(...)`, works, and an unhandled rejection shows in the console when the connection is down.
 
-**Cause.** In Datastar 1.0.4 an action such as `@post` returns a promise that settles after its `finished` event, and rejects (`FetchFailed`) after `retries-failed`. It is not documented, so it may change.
+**Cause.** In Datastar 1.0.5 an action such as `@post` returns a promise that settles after its `finished` event, and rejects (`FetchFailed`) after `retries-failed`. It is not documented, so it may change.
 
 **Fix.** lith's template and recipes do not use it: they follow a request by its `datastar-fetch` events on `#ops`. An app that chains on the promise catches its rejection, and keeps its pending state on the events and the stream, not on the promise alone.
 
@@ -204,7 +204,7 @@ The template and this site vendor Starbase's patched build of Datastar 1.0.4, wi
 
 **Symptom.** An op posted from a form stays pending for ever: its request sent `started` and never `finished`.
 
-**Cause.** With `contentType: 'form'`, Datastar 1.0.4 runs the form's `checkValidity` after it has dispatched `started`, and when the check fails it gives up without `finished` or `error`.
+**Cause.** With `contentType: 'form'`, Datastar 1.0.5 runs the form's `checkValidity` after it has dispatched `started`, and when the check fails it gives up without `finished` or `error`.
 
 **Fix.** Give a form that posts an op `novalidate`, and check its fields in the expression before the action, or send a JSON payload, which the browser's own checks guard before the submit event ([Pages and Datastar](/docs/guides/pages#a-form-that-posts-an-op)).
 

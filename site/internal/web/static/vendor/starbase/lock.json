@@ -2,8 +2,8 @@
   "base": "https://starbase.zweiundeins.gmbh",
   "catalog": "0563a22623af",
   "datastar": {
-    "url": "https://starbase.zweiundeins.gmbh/c/datastar@f602fbe19d74/datastar-rocket.js",
-    "integrity": "sha384-mvTnynHaljKNMleD0bj6/rWROnluHlNmbc5rOQTd+fQH3YBDYhlvHdNquEX99by5"
+    "url": "https://starbase.zweiundeins.gmbh/c/datastar@be8cc4bc89d1/datastar-rocket.js",
+    "integrity": "sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+XptuiVQFLxvO"
   },
   "components": [
     {

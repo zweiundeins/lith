@@ -17,10 +17,10 @@ import (
 //go:embed all:*
 var FS embed.FS
 
-// DatastarVersion names the build that Datastar returns: Datastar v1.0.4
+// DatastarVersion names the build that Datastar returns: Datastar v1.0.5
 // with Rocket and the patches in Starbase's patches/rocket, as Starbase's
-// commit c6a6589 vendors it. VERSION beside the file has its integrity hash.
-const DatastarVersion = "1.0.4+starbase.c6a6589"
+// commit 818f366 vendors it. VERSION beside the file has its integrity hash.
+const DatastarVersion = "1.0.5+starbase.818f366"
 
 // Datastar returns the Datastar build the template vendors, for an app that
 // serves the same file without naming a path inside FS:

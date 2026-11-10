@@ -32,7 +32,7 @@ look there before changing the behaviour.
   and react to patches with `data-on-signal-patch`. [tickit]
 - Reading a missing key creates it: `$_outcomes[op]` on an unknown op adds
   the key with `''`. Test for `''`, not `undefined`. [tickit]
-- `@post` (any action) returns a promise in Datastar 1.0.4, undocumented: it
+- `@post` (any action) returns a promise in Datastar 1.0.5, undocumented: it
   settles after `finished` and rejects after `retries-failed`. lith's
   template and recipes do not rely on it (they follow `datastar-fetch`
   events); an app that chains on it catches the rejection. [tickit]
@@ -47,10 +47,13 @@ look there before changing the behaviour.
   a signal, or the next frame resets what someone is typing. `<details>` needs
   `data-preserve-attr="open"`, and hosts whose attributes come from signals
   need `data-preserve-attr` for those attributes. [kanban, starbase]
-- Datastar 1.0.4 retries a request by its `retry` option. `'auto'` (the
+- Datastar 1.0.5 retries a request by its `retry` option. `'auto'` (the
   default) retries network errors only: it gives up at a proxy's 502 and
   never reopens a stream the server ended cleanly, so a deploy leaves pages
-  silently stale. `'error'` also retries every answer from 400 to 599:
+  silently stale. Since 1.0.5, `retryMaxCount` counts every retry in the
+  request's life, not only those in a row: a stream with the default 10
+  gives up for good at its tenth dropped connection, however long each one
+  lasted. `'error'` also retries every answer from 400 to 599:
   a stream that gets 400, 401 or 429 asks again without end, firing
   `retrying` and `error` each time. `'always'` also reopens a stream that
   ended cleanly, one the server ended on purpose included, and keeps a full
@@ -78,7 +81,7 @@ look there before changing the behaviour.
   second stream. Report the build as a signal, not in the URL the expression
   writes: Datastar aborts the request in flight only for a new one to the
   same URL, which it takes before it adds the signals.
-- Datastar 1.0.4 builds a `@get`'s headers once, as the expression runs. A
+- Datastar 1.0.5 builds a `@get`'s headers once, as the expression runs. A
   reopen it makes by itself (a retry, a hidden tab shown again) sends the
   same headers but reads the signals afresh into the `datastar` parameter.
   So report what changes (build, typed flag, assets version) as signals,
@@ -91,7 +94,7 @@ look there before changing the behaviour.
 - A watchdog on the page needs the server's ping. An SSE comment never reaches
   the page; `live.Options.HeartbeatSignal` sends the heartbeat as a signal the
   watchdog can read. [kanban]
-- Datastar 1.0.4 cancels an in-flight request with the same method to the
+- Datastar 1.0.5 cancels an in-flight request with the same method to the
   same URL when a new one starts, from any element of the page. Actions that
   must all arrive (painting, moves, every op) use
   `requestCancellation: 'disabled'`. [starbase, kanban]
@@ -99,8 +102,8 @@ look there before changing the behaviour.
   after `started` without `finished`: an op's in-flight count never drops.
   Such a form gets `novalidate` and checks its fields in the expression.
 - Keyed elements that contain Rocket components crash Datastar 1.0.4's morph
-  (`Maximum call stack`, upstream #1209). Use Starbase's patched build until a
-  release has the fix. [starbase, kanban]
+  (`Maximum call stack`, upstream #1209). 1.0.5 has the fix, and so has
+  Starbase's build of it, which the template vendors. [starbase, kanban]
 - Expressions on many repeated elements cost compile time and markup per
   frame (200 cards times a few expressions). Put the behaviour on the
   container and delegate. [kanban]

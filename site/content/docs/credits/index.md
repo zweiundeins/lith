@@ -14,7 +14,7 @@ lith's code started in [kanban](https://github.com/zweiundeins/kanban), [starbas
 
 ## What lith builds on
 
-- [Datastar](https://data-star.dev) runs in the browser of every lith app. The template and this site vendor Starbase's patched build of version 1.0.4.
+- [Datastar](https://data-star.dev) runs in the browser of every lith app. The template and this site vendor Starbase's patched build of version 1.0.5.
 - [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) is SQLite in pure Go.
 - [klauspost/compress](https://github.com/klauspost/compress) compresses the streams with zstd and gzip, and [andybalholm/brotli](https://github.com/andybalholm/brotli) with brotli.
 

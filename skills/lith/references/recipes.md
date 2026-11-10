@@ -254,7 +254,7 @@ any session that learns it push a notice with an ack it picks.
     would repeat stale ones. The element lets the request outlive
     the form, dialog or card it came from (a form in a closed modal never
     leaks the count or misses its end). `requestCancellation: 'disabled'`:
-    Datastar 1.0.4 cancels page-wide by method and URL, so two cards' moves
+    Datastar 1.0.5 cancels page-wide by method and URL, so two cards' moves
     to `/cmd/move` would abort each other.
   - `fetched`, `data-on:datastar-fetch` on `#ops`, matches
     `evt.detail.el.dataset.opKey`: `started` raises the key's `inflight`,
@@ -759,7 +759,7 @@ The page starts with `_build` (from `hub.Build()`, which is
 `live.Options.Build`, by default the binary's VCS revision) and `_dirty`
 (true on input in a form, false on submit), and `_assets` (the hash of its
 scripts and stylesheets). Its stream reports them as signals and its own
-path in a header. Not the other way round: Datastar 1.0.4 builds a `@get`'s
+path in a header. Not the other way round: Datastar 1.0.5 builds a `@get`'s
 headers once, and its own reopens (a retry, a hidden tab shown again)
 repeat them while they read the signals afresh, so a header build refreshes
 the tab on every show after a deploy and a header typed flag stays false.

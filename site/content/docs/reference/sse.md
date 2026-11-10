@@ -134,7 +134,7 @@ ReadSignalsLimit is ReadSignals with a limit of its own on the body.
 func Reconnect(id string) []byte
 ```
 
-Reconnect is the last event of a stream that ends because its server restarts. It appends to the body an element that replaces the element with the given id by a copy of it, so that the copy's data-init, the @get or @post that opened the stream, runs again with its own options. That request must use retry 'error': Datastar 1.0.4 retries it while the restart answers 502 or 503, where the default 'auto' gives up. A stream that ends cleanly without Reconnect stays closed.
+Reconnect is the last event of a stream that ends because its server restarts. It appends to the body an element that replaces the element with the given id by a copy of it, so that the copy's data-init, the @get or @post that opened the stream, runs again with its own options. That request must use retry 'error': Datastar 1.0.5 retries it while the restart answers 502 or 503, where the default 'auto' gives up. A stream that ends cleanly without Reconnect stays closed.
 
 ## Types
 
