@@ -82,8 +82,8 @@ func TestVendored(t *testing.T) {
 	for p := range want {
 		t.Errorf("%s is in lock.json but missing", p)
 	}
-	if ds := integrity(datastar.Datastar()); ds != set.Lock.Datastar.Integrity {
-		t.Errorf("the site serves Datastar %s, the snapshot pins %s", ds, set.Lock.Datastar.Integrity)
+	if set.Lock.Datastar.Integrity != datastar.Integrity {
+		t.Errorf("the site serves Datastar %s, the snapshot pins %s", datastar.Integrity, set.Lock.Datastar.Integrity)
 	}
 }
 

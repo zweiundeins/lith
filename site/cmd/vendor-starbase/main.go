@@ -123,12 +123,11 @@ func run() error {
 	}
 
 	lock := Lock{Base: pins.Base, Catalog: pins.Catalog}
-	own := integrity(datastar.Datastar())
 	dsHash := versions["datastar"]
 	lock.Datastar.URL = base + "datastar@" + dsHash + "/datastar-rocket.js"
 	lock.Datastar.Integrity = files["datastar"]["datastar-rocket.js"]
-	if dsHash == "" || lock.Datastar.Integrity != own {
-		return fmt.Errorf("the snapshot pins Datastar %s (%s), lith/datastar holds %s (%s): update lith's build first", lock.Datastar.URL, lock.Datastar.Integrity, datastar.Version, own)
+	if dsHash == "" || lock.Datastar.Integrity != datastar.Integrity {
+		return fmt.Errorf("the snapshot pins Datastar %s (%s), lith/datastar holds %s (%s): update lith's build first", lock.Datastar.URL, lock.Datastar.Integrity, datastar.Version, datastar.Integrity)
 	}
 
 	out := map[string][]byte{}

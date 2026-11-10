@@ -201,7 +201,7 @@ if err != nil {
 static.Add("lith/"+live.NewestFrame, js)
 ```
 
-The package embeds the build and nothing else. Up to lith v0.5.5 the build came from `template.Datastar()`, which kept all of the template's files in the binary: a program that serves the build is 180 KiB smaller with `lith/datastar`. `template.Datastar()` now returns `datastar.Datastar()`, so an app that still calls it gets the same saving.
+`datastar.Integrity` is the build's sha384, as an `integrity` attribute or an import map's `integrity` entry takes it: this site pins the build with it, and an app that vendors its own copy can check the copy against it. The package embeds the build and nothing else. Up to lith v0.5.5 the build came from `template.Datastar()`, which kept all of the template's files in the binary: a program that serves the build is 180 KiB smaller with `lith/datastar`. `template.Datastar()` now returns `datastar.Datastar()`, so an app that still calls it gets the same saving.
 
 Precompression keeps every content in memory for the life of the process, and brotli at level 11 needs about 85 MB of heap for a moment to compress a 1.1 MB file, which the Go runtime then keeps: this site measured it with a chart library, and vendors none.
 

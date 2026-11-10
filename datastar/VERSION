@@ -3,7 +3,7 @@ patches in Starbase's patches/rocket, from
 github.com/zweiundeins/starbase at commit 818f366c06b42faf0cd94994d2226c684f981ff4,
 static/vendor/datastar-rocket.js. lith's template and site serve it from here.
 Update: copy that file from a newer Starbase commit, and change this one and
-Version in datastar.go.
+Version and Integrity in datastar.go.
 Datastar: MIT, github.com/starfederation/datastar.
 
 datastar-rocket.js	72609 bytes	sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+XptuiVQFLxvO

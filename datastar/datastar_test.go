@@ -32,3 +32,11 @@ func TestVersion(t *testing.T) {
 		t.Error("Datastar returned the bytes it keeps")
 	}
 }
+
+// TestIntegrity checks Integrity against the embedded bytes.
+func TestIntegrity(t *testing.T) {
+	sum := sha512.Sum384(Datastar())
+	if got := "sha384-" + base64.StdEncoding.EncodeToString(sum[:]); got != Integrity {
+		t.Errorf("the build's integrity is %s, Integrity says %s", got, Integrity)
+	}
+}

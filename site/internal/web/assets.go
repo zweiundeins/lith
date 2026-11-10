@@ -99,8 +99,8 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 			return fmt.Errorf("demo %s: %w", d.Slug, err)
 		}
 	}
-	datastar := s.static.URL("vendor/datastar-rocket.js")
-	m := map[string]any{"imports": map[string]string{"datastar": datastar}}
+	ds := s.static.URL("vendor/datastar-rocket.js")
+	m := map[string]any{"imports": map[string]string{"datastar": ds}}
 	integrity := map[string]string{}
 	for _, f := range s.starbase.Lazy() {
 		integrity["/static/"+f.Name] = f.Integrity // a bundle imports it by its plain name
@@ -114,7 +114,7 @@ func (s *Server) loadStatic(list []demo.Demo) error {
 	}
 	s.assets = views.Assets{
 		CSS:         s.static.URL("site.css"),
-		Datastar:    views.Script{URL: datastar, Integrity: s.starbase.Lock.Datastar.Integrity},
+		Datastar:    views.Script{URL: ds, Integrity: datastar.Integrity},
 		Transitions: s.static.URL("js/transitions.js"),
 		NewestFrame: s.static.URL("lith/" + live.NewestFrame),
 		Font:        s.static.URL("fonts/pixelify-sans.woff2"),
