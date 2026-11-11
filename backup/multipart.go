@@ -13,10 +13,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/benbjohnson/litestream"
 )
 
@@ -88,14 +88,39 @@ func (m *Manager) newMultipartAPI(ctx context.Context) (multipartAPI, error) {
 			o.BaseEndpoint = aws.String(e)
 		}
 	}
-	client := s3.NewFromConfig(cfg, endpoint)
 	if region == "" {
-		if cfg.Region, err = manager.GetBucketRegion(ctx, client, m.cfg.Bucket); err != nil {
+		// S3 needs a region to answer at all: start from the host's, else
+		// from us-east-1, as litestream does.
+		look := cfg.Copy()
+		if look.Region == "" {
+			look.Region = "us-east-1"
+		}
+		if cfg.Region, err = bucketRegion(ctx, s3.NewFromConfig(look, endpoint), m.cfg.Bucket); err != nil {
 			return nil, fmt.Errorf("s3 bucket region: %w", err)
 		}
-		client = s3.NewFromConfig(cfg, endpoint)
 	}
-	return client, nil
+	return s3.NewFromConfig(cfg, endpoint), nil
+}
+
+// bucketRegion asks S3 for a bucket's region with an unsigned HeadBucket.
+// S3 names it in X-Amz-Bucket-Region in a 200, a 301 and a 403 alike.
+func bucketRegion(ctx context.Context, client *s3.Client, bucket string) (string, error) {
+	out, err := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)}, func(o *s3.Options) {
+		o.Credentials = nil
+	})
+	if err == nil {
+		if r := aws.ToString(out.BucketRegion); r != "" {
+			return r, nil
+		}
+		return "", fmt.Errorf("no region in the answer for bucket %s", bucket)
+	}
+	var re *smithyhttp.ResponseError
+	if errors.As(err, &re) && re.Response != nil {
+		if r := re.Response.Header.Get("X-Amz-Bucket-Region"); r != "" {
+			return r, nil
+		}
+	}
+	return "", err
 }
 
 // maxUploadPages bounds a listing of unfinished uploads: a million at 1,000
