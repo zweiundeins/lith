@@ -36,6 +36,15 @@ jobs:
         # checkout, then tidies it (from the module proxy), vets it, tests
         # it with -race and builds it. It needs no browser.
         run: LITH_NEW_E2E=1 go test -run TestGenerated ./cmd/lith-new/
+      - name: govulncheck
+        # Known vulnerabilities in the code paths lith and its modules reach,
+        # the standard library's included.
+        run: |
+          failed=
+          for m in . backup dbmetrics/prom minify prom site; do
+            (cd "$m" && go run golang.org/x/vuln/cmd/govulncheck@latest ./...) || failed="$failed $m"
+          done
+          if [ -n "$failed" ]; then echo "failed:$failed"; exit 1; fi
 
   site:
     runs-on: ubuntu-latest

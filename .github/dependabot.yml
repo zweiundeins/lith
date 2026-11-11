@@ -1,0 +1,28 @@
+# Keeps the workflows' actions and every module's Go dependencies current.
+# Updates arrive as pull requests, so they go through CI and review.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directories:
+      - /
+      - /backup
+      - /dbmetrics/prom
+      - /minify
+      - /prom
+      - /site
+    schedule:
+      interval: weekly
+    ignore:
+      # The modules require each other through replace directives; their
+      # versions move at a release.
+      - dependency-name: "github.com/zweiundeins/lith*"
+    groups:
+      go:
+        patterns: ["*"]
