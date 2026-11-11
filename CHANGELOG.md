@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- Set `go 1.27.4` in go.mod, for GO-2026-6859: an HTTP/1 server can crash on a race between `MaxBytesReader` and the response headers, which lith reaches through `edge.Static`, `sse.Open` and the upload limits. An app builds with Go 1.27.4 or later, and apps made by `lith-new` start on it.
+
 ## v0.5.6 (2026-11-10)
 
 Closing a replicated database without a checkpoint costs no memory now, the Datastar build has a package of its own, and edge gains a version of static files, a quieter readiness probe and client addresses without a proxy. What to check in an app:
