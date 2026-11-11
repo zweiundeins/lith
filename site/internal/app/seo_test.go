@@ -28,7 +28,8 @@ var (
 // TestSEO reads every page of the sitemap as a search engine would: its
 // title, its meta description, and its JSON-LD, one schema.org @graph
 // with the WebSite and the page's own nodes. It checks the sitemap's
-// lastmod too, where the build has the pages' history.
+// lastmod too, where the build has the pages' history, and that templ
+// rendered no URL it refused.
 func TestSEO(t *testing.T) {
 	_, base := apptest.Start(t)
 	c := client(t)
@@ -65,6 +66,10 @@ func TestSEO(t *testing.T) {
 		}
 		checkHead(t, path, page)
 		checkGraph(t, base, path, page, history)
+		// templ writes this in place of a URL whose scheme it doesn't trust.
+		if strings.Contains(page, "TemplFailedSanitization") {
+			t.Errorf("%s: templ refused a URL (TemplFailedSanitization)", path)
+		}
 	}
 }
 
