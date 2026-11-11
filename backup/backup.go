@@ -120,6 +120,10 @@ const (
 	DefaultVerifyInterval      = 24 * time.Hour
 	DefaultSnapshotTimeout     = 10 * time.Minute
 
+	// DefaultPurgeSettle covers the few seconds Infomaniak's listings were
+	// seen to lag its writes.
+	DefaultPurgeSettle = 15 * time.Second
+
 	// DefaultLocalL0Retention is Litestream's own: how long a WAL segment
 	// stays in the local directory after it reached the replica.
 	DefaultLocalL0Retention = litestream.DefaultL0Retention
@@ -166,6 +170,15 @@ type Config struct {
 	// does the newest, which Litestream reads.
 	LocalL0Retention time.Duration
 
+	// PurgeSettle is how long PurgeReplica waits after its deletes before
+	// it lists an S3 replica again, deleting what the listing shows, and
+	// between two more listings while one shows objects. Zero means
+	// DefaultPurgeSettle. A provider whose listings lag its writes, such as
+	// OpenStack Swift (Infomaniak), can leave an object written just before
+	// the purge out of the first listing; AWS S3 lists every object at
+	// once, and a millisecond will do.
+	PurgeSettle time.Duration
+
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -173,7 +186,8 @@ type Config struct {
 // ConfigFromEnv reads a Config from the environment variables prefix plus
 // BUCKET, ENDPOINT, REGION, ACCESS_KEY_ID, SECRET_ACCESS_KEY,
 // FORCE_PATH_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT_INTERVAL,
-// SNAPSHOT_TIMEOUT and LOCAL_L0_RETENTION (durations such as 720h). With
+// SNAPSHOT_TIMEOUT, LOCAL_L0_RETENTION and PURGE_SETTLE (durations such as
+// 720h). With
 // prefix "BACKUP_" the bucket is BACKUP_BUCKET.
 func ConfigFromEnv(prefix string) (Config, error) {
 	env := func(k string) string { return os.Getenv(prefix + k) }
@@ -195,7 +209,7 @@ func ConfigFromEnv(prefix string) (Config, error) {
 	for _, d := range []struct {
 		key string
 		dst *time.Duration
-	}{{"RETENTION", &cfg.RetentionWindow}, {"SNAPSHOT_INTERVAL", &cfg.SnapshotInterval}, {"SNAPSHOT_TIMEOUT", &cfg.SnapshotTimeout}, {"LOCAL_L0_RETENTION", &cfg.LocalL0Retention}} {
+	}{{"RETENTION", &cfg.RetentionWindow}, {"SNAPSHOT_INTERVAL", &cfg.SnapshotInterval}, {"SNAPSHOT_TIMEOUT", &cfg.SnapshotTimeout}, {"LOCAL_L0_RETENTION", &cfg.LocalL0Retention}, {"PURGE_SETTLE", &cfg.PurgeSettle}} {
 		if v := env(d.key); v != "" {
 			if *d.dst, err = time.ParseDuration(v); err != nil {
 				return Config{}, fmt.Errorf("backup: %s%s: %w", prefix, d.key, err)
@@ -215,6 +229,7 @@ type Manager struct {
 	snapshotTimeout  time.Duration
 	localL0Retention time.Duration
 	localL0Interval  time.Duration
+	purgeSettle      time.Duration
 	tuneDB           func(*litestream.DB) // tests: shorter sync intervals
 	log              *slog.Logger
 	newClient        func(name string) litestream.ReplicaClient
@@ -263,8 +278,8 @@ func New(cfg Config) (*Manager, error) {
 	switch {
 	case cfg.Bucket != "" && cfg.Dir != "":
 		return nil, errors.New("backup: set Bucket or Dir, not both")
-	case cfg.RetentionWindow < 0 || cfg.SnapshotInterval < 0 || cfg.SnapshotTimeout < 0 || cfg.LocalL0Retention < 0:
-		return nil, errors.New("backup: negative retention window, snapshot interval, snapshot timeout or local L0 retention")
+	case cfg.RetentionWindow < 0 || cfg.SnapshotInterval < 0 || cfg.SnapshotTimeout < 0 || cfg.LocalL0Retention < 0 || cfg.PurgeSettle < 0:
+		return nil, errors.New("backup: negative retention window, snapshot interval, snapshot timeout, local L0 retention or purge settle")
 	case checkPrefix(cfg.Prefix) != nil:
 		return nil, checkPrefix(cfg.Prefix)
 	}
@@ -276,6 +291,7 @@ func New(cfg Config) (*Manager, error) {
 		snapshotTimeout:  orDefault(cfg.SnapshotTimeout, DefaultSnapshotTimeout),
 		localL0Retention: orDefault(cfg.LocalL0Retention, DefaultLocalL0Retention),
 		localL0Interval:  litestream.DefaultL0RetentionCheckInterval,
+		purgeSettle:      orDefault(cfg.PurgeSettle, DefaultPurgeSettle),
 		log:              cfg.Logger,
 		reserved:         map[string]bool{},
 		attached:         map[string]*attachedDB{},
@@ -863,8 +879,14 @@ func (m *Manager) attachedNames() []string {
 // the objects, and on S3 the parts of every unfinished multipart upload
 // under it, which a listing of objects does not show. It fails without
 // deleting anything when those uploads cannot be listed or aborted, so that
-// a retry finds them. The database must be detached first. Purging a name
-// never replicated, or on a disabled Manager, does nothing.
+// a retry finds them. On S3 it lists the replica again Config.PurgeSettle
+// after its deletes, for a provider whose listings lag, and deletes what
+// that listing shows; it lists up to three times while objects show, and
+// fails when the third listing still shows some, so it takes PurgeSettle
+// at least. An object whose listing lags longer is still missed: an
+// erasure that must be certain purges again later, which is harmless. The
+// database must be detached first. Purging a name never replicated, or on a disabled
+// Manager, does nothing.
 func (m *Manager) PurgeReplica(ctx context.Context, name string) error {
 	if !m.enabled {
 		return nil
@@ -889,6 +911,9 @@ func (m *Manager) PurgeReplica(ctx context.Context, name string) error {
 		return fmt.Errorf("backup: purge %s: %w", name, err)
 	}
 	if err := m.newClient(name).DeleteAll(ctx); err != nil {
+		return fmt.Errorf("backup: purge %s: %w", name, err)
+	}
+	if err := m.settlePurge(ctx, name); err != nil {
 		return fmt.Errorf("backup: purge %s: %w", name, err)
 	}
 	m.mu.Lock()

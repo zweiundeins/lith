@@ -1462,7 +1462,10 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   tenant busy skips it (`_replica_maintenance_skipped_total`).
   `PurgeReplica` holds the name and aborts unfinished multipart uploads too
   (their parts are not objects; a provider answering `NotImplemented` has
-  none to abort); add a lifecycle rule `AbortIncompleteMultipartUpload` as a
+  none to abort). On S3 it lists the replica again `Config.PurgeSettle`
+  (15 s, `<prefix>PURGE_SETTLE`) after its deletes, since Swift's listings
+  lag, deletes what shows and fails when the third listing still shows
+  objects; an erasure that must be certain purges again later. Also add a lifecycle rule `AbortIncompleteMultipartUpload` as a
   backstop where the provider supports it (unconfirmed on Swift-based S3
   such as Infomaniak). Failures of a pass log one line; the
   metrics are `<ns>_backup_detached_maintenance_passes_total`,

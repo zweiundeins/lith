@@ -787,7 +787,9 @@ Stats count the hub's work since it started.
 ```go
 type View struct {
 	// Key names the view. Views with the same key are one view: while it
-	// is watched, the definition it was first given is the one used.
+	// is watched, the definition it was first given is the one used, except
+	// that a stream replacing one with its ID (Spec.ID) renders the views
+	// only that ID watches with its own Render, from its first frame on.
 	Key string
 	// Topics mark the view dirty when a commit touches one of them, and so
 	// do the topics its last Render declared with Depends. A topic is a

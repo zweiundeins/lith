@@ -24,7 +24,7 @@ func TestS3(t *testing.T) {
 	if os.Getenv("LITH_BACKUP_TEST_BUCKET") == "" {
 		srv := httptest.NewServer(fakeS3(t))
 		t.Cleanup(srv.Close)
-		cfg = Config{Bucket: "lith", Endpoint: srv.URL, Region: "us-east-1", ForcePathStyle: true, AccessKeyID: "test", SecretAccessKey: "test"}
+		cfg = Config{Bucket: "lith", Endpoint: srv.URL, Region: "us-east-1", ForcePathStyle: true, AccessKeyID: "test", SecretAccessKey: "test", PurgeSettle: 10 * time.Millisecond}
 	}
 	cfg.Prefix = fmt.Sprintf("lith-backup-test-%d", time.Now().UnixNano())
 	m, err := New(cfg)

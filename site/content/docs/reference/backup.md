@@ -42,6 +42,10 @@ const (
 	DefaultVerifyInterval      = 24 * time.Hour
 	DefaultSnapshotTimeout     = 10 * time.Minute
 
+	// DefaultPurgeSettle covers the few seconds Infomaniak's listings were
+	// seen to lag its writes.
+	DefaultPurgeSettle = 15 * time.Second
+
 	// DefaultLocalL0Retention is Litestream's own: how long a WAL segment
 	// stays in the local directory after it reached the replica.
 	DefaultLocalL0Retention = litestream.DefaultL0Retention
@@ -119,6 +123,15 @@ type Config struct {
 	// does the newest, which Litestream reads.
 	LocalL0Retention time.Duration
 
+	// PurgeSettle is how long PurgeReplica waits after its deletes before
+	// it lists an S3 replica again, deleting what the listing shows, and
+	// between two more listings while one shows objects. Zero means
+	// DefaultPurgeSettle. A provider whose listings lag its writes, such as
+	// OpenStack Swift (Infomaniak), can leave an object written just before
+	// the purge out of the first listing; AWS S3 lists every object at
+	// once, and a millisecond will do.
+	PurgeSettle time.Duration
+
 	// Logger defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -132,7 +145,7 @@ Config says where replicas go: set Bucket for S3, or Dir for a local directory (
 func ConfigFromEnv(prefix string) (Config, error)
 ```
 
-ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT\_INTERVAL, SNAPSHOT\_TIMEOUT and LOCAL\_L0\_RETENTION (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
+ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT\_INTERVAL, SNAPSHOT\_TIMEOUT, LOCAL\_L0\_RETENTION and PURGE\_SETTLE (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
 
 ### type MaintenanceOptions {#MaintenanceOptions}
 
@@ -249,7 +262,7 @@ MaintainAll runs one maintenance pass on every attached replica, as of now: a fu
 func (m *Manager) PurgeReplica(ctx context.Context, name string) error
 ```
 
-PurgeReplica deletes everything replicated under name, for an erasure: the objects, and on S3 the parts of every unfinished multipart upload under it, which a listing of objects does not show. It fails without deleting anything when those uploads cannot be listed or aborted, so that a retry finds them. The database must be detached first. Purging a name never replicated, or on a disabled Manager, does nothing.
+PurgeReplica deletes everything replicated under name, for an erasure: the objects, and on S3 the parts of every unfinished multipart upload under it, which a listing of objects does not show. It fails without deleting anything when those uploads cannot be listed or aborted, so that a retry finds them. On S3 it lists the replica again Config.PurgeSettle after its deletes, for a provider whose listings lag, and deletes what that listing shows; it lists up to three times while objects show, and fails when the third listing still shows some, so it takes PurgeSettle at least. An object whose listing lags longer is still missed: an erasure that must be certain purges again later, which is harmless. The database must be detached first. Purging a name never replicated, or on a disabled Manager, does nothing.
 
 #### func (*Manager) Restore {#Manager.Restore}
 
