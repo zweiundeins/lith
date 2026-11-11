@@ -232,7 +232,9 @@ type Options struct {
 // View is a part of a page that the hub renders and streams.
 type View struct {
 	// Key names the view. Views with the same key are one view: while it
-	// is watched, the definition it was first given is the one used.
+	// is watched, the definition it was first given is the one used, except
+	// that a stream replacing one with its ID (Spec.ID) renders the views
+	// only that ID watches with its own Render, from its first frame on.
 	Key string
 	// Topics mark the view dirty when a commit touches one of them, and so
 	// do the topics its last Render declared with Depends. A topic is a
@@ -411,6 +413,10 @@ type view struct {
 	joined    bool      // a stream started watching it during that tick, without a frame
 	owed      bool      // a watch lacks the newest frame (watch.owed)
 	due       time.Time // when Every renders it again
+
+	// The Render of a stream that replaced its ID's, for the next render;
+	// guarded by Hub.mu.
+	adopt func(ctx context.Context, tx *sql.Tx) (any, error)
 }
 
 // watch is one stream watching one view.
@@ -914,8 +920,10 @@ func (h *Hub) watch(s *stream, def View) bool {
 		marked = h.mark(v)
 	} else if s.id != "" && !slices.ContainsFunc(v.watches, func(w *watch) bool { return w.s.id != s.id }) {
 		// A stream that replaces one with its ID renders the views only that
-		// ID watches afresh: a commit this hub never heard of shows in them.
+		// ID watches afresh, with its own Render: a commit this hub never
+		// heard of shows in them, and state the old Render kept is gone.
 		fresh = true
+		v.adopt = def.Render
 		marked = h.mark(v)
 	} else if v.frame == nil {
 		// A render under way publishes to every watch, this one too.

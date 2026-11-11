@@ -1727,6 +1727,36 @@ func TestSameIDRendersItsViewsAfresh(t *testing.T) {
 	waitFor(t, "the new stream", func() bool { return cur.has(`<p id="own">1</p>`) && cur.has(`<p id="shared">0</p>`) })
 }
 
+// A stream that replaces one with its ID renders the views only that ID
+// watches with its own definition: a Render that keeps state, here the
+// frame it sent last so that it returns nil while nothing changed, begins
+// afresh for the new page, which has none of the old stream's frames.
+func TestSameIDRendersWithItsOwnDefinition(t *testing.T) {
+	h := start(t, Options{Tick: 5 * time.Millisecond})
+	own := func() View {
+		var prev string
+		return View{Key: "own", Render: func(context.Context, *sql.Tx) (any, error) {
+			if prev == "v" {
+				return nil, nil
+			}
+			prev = "v"
+			return prev, nil
+		}}
+	}
+	write := func(s *sse.Stream, frames []Frame) error {
+		for _, f := range frames {
+			if err := s.Write(sse.PatchElements([]byte(`<p id="` + f.Key + `">` + f.Value.(string) + `</p>`))); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	old := serve(h, Spec{ID: "tab", Views: []View{own()}, WriteTick: write}, "")
+	waitFor(t, "the old stream", func() bool { return old.has(`<p id="own">v</p>`) })
+	cur := serve(h, Spec{ID: "tab", Views: []View{own()}, WriteTick: write}, "")
+	waitFor(t, "the new stream", func() bool { return cur.has(`<p id="own">v</p>`) })
+}
+
 // After a tick runs over, the hub samples tick durations for a while and
 // then logs their distribution.
 func TestOverrunReport(t *testing.T) {

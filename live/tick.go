@@ -202,6 +202,9 @@ func (h *Hub) run(t *tick, ws []*worker, start time.Time) bool {
 			h.deferred.Add(1)
 			continue
 		}
+		if v.adopt != nil {
+			v.render, v.adopt = v.adopt, nil
+		}
 		v.rendering = true
 		t.views = append(t.views, v)
 	}

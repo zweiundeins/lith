@@ -403,6 +403,9 @@ func (h *Hub) detach(s *stream, refused bool, spec []View) {
 		if refused && s.id != "" && !slices.ContainsFunc(spec, func(v View) bool { return v.Key == w.v.key }) {
 			v := w.v
 			def := View{Key: v.key, Topics: v.topics, Render: v.render, Every: v.every, Presence: v.presence}
+			if v.adopt != nil {
+				def.Render = v.adopt
+			}
 			if o := h.byID[s.id]; o != nil {
 				marked = h.watch(o, def) || marked
 			} else {
