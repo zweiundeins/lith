@@ -530,7 +530,7 @@ const endTimeout = 250 * time.Millisecond
 // deadline passes, even while nothing is being written.
 func (s *Stream) send(chunks ...[]byte) error {
 	timeout := s.opt.WriteTimeout
-	if s.closing && s.shuttingDown() {
+	if s.shuttingDown() {
 		timeout = min(timeout, endTimeout)
 	}
 	due := time.Now().Add(timeout)
@@ -554,12 +554,13 @@ func (s *Stream) send(chunks ...[]byte) error {
 }
 
 // start sets the deadline of a write that begins. Once the request's
-// context has ended it refuses, but for the end frame of a stream that
-// shuts down.
+// context has ended it refuses, unless the stream shuts down: a write that
+// passed its own check before the hub stopped goes out, within endTimeout,
+// and so does the end frame that follows it.
 func (s *Stream) start(due time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.ctx.Err() != nil && !(s.closing && s.shuttingDown()) {
+	if s.ctx.Err() != nil && !s.shuttingDown() {
 		return context.Cause(s.ctx)
 	}
 	if err := s.deadline(due); err != nil {
