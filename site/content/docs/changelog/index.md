@@ -8,7 +8,7 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.7 (2026-11-11)
 
 - Set `go 1.27.4` in go.mod, for GO-2026-6859: an HTTP/1 server can crash on a race between `MaxBytesReader` and the response headers, which lith reaches through `edge.Static`, `sse.Open` and the upload limits. An app builds with Go 1.27.4 or later, and apps made by `lith-new` start on it.
 - `sse`: a stream whose write was under way when the hub stopped lost its end frame, so a tab missed its notices, `Options.Stopping`'s events and the reconnect, and fell back to its retry. That write now goes out within the end frame's 250 ms, and the end frame after it.
