@@ -16,14 +16,15 @@ package datastar
 import _ "embed"
 
 // Version names the build that JS returns: Datastar v1.0.5 with
-// Rocket and the patches in Starbase's patches/rocket, as Starbase's
-// commit 818f366 vendors it.
-const Version = "1.0.5+starbase.818f366"
+// Rocket and the patch in Starbase's patches/rocket, as Starbase's
+// commit 7dc2352 vendors it. A bool prop reads as HTML's boolean
+// attributes do, by presence: open="false" is open.
+const Version = "1.0.5+starbase.7dc2352"
 
 // Integrity is the build's subresource integrity, its SHA-384 as an
 // integrity attribute or an import map's "integrity" entry takes it, for a
 // page that pins the build, or an app that checks a copy it vendors.
-const Integrity = "sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+XptuiVQFLxvO"
+const Integrity = "sha384-DkjVaBESHDA703Xk1QdsjXyHUmwC4Z9N/T8ak/EVxdTXso6apSccCKzi0DwwbGGK"
 
 //go:embed datastar-rocket.js
 var build string

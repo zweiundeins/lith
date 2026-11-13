@@ -20,16 +20,16 @@ A page that pins the build gives Integrity in the script's integrity attribute, 
 ## Constants
 
 ```go
-const Integrity = "sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+XptuiVQFLxvO"
+const Integrity = "sha384-DkjVaBESHDA703Xk1QdsjXyHUmwC4Z9N/T8ak/EVxdTXso6apSccCKzi0DwwbGGK"
 ```
 
 Integrity is the build's subresource integrity, its SHA-384 as an integrity attribute or an import map's "integrity" entry takes it, for a page that pins the build, or an app that checks a copy it vendors.
 
 ```go
-const Version = "1.0.5+starbase.818f366"
+const Version = "1.0.5+starbase.7dc2352"
 ```
 
-Version names the build that JS returns: Datastar v1.0.5 with Rocket and the patches in Starbase's patches/rocket, as Starbase's commit 818f366 vendors it.
+Version names the build that JS returns: Datastar v1.0.5 with Rocket and the patch in Starbase's patches/rocket, as Starbase's commit 7dc2352 vendors it. A bool prop reads as HTML's boolean attributes do, by presence: open="false" is open.
 
 ## Functions
 

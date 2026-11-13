@@ -1,9 +1,9 @@
 {
   "base": "https://starbase.zweiundeins.gmbh",
-  "catalog": "f920ce9c9c33",
+  "catalog": "a6cffca9d15a",
   "datastar": {
-    "url": "https://starbase.zweiundeins.gmbh/c/datastar@be8cc4bc89d1/datastar-rocket.js",
-    "integrity": "sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+XptuiVQFLxvO"
+    "url": "https://starbase.zweiundeins.gmbh/c/datastar@dad2261a81d8/datastar-rocket.js",
+    "integrity": "sha384-DkjVaBESHDA703Xk1QdsjXyHUmwC4Z9N/T8ak/EVxdTXso6apSccCKzi0DwwbGGK"
   },
   "components": [
     {
@@ -22,11 +22,11 @@
     {
       "slug": "drawer",
       "tag": "sb-drawer",
-      "hash": "9b79168e90f0",
+      "hash": "acb33a689f92",
       "pinned": true,
       "bundle": "drawer.bundle.min.js",
       "files": {
-        "drawer.bundle.min.js": "sha384-YokbbE5k1vXAd8044WsTMzwwaPh5sHxXg89AbbxZm6DWXFy8dLmj+dDJyLuIxo5p"
+        "drawer.bundle.min.js": "sha384-GGyZce7aAdWW/ifBqN2vuGVCt6IYX8PuLR6egwIVXufmnt5GgUSD7yKI2o7k7yNN"
       }
     },
     {
@@ -42,31 +42,31 @@
     {
       "slug": "meter",
       "tag": "sb-meter",
-      "hash": "83ee0bd9ba81",
+      "hash": "1231de28b5a0",
       "pinned": true,
       "bundle": "meter.bundle.min.js",
       "files": {
-        "meter.bundle.min.js": "sha384-zmoeGsG+GIaLqTsqguSQWsaZqmqPfErEZaMpMT/xiQUR9eybp/rQz8X1S+Ny0GCy"
+        "meter.bundle.min.js": "sha384-p7xuEM3U69ApsOlvqeo2E9ceUUJ+ugmui/hH3BYFxID0GvR/hCTkV78LzrPD9+z2"
       }
     },
     {
       "slug": "pixel-board",
       "tag": "sb-pixel-board",
-      "hash": "f26f117f5b3c",
+      "hash": "9367e357529c",
       "pinned": true,
       "bundle": "pixel-board.bundle.min.js",
       "files": {
-        "pixel-board.bundle.min.js": "sha384-UzuA6+sGHUV9ahzQCxWERG1ei3FRo6R9qvCVJhLacPtixoX7lCaXDCEpBo+j8h2G"
+        "pixel-board.bundle.min.js": "sha384-/bxu5Tk24l1El5i/nTlGqv1GfS4Zm00lUPCvya/BT/Rc/c2gmaWcIDPof7b30dxp"
       }
     },
     {
       "slug": "popover",
       "tag": "sb-popover",
-      "hash": "60c8637be048",
+      "hash": "0a9f011df6bd",
       "pinned": true,
       "bundle": "popover.bundle.min.js",
       "files": {
-        "popover.bundle.min.js": "sha384-PyY1dmlm2SGRWjapcExaE1BnPbi469Vmpfr5NeC+IgEeIp8ARfV/pYvSTCzxE6kJ"
+        "popover.bundle.min.js": "sha384-6CEEW8r3ACBzNQRMUpywulkr5h5P/JBgG7xx1W322tjXXshHgiviSoApcF1ebN0H"
       }
     },
     {

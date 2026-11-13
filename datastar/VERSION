@@ -1,9 +1,10 @@
-Starbase's patched Datastar build: Datastar v1.0.5 with Rocket and the two
-patches in Starbase's patches/rocket, from
-github.com/zweiundeins/starbase at commit 818f366c06b42faf0cd94994d2226c684f981ff4,
+Starbase's patched Datastar build: Datastar v1.0.5 with Rocket and the one
+patch in Starbase's patches/rocket (observeProps hears an attribute write that
+decodes the same, upstream #1223), from
+github.com/zweiundeins/starbase at commit 7dc235215b85a6487d9ea9ea40c6c963921bf8db,
 static/vendor/datastar-rocket.js. lith's template and site serve it from here.
 Update: copy that file from a newer Starbase commit, and change this one and
 Version and Integrity in datastar.go.
 Datastar: MIT, github.com/starfederation/datastar.
 
-datastar-rocket.js	72609 bytes	sha384-Iu4CMxrmjOgH23gCxLjuY70tjpaQn5TFNBOARkUXz3xmm7MxDUz+XptuiVQFLxvO
+datastar-rocket.js	72805 bytes	sha384-DkjVaBESHDA703Xk1QdsjXyHUmwC4Z9N/T8ak/EVxdTXso6apSccCKzi0DwwbGGK

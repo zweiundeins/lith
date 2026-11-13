@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `datastar`: the build is Starbase's at commit 7dc2352, Datastar v1.0.5 with Rocket and one patch (observeProps hears an attribute write that decodes the same, upstream #1223). The patch that read a bool prop's `="false"` as false is gone: Starbase's components read `open`, `checked`, `busy` and `expanded` by presence, as HTML's boolean attributes do, so `open="false"` is open. Before an app serves this build, it renders such an attribute only when true (templ `checked?={ on }`) and gives `data-attr` a boolean, which removes the attribute when false, never the string `'false'`; an app that vendors Starbase's components takes them from snapshot a6cffca9d15a or later together with it, as lith's site does.
+
 ## v0.5.7 (2026-11-11)
 
 - Set `go 1.27.4` in go.mod, for GO-2026-6859: an HTTP/1 server can crash on a race between `MaxBytesReader` and the response headers, which lith reaches through `edge.Static`, `sse.Open` and the upload limits. An app builds with Go 1.27.4 or later, and apps made by `lith-new` start on it.
