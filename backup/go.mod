@@ -14,7 +14,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/superfly/ltx v0.5.3
-	github.com/zweiundeins/lith v0.5.7
+	github.com/zweiundeins/lith v0.5.8
 	modernc.org/sqlite v1.62.0
 )
 
