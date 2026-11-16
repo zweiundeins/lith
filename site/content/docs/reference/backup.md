@@ -42,8 +42,8 @@ const (
 	DefaultVerifyInterval      = 24 * time.Hour
 	DefaultSnapshotTimeout     = 10 * time.Minute
 
-	// DefaultPurgeSettle covers the few seconds Infomaniak's listings were
-	// seen to lag its writes.
+	// DefaultPurgeSettle covers the few seconds Infomaniak's S3 over Swift
+	// (s3.pub2) was seen to list late.
 	DefaultPurgeSettle = 15 * time.Second
 
 	// DefaultLocalL0Retention is Litestream's own: how long a WAL segment
@@ -127,9 +127,10 @@ type Config struct {
 	// it lists an S3 replica again, deleting what the listing shows, and
 	// between two more listings while one shows objects. Zero means
 	// DefaultPurgeSettle. A provider whose listings lag its writes, such as
-	// OpenStack Swift (Infomaniak), can leave an object written just before
-	// the purge out of the first listing; AWS S3 lists every object at
-	// once, and a millisecond will do.
+	// S3 over OpenStack Swift (Infomaniak's s3.pub2), can leave an object
+	// written just before the purge out of the first listing; AWS S3 and
+	// Infomaniak's native S3 (s3.gva2) list every object at once, and a
+	// millisecond will do.
 	PurgeSettle time.Duration
 
 	// Logger defaults to slog.Default().

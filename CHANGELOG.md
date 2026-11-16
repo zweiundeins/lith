@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `backup`: the docs cover versioned and Object Lock buckets (tested on Infomaniak's native S3, `s3.gva2.infomaniak.cloud`): Litestream needs nothing for them, and an erased account's data stays in old versions until they expire. `Config.PurgeSettle`'s 15 s are for S3 over Swift (`s3.pub2`); on a provider whose listings are complete at once, a millisecond will do.
+
 ## v0.5.8 (2026-11-14)
 
 - `datastar`: the build is Starbase's at commit 7dc2352, Datastar v1.0.5 with Rocket and one patch (observeProps hears an attribute write that decodes the same, upstream #1223). The patch that read a bool prop's `="false"` as false is gone: Starbase's components read `open`, `checked`, `busy` and `expanded` by presence, as HTML's boolean attributes do, so `open="false"` is open. Before an app serves this build, it renders such an attribute only when true (templ `checked?={ on }`) and gives `data-attr` a boolean, which removes the attribute when false, never the string `'false'`; an app that vendors Starbase's components takes them from snapshot a6cffca9d15a or later together with it, as lith's site does.
