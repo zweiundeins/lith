@@ -2,8 +2,11 @@ package backup
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -16,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/benbjohnson/litestream"
 )
@@ -59,7 +63,9 @@ func (m *Manager) multipart(ctx context.Context) (multipartAPI, error) {
 }
 
 // newMultipartAPI builds an S3 client from the configuration litestream's
-// client is built from.
+// client is built from, with its checksum policy: with an Endpoint, request
+// checksums only where an operation requires one and no validation of
+// response checksums, and a Content-MD5 on DeleteObjects.
 func (m *Manager) newMultipartAPI(ctx context.Context) (multipartAPI, error) {
 	if m.cfg.Bucket == "" {
 		return nil, nil
@@ -81,11 +87,14 @@ func (m *Manager) newMultipartAPI(ctx context.Context) (multipartAPI, error) {
 	}
 	endpoint := func(o *s3.Options) {
 		o.UsePathStyle = m.cfg.ForcePathStyle
+		o.APIOptions = append(o.APIOptions, addDeleteContentMD5)
 		if e := m.cfg.Endpoint; e != "" {
 			if !strings.HasPrefix(e, "http://") && !strings.HasPrefix(e, "https://") {
 				e = "https://" + e
 			}
 			o.BaseEndpoint = aws.String(e)
+			o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+			o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 		}
 	}
 	if region == "" {
@@ -100,6 +109,34 @@ func (m *Manager) newMultipartAPI(ctx context.Context) (multipartAPI, error) {
 		}
 	}
 	return s3.NewFromConfig(cfg, endpoint), nil
+}
+
+// addDeleteContentMD5 sets Content-MD5 on a DeleteObjects request, as
+// litestream's client does (its RequireContentMD5): some providers refuse a
+// DeleteObjects without it.
+func addDeleteContentMD5(stack *middleware.Stack) error {
+	return stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("LithDeleteContentMD5",
+		func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (middleware.FinalizeOutput, middleware.Metadata, error) {
+			req, ok := in.Request.(*smithyhttp.Request)
+			if !ok || middleware.GetOperationName(ctx) != "DeleteObjects" || req.Header.Get("Content-MD5") != "" {
+				return next.HandleFinalize(ctx, in)
+			}
+			if body, ok := req.GetStream().(io.ReadSeeker); ok {
+				start, err := body.Seek(0, io.SeekCurrent)
+				if err != nil {
+					return middleware.FinalizeOutput{}, middleware.Metadata{}, fmt.Errorf("content-md5: %w", err)
+				}
+				h := md5.New()
+				if _, err := io.Copy(h, body); err != nil {
+					return middleware.FinalizeOutput{}, middleware.Metadata{}, fmt.Errorf("content-md5: %w", err)
+				}
+				if _, err := body.Seek(start, io.SeekStart); err != nil {
+					return middleware.FinalizeOutput{}, middleware.Metadata{}, fmt.Errorf("content-md5: %w", err)
+				}
+				req.Header.Set("Content-MD5", base64.StdEncoding.EncodeToString(h.Sum(nil)))
+			}
+			return next.HandleFinalize(ctx, in)
+		}), middleware.Before)
 }
 
 // bucketRegion asks S3 for a bucket's region with an unsigned HeadBucket.
