@@ -220,6 +220,10 @@ WantedBy=timers.target
 
 `TMPDIR` must exist and have room for the restore. Enable the timer with `systemctl enable --now app-verify.timer`, and alert on the failed unit (`OnFailure=` or the host's alert on failed units).
 
+## Moving a replica to another endpoint
+
+Stop the app, copy the bucket, change the env file, start the app, and then check the running process's environment (`/proc/<pid>/environ`), not the file. A unit started by a socket (`<app>.socket`) starts again on the first waiting connection: stop the socket with the service, or edit the env file before stopping. On 16 November 2026 trips' socket restarted it between the stop and the edit, with the old endpoint, and that process replicated to the old bucket all night; the first start on the new endpoint found the replica hundreds of segments behind, with the local segments already removed, and refused to start (`open ltx file … no such file`). Moving the database's `-litestream` directory aside then starts it from a new snapshot.
+
 ## Restoring to a moment
 
 `m.RestoreAt(ctx, name, out, at)` writes the replica as of `at` to a new file; any moment inside the retention window is reachable, not only snapshots. `m.RestoreWindow` reports the earliest and the latest moment a restore can reach, and `m.RestoreTimeline` lists every restore point, snapshots first, for a picker that shows where history has gaps. Restore to a new file, check it, then swap it in while the app is stopped: for one database per account, `Deny`, `Evict`, swap, `Allow` ([One database per account](/docs/guides/tenants#erasing-an-account)).

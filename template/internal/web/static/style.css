@@ -80,11 +80,15 @@ button {
 	background: var(--accent);
 	border-color: var(--accent);
 	cursor: pointer;
+	transition: opacity 0.15s;
 }
 
+/* Pending until the op's ack: shown after 200 ms, so an op acked within a
+   tick does not flicker. */
 button[aria-busy="true"] {
 	opacity: 0.6;
 	cursor: progress;
+	transition-delay: 200ms;
 }
 
 #outcome,

@@ -97,17 +97,30 @@
 		font-size: var(--lith-text-xs);
 	}
 
-	/* Waiting for the stream: a pixel that walks around the label. */
+	/* Waiting for the stream: a pixel that walks around the label, after
+	   200 ms, so an op acked within a tick does not flicker. */
 	.btn[aria-busy="true"] {
 		cursor: progress;
 		opacity: 0.75;
+		transition: opacity 0.15s 200ms;
 
 		&::after {
 			content: "";
 			inline-size: 6px;
 			block-size: 6px;
 			background: currentColor;
-			animation: busy 0.8s steps(4, end) infinite;
+			animation:
+				busy-show 0s 200ms both,
+				busy 0.8s steps(4, end) 200ms infinite;
+		}
+	}
+
+	@keyframes busy-show {
+		from {
+			visibility: hidden;
+		}
+		to {
+			visibility: visible;
 		}
 	}
 

@@ -152,6 +152,15 @@ rg -n "\['error'|argsRaw\??\.status" -g '*.go' -g '*.templ' -g '*.js'
 
 A document's own error page (a 404 for a board that does not exist) is fine: the person reads that page itself.
 
+
+### A pending state that does not show, or only spins
+
+Every action is pending from the click until its op id comes back, and the page shows it: an indicator on what the person acted on, not only `aria-busy` for screen readers. It appears about 200 ms after the click, through a `transition-delay` or `animation-delay` on the `aria-busy` style, so an op acked within a tick shows nothing. Work that may run longer than a few seconds, an import, an export, a bulk change or a call to another service, reports progress instead of a spinner: its command records the acceptance, which acks the op at once, the job records how far it got in rows, and a view renders them, how far and of how much, until the job's outcome arrives.
+
+```sh
+rg -n 'aria-busy' -g '*.css'
+```
+
 ### A dialog that reports
 
 A dialog asks; it never reports. An `alert()`, a `confirm()` that only says what happened, or a `<dialog>` opened with `showModal()` to say "Saved" or "Something went wrong" blocks the page for news the person cannot act on: a refusal goes inline where they acted, a notice in a toast, what happened elsewhere in a toast ([Pages: which feedback to give](/docs/guides/pages#which-feedback-to-give)). The search lists every dialog and the app's own wrappers, a `notify()` or `showAlert()` helper (a Go method of that name matches too): look at each for one that reports rather than asks.

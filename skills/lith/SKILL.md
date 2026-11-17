@@ -68,7 +68,13 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    alone knows: `retries-failed`, and a stream that connects again with a
    tab row that does not ack the op, once no request of it is in flight.
    Never a clock: a command that runs long records its acceptance first,
-   which acks the op at once. Stream IDs name the session and the tab.
+   which acks the op at once. The pending state shows, not only in
+   `aria-busy`: its indicator appears about 200 ms after the click (a CSS
+   delay), so an op acked within a tick shows nothing. Work that may take
+   longer than a few seconds shows progress, not busyness: its command
+   records the acceptance, the job records how far it got (rows done of
+   how many, the step it is on) in rows a view renders, and the page shows
+   that until the job's own outcome arrives. Stream IDs name the session and the tab.
 6. **State that must survive a deploy lives in SQLite**, written by
    commands: tab state per tab id, preferences per session. Ephemeral client
    state lives in `_`-prefixed signals. No maps of tabs in memory. After a

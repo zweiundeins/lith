@@ -8,6 +8,11 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- Docs and template: an action's pending state shows on the page, not only in `aria-busy`, about 200 ms after the click, so an op acked within a tick does not flicker; work that may take longer than a few seconds reports progress from rows a view renders, not a spinner. The skill's rule 5, both review checklists and the pages guide say so, and the template's and the site's `aria-busy` styles wait 200 ms.
+- Docs: moving a replica to another endpoint, with a unit started by a socket: stop the socket too, and check the running process's environment.
+
 ## v0.5.9 (2026-11-17)
 
 - `backup`: `Config.ContentMD5` (`<prefix>CONTENT_MD5`) has Litestream send Content-MD5 on every upload that goes up in one piece, for a provider that requires it, as AWS does on an Object Lock bucket. An upload of more than 5 MiB goes up in parts, and Litestream sends no checksum on parts to a custom endpoint.

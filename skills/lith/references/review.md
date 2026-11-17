@@ -106,6 +106,13 @@ pattern matches.
   (its notice, or the reconnect that decides, is on the way), or a message
   worded from a status, is where the stream should have told it. Otherwise only `retries-failed` and a reconnected stream without
   the op's ack end it on the page, never a timer.
+- `rg -n 'aria-busy' -g '*.css'`: every action shows its pending state,
+  not only to screen readers, and only after about 200 ms
+  (`transition-delay` or `animation-delay` on the `aria-busy` style), so an
+  op acked within a tick does not flicker. Work that may run longer than a
+  few seconds (an import, an export, a bulk change, a call to another
+  service) reports progress from rows a view renders, how far and of how
+  much, not a spinner: its command acks the acceptance at once.
 - `rg -n '\b(alert|confirm)\(|showModal\(|<dialog|\b(show|open)(Alert|Modal|Dialog)\w*\(|(^|[^.\w])notify\(' -g '*.go' -g '*.templ' -g '*.js'`:
   a dialog that reports ("Saved", "Something went wrong"): `alert()`, a
   `confirm()` that only reports, a `<dialog>` with `showModal()`, and the
