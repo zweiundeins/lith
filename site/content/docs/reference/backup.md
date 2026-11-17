@@ -103,6 +103,19 @@ type Config struct {
 	SecretAccessKey string
 	ForcePathStyle  bool // most S3-compatible services other than AWS need it
 
+	// ContentMD5 has Litestream send a Content-MD5 header with every upload
+	// it makes in a single PutObject: those smaller than the part size of 5
+	// MiB, and those of exactly 5 MiB. A provider that enforces S3 Object
+	// Lock rules refuses an upload without Content-MD5 or an x-amz-checksum
+	// header. Larger uploads go up in parts through the SDK's upload
+	// manager, which never sends Content-MD5 on a part: with an Endpoint
+	// the parts carry no checksum at all, and on AWS (no Endpoint) each
+	// carries the SDK's CRC32. A provider that wants a checksum on each
+	// part too refuses the larger uploads to an Endpoint: ContentMD5 covers
+	// snapshots and WAL segments of up to 5 MiB. DeleteObjects carries a
+	// Content-MD5 with or without it.
+	ContentMD5 bool
+
 	Dir string
 
 	// Prefix goes in front of every replica's name, so that deployments can
@@ -146,7 +159,7 @@ Config says where replicas go: set Bucket for S3, or Dir for a local directory (
 func ConfigFromEnv(prefix string) (Config, error)
 ```
 
-ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT\_INTERVAL, SNAPSHOT\_TIMEOUT, LOCAL\_L0\_RETENTION and PURGE\_SETTLE (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
+ConfigFromEnv reads a Config from the environment variables prefix plus BUCKET, ENDPOINT, REGION, ACCESS\_KEY\_ID, SECRET\_ACCESS\_KEY, FORCE\_PATH\_STYLE and CONTENT\_MD5 (bools), DIR, PREFIX, RETENTION, SNAPSHOT\_INTERVAL, SNAPSHOT\_TIMEOUT, LOCAL\_L0\_RETENTION and PURGE\_SETTLE (durations such as 720h). With prefix "BACKUP\_" the bucket is BACKUP\_BUCKET.
 
 ### type MaintenanceOptions {#MaintenanceOptions}
 
@@ -264,6 +277,14 @@ func (m *Manager) PurgeReplica(ctx context.Context, name string) error
 ```
 
 PurgeReplica deletes everything replicated under name, for an erasure: the objects, and on S3 the parts of every unfinished multipart upload under it, which a listing of objects does not show. It fails without deleting anything when those uploads cannot be listed or aborted, so that a retry finds them. On S3 it lists the replica again Config.PurgeSettle after its deletes, for a provider whose listings lag, and deletes what that listing shows; it lists up to three times while objects show, and fails when the third listing still shows some, so it takes PurgeSettle at least. An object whose listing lags longer is still missed: an erasure that must be certain purges again later, which is harmless. The database must be detached first. Purging a name never replicated, or on a disabled Manager, does nothing.
+
+#### func (*Manager) ReplicaNames {#Manager.ReplicaNames}
+
+```go
+func (m *Manager) ReplicaNames(ctx context.Context) ([]string, error)
+```
+
+ReplicaNames lists the names of the replicas the bucket (or Dir) holds under Config.Prefix, sorted, without the prefix: every name something was ever replicated under, attached or not, including a name whose PurgeReplica failed and left objects behind. An app that removes tenants compares it to its own account list and purges the names it no longer has. With no Prefix that is every top-level name in the bucket, also those of anything else stored there. Names PurgeReplica would refuse are left out. A disabled Manager returns nil.
 
 #### func (*Manager) Restore {#Manager.Restore}
 

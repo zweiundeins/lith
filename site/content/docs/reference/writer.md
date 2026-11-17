@@ -44,6 +44,16 @@ var (
 )
 ```
 
+## Functions
+
+### func Taken {#Taken}
+
+```go
+func Taken(ctx context.Context, q sqlite.Querier, key string) (bool, error)
+```
+
+Taken reports whether a Once or OnceResult with key has committed and its record is still kept. A key that PruneOnce forgot reads as not taken, as it does for Once, which runs its command again. q is a read transaction, such as a View's or a live Render's, or the \*Tx of a command: inside a command the answer holds until the command commits, while from a read transaction it is the state of that snapshot and a command may take the key the moment after.
+
 ## Types
 
 ### type Command {#Command}
@@ -54,7 +64,7 @@ type Command interface {
 }
 ```
 
-A Command is one unit of work. Apply runs inside the batch's transaction, in a savepoint of its own: an error, or a panic, undoes exactly its changes. Every queued command waits while it runs, so it must not block on anything but the database, and must not call Do.
+A Command is one unit of work. Apply runs inside the batch's transaction, in a savepoint of its own: an error, or a panic, undoes exactly its changes. Every queued command waits while it runs, so it must not block on anything but the database, and must not call Do or Send on any writer: its own Do never returns, and another database's writer commits apart from the command and makes this batch wait for its own, so two databases that do it to each other deadlock. A follow-up in another database goes through a row there that the other side picks up.
 
 #### func Once {#Once}
 

@@ -4,6 +4,11 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 ## Unreleased
 
+- `backup`: `Config.ContentMD5` (`<prefix>CONTENT_MD5`) has Litestream send Content-MD5 on every upload that goes up in one piece, for a provider that requires it, as AWS does on an Object Lock bucket. An upload of more than 5 MiB goes up in parts, and Litestream sends no checksum on parts to a custom endpoint.
+- `backup`: lith's own S3 client, which aborts unfinished uploads and runs `PurgeReplica`'s listings and deletes, uses Litestream's checksum policy: with an endpoint, checksums only where an operation requires one, and Content-MD5 on DeleteObjects.
+- `backup`: `Manager.ReplicaNames(ctx)` lists the replica names under `Config.Prefix` in the bucket or directory, names whose purge failed included, so an app can purge those its account list no longer has.
+- `writer`: `Taken(ctx, q, key)` reports whether a `Once` or `OnceResult` key has committed and is still kept, in a read transaction or a command's.
+- Docs: a command calls no other database's writer: neither `Do` nor `Send` makes the two commits atomic, `Do` makes the command's batch wait for the other writer's, and two databases that `Do` into each other deadlock. A follow-up in another database goes through a row the other side picks up. The skill, the review checklist and the commands guide say so.
 - `backup`: the docs cover versioned and Object Lock buckets (tested on Infomaniak's native S3, `s3.gva2.infomaniak.cloud`): Litestream needs nothing for them, and an erased account's data stays in old versions until they expire. `Config.PurgeSettle`'s 15 s are for S3 over Swift (`s3.pub2`); on a provider whose listings are complete at once, a millisecond will do.
 
 ## v0.5.8 (2026-11-14)
