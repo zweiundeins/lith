@@ -250,6 +250,7 @@ func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("APP_BACKUP_ACCESS_KEY_ID", "id")
 	t.Setenv("APP_BACKUP_SECRET_ACCESS_KEY", "secret")
 	t.Setenv("APP_BACKUP_FORCE_PATH_STYLE", "true")
+	t.Setenv("APP_BACKUP_CONTENT_MD5", "1")
 	t.Setenv("APP_BACKUP_PREFIX", "prod")
 	t.Setenv("APP_BACKUP_RETENTION", "720h")
 	t.Setenv("APP_BACKUP_SNAPSHOT_INTERVAL", "12h")
@@ -260,13 +261,19 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 	want := Config{
 		Bucket: "bucket", Endpoint: "https://s3.example", Region: "ch-1",
-		AccessKeyID: "id", SecretAccessKey: "secret", ForcePathStyle: true,
+		AccessKeyID: "id", SecretAccessKey: "secret", ForcePathStyle: true, ContentMD5: true,
 		Prefix: "prod", RetentionWindow: 720 * time.Hour, SnapshotInterval: 12 * time.Hour,
 		SnapshotTimeout: 5 * time.Minute,
 	}
 	if cfg != want {
 		t.Errorf("ConfigFromEnv = %+v, want %+v", cfg, want)
 	}
+
+	t.Setenv("APP_BACKUP_CONTENT_MD5", "yes")
+	if _, err := ConfigFromEnv("APP_BACKUP_"); err == nil || !strings.Contains(err.Error(), "APP_BACKUP_CONTENT_MD5") {
+		t.Errorf("ConfigFromEnv with a bad bool = %v, want an error naming the variable", err)
+	}
+	t.Setenv("APP_BACKUP_CONTENT_MD5", "1")
 
 	t.Setenv("APP_BACKUP_RETENTION", "a month")
 	if _, err := ConfigFromEnv("APP_BACKUP_"); err == nil || !strings.Contains(err.Error(), "APP_BACKUP_RETENTION") {

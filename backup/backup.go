@@ -150,6 +150,19 @@ type Config struct {
 	SecretAccessKey string
 	ForcePathStyle  bool // most S3-compatible services other than AWS need it
 
+	// ContentMD5 has Litestream send a Content-MD5 header with every upload
+	// it makes in a single PutObject: those smaller than the part size of 5
+	// MiB, and those of exactly 5 MiB. A provider that enforces S3 Object
+	// Lock rules refuses an upload without Content-MD5 or an x-amz-checksum
+	// header. Larger uploads go up in parts through the SDK's upload
+	// manager, which never sends Content-MD5 on a part: with an Endpoint
+	// the parts carry no checksum at all, and on AWS (no Endpoint) each
+	// carries the SDK's CRC32. A provider that wants a checksum on each
+	// part too refuses the larger uploads to an Endpoint: ContentMD5 covers
+	// snapshots and WAL segments of up to 5 MiB. DeleteObjects carries a
+	// Content-MD5 with or without it.
+	ContentMD5 bool
+
 	Dir string
 
 	// Prefix goes in front of every replica's name, so that deployments can
@@ -185,10 +198,10 @@ type Config struct {
 
 // ConfigFromEnv reads a Config from the environment variables prefix plus
 // BUCKET, ENDPOINT, REGION, ACCESS_KEY_ID, SECRET_ACCESS_KEY,
-// FORCE_PATH_STYLE (a bool), DIR, PREFIX, RETENTION, SNAPSHOT_INTERVAL,
-// SNAPSHOT_TIMEOUT, LOCAL_L0_RETENTION and PURGE_SETTLE (durations such as
-// 720h). With
-// prefix "BACKUP_" the bucket is BACKUP_BUCKET.
+// FORCE_PATH_STYLE and CONTENT_MD5 (bools), DIR, PREFIX, RETENTION,
+// SNAPSHOT_INTERVAL, SNAPSHOT_TIMEOUT, LOCAL_L0_RETENTION and PURGE_SETTLE
+// (durations such as 720h). With prefix "BACKUP_" the bucket is
+// BACKUP_BUCKET.
 func ConfigFromEnv(prefix string) (Config, error) {
 	env := func(k string) string { return os.Getenv(prefix + k) }
 	cfg := Config{
@@ -201,9 +214,14 @@ func ConfigFromEnv(prefix string) (Config, error) {
 		Prefix:          env("PREFIX"),
 	}
 	var err error
-	if v := env("FORCE_PATH_STYLE"); v != "" {
-		if cfg.ForcePathStyle, err = strconv.ParseBool(v); err != nil {
-			return Config{}, fmt.Errorf("backup: %sFORCE_PATH_STYLE: %w", prefix, err)
+	for _, b := range []struct {
+		key string
+		dst *bool
+	}{{"FORCE_PATH_STYLE", &cfg.ForcePathStyle}, {"CONTENT_MD5", &cfg.ContentMD5}} {
+		if v := env(b.key); v != "" {
+			if *b.dst, err = strconv.ParseBool(v); err != nil {
+				return Config{}, fmt.Errorf("backup: %s%s: %w", prefix, b.key, err)
+			}
 		}
 	}
 	for _, d := range []struct {
@@ -329,6 +347,7 @@ func (m *Manager) s3Client(name string) litestream.ReplicaClient {
 	c.AccessKeyID = m.cfg.AccessKeyID
 	c.SecretAccessKey = m.cfg.SecretAccessKey
 	c.ForcePathStyle = m.cfg.ForcePathStyle
+	c.PutObjectContentMD5 = m.cfg.ContentMD5
 	c.SetLogger(m.log)
 	return c
 }

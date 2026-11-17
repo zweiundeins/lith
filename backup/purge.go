@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,27 +68,91 @@ func (m *Manager) settlePurge(ctx context.Context, name string) error {
 
 // listKeys lists every key under prefix.
 func listKeys(ctx context.Context, api objectsAPI, bucket *string, prefix string) ([]string, error) {
-	in := &s3.ListObjectsV2Input{Bucket: bucket, Prefix: aws.String(prefix)}
 	var keys []string
-	for page := 1; ; page++ {
-		out, err := api.ListObjectsV2(ctx, in)
-		if err != nil {
-			return nil, fmt.Errorf("list objects: %w", err)
-		}
+	err := listObjects(ctx, api, &s3.ListObjectsV2Input{Bucket: bucket, Prefix: aws.String(prefix)}, func(out *s3.ListObjectsV2Output) {
 		for _, o := range out.Contents {
 			keys = append(keys, aws.ToString(o.Key))
 		}
+	})
+	return keys, err
+}
+
+// listObjects hands every page of the listing in to page, at most
+// maxUploadPages of them.
+func listObjects(ctx context.Context, api objectsAPI, in *s3.ListObjectsV2Input, page func(*s3.ListObjectsV2Output)) error {
+	for n := 1; ; n++ {
+		out, err := api.ListObjectsV2(ctx, in)
+		if err != nil {
+			return fmt.Errorf("list objects: %w", err)
+		}
+		page(out)
 		if !aws.ToBool(out.IsTruncated) {
-			return keys, nil
+			return nil
 		}
 		if out.NextContinuationToken == nil || aws.ToString(out.NextContinuationToken) == aws.ToString(in.ContinuationToken) {
-			return nil, errors.New("list objects: the listing is truncated but does not move on")
+			return errors.New("list objects: the listing is truncated but does not move on")
 		}
-		if page == maxUploadPages {
-			return nil, fmt.Errorf("list objects: more than %d pages", maxUploadPages)
+		if n == maxUploadPages {
+			return fmt.Errorf("list objects: more than %d pages", maxUploadPages)
 		}
 		in.ContinuationToken = out.NextContinuationToken
 	}
+}
+
+// ReplicaNames lists the names of the replicas the bucket (or Dir) holds
+// under Config.Prefix, sorted, without the prefix: every name something was
+// ever replicated under, attached or not, including a name whose
+// PurgeReplica failed and left objects behind. An app that removes tenants
+// compares it to its own account list and purges the names it no longer
+// has. With no Prefix that is every top-level name in the bucket, also
+// those of anything else stored there. Names PurgeReplica would refuse are
+// left out. A disabled Manager returns nil.
+func (m *Manager) ReplicaNames(ctx context.Context) ([]string, error) {
+	if !m.enabled {
+		return nil, nil
+	}
+	var names []string
+	if m.cfg.Dir != "" {
+		entries, err := os.ReadDir(filepath.Join(m.cfg.Dir, filepath.FromSlash(m.cfg.Prefix)))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("backup: replica names: %w", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() && checkName(e.Name()) == nil {
+				names = append(names, e.Name())
+			}
+		}
+		return names, nil // ReadDir sorts by name
+	}
+	api, err := m.multipart(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("backup: replica names: %w", err)
+	}
+	objs, ok := api.(objectsAPI)
+	if !ok {
+		return nil, errors.New("backup: replica names: the S3 client cannot list objects")
+	}
+	prefix := ""
+	if m.cfg.Prefix != "" {
+		prefix = m.cfg.Prefix + "/"
+	}
+	in := &s3.ListObjectsV2Input{Bucket: aws.String(m.cfg.Bucket), Prefix: aws.String(prefix), Delimiter: aws.String("/")}
+	err = listObjects(ctx, objs, in, func(out *s3.ListObjectsV2Output) {
+		for _, p := range out.CommonPrefixes {
+			name := strings.TrimSuffix(strings.TrimPrefix(aws.ToString(p.Prefix), prefix), "/")
+			if checkName(name) == nil {
+				names = append(names, name)
+			}
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("backup: replica names: %w", err)
+	}
+	slices.Sort(names)
+	return slices.Compact(names), nil // a provider may repeat a prefix on the next page, as gofakes3 does
 }
 
 // deleteKeys deletes keys, 1,000 a request. A key that is gone already

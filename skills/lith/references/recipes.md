@@ -1465,7 +1465,10 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   none to abort). On S3 it lists the replica again `Config.PurgeSettle`
   (15 s, `<prefix>PURGE_SETTLE`) after its deletes, since Swift's listings
   lag, deletes what shows and fails when the third listing still shows
-  objects; an erasure that must be certain purges again later. Also add a lifecycle rule `AbortIncompleteMultipartUpload` as a
+  objects; an erasure that must be certain purges again later. For an
+  orphan sweep, `m.ReplicaNames(ctx)` lists the names the bucket (or
+  `Dir`) holds under `Config.Prefix`, a failed purge's too: purge those not
+  in the account list. Also add a lifecycle rule `AbortIncompleteMultipartUpload` as a
   backstop where the provider supports it (unconfirmed on Swift-based S3
   such as Infomaniak). Failures of a pass log one line; the
   metrics are `<ns>_backup_detached_maintenance_passes_total`,
@@ -1474,6 +1477,12 @@ go runner.Run(runCtx) // cancel runCtx before w.Close()
   when the last is older than two intervals `and ... > 0` (0 until the
   first pass); it is set even when every name failed, which the failures
   counter shows.
+- A provider that enforces Object Lock rules refuses uploads without
+  Content-MD5 or a checksum: `Config.ContentMD5` (`<prefix>CONTENT_MD5`)
+  has Litestream send Content-MD5 on its single PutObject uploads, those
+  up to 5 MiB. Larger ones go up in parts, which carry no checksum with an
+  `Endpoint` (CRC32 on AWS): a provider that wants one on each part too
+  refuses those.
 - A check of a copy opens it with `sqlite.Options{ReadOnly: true}` and runs
   `PRAGMA integrity_check` on `db.R`: nothing is written, and a missing copy
   is an error.
