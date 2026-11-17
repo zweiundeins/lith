@@ -1,9 +1,13 @@
 package writer
 
 import (
+	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
+
+	"github.com/zweiundeins/lith/sqlite"
 )
 
 // Once makes cmd idempotent per key, such as an op id from the page
@@ -200,4 +204,36 @@ func (w *Writer) opsTable(tx *Tx) error {
 	}
 	tx.AfterCommit(func() { w.opsReady = true })
 	return nil
+}
+
+// Taken reports whether a Once or OnceResult with key has committed and
+// its record is still kept. A key that PruneOnce forgot reads as not
+// taken, as it does for Once, which runs its command again. q is a read
+// transaction, such as a View's or a live Render's, or the *Tx of a
+// command: inside a command the answer holds until the command commits,
+// while from a read transaction it is the state of that snapshot and a
+// command may take the key the moment after.
+func Taken(ctx context.Context, q sqlite.Querier, key string) (bool, error) {
+	for _, query := range []string{
+		"SELECT 1 FROM lith_ops WHERE key = ?",
+		"SELECT 1 FROM lith_results WHERE key = ?",
+	} {
+		var one int
+		err := q.QueryRowContext(ctx, query, key).Scan(&one)
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, sql.ErrNoRows), noTable(err):
+		default:
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+// noTable reports whether err is SQLite's for a missing lith_ops or
+// lith_results: no Once or OnceResult has committed yet.
+func noTable(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "no such table: lith_ops") || strings.Contains(msg, "no such table: lith_results")
 }

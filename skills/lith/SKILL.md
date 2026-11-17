@@ -26,7 +26,13 @@ has the numbers measured in Go in `benchmarks/RESULTS.md`.
    arrived; `w.Flush(ctx)` returns once everything queued before it is
    applied. Checks that read before they write go inside the command.
    Commands never render and never call the network; `tx.AfterCommit` runs
-   what must follow a commit. `tx.Publish(v)` hands a value to in-process
+   what must follow a commit. A command calls no writer's `Do` or `Send`:
+   its own writer's `Do` never returns, and another database's writer
+   commits apart from the command, with no atomicity, while its `Do` holds
+   this batch until that writer's commits, so two databases that do it to
+   each other deadlock. A command writes its own database; a follow-up in
+   another goes through a row the other side picks up (an outbox and a
+   relay), not a call inside the command. `tx.Publish(v)` hands a value to in-process
    listeners (`w.Subscribe[T]`) after the commit, best effort: never for
    pages (views and `Touch` cover them), and a listener that must not miss
    a value reconciles from the data. A failed Send goes to `OnSendError`,

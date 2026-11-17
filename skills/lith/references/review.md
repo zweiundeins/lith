@@ -30,6 +30,17 @@ pattern matches.
   with a ctx from `sqlite.Uncached`.
 - `rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go` inside commands:
   network calls do not belong in the writer. Use `tx.AfterCommit`.
+- ``rg -n -U -o -r '$1' '\*writer\.Tx[,)][^{\n]*\{[^\n]*?(?:\n(?:\t*[^}\t\n][^\n]*|\t+\}[^)\n][^\n]*|\t+\}|\t*))*?\n?[^\n]*?([\w.]+\.(?:Do|DoValue|Send))\(' --type go -g '!*_test.go'``:
+  a writer called from a command body (an `Apply`, a `writer.Func`, a
+  function that takes a `*writer.Tx`); each hit names the line where the
+  body starts and the call. On the command's own writer `Do` never returns.
+  On another database's writer the call commits apart from the command (no
+  atomicity) and the batch waits for that writer's, so two databases that
+  do it to each other deadlock. A command writes its own database; a
+  follow-up in another goes through a row the other side picks up (an
+  outbox and a relay). The pattern is a heuristic: it ends a body at a line
+  that starts with `}` or closes a func literal with `})`, so it misses a
+  call after a nested literal closes, and it reads examples in comments.
 - `rg -n 'writer\.Once(Result)?\(' --type go`: `Once` and `OnceResult` keys
   are one namespace per database. Every key starts with who sent it
   (`sid + ":" + op`); a key from the payload alone lets a client that learns
