@@ -502,6 +502,7 @@ The decision is a pure function of the command and the card's state, folded from
 
 - Wait for the network, a lock or a channel: the whole queue waits with it. Use `AfterCommit` or a job.
 - Call `Do`, `Flush` or `Exclusive` on its own writer: the writer is busy running the command, so the call never returns.
+- Call `Do` or `Send` on another database's writer. The other database commits apart from the command, so the two changes are not atomic, and with `Do` this batch waits for the other writer's: two databases that do it to each other deadlock. A command writes its own database; a follow-up in another goes through a row the other side picks up, an outbox and a relay, not a call inside the command.
 - Render HTML. Views render, in their own read transactions, once per tick.
 - Run several autocommits for one change. One command, one `Apply`, one savepoint: a change made of an insert, an audit row and an outbox row commits or rolls back as one.
 

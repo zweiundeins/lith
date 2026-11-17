@@ -64,6 +64,16 @@ Every command queued behind a command waits while it runs, so a command that wai
 rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go
 ```
 
+### A writer called from a command
+
+A command that calls `Do` on its own writer never returns: the writer is busy running it. One that calls `Do` or `Send` on another database's writer gets no atomicity, since the other database commits apart from the command, and with `Do` the batch waits for the other writer's, so two databases that do this to each other deadlock. A command writes its own database; a follow-up in another goes through a row the other side picks up, an outbox and a relay, not a call inside the command ([Commands](/docs/guides/commands#what-a-command-must-not-do)). Each match names the line where a command body starts (an `Apply`, a `writer.Func`, a function that takes a `*writer.Tx`) and the call:
+
+```sh
+rg -n -U -o -r '$1' '\*writer\.Tx[,)][^{\n]*\{[^\n]*?(?:\n(?:\t*[^}\t\n][^\n]*|\t+\}[^)\n][^\n]*|\t+\}|\t*))*?\n?[^\n]*?([\w.]+\.(?:Do|DoValue|Send))\(' --type go -g '!*_test.go'
+```
+
+The pattern is a heuristic: it ends a body at a line that starts with `}` or closes a func literal with `})`, so it misses a call after a nested literal closes, and it reads examples in comments.
+
 ### An op id that is not scoped to who sent it
 
 `writer.Once` and `writer.OnceResult` keep their keys in one table per database. A key that comes from the payload alone lets a client that learns another user's op id turn that user's command into a no-op, or receive its recorded result. Every key starts with who sent it, as the template's `sid + ":" + op` does ([Commands](/docs/guides/commands)). The first command lists every call to check, the second the plainest mistake:

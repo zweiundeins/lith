@@ -259,3 +259,69 @@ func TestPruneOnceForgetsResults(t *testing.T) {
 		t.Fatalf("%d results left, want the new one", n)
 	}
 }
+
+func TestTaken(t *testing.T) {
+	f := start(t, sqlite.Options{}, Options{})
+	ctx := context.Background()
+	taken := func(key string) bool {
+		t.Helper()
+		ok, err := Taken(ctx, f.db.R, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if taken("a") {
+		t.Fatal("taken before any Once")
+	}
+	if err := f.w.Do(ctx, Once("a", increment(1))); err != nil {
+		t.Fatal(err)
+	}
+	if !taken("a") || taken("b") {
+		t.Fatal("after Once: want a taken, b not")
+	}
+	ok := ResultFunc(func(*Tx) ([]byte, error) { return []byte("x"), nil })
+	if err := f.w.Do(ctx, OnceResult("r", ok)); err != nil {
+		t.Fatal(err)
+	}
+	if !taken("r") {
+		t.Fatal("OnceResult's key not taken")
+	}
+
+	// Inside a command, a key taken earlier in the same transaction counts.
+	err := f.w.Do(ctx, Func(func(tx *Tx) error {
+		before, err := Taken(tx.Context(), tx, "c")
+		if err != nil || before {
+			return fmt.Errorf("before: %v, %v", before, err)
+		}
+		if err := Once("c", increment(1)).Apply(tx); err != nil {
+			return err
+		}
+		after, err := Taken(tx.Context(), tx, "c")
+		if err != nil || !after {
+			return fmt.Errorf("after: %v, %v", after, err)
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A pruned key reads as not taken.
+	err = f.w.Do(ctx, Func(func(tx *Tx) error {
+		if _, err := tx.Exec("UPDATE lith_ops SET at = at - 7200 WHERE key = 'a'"); err != nil {
+			return err
+		}
+		_, err := tx.Exec("UPDATE lith_results SET at = at - 7200 WHERE key = 'r'")
+		return err
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.w.Do(ctx, PruneOnce(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if taken("a") || taken("r") || !taken("c") {
+		t.Fatal("after PruneOnce: want a and r forgotten, c kept")
+	}
+}

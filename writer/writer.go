@@ -52,7 +52,11 @@ var (
 // A Command is one unit of work. Apply runs inside the batch's
 // transaction, in a savepoint of its own: an error, or a panic, undoes
 // exactly its changes. Every queued command waits while it runs, so it
-// must not block on anything but the database, and must not call Do.
+// must not block on anything but the database, and must not call Do or
+// Send on any writer: its own Do never returns, and another database's
+// writer commits apart from the command and makes this batch wait for its
+// own, so two databases that do it to each other deadlock. A follow-up in
+// another database goes through a row there that the other side picks up.
 type Command interface {
 	Apply(*Tx) error
 }
