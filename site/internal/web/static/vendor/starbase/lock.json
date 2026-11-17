@@ -1,6 +1,6 @@
 {
   "base": "https://starbase.zweiundeins.gmbh",
-  "catalog": "a6cffca9d15a",
+  "catalog": "993e80ecfe09",
   "datastar": {
     "url": "https://starbase.zweiundeins.gmbh/c/datastar@dad2261a81d8/datastar-rocket.js",
     "integrity": "sha384-DkjVaBESHDA703Xk1QdsjXyHUmwC4Z9N/T8ak/EVxdTXso6apSccCKzi0DwwbGGK"
@@ -9,114 +9,114 @@
     {
       "slug": "data-table",
       "tag": "sb-data-table",
-      "hash": "c938e89dd016",
+      "hash": "7d43e168e809",
       "pinned": true,
       "bundle": "data-table.bundle.min.js",
       "renders": [
         "virtual-scroll"
       ],
       "files": {
-        "data-table.bundle.min.js": "sha384-T6fzbBaE19uTkXTjS4/Hhuaps30OflNN9CWn5QmFreH88GzhENPBhbpt0MM7iIfN"
+        "data-table.bundle.min.js": "sha384-1KFztQ+8M1dUgZuHciiwvxFvvwxmlvQh38WfhC/3yx8cIJcTKNFt+QryuGTBHn+J"
       }
     },
     {
       "slug": "drawer",
       "tag": "sb-drawer",
-      "hash": "acb33a689f92",
+      "hash": "d985050f7434",
       "pinned": true,
       "bundle": "drawer.bundle.min.js",
       "files": {
-        "drawer.bundle.min.js": "sha384-GGyZce7aAdWW/ifBqN2vuGVCt6IYX8PuLR6egwIVXufmnt5GgUSD7yKI2o7k7yNN"
+        "drawer.bundle.min.js": "sha384-YSsUQGaUl5Otf+PhA9Gvkv3/jyRfWKIPleOtQQJxtgtIg3zEui7ag5K8osxGbrw+"
       }
     },
     {
       "slug": "gauge",
       "tag": "sb-gauge",
-      "hash": "ae56d2ff5258",
+      "hash": "94007653b414",
       "pinned": true,
       "bundle": "gauge.bundle.min.js",
       "files": {
-        "gauge.bundle.min.js": "sha384-GL0Lr/7r3nvJrsMR5VY8IiQANlK1iQgrS/0jP5k/gLrhhKT9M7qYD6FXfGPrr3vg"
+        "gauge.bundle.min.js": "sha384-+JdCt9TSlg1D/SaMBESchwnMOLFFbL3ChwVckjbodwNTpGN4Pu1YxvquyOeRc9SH"
       }
     },
     {
       "slug": "meter",
       "tag": "sb-meter",
-      "hash": "1231de28b5a0",
+      "hash": "2122203d9247",
       "pinned": true,
       "bundle": "meter.bundle.min.js",
       "files": {
-        "meter.bundle.min.js": "sha384-p7xuEM3U69ApsOlvqeo2E9ceUUJ+ugmui/hH3BYFxID0GvR/hCTkV78LzrPD9+z2"
+        "meter.bundle.min.js": "sha384-JpNamIX8mz28UXro4a0wKruoe6wm9kEccqGAMoJicc7XB2woo48pcVwPOlycKgJi"
       }
     },
     {
       "slug": "pixel-board",
       "tag": "sb-pixel-board",
-      "hash": "9367e357529c",
+      "hash": "f15a955db5ef",
       "pinned": true,
       "bundle": "pixel-board.bundle.min.js",
       "files": {
-        "pixel-board.bundle.min.js": "sha384-/bxu5Tk24l1El5i/nTlGqv1GfS4Zm00lUPCvya/BT/Rc/c2gmaWcIDPof7b30dxp"
+        "pixel-board.bundle.min.js": "sha384-lWoYxkl+zBd8QcjPLXvIcXfFq6Q8qtecenF5Dtiv3TL3NLowcksUmjnHGpQIBlJW"
       }
     },
     {
       "slug": "popover",
       "tag": "sb-popover",
-      "hash": "0a9f011df6bd",
+      "hash": "fd7234c7517f",
       "pinned": true,
       "bundle": "popover.bundle.min.js",
       "files": {
-        "popover.bundle.min.js": "sha384-6CEEW8r3ACBzNQRMUpywulkr5h5P/JBgG7xx1W322tjXXshHgiviSoApcF1ebN0H"
+        "popover.bundle.min.js": "sha384-cAphMggMJh1M1yFNXBFeDqSolw9n2ugsr3jx3eKWjqHSLQh+Z6/JvuqdWPki6Xq3"
       }
     },
     {
       "slug": "sparkline",
       "tag": "sb-sparkline",
-      "hash": "4c8bac500dea",
+      "hash": "6e25dad636ef",
       "pinned": true,
       "bundle": "sparkline.bundle.min.js",
       "files": {
-        "sparkline.bundle.min.js": "sha384-uRkCNh+53a/JZPVDWf2jznJC/r51gF82jTFLQb3EdJqWnfOAdtfpjcdFykZAmbPa"
+        "sparkline.bundle.min.js": "sha384-UrnXrAmnaVJJpTZwtwV9Qi/06THjl/5jhe9n4mCVDAV3lfK/WcDSvvkSeH1KACcx"
       }
     },
     {
       "slug": "tabs",
       "tag": "sb-tabs",
-      "hash": "867441053fd2",
+      "hash": "afeb3b495d94",
       "pinned": true,
       "bundle": "tabs.bundle.min.js",
       "files": {
-        "tabs.bundle.min.js": "sha384-9l9wtzk9ALP/QSSWA+t5fPiltX/K3023vYqnU9S4sOeWdK+gUbq87renPQnIJv4t"
+        "tabs.bundle.min.js": "sha384-1eT5LXke9wBodUwR+eiYPiQ7CX8OAVP1kzhVdh0VEEIgISktqqtL2/RfNNq3nd3N"
       }
     },
     {
       "slug": "toast",
       "tag": "sb-toast",
-      "hash": "7dac1fa990bb",
+      "hash": "df52d970497e",
       "pinned": true,
       "bundle": "toast.bundle.min.js",
       "files": {
-        "toast.bundle.min.js": "sha384-hY9R9uaq/UMDRAV49h5eoFl9ss0YapNvP5OgKYiMLeNG/aX8QA7G8sitMj10qxrW"
+        "toast.bundle.min.js": "sha384-V0nGMNpV3vINkHaEaqU9dMogeNUK4481gz4N4OHNHTQ/5S/NEpLjf4w7cQHYQIXF"
       }
     },
     {
       "slug": "tooltip",
       "tag": "sb-tooltip",
-      "hash": "f00b7e5c49d2",
+      "hash": "b39594c3521c",
       "pinned": true,
       "bundle": "tooltip.bundle.min.js",
       "files": {
-        "tooltip.bundle.min.js": "sha384-GDnEOKqDISiMQBldrD8TF3aY2vOpvS9aQzdg1tsqq+mb4Kp1veqZ7ao5KLtEmB+G"
+        "tooltip.bundle.min.js": "sha384-NQi/Jf+45JpxrNbszQgYM++Cw6KtHIwYVS/4JUhJe4GrWfm4Oyx/4SckNMDcxyk6"
       }
     },
     {
       "slug": "virtual-scroll",
       "tag": "sb-virtual-scroll",
-      "hash": "93473fa74a74",
+      "hash": "1e89e0453b4e",
       "pinned": true,
       "bundle": "virtual-scroll.bundle.min.js",
       "files": {
-        "virtual-scroll.bundle.min.js": "sha384-Lwyxl3pwyHAbOMSSY2aeZUOauZPLAkMauphpoatSVIpE4NcscRfzljEJYCMmBIB9"
+        "virtual-scroll.bundle.min.js": "sha384-t+XsA2ZFVGabfDck378RXANlxMScZHvkJzyJUCuLnEb4ibJ6+ynjJsPMdiRCF1CE"
       }
     }
   ]
