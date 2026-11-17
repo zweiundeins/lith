@@ -2,7 +2,7 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.9 (2026-11-17)
 
 - `backup`: `Config.ContentMD5` (`<prefix>CONTENT_MD5`) has Litestream send Content-MD5 on every upload that goes up in one piece, for a provider that requires it, as AWS does on an Object Lock bucket. An upload of more than 5 MiB goes up in parts, and Litestream sends no checksum on parts to a custom endpoint.
 - `backup`: lith's own S3 client, which aborts unfinished uploads and runs `PurgeReplica`'s listings and deletes, uses Litestream's checksum policy: with an endpoint, checksums only where an operation requires one, and Content-MD5 on DeleteObjects.
