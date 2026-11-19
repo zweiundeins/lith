@@ -4,6 +4,7 @@ Until 1.0, a minor release may change the API; its entry says what to change in 
 
 ## Unreleased
 
+- `datastar`: the build is Starbase's at commit 846b62d, which adds patch 0013 (upstream #1248) to 0002: a patch that morphs N elements inside one Rocket component used to re-scope that component N times, and now does it once (370 elements in five components at 4x CPU: about 2,870 ms a frame before, 119 ms after). An app that serves `datastar.JS()` with Rocket components around morphed content gets it on upgrade; nothing changes in its markup. lith's site pins Starbase snapshot 81f24b268adb with it.
 - Docs and template: an action's pending state shows on the page, not only in `aria-busy`, about 200 ms after the click, so an op acked within a tick does not flicker; work that may take longer than a few seconds reports progress from rows a view renders, not a spinner. The skill's rule 5, both review checklists and the pages guide say so, and the template's and the site's `aria-busy` styles wait 200 ms.
 - Docs: moving a replica to another endpoint, with a unit started by a socket: stop the socket too, and check the running process's environment.
 

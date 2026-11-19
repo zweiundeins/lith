@@ -1,22 +1,22 @@
 {
   "base": "https://starbase.zweiundeins.gmbh",
-  "catalog": "993e80ecfe09",
+  "catalog": "81f24b268adb",
   "datastar": {
-    "url": "https://starbase.zweiundeins.gmbh/c/datastar@dad2261a81d8/datastar-rocket.js",
-    "integrity": "sha384-DkjVaBESHDA703Xk1QdsjXyHUmwC4Z9N/T8ak/EVxdTXso6apSccCKzi0DwwbGGK"
+    "url": "https://starbase.zweiundeins.gmbh/c/datastar@5f98646d7d3d/datastar-rocket.js",
+    "integrity": "sha384-AfXVdZ/qxhMEHK4Nz/pJT6jl9xm3HGMBLBtC9yRuU5A7AQtXHYC0x6ap034vDqBV"
   },
   "components": [
     {
       "slug": "data-table",
       "tag": "sb-data-table",
-      "hash": "7d43e168e809",
+      "hash": "3b5fcae2f9d8",
       "pinned": true,
       "bundle": "data-table.bundle.min.js",
       "renders": [
         "virtual-scroll"
       ],
       "files": {
-        "data-table.bundle.min.js": "sha384-1KFztQ+8M1dUgZuHciiwvxFvvwxmlvQh38WfhC/3yx8cIJcTKNFt+QryuGTBHn+J"
+        "data-table.bundle.min.js": "sha384-Ffi0uTeo84G0SdZrEIBct/e97znWM+dbgGfCLRQsm/FW29DIrABZP2Gt4xtVQaoV"
       }
     },
     {
@@ -62,11 +62,11 @@
     {
       "slug": "popover",
       "tag": "sb-popover",
-      "hash": "fd7234c7517f",
+      "hash": "232787b33b5b",
       "pinned": true,
       "bundle": "popover.bundle.min.js",
       "files": {
-        "popover.bundle.min.js": "sha384-cAphMggMJh1M1yFNXBFeDqSolw9n2ugsr3jx3eKWjqHSLQh+Z6/JvuqdWPki6Xq3"
+        "popover.bundle.min.js": "sha384-SS6FPorx8xxxC2qk4p7Lo8XfdxF1hpoeOjTgpl8Jg+2JgkQm3tXCQsU+h1hsKOfA"
       }
     },
     {
@@ -82,21 +82,21 @@
     {
       "slug": "tabs",
       "tag": "sb-tabs",
-      "hash": "afeb3b495d94",
+      "hash": "5732213a5751",
       "pinned": true,
       "bundle": "tabs.bundle.min.js",
       "files": {
-        "tabs.bundle.min.js": "sha384-1eT5LXke9wBodUwR+eiYPiQ7CX8OAVP1kzhVdh0VEEIgISktqqtL2/RfNNq3nd3N"
+        "tabs.bundle.min.js": "sha384-HRBAFvzgUt5mOfcU3fn+2EIgHGX3M/VlWIkbA6Fhf1+BT/gLnsiCI7Zcpd5bW1sL"
       }
     },
     {
       "slug": "toast",
       "tag": "sb-toast",
-      "hash": "df52d970497e",
+      "hash": "936b34a2cccc",
       "pinned": true,
       "bundle": "toast.bundle.min.js",
       "files": {
-        "toast.bundle.min.js": "sha384-V0nGMNpV3vINkHaEaqU9dMogeNUK4481gz4N4OHNHTQ/5S/NEpLjf4w7cQHYQIXF"
+        "toast.bundle.min.js": "sha384-+74TkQKw84wfBsAM+JH4dRsbIpMy5I78j6GA4/emJAbXG0KAIl29EMj9M7V+TDgO"
       }
     },
     {
