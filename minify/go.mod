@@ -6,7 +6,7 @@ require (
 	github.com/evanw/esbuild v0.28.2
 	github.com/tdewolff/minify/v2 v2.24.25
 	github.com/tdewolff/parse/v2 v2.8.20
-	github.com/zweiundeins/lith v0.5.10
+	github.com/zweiundeins/lith v0.5.11
 )
 
 require (
