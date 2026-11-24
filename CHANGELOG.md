@@ -2,7 +2,7 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
-## Unreleased
+## v0.5.11 (2026-11-24)
 
 - `edge`: `Recover` drops `Content-Disposition`, `Content-Language`, `Content-Location` and `Content-Range` before its 500, besides `Content-Encoding`, `ETag` and `Last-Modified`: a panic after a handler set `Content-Disposition` made the browser download the error page.
 - `edge`: `RecoverWith(log, h, RecoverOptions{Page})` renders the app's own error page for a navigation that panicked before writing, with the status 500 whatever the page writes, and the plain 500 when the page writes nothing or panics first. `Navigation(r)` reports such a request: a GET or HEAD whose `Sec-Fetch-Dest` is `document` or missing, and not Datastar's.
