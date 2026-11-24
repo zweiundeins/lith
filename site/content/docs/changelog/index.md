@@ -8,6 +8,11 @@ order: 9
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- `edge`: `Recover` drops `Content-Disposition`, `Content-Language`, `Content-Location` and `Content-Range` before its 500, besides `Content-Encoding`, `ETag` and `Last-Modified`: a panic after a handler set `Content-Disposition` made the browser download the error page.
+- `edge`: `RecoverWith(log, h, RecoverOptions{Page})` renders the app's own error page for a navigation that panicked before writing, with the status 500 whatever the page writes, and the plain 500 when the page writes nothing or panics first. `Navigation(r)` reports such a request: a GET or HEAD whose `Sec-Fetch-Dest` is `document` or missing, and not Datastar's.
+
 ## v0.5.10 (2026-11-19)
 
 - `datastar`: the build is Starbase's at commit 846b62d, which adds patch 0013 (upstream #1248) to 0002: a patch that morphs N elements inside one Rocket component used to re-scope that component N times, and now does it once (370 elements in five components at 4x CPU: about 2,870 ms a frame before, 119 ms after). An app that serves `datastar.JS()` with Rocket components around morphed content gets it on upgrade; nothing changes in its markup. lith's site pins Starbase snapshot 81f24b268adb with it.

@@ -145,6 +145,14 @@ func LogRequests(log *slog.Logger, next http.Handler) http.Handler
 
 LogRequests logs a line for each request as it ends: method, path, status, bytes, duration and client. A 5xx, or a response a panic cut off, logs at Error, the rest at Info, or at Debug when the handler called Quiet. Mount it outside Recover, so it logs the 500.
 
+### func Navigation {#Navigation}
+
+```go
+func Navigation(r *http.Request) bool
+```
+
+Navigation reports whether r loads a page into a browser's window: a GET or HEAD whose Sec-Fetch-Dest is document, or that sends none (an older browser, a link opened from another program), and that is no Datastar request. A fetch from a page sends Sec-Fetch-Dest empty, an image or a script its own destination.
+
 ### func Negotiate {#Negotiate}
 
 ```go
@@ -199,7 +207,15 @@ Quiet tells LogRequests that the request is one of many alike, such as the moves
 func Recover(log *slog.Logger, next http.Handler) http.Handler
 ```
 
-Recover turns a panic in next into a 500, logged with its stack. When the response has already begun, it aborts the connection instead, so the client can tell the response is incomplete.
+Recover turns a panic in next into a 500, logged with its stack. When the response has already begun, it aborts the connection instead, so the client can tell the response is incomplete. It is RecoverWith without options.
+
+### func RecoverWith {#RecoverWith}
+
+```go
+func RecoverWith(log *slog.Logger, next http.Handler, o RecoverOptions) http.Handler
+```
+
+RecoverWith is Recover with options: Page renders the app's own 500 page for a navigation.
 
 ### func ServePrecompressed {#ServePrecompressed}
 
@@ -412,6 +428,21 @@ Add registers a check under a name for the 503 and the log.
 ```go
 func (rd *Ready) ServeHTTP(w http.ResponseWriter, r *http.Request)
 ```
+
+### type RecoverOptions {#RecoverOptions}
+
+```go
+type RecoverOptions struct {
+	// Page writes the app's error page for a navigation (Navigation) whose
+	// handler panicked before it wrote anything. The status is 500 whatever
+	// Page writes, and the response is not cached. A Page that writes
+	// nothing, or panics before it writes, leaves the plain 500; one that
+	// panics after it began aborts the connection.
+	Page func(w http.ResponseWriter, r *http.Request)
+}
+```
+
+RecoverOptions configures RecoverWith.
 
 ### type SecurityHeaders {#SecurityHeaders}
 
