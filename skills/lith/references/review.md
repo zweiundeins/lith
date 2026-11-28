@@ -10,6 +10,11 @@ pattern matches.
   sit inside a writer command (`Apply(tx *writer.Tx)` or a `writer.Func`), in
   a `w.Exclusive` fn, in migrations, or in a test. A store method that writes
   on its own is a second writer.
+- `rg -n 'os\.(Remove|RemoveAll|Rename|WriteFile)\(' --type go -g '!*_test.go'`:
+  side effects outside the database (files, mails, other services) run
+  after the commit (`tx.AfterCommit`, or a job), so a command that fails
+  loses nothing: a file deleted before a command that is then refused is
+  gone for good.
 - `rg -n 'sql\.Open\(' --type go` outside lith: a second connection that
   writes to the database file (one kept for a factory reset or an import,
   say) takes the write lock beside the writer, and a transaction
@@ -122,6 +127,29 @@ pattern matches.
 - `rg -n -i 'toast.{0,60}(saved|added|updated|created|deleted|moved)' -g '*.go' -g '*.templ' -g '*.js'`:
   a toast that repeats what the re-render shows where the person acted.
   A heuristic: look for a change the page shows already.
+- `rg -n -i '(modal|dialog|sheet|drawer|panel).{0,40}(close|hide)|open\s*=\s*false|\.remove\(\)' -g '*.go' -g '*.templ' -g '*.js'`:
+  every command that writes names how the person sees its result: a
+  re-render in place, an outcome, or a navigation (recipes.md, Which
+  feedback to give, rule 1). A form that keeps its values, a panel that
+  closes or an item that disappears says nothing. A heuristic: look at each
+  action whose only answer is one of these, a map for reading the
+  action handlers rather than a list of findings.
+- `rg -n 'strconv\.(Atoi|ParseInt|ParseFloat)\(' --type go -g '!*_test.go'`:
+  bad input a person can type is a refusal at the field (rule 2), never a
+  400 or a 500. Range, format and order are checked before anything is
+  written, and an empty number field means "not set", not 0. The hits
+  are a map for reading the handlers, not a list of findings.
+- `rg -n 'http\.Redirect\(' --type go -g '!*_test.go'`: a failure never
+  looks like success. No redirect or 204 on the success path after a write
+  that failed, and no plain-text or English error body for a person.
+  Deleting what the page shows leaves the page, for its list, with an
+  outcome that says it is done, never on a "not found". The hits are a
+  map, not a list of findings.
+- `rg -n 'multipart\.NewWriter|url\.Values\{' --type go -g '*_test.go'`:
+  a handler test sends the body the browser sends: Datastar's signals as
+  JSON, or a form in the encoding the page really uses. A test in another
+  encoding passes while every real save fails. The hits are a map, not a
+  list of findings.
 - `rg -n 'r\.Header\.Get\("X-(Real-IP|Forwarded-For)"\)' --type go`: client
   IPs come from `edge`, which trusts those headers only from the local proxy
   and takes the last X-Forwarded-For address before X-Real-IP. The proxy must

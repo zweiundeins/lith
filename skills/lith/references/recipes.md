@@ -844,7 +844,13 @@ action at most); progress (work outside a request); a dialog (confirm,
 prompt, choose). The first rule that fits decides:
 
 1. The change shows where the person acted: nothing more. No toast that
-   repeats the re-render.
+   repeats the re-render. These do not count as showing it: a form that
+   keeps the values just typed (it looks the same as a save that failed),
+   a modal or sheet that closes, a change in a column, section or page the
+   person does not see, a row or card that disappears without saying why.
+   A form that stays open confirms in a slot of its own ("Saved."); else
+   rule 4. A field or switch that saves by itself shows its saved state,
+   with text for screen readers, not only an outline that fades.
 2. The person must fix something (a refusal, an input check): inline,
    where they acted. Never a toast, never a dialog.
 3. Something holds until they act (a limit reached, a backup unhealthy):

@@ -2,6 +2,10 @@
 
 Until 1.0, a minor release may change the API; its entry says what to change in an app.
 
+## Unreleased
+
+- Docs: "Which feedback to give" says what does not count as showing a change (a form that keeps its values, a modal that closes, a change out of sight, an item that disappears without a word), and the review checklist gains five checks with their searches: a write the person cannot see, bad input that ends in a 500, a failure that looks like success, a handler test in another encoding, and a side effect before the commit. From Libretto's browser reviews of 28 November.
+
 ## v0.5.11 (2026-11-24)
 
 - `edge`: `Recover` drops `Content-Disposition`, `Content-Language`, `Content-Location` and `Content-Range` before its 500, besides `Content-Encoding`, `ETag` and `Last-Modified`: a panic after a handler set `Content-Disposition` made the browser download the error page.

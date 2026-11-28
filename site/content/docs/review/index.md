@@ -64,6 +64,14 @@ Every command queued behind a command waits while it runs, so a command that wai
 rg -n 'http\.(Get|Post)|smtp\.|\.Send\(' --type go
 ```
 
+### A side effect before the commit
+
+A file deleted, a mail sent or another service called before the command that could fail is not undone when the command fails: the person loses the file, or gets a mail about a change that never happened. Side effects outside the database run after the commit, in `tx.AfterCommit` or a job.
+
+```sh
+rg -n 'os\.(Remove|RemoveAll|Rename|WriteFile)\(' --type go -g '!*_test.go'
+```
+
 ### A writer called from a command
 
 A command that calls `Do` on its own writer never returns: the writer is busy running it. One that calls `Do` or `Send` on another database's writer gets no atomicity, since the other database commits apart from the command, and with `Do` the batch waits for the other writer's, so two databases that do this to each other deadlock. A command writes its own database; a follow-up in another goes through a row the other side picks up, an outbox and a relay, not a call inside the command ([Commands](/docs/guides/commands#what-a-command-must-not-do)). Each match names the line where a command body starts (an `Apply`, a `writer.Func`, a function that takes a `*writer.Tx`) and the call:
@@ -175,6 +183,38 @@ A toast that says "Card added" while the card appears where the person dropped i
 
 ```sh
 rg -n -i 'toast.{0,60}(saved|added|updated|created|deleted|moved)' -g '*.go' -g '*.templ' -g '*.js'
+```
+
+### A write the person cannot see
+
+Every command that writes names how the person sees its result: a re-render in place, an outcome, or a navigation. These do not count as showing it: a form that keeps the values just typed, which looks the same as a save that failed; a modal or sheet that closes; a change in a column, section or page the person does not see; a row or card that disappears without saying why. A form that stays open confirms in a slot of its own ("Saved."); a field or switch that saves by itself shows its saved state, with text for screen readers. The pattern is a heuristic: its hits are a map for reading the action handlers, not a list of findings; look at each action whose only answer is one of these.
+
+```sh
+rg -n -i '(modal|dialog|sheet|drawer|panel).{0,40}(close|hide)|open\s*=\s*false|\.remove\(\)' -g '*.go' -g '*.templ' -g '*.js'
+```
+
+### Bad input that ends in a 500
+
+Bad input a person can type is a refusal at the field, never a 400 or a 500: a number out of range, a date in the wrong order, a malformed value. The handler or the command checks range, format and order before anything is written, and an empty number field means "not set", not 0. Its hits are a map, not a list of findings: look at each parse whose error becomes a status.
+
+```sh
+rg -n 'strconv\.(Atoi|ParseInt|ParseFloat)\(' --type go -g '!*_test.go'
+```
+
+### A failure that looks like success
+
+A write that failed never answers like one that worked: no redirect or 204 on the success path, and no plain-text or English error body for a person. Deleting what the page shows leaves the page, for its list, with an outcome that says it is done, never on a "not found". The hits are a map, not a list of findings.
+
+```sh
+rg -n 'http\.Redirect\(' --type go -g '!*_test.go'
+```
+
+### A handler test in another encoding
+
+A handler test sends the body the browser sends: Datastar's signals as JSON, or a form in the encoding the page really uses. A test that posts multipart while the browser sends `application/x-www-form-urlencoded` passes while every real save fails. The hits are a map, not a list of findings.
+
+```sh
+rg -n 'multipart\.NewWriter|url\.Values\{' --type go -g '*_test.go'
 ```
 
 ### Client addresses read from headers
